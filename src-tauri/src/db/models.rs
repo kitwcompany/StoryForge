@@ -24,6 +24,9 @@ pub struct Character {
     pub background: Option<String>,
     pub personality: Option<String>,
     pub goals: Option<String>,
+    pub appearance: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<i32>,
     pub dynamic_traits: Vec<DynamicTrait>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
@@ -76,6 +79,11 @@ pub struct CreateCharacterRequest {
     pub story_id: String,
     pub name: String,
     pub background: Option<String>,
+    pub personality: Option<String>,
+    pub goals: Option<String>,
+    pub appearance: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]

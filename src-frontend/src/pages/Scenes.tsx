@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
+import { Plus, BookOpen, AlertCircle, History, FileText, Eye } from 'lucide-react';
 import { ExecutionPanel } from '@/components/ExecutionPanel';
 import { Button } from '@/components/ui/Button';
 import { StoryTimeline } from '@/components/StoryTimeline';
@@ -268,7 +268,35 @@ export function Scenes() {
                           {selectedScene.characters_present.length} 个角色
                         </span>
                       )}
+                      {selectedScene.foreshadowing_ids && selectedScene.foreshadowing_ids.length > 0 && (
+                        <span className="px-3 py-1 text-sm rounded-full bg-purple-500/20 text-purple-300">
+                          伏笔: {selectedScene.foreshadowing_ids.length}
+                        </span>
+                      )}
                     </div>
+
+                    {/* Characters present */}
+                    {selectedScene.characters_present.length > 0 && (
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-xs text-gray-500">出场角色:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedScene.characters_present.map((charId) => {
+                            const char = characters.find((c) => c.id === charId);
+                            return (
+                              <span
+                                key={charId}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cinema-800 text-xs text-gray-300"
+                              >
+                                <span className="w-4 h-4 rounded-full bg-cinema-700 flex items-center justify-center text-[10px]">
+                                  {char?.name?.charAt(0) || '?'}
+                                </span>
+                                {char?.name || '未知角色'}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Drama Info */}
                     {(selectedScene.dramatic_goal || selectedScene.external_pressure) && (

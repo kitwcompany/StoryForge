@@ -9,6 +9,7 @@ export interface Foreshadowing {
   payoff_scene_id?: string;
   status: 'setup' | 'payoff' | 'abandoned';
   importance: number;
+  is_auto_generated?: boolean;
   created_at: string;
   resolved_at?: string;
 }

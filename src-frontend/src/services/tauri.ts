@@ -3,7 +3,8 @@ import type {
   Story, Character, Chapter, Skill, McpServer, McpTool,
   DashboardState, CreateStoryRequest, CreateCharacterRequest, 
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
-  Intent, IntentParseRequest, IntentExecutionResult
+  Intent, IntentParseRequest, IntentExecutionResult,
+  StoryOutline, CharacterRelationship
 } from '@/types/index';
 import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary, AgentResult, VectorSearchResult, StorySummary } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
@@ -449,3 +450,14 @@ export const notifyFrontstageDataRefresh = (entity: string) =>
 // Input hint — LLM智能输入建议
 export const getInputHint = (currentContent?: string) =>
   invoke<string>('get_input_hint', { currentContent });
+
+// ==================== Genesis Engine (v5.0.0) ====================
+
+export const getStoryOutline = (storyId: string) =>
+  invoke<StoryOutline | null>('get_story_outline', { story_id: storyId });
+
+export const updateStoryOutline = (storyId: string, content: string, structureJson?: string) =>
+  invoke<void>('update_story_outline', { story_id: storyId, content, structure_json: structureJson });
+
+export const getCharacterRelationships = (storyId: string) =>
+  invoke<CharacterRelationship[]>('get_character_relationships', { story_id: storyId });

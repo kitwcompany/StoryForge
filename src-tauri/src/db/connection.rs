@@ -1598,5 +1598,109 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 34: 创建故事大纲表 (v5.0.0 - 创世引擎)
+    let outline_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_outlines'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if outline_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE story_outlines (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL UNIQUE,
+                content TEXT NOT NULL,
+                structure_json TEXT,
+                act_count INTEGER DEFAULT 3,
+                total_scenes_estimate INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_outlines_story ON story_outlines(story_id)",
+            [],
+        )?;
+    }
+
+    // Migration 35: characters 表增强 + character_relationships 表 (v5.0.0 - 创世引擎)
+    let char_columns_m35: Vec<String> = conn.prepare(
+        "PRAGMA table_info(characters)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !char_columns_m35.iter().any(|c| c == "appearance") {
+        conn.execute(
+            "ALTER TABLE characters ADD COLUMN appearance TEXT",
+            [],
+        )?;
+    }
+    if !char_columns_m35.iter().any(|c| c == "gender") {
+        conn.execute(
+            "ALTER TABLE characters ADD COLUMN gender TEXT",
+            [],
+        )?;
+    }
+    if !char_columns_m35.iter().any(|c| c == "age") {
+        conn.execute(
+            "ALTER TABLE characters ADD COLUMN age INTEGER",
+            [],
+        )?;
+    }
+
+    let rel_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='character_relationships'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if rel_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE character_relationships (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                source_character_id TEXT NOT NULL,
+                target_character_id TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                description TEXT,
+                dynamic TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (source_character_id) REFERENCES characters(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_character_id) REFERENCES characters(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_char_rel_story ON character_relationships(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_char_rel_source ON character_relationships(source_character_id)",
+            [],
+        )?;
+    }
+
+    // Migration 36: scenes 表新增 foreshadowing_ids (v5.0.0 - 创世引擎)
+    let scene_columns_m36: Vec<String> = conn.prepare(
+        "PRAGMA table_info(scenes)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !scene_columns_m36.iter().any(|c| c == "foreshadowing_ids") {
+        conn.execute(
+            "ALTER TABLE scenes ADD COLUMN foreshadowing_ids TEXT",
+            [],
+        )?;
+    }
+
     Ok(())
 }

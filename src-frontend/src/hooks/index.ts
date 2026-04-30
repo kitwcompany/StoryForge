@@ -49,3 +49,5 @@ export {
 } from './useCommentThreads';
 export { useSubscription } from './useSubscription';
 export { useExecutionState, resolvePrimaryAction, getPhaseLabel, getPhaseColor } from './useExecutionState';
+export { useStoryOutline, useUpdateStoryOutline } from './useStoryOutline';
+export { useCharacterRelationships } from './useCharacterRelationships';

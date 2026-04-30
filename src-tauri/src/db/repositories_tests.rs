@@ -135,6 +135,11 @@ mod tests {
             story_id: story.id.clone(),
             name: "张三".to_string(),
             background: Some("主角".to_string()),
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
         };
         let character = char_repo.create(char_req).unwrap();
         assert_eq!(character.name, "张三");
@@ -162,6 +167,11 @@ mod tests {
             story_id: story.id.clone(),
             name: "李四".to_string(),
             background: None,
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -186,6 +196,11 @@ mod tests {
             story_id: story.id.clone(),
             name: "原名".to_string(),
             background: Some("背景".to_string()),
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -195,6 +210,9 @@ mod tests {
             Some("新背景".to_string()),
             Some("开朗".to_string()),
             Some("成为英雄".to_string()),
+            None,
+            None,
+            None,
         ).unwrap();
         assert_eq!(count, 1);
 
@@ -222,6 +240,11 @@ mod tests {
             story_id: story.id.clone(),
             name: "待删除".to_string(),
             background: None,
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -473,6 +496,7 @@ mod tests {
             outline_content: None,
             draft_content: None,
             style_blend_override: None,
+            foreshadowing_ids: None,
         };
 
         let count = scene_repo.update(&scene.id, &updates).unwrap();

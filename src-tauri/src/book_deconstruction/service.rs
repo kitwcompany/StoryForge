@@ -363,6 +363,11 @@ impl BookDeconstructionService {
                     story_id: story_id.clone(),
                     name: character.name.clone(),
                     background,
+                    personality: character.personality.clone(),
+                    goals: None,
+                    appearance: character.appearance.clone(),
+                    gender: None,
+                    age: None,
                 })
                 .map_err(|e| e.to_string())?;
         }

@@ -1,18 +1,18 @@
-//! Novel Bootstrap Workflow - 小说自动初始化工作流
+//! Novel Bootstrap Workflow - 小说自动初始化工作流 (Genesis Engine v5.0.0)
 //!
 //! 当用户输入"写一篇XX小说"且无现有故事时，自动完成：
 //! 1. 生成故事概念（标题、简介、题材）
-//! 2. 生成世界观设定
-//! 3. 生成主要角色
-//! 4. 生成场景/章节大纲
-//! 5. 生成第一章开头
+//! 2. 生成第一章正文（用户立即可见）
+//! 3. 生成世界观设定 + 故事大纲
+//! 4. 生成角色、场景、伏笔、知识图谱
 
 use crate::agents::service::{AgentService, AgentTask, AgentType};
 use crate::db::{DbPool, CreateStoryRequest, CreateCharacterRequest};
 use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories_v3::{WorldBuildingRepository, SceneRepository};
+use crate::db::repositories_v3::{WorldBuildingRepository, SceneRepository, StoryOutlineRepository, CharacterRelationshipRepository, KnowledgeGraphRepository};
 use crate::db::repositories_v3::SceneUpdate;
 use crate::db::models_v3::{WorldRule, RuleType, ConflictType};
+use crate::creative_engine::foreshadowing::ForeshadowingTracker;
 use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -65,10 +65,11 @@ impl NovelBootstrapWorkflow {
         Self { app_handle, llm_service, pool }
     }
 
-    /// 运行小说初始化工作流 — 优化版：先直出正文，后台补全世界观/角色/场景
+    /// 运行小说初始化工作流 — Genesis Engine v5.0.0
+    /// 4步用户可见流程：概念 → 开篇 → 构建世界 → 塑造世界
     pub async fn run(&self, user_premise: &str) -> Result<BootstrapSession, String> {
         let session_id = Uuid::new_v4().to_string();
-        let total_steps = 2; // 只保留用户可见的 2 步：概念 + 正文
+        let total_steps = 4;
 
         // 创建持久化会话记录
         self.create_session(&session_id, total_steps).map_err(|e| format!("Failed to create session: {}", e))?;
@@ -102,11 +103,13 @@ impl NovelBootstrapWorkflow {
             }
         };
         let story_id = story.id.clone();
-        self.update_session(&session_id, "first_chapter", 1, Some(&story_id)).ok();
+        self.update_session(&session_id, "concept", 1, Some(&story_id)).ok();
         self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事《{}》已创建", story.title));
 
-        // Step 2: 立即生成第一章正文（不等待世界观/角色/场景，后台异步补全）
+        // Step 2: 生成第一章正文（用户立即可见）
+        self.update_session(&session_id, "first_chapter", 1, Some(&story_id)).ok();
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在准备写作上下文...");
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在构建写作指令...");
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在调用AI撰写第一章...");
         // 传入空的世界观/角色/场景 — StoryContextBuilder 能优雅处理空数据
         let empty_world = WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] };
@@ -118,10 +121,10 @@ impl NovelBootstrapWorkflow {
             }
         };
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在保存第一章...");
-        self.complete_session(&session_id, &story_id).ok();
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "第一章已完成");
+        self.update_session(&session_id, "first_chapter", 2, Some(&story_id)).ok();
 
-        // 发送 ChapterSwitch 事件让前端自动切换到新故事
+        // 发送 ChapterSwitch 事件让前端自动切换到新故事（用户可以立刻开始写作）
         let _ = crate::window::WindowManager::send_to_frontstage(
             &self.app_handle,
             crate::window::FrontstageEvent::ChapterSwitch {
@@ -136,34 +139,92 @@ impl NovelBootstrapWorkflow {
             crate::window::FrontstageEvent::DataRefresh { entity: "stories".to_string() }
         );
 
-        // ===== 后台异步补全世界观、角色、场景 =====
-        // 用户已经看到了正文，这些卡片在幕后静默创建即可
-        let app_handle = self.app_handle.clone();
-        let concept = story_concept.clone();
-        let sid = story_id.clone();
-        tauri::async_runtime::spawn(async move {
-            let workflow = NovelBootstrapWorkflow::new(app_handle.clone());
-            log::info!("[NovelBootstrapWorkflow] 后台开始补全世界观/角色/场景 for story {}", sid);
-            if let Ok(world) = workflow.generate_world_building(&sid, &concept).await {
-                if let Ok(characters) = workflow.generate_characters(&sid, &concept, &world).await {
-                    let _ = workflow.generate_scene_outline(&sid, &concept, &characters).await;
-                    log::info!("[NovelBootstrapWorkflow] 后台补全完成 for story {}", sid);
-                    // 后台补全完成后，通知前端刷新数据（让幕后世界观/角色/场景卡片自动出现）
-                    let _ = crate::window::WindowManager::send_to_frontstage(
-                        &app_handle,
-                        crate::window::FrontstageEvent::DataRefresh { entity: "all".to_string() }
-                    );
-                    let _ = crate::window::WindowManager::send_to_backstage(
-                        &app_handle,
-                        crate::window::BackstageEvent::DataRefresh { entity: "world_building".to_string() }
-                    );
-                } else {
-                    log::warn!("[NovelBootstrapWorkflow] 后台角色生成失败 for story {}", sid);
-                }
-            } else {
-                log::warn!("[NovelBootstrapWorkflow] 后台世界观生成失败 for story {}", sid);
+        // Step 3: 构建世界观 + 故事大纲
+        self.update_session(&session_id, "world_building", 2, Some(&story_id)).ok();
+        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成世界观设定...");
+        let world = match self.generate_world_building(&story_id, &story_concept).await {
+            Ok(w) => w,
+            Err(e) => {
+                log::warn!("[NovelBootstrapWorkflow] 世界观生成失败 for story {}: {}", story_id, e);
+                WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] }
             }
-        });
+        };
+        self.emit_progress(&session_id, "构建世界", 3, total_steps, "世界观设定已生成");
+
+        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成故事大纲...");
+        let outline = match self.generate_story_outline(&story_id, &session_id, &story_concept).await {
+            Ok(o) => o,
+            Err(e) => {
+                log::warn!("[NovelBootstrapWorkflow] 故事大纲生成失败 for story {}: {}", story_id, e);
+                StoryOutlineData { acts: vec![] }
+            }
+        };
+        self.emit_progress(&session_id, "构建世界", 3, total_steps, "故事大纲已生成");
+        self.update_session(&session_id, "outline", 3, Some(&story_id)).ok();
+
+        // Step 4: 生成角色、场景、伏笔、知识图谱
+        self.update_session(&session_id, "characters", 3, Some(&story_id)).ok();
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成角色...");
+        let characters = match self.generate_characters(&story_id, &session_id, &story_concept, &world).await {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("[NovelBootstrapWorkflow] 角色生成失败 for story {}: {}", story_id, e);
+                vec![]
+            }
+        };
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已生成 {} 个角色", characters.len()));
+
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成场景大纲...");
+        let scenes = match self.generate_scene_outline(&story_id, &session_id, &story_concept, &characters).await {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("[NovelBootstrapWorkflow] 场景大纲生成失败 for story {}: {}", story_id, e);
+                vec![]
+            }
+        };
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已生成 {} 个场景", scenes.len()));
+
+        // 获取第一个场景ID用于伏笔关联
+        let first_scene_id = scenes.first().map(|s| s.id.as_str());
+
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在埋设伏笔...");
+        let foreshadowings = match self.generate_foreshadowing(&story_id, &session_id, &story_concept, &outline, first_scene_id).await {
+            Ok(f) => f,
+            Err(e) => {
+                log::warn!("[NovelBootstrapWorkflow] 伏笔生成失败 for story {}: {}", story_id, e);
+                vec![]
+            }
+        };
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已埋设 {} 处伏笔", foreshadowings.len()));
+
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在构建知识图谱...");
+        if let Err(e) = self.create_genesis_knowledge_graph(&story_id, &characters, &scenes, &foreshadowings).await {
+            log::warn!("[NovelBootstrapWorkflow] 知识图谱构建失败 for story {}: {}", story_id, e);
+        } else {
+            self.emit_progress(&session_id, "塑造世界", 4, total_steps, "知识图谱已构建");
+        }
+
+        self.complete_session(&session_id, &story_id).ok();
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "创世完成！所有卡片已生成");
+
+        // 通知前端刷新所有数据（让幕后世界观/角色/场景/大纲/伏笔卡片自动出现）
+        let _ = crate::window::WindowManager::send_to_frontstage(
+            &self.app_handle,
+            crate::window::FrontstageEvent::DataRefresh { entity: "all".to_string() }
+        );
+        let _ = crate::window::WindowManager::send_to_backstage(
+            &self.app_handle,
+            crate::window::BackstageEvent::DataRefresh { entity: "world_building".to_string() }
+        );
+        // v5.0.0: 自动导航到幕后 Stories 页面并高亮新故事
+        let _ = crate::window::WindowManager::send_to_backstage(
+            &self.app_handle,
+            crate::window::BackstageEvent::NavigateTo {
+                view: "stories".to_string(),
+                highlight_story_id: Some(story_id.clone()),
+                open_panel: Some("overview".to_string()),
+            }
+        );
 
         Ok(BootstrapSession {
             id: session_id,
@@ -285,9 +346,77 @@ impl NovelBootstrapWorkflow {
         })
     }
 
-    // ==================== Step 3: 角色 ====================
+    // ==================== Step 3: 故事大纲 ====================
 
-    async fn generate_characters(&self, story_id: &str, concept: &StoryConcept, world: &WorldBuildingResult) -> Result<Vec<GeneratedCharacter>, String> {
+    async fn generate_story_outline(&self, story_id: &str, session_id: &str, concept: &StoryConcept) -> Result<StoryOutlineData, String> {
+        let prompt = format!(
+            r#"你是一位资深故事架构师。请为以下故事设计一个完整的三幕式大纲。
+
+故事：《{}》
+题材：{}
+简介：{}
+
+请用 JSON 格式回复：
+{{
+  "acts": [
+    {{
+      "act_number": 1,
+      "title": "第一幕标题",
+      "summary": "本幕核心内容摘要（100字）",
+      "key_plot_points": ["情节点1", "情节点2", "情节点3"],
+      "estimated_scenes": 4
+    }}
+  ]
+}}
+
+要求：
+1. 严格三幕结构（起-承-转-合）
+2. 每幕包含3-5个关键情节点
+3. 场景数量要合理（第一幕3-5场，第二幕6-10场，第三幕3-5场）
+4. 只输出 JSON，不要其他内容"#,
+            concept.title, concept.genre, concept.description
+        );
+
+        let response = self.llm_service.generate(prompt, Some(2048), Some(0.6)).await?;
+        let content = response.content.trim();
+        let json_str = Self::extract_json(content)?;
+        let outline_data: StoryOutlineData = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse story outline: {}. JSON: {}", e, json_str))?;
+
+        // 保存到数据库
+        let repo = StoryOutlineRepository::new(self.pool.clone());
+        let total_scenes: i32 = outline_data.acts.iter().map(|a| a.estimated_scenes).sum();
+        let structure_json = serde_json::to_string(&outline_data.acts)
+            .map_err(|e| format!("Failed to serialize outline: {}", e))?;
+        let content_summary = outline_data.acts.iter()
+            .map(|a| format!("第{}幕 {}：{}", a.act_number, a.title, a.summary))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let outline = repo.create(
+            story_id,
+            &content_summary,
+            Some(&structure_json),
+            outline_data.acts.len() as i32,
+            Some(total_scenes),
+        ).map_err(|e| e.to_string())?;
+
+        // 发射卡片创建事件
+        let card_event = serde_json::json!({
+            "session_id": session_id,
+            "card_type": "outline",
+            "card_id": outline.id,
+            "card_name": "故事大纲",
+            "story_id": story_id,
+        });
+        let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
+
+        Ok(outline_data)
+    }
+
+    // ==================== Step 4: 角色 ====================
+
+    async fn generate_characters(&self, story_id: &str, session_id: &str, concept: &StoryConcept, world: &WorldBuildingResult) -> Result<Vec<GeneratedCharacter>, String> {
         let prompt = format!(
             r#"你是一位角色设计师。请为以下故事设计 3-5 个主要角色。
 
@@ -333,35 +462,73 @@ impl NovelBootstrapWorkflow {
 
         // 存入数据库
         let repo = CharacterRepository::new(self.pool.clone());
+        let rel_repo = CharacterRelationshipRepository::new(self.pool.clone());
         let mut generated = Vec::new();
-        for c in char_data.characters {
+        let mut name_to_id: HashMap<String, String> = HashMap::new();
+
+        for c in &char_data.characters {
             let background = format!("{}", c.background);
             let character = repo.create(CreateCharacterRequest {
                 story_id: story_id.to_string(),
                 name: c.name.clone(),
                 background: Some(background),
+                personality: Some(c.personality.clone()),
+                goals: Some(c.goals.clone()),
+                appearance: Some(c.appearance.clone()),
+                gender: Some(c.gender.clone()),
+                age: Some(c.age),
             }).map_err(|e| e.to_string())?;
+
+            name_to_id.insert(c.name.clone(), character.id.clone());
+
+            // 发射卡片创建事件
+            let card_event = serde_json::json!({
+                "session_id": session_id,
+                "card_type": "character",
+                "card_id": character.id,
+                "card_name": c.name,
+                "story_id": story_id,
+            });
+            let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
 
             generated.push(GeneratedCharacter {
                 id: character.id,
-                name: c.name,
-                role: c.role,
-                personality: c.personality,
-                background: c.background,
-                goals: c.goals,
-                fears: c.fears,
-                appearance: c.appearance,
-                gender: c.gender,
+                name: c.name.clone(),
+                role: c.role.clone(),
+                personality: c.personality.clone(),
+                background: c.background.clone(),
+                goals: c.goals.clone(),
+                fears: c.fears.clone(),
+                appearance: c.appearance.clone(),
+                gender: c.gender.clone(),
                 age: c.age,
             });
+        }
+
+        // 创建角色关系
+        for c in &char_data.characters {
+            if let Some(source_id) = name_to_id.get(&c.name) {
+                for rel in &c.relationships {
+                    if let Some(target_id) = name_to_id.get(&rel.target) {
+                        let _ = rel_repo.create(
+                            story_id,
+                            source_id,
+                            target_id,
+                            &rel.nature,
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
         }
 
         Ok(generated)
     }
 
-    // ==================== Step 4: 场景大纲 ====================
+    // ==================== Step 5: 场景大纲 ====================
 
-    async fn generate_scene_outline(&self, story_id: &str, concept: &StoryConcept, characters: &[GeneratedCharacter]) -> Result<Vec<GeneratedScene>, String> {
+    async fn generate_scene_outline(&self, story_id: &str, session_id: &str, concept: &StoryConcept, characters: &[GeneratedCharacter]) -> Result<Vec<GeneratedScene>, String> {
         let character_names = characters.iter().map(|c| format!("{}({})", c.name, c.role)).collect::<Vec<_>>().join(", ");
 
         let prompt = format!(
@@ -441,12 +608,23 @@ impl NovelBootstrapWorkflow {
                 previous_scene_id: None,
                 next_scene_id: None,
                 confidence_score: Some(0.8),
-                execution_stage: None,
-                outline_content: None,
+                execution_stage: Some("planning".to_string()),
+                outline_content: Some(s.summary.clone()),
                 draft_content: None,
                 style_blend_override: None,
+                foreshadowing_ids: None,
             };
             let _ = repo.update(&scene.id, &updates);
+
+            // 发射卡片创建事件
+            let card_event = serde_json::json!({
+                "session_id": session_id,
+                "card_type": "scene",
+                "card_id": scene.id,
+                "card_name": s.title,
+                "story_id": story_id,
+            });
+            let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
 
             generated.push(GeneratedScene {
                 id: scene.id.clone(),
@@ -459,7 +637,7 @@ impl NovelBootstrapWorkflow {
         Ok(generated)
     }
 
-    // ==================== Step 5: 第一章 ====================
+    // ==================== Step 6: 第一章 ====================
 
     async fn generate_first_chapter(&self, story_id: &str, concept: &StoryConcept, world: &WorldBuildingResult, characters: &[GeneratedCharacter], scenes: &[GeneratedScene]) -> Result<(String, String), String> {
         // 构建完整的 AgentContext
@@ -523,6 +701,7 @@ impl NovelBootstrapWorkflow {
                 outline_content: None,
                 draft_content: None,
                 style_blend_override: None,
+                foreshadowing_ids: None,
             };
             let _ = scene_repo.update(&first_scene.id, &updates);
         }
@@ -538,6 +717,197 @@ impl NovelBootstrapWorkflow {
         }).map_err(|e| e.to_string())?;
 
         Ok((result.content, chapter.id))
+    }
+
+    // ==================== Step 7: 伏笔 ====================
+
+    async fn generate_foreshadowing(
+        &self,
+        story_id: &str,
+        session_id: &str,
+        concept: &StoryConcept,
+        outline: &StoryOutlineData,
+        first_scene_id: Option<&str>,
+    ) -> Result<Vec<GeneratedForeshadowing>, String> {
+        let outline_summary = if outline.acts.is_empty() {
+            "暂无大纲".to_string()
+        } else {
+            outline.acts.iter()
+                .map(|a| format!("第{}幕 {}：{}", a.act_number, a.title, a.summary))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let prompt = format!(
+            r#"你是一位资深编剧。请根据以下故事概念和大纲，设计3-5个核心伏笔。
+
+故事：《{}》
+题材：{}
+简介：{}
+
+故事大纲：
+{}
+
+请用 JSON 格式回复：
+{{
+  "foreshadowings": [
+    {{
+      "content": "伏笔内容描述",
+      "importance": 8,
+      "target_act": 2,
+      "hint_style": "暗示风格（如：环境隐喻、对话暗示、物品象征、预言梦境）"
+    }}
+  ]
+}}
+
+要求：
+1. 伏笔要贯穿多个幕次，具有回收价值
+2. importance 1-10，核心伏笔不低于7
+3. hint_style 要多样化
+4. 第一个伏笔建议在第一章（第一幕）就埋下
+5. 只输出 JSON，不要其他内容"#,
+            concept.title, concept.genre, concept.description, outline_summary
+        );
+
+        let response = self.llm_service.generate(prompt, Some(1024), Some(0.7)).await?;
+        let content = response.content.trim();
+        let json_str = Self::extract_json(content)?;
+        let fw_data: ForeshadowingData = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse foreshadowings: {}. JSON: {}", e, json_str))?;
+
+        let tracker = ForeshadowingTracker::new(self.pool.clone());
+        let mut generated = Vec::new();
+
+        for (idx, fw) in fw_data.foreshadowings.into_iter().enumerate() {
+            let setup_scene = if idx == 0 { first_scene_id } else { None };
+            let id = tracker.add_foreshadowing(
+                story_id,
+                &fw.content,
+                setup_scene,
+                fw.importance,
+            ).map_err(|e| format!("保存伏笔失败: {}", e))?;
+
+            // 发射卡片创建事件
+            let card_name = if fw.content.chars().count() > 20 {
+                format!("{}...", fw.content.chars().take(20).collect::<String>())
+            } else {
+                fw.content.clone()
+            };
+            let card_event = serde_json::json!({
+                "session_id": session_id,
+                "card_type": "foreshadowing",
+                "card_id": id,
+                "card_name": card_name,
+                "story_id": story_id,
+            });
+            let _ = self.app_handle.emit("novel-bootstrap-card-created", card_event);
+
+            generated.push(fw);
+        }
+
+        Ok(generated)
+    }
+
+    // ==================== Step 8: 知识图谱 ====================
+
+    async fn create_genesis_knowledge_graph(
+        &self,
+        story_id: &str,
+        characters: &[GeneratedCharacter],
+        scenes: &[GeneratedScene],
+        foreshadowings: &[GeneratedForeshadowing],
+    ) -> Result<(), String> {
+        let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
+        let mut entity_id_map: HashMap<String, String> = HashMap::new();
+
+        // 创建角色实体
+        for c in characters {
+            let attrs = serde_json::json!({
+                "role": c.role,
+                "personality": c.personality,
+            });
+            let entity = kg_repo.create_entity(
+                story_id,
+                &c.name,
+                "Character",
+                &attrs,
+                None,
+            ).map_err(|e| e.to_string())?;
+            entity_id_map.insert(format!("char:{}", c.id), entity.id);
+        }
+
+        // 创建场景实体
+        for s in scenes {
+            let attrs = serde_json::json!({
+                "sequence_number": s.sequence_number,
+                "summary": s.summary,
+            });
+            let entity = kg_repo.create_entity(
+                story_id,
+                &s.title,
+                "Event",
+                &attrs,
+                None,
+            ).map_err(|e| e.to_string())?;
+            entity_id_map.insert(format!("scene:{}", s.id), entity.id);
+        }
+
+        // 创建伏笔实体
+        for (idx, f) in foreshadowings.iter().enumerate() {
+            let attrs = serde_json::json!({
+                "importance": f.importance,
+                "target_act": f.target_act,
+                "hint_style": f.hint_style,
+            });
+            let entity = kg_repo.create_entity(
+                story_id,
+                &format!("伏笔{}", idx + 1),
+                "PlotDevice",
+                &attrs,
+                None,
+            ).map_err(|e| e.to_string())?;
+            entity_id_map.insert(format!("fw:{}", idx), entity.id);
+        }
+
+        // 创建关系：角色 -> 场景 (participates_in)
+        for c in characters {
+            for s in scenes {
+                let scene_text = format!("{} {}", s.title, s.summary);
+                if scene_text.contains(&c.name) {
+                    if let (Some(char_entity), Some(scene_entity)) = (
+                        entity_id_map.get(&format!("char:{}", c.id)),
+                        entity_id_map.get(&format!("scene:{}", s.id)),
+                    ) {
+                        let _ = kg_repo.create_relation(
+                            story_id,
+                            char_entity,
+                            scene_entity,
+                            "ParticipatesIn",
+                            0.7,
+                        );
+                    }
+                }
+            }
+        }
+
+        // 创建关系：伏笔 -> 第一个场景 (set_up_in)
+        if let Some(first_scene) = scenes.first() {
+            if let Some(scene_entity) = entity_id_map.get(&format!("scene:{}", first_scene.id)) {
+                for idx in 0..foreshadowings.len() {
+                    if let Some(fw_entity) = entity_id_map.get(&format!("fw:{}", idx)) {
+                        let _ = kg_repo.create_relation(
+                            story_id,
+                            fw_entity,
+                            scene_entity,
+                            "SetUpIn",
+                            0.9,
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     // ==================== 辅助方法 ====================
@@ -714,6 +1084,33 @@ struct GeneratedScene {
     summary: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct StoryOutlineData {
+    acts: Vec<StoryOutlineAct>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoryOutlineAct {
+    act_number: i32,
+    title: String,
+    summary: String,
+    key_plot_points: Vec<String>,
+    estimated_scenes: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ForeshadowingData {
+    foreshadowings: Vec<GeneratedForeshadowing>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeneratedForeshadowing {
+    content: String,
+    importance: i32,
+    target_act: i32,
+    hint_style: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -777,4 +1174,3 @@ mod tests {
         assert!(concept.target_length.is_empty());
     }
 }
-

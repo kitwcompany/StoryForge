@@ -99,6 +99,11 @@ fn test_create_snapshot_with_characters() {
         story_id: story.id.clone(),
         name: "张三".to_string(),
         background: Some("主角".to_string()),
+        personality: None,
+        goals: None,
+        appearance: None,
+        gender: None,
+        age: None,
     }).unwrap();
 
     let state = CharacterStateSnapshot {

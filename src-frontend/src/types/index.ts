@@ -72,6 +72,9 @@ export interface Character {
   background?: string;
   personality?: string;
   goals?: string;
+  appearance?: string;
+  gender?: string;
+  age?: number;
   created_at: string;
   updated_at: string;
 }
@@ -191,6 +194,11 @@ export interface CreateCharacterRequest {
   story_id: string;
   name: string;
   background?: string;
+  personality?: string;
+  goals?: string;
+  appearance?: string;
+  gender?: string;
+  age?: number;
 }
 
 export interface UpdateChapterRequest {
@@ -211,6 +219,29 @@ export interface VectorSearchRequest {
   story_id: string;
   query: string;
   top_k?: number;
+}
+
+export interface StoryOutline {
+  id: string;
+  story_id: string;
+  content: string;
+  structure_json?: string;
+  act_count: number;
+  total_scenes_estimate?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CharacterRelationship {
+  id: string;
+  story_id: string;
+  source_character_id: string;
+  target_character_id: string;
+  target_character_name?: string;
+  relationship_type: string;
+  description?: string;
+  dynamic?: string;
+  created_at: string;
 }
 
 export type ViewType = 

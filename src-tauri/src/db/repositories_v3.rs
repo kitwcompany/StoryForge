@@ -59,6 +59,7 @@ impl SceneRepository {
             updated_at: now,
             confidence_score: None,
             style_blend_override: None,
+            foreshadowing_ids: None,
         })
     }
 
@@ -68,7 +69,7 @@ impl SceneRepository {
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override
+                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids
              FROM scenes WHERE story_id = ?1 ORDER BY sequence_number"
         )?;
 
@@ -88,6 +89,7 @@ impl SceneRepository {
             let execution_stage: Option<String> = row.get(20)?;
             let outline_content: Option<String> = row.get(21)?;
             let draft_content: Option<String> = row.get(22)?;
+            let foreshadowing_ids: Option<Vec<String>> = row.get::<_, Option<String>>(24)?.and_then(|s: String| serde_json::from_str(&s).ok());
             
             Ok(Scene {
                 id: row.get(0)?,
@@ -114,6 +116,7 @@ impl SceneRepository {
                 outline_content,
                 draft_content,
                 style_blend_override: row.get(23)?,
+                foreshadowing_ids,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -126,7 +129,7 @@ impl SceneRepository {
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override
+                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids
              FROM scenes WHERE id = ?1"
         )?;
 
@@ -146,6 +149,7 @@ impl SceneRepository {
             let execution_stage: Option<String> = row.get(20)?;
             let outline_content: Option<String> = row.get(21)?;
             let draft_content: Option<String> = row.get(22)?;
+            let foreshadowing_ids: Option<Vec<String>> = row.get::<_, Option<String>>(24)?.and_then(|s: String| serde_json::from_str(&s).ok());
             
             Ok(Scene {
                 id: row.get(0)?,
@@ -172,6 +176,7 @@ impl SceneRepository {
                 outline_content,
                 draft_content,
                 style_blend_override: row.get(23)?,
+                foreshadowing_ids,
             })
         }).optional()?;
 
@@ -201,7 +206,8 @@ impl SceneRepository {
                 outline_content = COALESCE(?16, outline_content),
                 draft_content = COALESCE(?17, draft_content),
                 style_blend_override = COALESCE(?18, style_blend_override),
-                updated_at = ?19
+                foreshadowing_ids = COALESCE(?19, foreshadowing_ids),
+                updated_at = ?20
              WHERE id = ?1",
             params![
                 id,
@@ -222,6 +228,7 @@ impl SceneRepository {
                 updates.outline_content,
                 updates.draft_content,
                 updates.style_blend_override,
+                updates.foreshadowing_ids.as_ref().map(|c| serde_json::to_string(c).unwrap()),
                 now
             ],
         )?;
@@ -264,6 +271,7 @@ pub struct SceneUpdate {
     pub outline_content: Option<String>,
     pub draft_content: Option<String>,
     pub style_blend_override: Option<String>,
+    pub foreshadowing_ids: Option<Vec<String>>,
 }
 
 // ==================== Scene Version Repository (新增) ====================
@@ -2606,5 +2614,174 @@ impl UserPreferenceRepository {
             "DELETE FROM user_preferences WHERE id = ?1",
             params![id],
         )
+    }
+}
+
+
+// ==================== Story Outline Repository (v5.0.0 - 创世引擎) ====================
+
+pub struct StoryOutlineRepository {
+    pool: DbPool,
+}
+
+impl StoryOutlineRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(
+        &self,
+        story_id: &str,
+        content: &str,
+        structure_json: Option<&str>,
+        act_count: i32,
+        total_scenes_estimate: Option<i32>,
+    ) -> Result<super::models_v3::StoryOutline, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![&id, story_id, content, structure_json, act_count, total_scenes_estimate, now.to_rfc3339(), now.to_rfc3339()],
+        )?;
+
+        Ok(super::models_v3::StoryOutline {
+            id,
+            story_id: story_id.to_string(),
+            content: content.to_string(),
+            structure_json: structure_json.map(|s| s.to_string()),
+            act_count,
+            total_scenes_estimate,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub fn get_by_story(&self, story_id: &str) -> Result<Option<super::models_v3::StoryOutline>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at
+             FROM story_outlines WHERE story_id = ?1"
+        )?;
+
+        let outline = stmt.query_row([story_id], |row| {
+            let created_str: String = row.get(6)?;
+            let updated_str: String = row.get(7)?;
+
+            Ok(super::models_v3::StoryOutline {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                content: row.get(2)?,
+                structure_json: row.get(3)?,
+                act_count: row.get(4)?,
+                total_scenes_estimate: row.get(5)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(outline)
+    }
+
+    pub fn update(
+        &self,
+        story_id: &str,
+        content: Option<&str>,
+        structure_json: Option<&str>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+
+        let count = conn.execute(
+            "UPDATE story_outlines SET content = COALESCE(?2, content), structure_json = COALESCE(?3, structure_json), updated_at = ?4 WHERE story_id = ?1",
+            params![story_id, content, structure_json, now],
+        )?;
+        Ok(count)
+    }
+
+    pub fn delete(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM story_outlines WHERE story_id = ?1", [story_id])
+    }
+}
+
+// ==================== Character Relationship Repository (v5.0.0 - 创世引擎) ====================
+
+pub struct CharacterRelationshipRepository {
+    pool: DbPool,
+}
+
+impl CharacterRelationshipRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(
+        &self,
+        story_id: &str,
+        source_character_id: &str,
+        target_character_id: &str,
+        relationship_type: &str,
+        description: Option<&str>,
+        dynamic: Option<&str>,
+    ) -> Result<super::models_v3::CharacterRelationship, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO character_relationships (id, story_id, source_character_id, target_character_id, relationship_type, description, dynamic, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![&id, story_id, source_character_id, target_character_id, relationship_type, description, dynamic, now.to_rfc3339()],
+        )?;
+
+        Ok(super::models_v3::CharacterRelationship {
+            id,
+            story_id: story_id.to_string(),
+            source_character_id: source_character_id.to_string(),
+            target_character_id: target_character_id.to_string(),
+            target_character_name: None,
+            relationship_type: relationship_type.to_string(),
+            description: description.map(|s| s.to_string()),
+            dynamic: dynamic.map(|s| s.to_string()),
+            created_at: now,
+        })
+    }
+
+    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<super::models_v3::CharacterRelationship>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.story_id, r.source_character_id, r.target_character_id, c.name as target_name,
+                    r.relationship_type, r.description, r.dynamic, r.created_at
+             FROM character_relationships r
+             LEFT JOIN characters c ON r.target_character_id = c.id
+             WHERE r.story_id = ?1
+             ORDER BY r.created_at"
+        )?;
+
+        let relationships = stmt.query_map([story_id], |row| {
+            let created_str: String = row.get(8)?;
+
+            Ok(super::models_v3::CharacterRelationship {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                source_character_id: row.get(2)?,
+                target_character_id: row.get(3)?,
+                target_character_name: row.get(4)?,
+                relationship_type: row.get(5)?,
+                description: row.get(6)?,
+                dynamic: row.get(7)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(relationships)
+    }
+
+    pub fn delete_by_story(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute("DELETE FROM character_relationships WHERE story_id = ?1", [story_id])
     }
 }

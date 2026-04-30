@@ -1066,10 +1066,12 @@ pub async fn create_story_with_wizard(
             story_id: story_id.clone(),
             name: char_opt.name.clone(),
             background: Some(background),
+            personality: Some(char_opt.personality.clone()),
+            goals: Some(char_opt.goals.clone()),
+            appearance: None,
+            gender: None,
+            age: None,
         }).map_err(|e| e.to_string())?;
-        
-        char_repo.update(&char.id, None, None, Some(char_opt.personality.clone()), Some(char_opt.goals.clone()))
-            .map_err(|e| e.to_string())?;
         
         created_chars.push(char);
     }
@@ -2332,4 +2334,64 @@ pub async fn check_style_drift(
             })
         }).collect::<Vec<_>>(),
     }))
+}
+
+
+// ==================== 创世引擎命令 (v5.0.0) ====================
+
+#[command]
+pub async fn get_story_outline(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<serde_json::Value>, String> {
+    use crate::db::repositories_v3::StoryOutlineRepository;
+    let repo = StoryOutlineRepository::new(pool.inner().clone());
+    let outline = repo.get_by_story(&story_id).map_err(|e| e.to_string())?;
+
+    Ok(outline.map(|o| serde_json::json!({
+        "id": o.id,
+        "story_id": o.story_id,
+        "content": o.content,
+        "structure_json": o.structure_json,
+        "act_count": o.act_count,
+        "total_scenes_estimate": o.total_scenes_estimate,
+        "created_at": o.created_at,
+        "updated_at": o.updated_at,
+    })))
+}
+
+#[command]
+pub async fn update_story_outline(
+    story_id: String,
+    content: String,
+    structure_json: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    use crate::db::repositories_v3::StoryOutlineRepository;
+    let repo = StoryOutlineRepository::new(pool.inner().clone());
+    repo.update(&story_id, Some(&content), structure_json.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[command]
+pub async fn get_character_relationships(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::repositories_v3::CharacterRelationshipRepository;
+    let repo = CharacterRelationshipRepository::new(pool.inner().clone());
+    let relationships = repo.get_by_story(&story_id).map_err(|e| e.to_string())?;
+
+    Ok(relationships.into_iter().map(|r| serde_json::json!({
+        "id": r.id,
+        "story_id": r.story_id,
+        "source_character_id": r.source_character_id,
+        "target_character_id": r.target_character_id,
+        "target_character_name": r.target_character_name,
+        "relationship_type": r.relationship_type,
+        "description": r.description,
+        "dynamic": r.dynamic,
+        "created_at": r.created_at,
+    })).collect())
 }

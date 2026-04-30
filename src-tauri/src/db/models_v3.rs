@@ -52,6 +52,9 @@ pub struct Scene {
     
     // 风格混合覆盖 (v4.4.0 - 章节级风格控制)
     pub style_blend_override: Option<String>,
+    
+    // 关联伏笔ID列表 (v5.0.0 - 创世引擎)
+    pub foreshadowing_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -290,6 +293,44 @@ pub struct StorySummary {
     pub updated_at: DateTime<Local>,
 }
 
+// ==================== 故事大纲模型 (v5.0.0 - 创世引擎) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryOutline {
+    pub id: String,
+    pub story_id: String,
+    pub content: String,
+    pub structure_json: Option<String>,
+    pub act_count: i32,
+    pub total_scenes_estimate: Option<i32>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryOutlineAct {
+    pub act_number: i32,
+    pub title: String,
+    pub summary: String,
+    pub key_plot_points: Vec<String>,
+    pub estimated_scenes: i32,
+}
+
+// ==================== 角色关系模型 (v5.0.0 - 创世引擎) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterRelationship {
+    pub id: String,
+    pub story_id: String,
+    pub source_character_id: String,
+    pub target_character_id: String,
+    pub target_character_name: Option<String>, // 填充时查询
+    pub relationship_type: String,
+    pub description: Option<String>,
+    pub dynamic: Option<String>,
+    pub created_at: DateTime<Local>,
+}
+
 // ==================== 世界观模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -435,6 +476,7 @@ pub enum EntityType {
     Organization,
     Concept,
     Event,
+    PlotDevice,
 }
 
 impl std::fmt::Display for EntityType {
@@ -446,6 +488,7 @@ impl std::fmt::Display for EntityType {
             EntityType::Organization => "Organization",
             EntityType::Concept => "Concept",
             EntityType::Event => "Event",
+            EntityType::PlotDevice => "PlotDevice",
         };
         write!(f, "{}", s)
     }
@@ -462,6 +505,7 @@ impl std::str::FromStr for EntityType {
             "Organization" | "组织" => Ok(EntityType::Organization),
             "Concept" | "概念" => Ok(EntityType::Concept),
             "Event" | "事件" => Ok(EntityType::Event),
+            "PlotDevice" => Ok(EntityType::PlotDevice),
             _ => Err(format!("Unknown entity type: {}", s)),
         }
     }
@@ -522,6 +566,10 @@ pub enum RelationType {
     // 动态关系
     Supersedes,   // 取代
     Contradicts,  // 矛盾
+    
+    // 创世引擎关系 (v5.0.0)
+    ParticipatesIn, // 角色参与场景
+    SetUpIn,        // 伏笔在场景中埋设
 }
 
 impl std::fmt::Display for RelationType {
@@ -554,6 +602,8 @@ impl std::fmt::Display for RelationType {
             RelationType::EvolvesInto => "EvolvesInto",
             RelationType::Supersedes => "Supersedes",
             RelationType::Contradicts => "Contradicts",
+            RelationType::ParticipatesIn => "ParticipatesIn",
+            RelationType::SetUpIn => "SetUpIn",
         };
         write!(f, "{}", s)
     }
@@ -591,6 +641,8 @@ impl std::str::FromStr for RelationType {
             "EvolvesInto" => Ok(RelationType::EvolvesInto),
             "Supersedes" => Ok(RelationType::Supersedes),
             "Contradicts" => Ok(RelationType::Contradicts),
+            "ParticipatesIn" => Ok(RelationType::ParticipatesIn),
+            "SetUpIn" => Ok(RelationType::SetUpIn),
             _ => Err(format!("Unknown relation type: {}", s)),
         }
     }

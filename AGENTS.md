@@ -148,6 +148,18 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.0.0 创世引擎：一键创世，万物关联** (2026-04-30) — 从"一键生成开头"到"一键生成完整小说世界"
+  - **故事大纲自动生成**: `story_outlines` 表 + LLM 生成 3 幕结构大纲（标题/摘要/情节点/预估场景数）
+  - **角色完整性格小传**: `characters` 表新增 appearance/gender/age，bootstrap 完整填充 personality/goals/appearance
+  - **角色关系图谱**: `character_relationships` 表 + 前端"关系"标签页，展示角色间朋友/敌人/恋人/师徒等关联
+  - **伏笔自动埋设**: Bootstrap 基于大纲识别 3-5 个核心伏笔，自动关联第一章场景
+  - **知识图谱自动构建**: 创世时为角色/场景/伏笔自动创建 KG 实体和关系
+  - **前后台智能联动**: Bootstrap 完成后自动发送 `NavigateTo` 事件，幕后切换到 Stories 并高亮新故事
+  - **故事概览面板**: Stories.tsx 新增"概览"视图，展示大纲/角色/场景/伏笔总览
+  - **7步创世工作流**: 构思故事 → 撰写开篇 → 构建世界 → 生成大纲 → 塑造角色 → 铺设场景 → 埋设伏笔 → 编织关联
+  - **Migration 34/35/36**: story_outlines / characters增强+relationships / scenes.foreshadowing_ids
+  - 编译: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
+
 - **v4.5.0 进程提示栏超时深度修复：消灭"系统仍在处理中"黑洞** (2026-04-30) — 从"不知道在等什么"到"每一步都可见"
   - **根因定位**: `build_writer_prompt` 是同步函数，内部包含大量数据库查询 + `block_on` 调用，但**零事件输出**。用户在 0.15→0.20 之间等待 5-30 秒无反馈，前端 fallback timer 超时退出
   - **async 化**: `build_writer_prompt` → `async fn`，移除危险的 `tauri::async_runtime::block_on`（在 Tauri 异步运行时中可能导致死锁/线程阻塞）
@@ -379,7 +391,33 @@ npm test
 
 ---
 
-*最后更新: 2026-04-30 - v4.5.0 进程提示栏超时深度修复，消灭"系统仍在处理中"黑洞*
+## [v5.0.0] - 创世引擎：一键创世，万物关联
+
+### 核心升级
+- **一键生成完整小说世界**: 输入"写一部都市玄幻小说"，自动生成故事概念 + 第一章正文 + 完整大纲 + 角色性格小传 + 场景规划 + 伏笔埋设
+- **7步创世工作流**: 构思 → 开篇 → 世界 → 大纲 → 角色 → 场景 → 伏笔 → 关联
+- **自动幕后卡片创建**: 所有生成内容自动在幕后对应栏目创建卡片
+
+### 新增功能
+- **故事大纲系统**: `story_outlines` 表 + 3幕结构自动生成 + 前端概览面板
+- **角色系统增强**: appearance/gender/age 字段 + 角色关系图谱
+- **伏笔自动生成**: Bootstrap 自动埋设 3-5 个核心伏笔
+- **知识图谱自动构建**: 角色/场景/伏笔自动创建 KG 实体
+- **前后台智能联动**: 完成后自动导航到 Stories 并高亮新故事
+
+### 数据库迁移
+- Migration 34: `story_outlines` 表
+- Migration 35: `characters` 增强 + `character_relationships` 表
+- Migration 36: `scenes.foreshadowing_ids`
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `cargo test` ✅ 193/193
+- `npm run build` ✅
+
+---
+
+*最后更新: 2026-04-30 - v5.0.0 创世引擎：一键创世，万物关联*
 
 ---
 

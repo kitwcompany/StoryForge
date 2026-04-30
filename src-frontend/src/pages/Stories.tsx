@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2 } from 'lucide-react';
+import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2, Eye, Users, FileText, LayoutList } from 'lucide-react';
 import { useWorkflowProgress } from '@/hooks/useWorkflowProgress';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/hooks/useStories';
+import { useCharacters } from '@/hooks/useCharacters';
+import { useScenes } from '@/hooks/useScenes';
+import { useForeshadowings } from '@/hooks/useForeshadowings';
+import { useStoryOutline } from '@/hooks/useStoryOutline';
 import { useAppStore } from '@/stores/appStore';
 import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
@@ -13,6 +17,116 @@ import { runCreationWorkflow, listStyleDnas, setStoryStyleDna, analyzeStyleSampl
 import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
 import type { StyleBlendConfig } from '@/types/index';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }) {
+  const { data: outline } = useStoryOutline(storyId);
+  const { data: characters = [] } = useCharacters(storyId);
+  const { data: scenes = [] } = useScenes(storyId);
+  const { data: foreshadowings = [] } = useForeshadowings(storyId);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-cinema-700 space-y-4 animate-fade-in">
+      {/* Outline */}
+      {outline?.content && (
+        <div>
+          <h4 className="text-sm font-medium text-cinema-gold mb-2 flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5" />
+            故事大纲
+          </h4>
+          <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+            <p className="text-sm text-gray-300 whitespace-pre-wrap">{outline.content}</p>
+            {outline.act_count > 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                {outline.act_count} 幕
+                {outline.total_scenes_estimate ? ` · 预计 ${outline.total_scenes_estimate} 个场景` : ''}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+          <div className="flex items-center gap-1.5 text-gray-400 mb-1">
+            <Users className="w-3.5 h-3.5" />
+            <span className="text-xs">角色</span>
+          </div>
+          <p className="text-lg font-bold text-white">{characters.length}</p>
+          {characters.length > 0 && (
+            <div className="mt-1 flex -space-x-1">
+              {characters.slice(0, 4).map((c) => (
+                <div
+                  key={c.id}
+                  className="w-5 h-5 rounded-full bg-cinema-700 border border-cinema-800 flex items-center justify-center text-[9px] text-gray-300"
+                  title={c.name}
+                >
+                  {c.name.charAt(0)}
+                </div>
+              ))}
+              {characters.length > 4 && (
+                <div className="w-5 h-5 rounded-full bg-cinema-800 border border-cinema-900 flex items-center justify-center text-[9px] text-gray-400">
+                  +{characters.length - 4}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+          <div className="flex items-center gap-1.5 text-gray-400 mb-1">
+            <LayoutList className="w-3.5 h-3.5" />
+            <span className="text-xs">场景</span>
+          </div>
+          <p className="text-lg font-bold text-white">{scenes.length}</p>
+          {scenes.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {scenes.slice(0, 3).map((s) => (
+                <p key={s.id} className="text-[10px] text-gray-600 truncate">
+                  #{s.sequence_number} {s.title || `场景 ${s.sequence_number}`}
+                </p>
+              ))}
+              {scenes.length > 3 && (
+                <p className="text-[10px] text-gray-600">+{scenes.length - 3} 更多</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+          <div className="flex items-center gap-1.5 text-gray-400 mb-1">
+            <Eye className="w-3.5 h-3.5" />
+            <span className="text-xs">伏笔</span>
+          </div>
+          <p className="text-lg font-bold text-white">{foreshadowings.length}</p>
+          {foreshadowings.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {foreshadowings.slice(0, 3).map((f) => (
+                <span
+                  key={f.id}
+                  className={`text-[9px] px-1.5 py-0.5 rounded ${
+                    f.status === 'setup'
+                      ? 'bg-yellow-500/10 text-yellow-400'
+                      : f.status === 'payoff'
+                      ? 'bg-green-500/10 text-green-400'
+                      : 'bg-gray-500/10 text-gray-400'
+                  }`}
+                >
+                  {f.status === 'setup' ? '未收' : f.status === 'payoff' ? '已收' : '放弃'}
+                </span>
+              ))}
+              {foreshadowings.length > 3 && (
+                <span className="text-[9px] text-gray-600">+{foreshadowings.length - 3}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function Stories() {
   const { data: stories = [], isLoading } = useStories();
@@ -36,6 +150,23 @@ export function Stories() {
   const { progress, isActive: isWorkflowActive, startListening, stopListening } = useWorkflowProgress();
   const [showAiMenu, setShowAiMenu] = useState<string | null>(null);
   const aiMenuRef = useRef<HTMLDivElement>(null);
+  const [highlightedStoryId, setHighlightedStoryId] = useState<string | null>(null);
+  const [openOverviewStoryId, setOpenOverviewStoryId] = useState<string | null>(null);
+
+  // 监听 backstage-navigate-to-story 事件
+  useEffect(() => {
+    const handleNavigateToStory = (e: Event) => {
+      const customEvent = e as CustomEvent<{ storyId: string }>;
+      const { storyId } = customEvent.detail;
+      setHighlightedStoryId(storyId);
+      setOpenOverviewStoryId(storyId);
+      // 清除高亮动画状态
+      const timer = setTimeout(() => setHighlightedStoryId(null), 3000);
+      return () => clearTimeout(timer);
+    };
+    window.addEventListener('backstage-navigate-to-story', handleNavigateToStory);
+    return () => window.removeEventListener('backstage-navigate-to-story', handleNavigateToStory);
+  }, []);
 
   const { data: styleDnas = [] } = useQuery({
     queryKey: ['style-dnas'],
@@ -211,223 +342,242 @@ export function Stories() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {stories.map((story) => (
-          <Card
-            key={story.id}
-            hover
-            className={`group cursor-pointer transition-all ${
-              currentStory?.id === story.id ? 'ring-2 ring-cinema-gold/50' : ''
-            }`}
-            onClick={() => handleSelectStory(story)}
-          >
-            <CardContent className="p-6">
-              {editingStory?.id === story.id ? (
-                // Edit Mode
-                <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="text"
-                    value={editForm.title}
-                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
-                    placeholder="标题"
-                  />
-                  <select
-                    value={editForm.genre}
-                    onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
-                  >
-                    <option value="">选择类型</option>
-                    <option value="科幻">科幻</option>
-                    <option value="奇幻">奇幻</option>
-                    <option value="悬疑">悬疑</option>
-                    <option value="言情">言情</option>
-                    <option value="历史">历史</option>
-                    <option value="武侠">武侠</option>
-                    <option value="现代">现代</option>
-                    <option value="其他">其他</option>
-                  </select>
-                  <select
-                    value={editForm.methodology_id}
-                    onChange={(e) => setEditForm({ ...editForm, methodology_id: e.target.value })}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
-                  >
-                    <option value="">选择创作方法论（可选）</option>
-                    <option value="snowflake">雪花法</option>
-                    <option value="scene_beat">场景节拍</option>
-                    <option value="hero_journey">英雄之旅</option>
-                    <option value="character_depth">人物深度</option>
-                  </select>
-                  {editForm.methodology_id === 'snowflake' && (
+        {stories.map((story) => {
+          const isHighlighted = highlightedStoryId === story.id;
+          const isOverviewOpen = openOverviewStoryId === story.id;
+          return (
+            <Card
+              key={story.id}
+              hover
+              className={`group cursor-pointer transition-all ${
+                currentStory?.id === story.id ? 'ring-2 ring-cinema-gold/50' : ''
+              } ${isHighlighted ? 'ring-2 ring-cinema-gold/70 animate-pulse' : ''}`}
+              onClick={() => handleSelectStory(story)}
+            >
+              <CardContent className="p-6">
+                {editingStory?.id === story.id ? (
+                  // Edit Mode
+                  <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      value={editForm.title}
+                      onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                      placeholder="标题"
+                    />
                     <select
-                      value={editForm.methodology_step}
-                      onChange={(e) => setEditForm({ ...editForm, methodology_step: Number(e.target.value) })}
+                      value={editForm.genre}
+                      onChange={(e) => setEditForm({ ...editForm, genre: e.target.value })}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                     >
-                      {Array.from({ length: 10 }, (_, i) => (
-                        <option key={i + 1} value={i + 1}>
-                          步骤 {i + 1}: {['一句话概括', '一段式概括', '人物概述', '一页纸大纲', '人物详细背景', '四页纸大纲', '人物完整档案', '场景清单', '场景扩展', '初稿写作'][i]}
-                        </option>
-                      ))}
+                      <option value="">选择类型</option>
+                      <option value="科幻">科幻</option>
+                      <option value="奇幻">奇幻</option>
+                      <option value="悬疑">悬疑</option>
+                      <option value="言情">言情</option>
+                      <option value="历史">历史</option>
+                      <option value="武侠">武侠</option>
+                      <option value="现代">现代</option>
+                      <option value="其他">其他</option>
                     </select>
-                  )}
-                  <textarea
-                    value={editForm.description}
-                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                    rows={2}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
-                    placeholder="描述"
-                  />
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={handleEditCancel}>
-                      <X className="w-4 h-4" />
-                    </Button>
-                    <Button variant="primary" size="sm" onClick={handleEditSave}>
-                      <Check className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                // View Mode
-                <>
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-cinema-gold/10 flex items-center justify-center">
-                      <BookOpen className="w-6 h-6 text-cinema-gold" />
+                    <select
+                      value={editForm.methodology_id}
+                      onChange={(e) => setEditForm({ ...editForm, methodology_id: e.target.value })}
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                    >
+                      <option value="">选择创作方法论（可选）</option>
+                      <option value="snowflake">雪花法</option>
+                      <option value="scene_beat">场景节拍</option>
+                      <option value="hero_journey">英雄之旅</option>
+                      <option value="character_depth">人物深度</option>
+                    </select>
+                    {editForm.methodology_id === 'snowflake' && (
+                      <select
+                        value={editForm.methodology_step}
+                        onChange={(e) => setEditForm({ ...editForm, methodology_step: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                      >
+                        {Array.from({ length: 10 }, (_, i) => (
+                          <option key={i + 1} value={i + 1}>
+                            步骤 {i + 1}: {['一句话概括', '一段式概括', '人物概述', '一页纸大纲', '人物详细背景', '四页纸大纲', '人物完整档案', '场景清单', '场景扩展', '初稿写作'][i]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <textarea
+                      value={editForm.description}
+                      onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                      rows={2}
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
+                      placeholder="描述"
+                    />
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="sm" onClick={handleEditCancel}>
+                        <X className="w-4 h-4" />
+                      </Button>
+                      <Button variant="primary" size="sm" onClick={handleEditSave}>
+                        <Check className="w-4 h-4" />
+                      </Button>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-display text-lg font-semibold text-white truncate">
-                        {story.title}
-                      </h3>
-                      <p className="text-sm text-gray-400 mt-1">
-                        {story.genre || '未分类'} · {story.chapter_count || 0} 章
-                      </p>
-                      {story.description && (
-                        <p className="text-sm text-gray-500 mt-2 line-clamp-2">
-                          {truncateText(story.description, 100)}
+                  </div>
+                ) : (
+                  // View Mode
+                  <>
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-cinema-gold/10 flex items-center justify-center">
+                        <BookOpen className="w-6 h-6 text-cinema-gold" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-display text-lg font-semibold text-white truncate">
+                          {story.title}
+                        </h3>
+                        <p className="text-sm text-gray-400 mt-1">
+                          {story.genre || '未分类'} · {story.chapter_count || 0} 章
                         </p>
-                      )}
-                      <p className="text-xs text-gray-600 mt-3">
-                        更新于 {formatDate(story.updated_at)}
-                      </p>
+                        {story.description && (
+                          <p className="text-sm text-gray-500 mt-2 line-clamp-2">
+                            {truncateText(story.description, 100)}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-600 mt-3">
+                          更新于 {formatDate(story.updated_at)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="mt-4 pt-4 border-t border-cinema-700 flex flex-wrap gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="primary"
-                      size="sm"
+                    {/* Overview Toggle */}
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleContinueStory(story);
+                        setOpenOverviewStoryId(isOverviewOpen ? null : story.id);
                       }}
+                      className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-gray-500 hover:text-cinema-gold transition-colors border border-dashed border-cinema-800 rounded-lg hover:border-cinema-gold/50"
                     >
-                      <FolderOpen className="w-4 h-4 mr-1" />
-                      打开
-                    </Button>
-                    <div className="relative" ref={showAiMenu === story.id ? aiMenuRef : undefined}>
+                      <Eye className="w-3.5 h-3.5" />
+                      {isOverviewOpen ? '收起概览' : '概览'}
+                    </button>
+
+                    {/* Overview Panel */}
+                    <StoryOverview storyId={story.id} isOpen={isOverviewOpen} />
+
+                    <div className="mt-4 pt-4 border-t border-cinema-700 flex flex-wrap gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleContinueStory(story);
+                        }}
+                      >
+                        <FolderOpen className="w-4 h-4 mr-1" />
+                        打开
+                      </Button>
+                      <div className="relative" ref={showAiMenu === story.id ? aiMenuRef : undefined}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={creatingStoryId === story.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAiMenu(showAiMenu === story.id ? null : story.id);
+                          }}
+                          title="AI 创作菜单"
+                        >
+                          {creatingStoryId === story.id ? (
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-4 h-4 mr-1 text-cinema-gold" />
+                          )}
+                          AI 创作
+                          <ChevronDown className="w-3 h-3 ml-1" />
+                        </Button>
+
+                        {showAiMenu === story.id && (
+                          <div className="absolute right-0 mt-1 w-56 bg-cinema-800 border border-cinema-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                            <div className="p-2 space-y-1">
+                              <select
+                                value={creationMode}
+                                onChange={(e) => setCreationMode(e.target.value as typeof creationMode)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full px-2 py-1.5 bg-cinema-900 border border-cinema-700 rounded-lg text-xs text-white focus:border-cinema-gold focus:outline-none"
+                                title="选择创作模式"
+                              >
+                                <option value="ai_only">AI 全自动</option>
+                                <option value="ai_draft_human_edit">AI 初稿 + 我精修</option>
+                                <option value="human_draft_ai_polish">我初稿 + AI 润色</option>
+                              </select>
+                              <button
+                                onClick={(e) => handleQuickCreate(story, e)}
+                                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-cinema-700 transition-colors text-left"
+                              >
+                                <Sparkles className="w-4 h-4 text-cinema-gold" />
+                                <div>
+                                  <div className="text-white text-sm">快速创作</div>
+                                  <div className="text-[10px] text-gray-500">
+                                    {creationMode === 'ai_only' ? 'AI 全自动生成' : creationMode === 'ai_draft_human_edit' ? 'AI 初稿 + 我精修' : '我初稿 + AI 润色'}
+                                  </div>
+                                </div>
+                              </button>
+                              <button
+                                onClick={(e) => handleWizardCreate(story, e)}
+                                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-cinema-700 transition-colors text-left"
+                              >
+                                <Wand2 className="w-4 h-4 text-cinema-gold" />
+                                <div>
+                                  <div className="text-white text-sm">向导创作</div>
+                                  <div className="text-[10px] text-gray-500">分步选择 AI 生成选项</div>
+                                </div>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
-                        disabled={creatingStoryId === story.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setShowAiMenu(showAiMenu === story.id ? null : story.id);
+                          setStyleDnaModalStory(story);
                         }}
-                        title="AI 创作菜单"
+                        title="选择写作风格 DNA"
                       >
-                        {creatingStoryId === story.id ? (
-                          <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-4 h-4 mr-1 text-cinema-gold" />
-                        )}
-                        AI 创作
-                        <ChevronDown className="w-3 h-3 ml-1" />
+                        <Palette className="w-4 h-4 mr-1" />
+                        风格
                       </Button>
-
-                      {showAiMenu === story.id && (
-                        <div className="absolute right-0 mt-1 w-56 bg-cinema-800 border border-cinema-700 rounded-xl shadow-xl z-50 overflow-hidden">
-                          <div className="p-2 space-y-1">
-                            <select
-                              value={creationMode}
-                              onChange={(e) => setCreationMode(e.target.value as typeof creationMode)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full px-2 py-1.5 bg-cinema-900 border border-cinema-700 rounded-lg text-xs text-white focus:border-cinema-gold focus:outline-none"
-                              title="选择创作模式"
-                            >
-                              <option value="ai_only">AI 全自动</option>
-                              <option value="ai_draft_human_edit">AI 初稿 + 我精修</option>
-                              <option value="human_draft_ai_polish">我初稿 + AI 润色</option>
-                            </select>
-                            <button
-                              onClick={(e) => handleQuickCreate(story, e)}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-cinema-700 transition-colors text-left"
-                            >
-                              <Sparkles className="w-4 h-4 text-cinema-gold" />
-                              <div>
-                                <div className="text-white text-sm">快速创作</div>
-                                <div className="text-[10px] text-gray-500">
-                                  {creationMode === 'ai_only' ? 'AI 全自动生成' : creationMode === 'ai_draft_human_edit' ? 'AI 初稿 + 我精修' : '我初稿 + AI 润色'}
-                                </div>
-                              </div>
-                            </button>
-                            <button
-                              onClick={(e) => handleWizardCreate(story, e)}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-cinema-700 transition-colors text-left"
-                            >
-                              <Wand2 className="w-4 h-4 text-cinema-gold" />
-                              <div>
-                                <div className="text-white text-sm">向导创作</div>
-                                <div className="text-[10px] text-gray-500">分步选择 AI 生成选项</div>
-                              </div>
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExportStory({ id: story.id, title: story.title });
+                        }}
+                      >
+                        <Download className="w-4 h-4 mr-1" />
+                        导出
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => handleEditClick(story, e)}
+                      >
+                        <Edit3 className="w-4 h-4 mr-1" />
+                        编辑
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={(e) => handleDelete(story.id, e)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        删除
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setStyleDnaModalStory(story);
-                      }}
-                      title="选择写作风格 DNA"
-                    >
-                      <Palette className="w-4 h-4 mr-1" />
-                      风格
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExportStory({ id: story.id, title: story.title });
-                      }}
-                    >
-                      <Download className="w-4 h-4 mr-1" />
-                      导出
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => handleEditClick(story, e)}
-                    >
-                      <Edit3 className="w-4 h-4 mr-1" />
-                      编辑
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={(e) => handleDelete(story.id, e)}
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      删除
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
 
         {stories.length === 0 && (
           <div className="col-span-full">

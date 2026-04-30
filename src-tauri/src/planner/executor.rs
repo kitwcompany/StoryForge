@@ -438,7 +438,7 @@ impl PlanExecutor {
 
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let repo = crate::db::repositories::CharacterRepository::new(pool.inner().clone());
-        let character = repo.create(crate::db::CreateCharacterRequest { story_id, name, background })
+        let character = repo.create(crate::db::CreateCharacterRequest { story_id, name, background, personality: None, goals: None, appearance: None, gender: None, age: None })
             .map_err(|e| e.to_string())?;
 
         Ok(serde_json::json!({
@@ -661,7 +661,7 @@ impl PlanExecutor {
         let new_personality = updates.get("personality").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
         let new_goals = updates.get("goals").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
 
-        char_repo.update(&character.id, new_name.map(|s| s.to_string()), new_background.map(|s| s.to_string()), new_personality.map(|s| s.to_string()), new_goals.map(|s| s.to_string()))
+        char_repo.update(&character.id, new_name.map(|s| s.to_string()), new_background.map(|s| s.to_string()), new_personality.map(|s| s.to_string()), new_goals.map(|s| s.to_string()), None, None, None)
             .map_err(|e| e.to_string())?;
 
         Ok(serde_json::json!({

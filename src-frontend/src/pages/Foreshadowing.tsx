@@ -17,6 +17,7 @@ import {
   Hash,
   Calendar,
   Zap,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
@@ -150,12 +151,14 @@ function ForeshadowingRow({
   onToggleExpand,
   isExpanded,
   currentSceneNumber,
+  sceneMap,
 }: {
   item: import('@/hooks/useForeshadowings').Foreshadowing;
   ledgerItem?: import('@/hooks/useForeshadowings').PayoffLedgerItem;
   onToggleExpand: () => void;
   isExpanded: boolean;
   currentSceneNumber: number;
+  sceneMap: Map<string, string>;
 }) {
   const updateMutation = useUpdateForeshadowingStatus();
 
@@ -199,6 +202,12 @@ function ForeshadowingRow({
             <span className={cn('text-xs px-1.5 py-0.5 rounded', importanceColor(item.importance))}>
               {importanceLabel(item.importance)}
             </span>
+            {item.is_auto_generated && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1">
+                <Star className="w-3 h-3" />
+                创世
+              </span>
+            )}
             {isOverdue && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
@@ -208,16 +217,22 @@ function ForeshadowingRow({
           </div>
           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
             <span>{new Date(item.created_at).toLocaleDateString()}</span>
+            {item.setup_scene_id && sceneMap.has(item.setup_scene_id) && (
+              <span className="flex items-center gap-0.5">
+                <Hash className="w-3 h-3" />
+                设置场景: {sceneMap.get(item.setup_scene_id)}
+              </span>
+            )}
             {ledgerItem?.first_seen_scene != null && (
               <span className="flex items-center gap-0.5">
                 <Hash className="w-3 h-3" />
-                设置场景: {ledgerItem.first_seen_scene}
+                首次出现: #{ledgerItem.first_seen_scene}
               </span>
             )}
             {ledgerItem?.target_end_scene != null && (
               <span className="flex items-center gap-0.5">
                 <Target className="w-3 h-3" />
-                目标回收: {ledgerItem.target_end_scene}
+                目标回收: #{ledgerItem.target_end_scene}
               </span>
             )}
           </div>
@@ -361,6 +376,15 @@ export function Foreshadowing() {
   const { data: items = [], isLoading } = useForeshadowings(currentStory?.id || null);
   const { data: ledgerItems = [] } = usePayoffLedger(currentStory?.id || null);
   const { data: scenes = [] } = useScenes(currentStory?.id || null);
+
+  // 场景 ID -> 名称映射
+  const sceneMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of scenes) {
+      map.set(s.id, s.title || `场景 ${s.sequence_number}`);
+    }
+    return map;
+  }, [scenes]);
   const createMutation = useCreateForeshadowing();
 
   // 当前场景号 = 最大场景序号
@@ -615,6 +639,7 @@ export function Foreshadowing() {
                   isExpanded={expandedId === item.id}
                   onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
                   currentSceneNumber={currentSceneNumber}
+                  sceneMap={sceneMap}
                 />
               ))}
             </>
@@ -632,6 +657,7 @@ export function Foreshadowing() {
                   isExpanded={expandedId === item.id}
                   onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
                   currentSceneNumber={currentSceneNumber}
+                  sceneMap={sceneMap}
                 />
               ))}
             </>
@@ -649,6 +675,7 @@ export function Foreshadowing() {
                   isExpanded={expandedId === item.id}
                   onToggleExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
                   currentSceneNumber={currentSceneNumber}
+                  sceneMap={sceneMap}
                 />
               ))}
             </>

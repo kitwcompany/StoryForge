@@ -8,7 +8,9 @@ import {
   GripVertical,
   Target,
   Zap,
-  Users
+  Users,
+  Eye,
+  FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -53,6 +55,14 @@ export function StoryTimeline({
 }: StoryTimelineProps) {
   const [draggedScene, setDraggedScene] = useState<Scene | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const characterMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of characters) {
+      map.set(c.id, c.name);
+    }
+    return map;
+  }, [characters]);
 
   const handleDragStart = useCallback((scene: Scene) => {
     setDraggedScene(scene);
@@ -203,8 +213,16 @@ export function StoryTimeline({
                 </div>
               </div>
 
+              {/* Outline content subtitle */}
+              {scene.outline_content && (
+                <p className="mt-1 text-xs text-gray-500 line-clamp-2 flex items-center gap-1">
+                  <FileText className="w-3 h-3 flex-shrink-0" />
+                  {scene.outline_content}
+                </p>
+              )}
+
               {/* Drama info */}
-              <div className="mt-1 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 {scene.conflict_type && (
                   <span
                     className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full"
@@ -231,7 +249,43 @@ export function StoryTimeline({
                     {scene.characters_present.length} 角色
                   </span>
                 )}
+
+                {scene.foreshadowing_ids && scene.foreshadowing_ids.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-purple-500/20 text-purple-300">
+                    <Eye className="w-3 h-3" />
+                    {scene.foreshadowing_ids.length} 伏笔
+                  </span>
+                )}
               </div>
+
+              {/* Character avatars */}
+              {scene.characters_present.length > 0 && (
+                <div className="mt-2 flex items-center gap-1">
+                  <div className="flex -space-x-1.5">
+                    {scene.characters_present.slice(0, 5).map((charId) => {
+                      const charName = characterMap.get(charId) || '?';
+                      return (
+                        <div
+                          key={charId}
+                          className="w-5 h-5 rounded-full bg-cinema-700 border border-cinema-800 flex items-center justify-center text-[9px] text-gray-300"
+                          title={charName}
+                        >
+                          {charName.charAt(0)}
+                        </div>
+                      );
+                    })}
+                    {scene.characters_present.length > 5 && (
+                      <div className="w-5 h-5 rounded-full bg-cinema-800 border border-cinema-900 flex items-center justify-center text-[9px] text-gray-400">
+                        +{scene.characters_present.length - 5}
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-gray-600 ml-1">
+                    {scene.characters_present.map((id) => characterMap.get(id) || '?').slice(0, 3).join('、')}
+                    {scene.characters_present.length > 3 && ' 等'}
+                  </span>
+                </div>
+              )}
 
               {/* External pressure preview */}
               {scene.external_pressure && (

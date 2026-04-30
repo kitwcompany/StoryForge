@@ -89,6 +89,13 @@ function App() {
             case 'NavigateTo':
               const targetView = payload?.view || 'dashboard';
               setCurrentView(targetView as ViewType);
+              if (payload?.highlight_story_id) {
+                window.dispatchEvent(
+                  new CustomEvent('backstage-navigate-to-story', {
+                    detail: { storyId: payload.highlight_story_id },
+                  })
+                );
+              }
               break;
           }
         });

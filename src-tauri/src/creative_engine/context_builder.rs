@@ -457,6 +457,7 @@ mod tests {
             outline_content: None,
             draft_content: None,
             style_blend_override: None,
+            foreshadowing_ids: None,
         };
 
         let text = StoryContextBuilder::format_scene_structure(Some(&scene), &[]).unwrap();

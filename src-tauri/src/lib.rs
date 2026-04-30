@@ -421,6 +421,10 @@ pub fn run() {
             auth::commands::oauth_callback,
             auth::commands::get_current_user,
             auth::commands::logout,
+            // Genesis Engine commands (v5.0.0)
+            commands_v3::get_story_outline,
+            commands_v3::update_story_outline,
+            commands_v3::get_character_relationships,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -608,7 +612,7 @@ fn get_story_characters(story_id: String) -> Result<Vec<db::Character>, String> 
 
 #[tauri::command]
 fn create_character(story_id: String, name: String, background: Option<String>) -> Result<db::Character, String> {
-    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id, name, background }).map_err(|e| e.to_string())?;
+    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id, name, background, personality: None, goals: None, appearance: None, gender: None, age: None }).map_err(|e| e.to_string())?;
 
     // OnCharacterCreate hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -631,7 +635,7 @@ fn create_character(story_id: String, name: String, background: Option<String>) 
 
 #[tauri::command]
 fn update_character(id: String, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>) -> Result<(), String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, name, background, personality, goals).map_err(|e| e.to_string()).map(|_| ())
+    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, name, background, personality, goals, None, None, None).map_err(|e| e.to_string()).map(|_| ())
 }
 
 #[tauri::command]

@@ -2,6 +2,50 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.0.0] - 创世引擎：一键创世，万物关联（2026-04-30）
+
+### 🎯 创世引擎 (Genesis Engine)
+- **一键生成完整小说世界**：输入"写一部都市玄幻小说"，系统自动生成故事概念、第一章正文、完整大纲、主要角色及性格小传、场景规划、伏笔埋设
+- **7步创世工作流**：构思故事 → 撰写开篇 → 构建世界 → 生成大纲 → 塑造角色 → 铺设场景 → 埋设伏笔 → 编织关联
+- **自动幕后卡片创建**：所有生成内容自动在幕后对应栏目创建卡片，无需手动操作
+
+### 🎯 故事大纲系统
+- **新增 `story_outlines` 表**：存储完整故事大纲（Markdown + 结构化 JSON）
+- **3幕结构自动生成**：每幕含标题、摘要、关键情节点、预估场景数
+- **前端故事概览面板**：Stories 页面新增"概览"视图，展示大纲、角色、场景、伏笔总览
+
+### 🎯 角色系统增强
+- **完整性格小传入库**：`characters` 表新增 `appearance`/`gender`/`age` 字段
+- **角色关系图谱**：新增 `character_relationships` 表，记录角色间关系（朋友/敌人/恋人/师徒等）
+- **前端关系视图**：Characters 页面新增"关系"标签页，展示角色关联网络
+
+### 🎯 伏笔自动生成
+- **Bootstrap 自动埋设伏笔**：基于故事大纲识别 3-5 个核心伏笔
+- **伏笔与场景自动关联**：第一个伏笔自动关联到第一章场景
+- **创世标记**：自动生成的伏笔显示"创世"金色徽章
+
+### 🎯 知识图谱自动构建
+- **创世时自动创建 KG 实体**：角色 → Character、场景 → Event、伏笔 → PlotDevice
+- **自动关系连接**：角色参与场景、伏笔设置于场景
+
+### 🎯 前后台智能联动
+- **Bootstrap 完成后自动导航**：幕后界面自动切换到 Stories 并高亮新故事
+- **故事概览自动展开**：新故事"概览"面板自动打开
+- **实时卡片创建事件**：新增 `novel-bootstrap-card-created` 事件，前端实时显示卡片创建进度
+
+### 🎯 数据库迁移
+- **Migration 34**: `story_outlines` 表
+- **Migration 35**: `characters` 增强 + `character_relationships` 表
+- **Migration 36**: `scenes.foreshadowing_ids` 字段
+
+### 📊 统计
+- Rust 测试：193/193 全部通过
+- 前端构建：npm run build 通过
+- 新增后端模块：StoryOutlineRepository、CharacterRelationshipRepository
+- 新增前端组件：StoryOverview、CharacterGrid、SceneTimelineMini、ForeshadowingListMini
+
+---
+
 ## [v4.5.0] - 多账号认证与云端主站（2026-04-28）
 
 ### 🎯 多账号 OAuth 登录系统

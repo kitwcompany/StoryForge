@@ -128,8 +128,8 @@ impl CharacterRepository {
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO characters (id, story_id, name, background, personality, goals, dynamic_traits, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![&id, &req.story_id, &req.name, req.background, "", "", traits_json, now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![&id, &req.story_id, &req.name, req.background, req.personality, req.goals, req.appearance, req.gender, req.age, traits_json, now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
         Ok(Character {
@@ -137,8 +137,11 @@ impl CharacterRepository {
             story_id: req.story_id,
             name: req.name,
             background: req.background,
-            personality: None,
-            goals: None,
+            personality: req.personality,
+            goals: req.goals,
+            appearance: req.appearance,
+            gender: req.gender,
+            age: req.age,
             dynamic_traits: vec![],
             created_at: now,
             updated_at: now,
@@ -148,14 +151,14 @@ impl CharacterRepository {
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Character>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, background, personality, goals, dynamic_traits, created_at, updated_at FROM characters WHERE story_id = ?1"
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, created_at, updated_at FROM characters WHERE story_id = ?1"
         )?;
 
         let characters = stmt.query_map([story_id], |row| {
-            let traits_json: String = row.get(6)?;
+            let traits_json: String = row.get(9)?;
             let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(7)?;
-            let updated_str: String = row.get(8)?;
+            let created_str: String = row.get(10)?;
+            let updated_str: String = row.get(11)?;
 
             Ok(Character {
                 id: row.get(0)?,
@@ -164,6 +167,9 @@ impl CharacterRepository {
                 background: row.get(3)?,
                 personality: row.get(4)?,
                 goals: row.get(5)?,
+                appearance: row.get(6)?,
+                gender: row.get(7)?,
+                age: row.get(8)?,
                 dynamic_traits,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
@@ -176,14 +182,14 @@ impl CharacterRepository {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Character>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, background, personality, goals, dynamic_traits, created_at, updated_at FROM characters WHERE id = ?1"
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, created_at, updated_at FROM characters WHERE id = ?1"
         )?;
 
         let character = stmt.query_row([id], |row| {
-            let traits_json: String = row.get(6)?;
+            let traits_json: String = row.get(9)?;
             let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(7)?;
-            let updated_str: String = row.get(8)?;
+            let created_str: String = row.get(10)?;
+            let updated_str: String = row.get(11)?;
 
             Ok(Character {
                 id: row.get(0)?,
@@ -192,6 +198,9 @@ impl CharacterRepository {
                 background: row.get(3)?,
                 personality: row.get(4)?,
                 goals: row.get(5)?,
+                appearance: row.get(6)?,
+                gender: row.get(7)?,
+                age: row.get(8)?,
                 dynamic_traits,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
@@ -201,14 +210,15 @@ impl CharacterRepository {
         Ok(character)
     }
 
-    pub fn update(&self, id: &str, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>) -> Result<usize, rusqlite::Error> {
+    pub fn update(&self, id: &str, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, appearance: Option<String>, gender: Option<String>, age: Option<i32>) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
         let count = conn.execute(
             "UPDATE characters SET name = COALESCE(?2, name), background = COALESCE(?3, background),
-             personality = COALESCE(?4, personality), goals = COALESCE(?5, goals), updated_at = ?6 WHERE id = ?1",
-            params![id, name, background, personality, goals, now],
+             personality = COALESCE(?4, personality), goals = COALESCE(?5, goals), appearance = COALESCE(?6, appearance),
+             gender = COALESCE(?7, gender), age = COALESCE(?8, age), updated_at = ?9 WHERE id = ?1",
+            params![id, name, background, personality, goals, appearance, gender, age, now],
         )?;
         Ok(count)
     }
