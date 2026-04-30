@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { GitBranch, Eye, X, Send } from 'lucide-react';
+import { 
+  GitBranch, Eye, X, Send, 
+  Brain, ClipboardList, Cog, CheckCircle, Check, Bot, 
+  Plug, Zap, XCircle, Timer, PenTool, Hourglass, 
+  Ban, AlertTriangle, BookOpen, Sparkles, Loader2, Settings2
+} from 'lucide-react';
 import { writerAgentExecute, recordFeedback, smartExecute, getInputHint } from '@/services/tauri';
 import { modelService } from '@/services/modelService';
 import { cn } from '@/utils/cn';
@@ -16,6 +21,66 @@ import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
 import toast from 'react-hot-toast';
+
+/// 根据状态文本自动匹配 lucide 图标
+const StatusIcon: React.FC<{ text: string }> = ({ text }) => {
+  // 移除旧emoji（如果有）
+  const cleanText = text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{23F0}-\u{23FF}]|[\u{200D}]/gu, '').trim();
+  
+  let Icon = Loader2;
+  let iconClass = 'w-3.5 h-3.5';
+  
+  if (cleanText.includes('分析') || cleanText.includes('Thinking') || cleanText.includes('构建') || cleanText.includes('加载') || cleanText.includes('读取') || cleanText.includes('渲染') || cleanText.includes('准备') || cleanText.includes('查询') || cleanText.includes('计算')) {
+    Icon = Brain;
+  } else if (cleanText.includes('注入') || cleanText.includes('组装') || cleanText.includes('拼接')) {
+    Icon = Cog;
+  } else if (cleanText.includes('计划') || cleanText.includes('规划') || cleanText.includes('plan')) {
+    Icon = ClipboardList;
+  } else if (cleanText.includes('执行') || cleanText.includes('running') || cleanText.includes('步骤')) {
+    Icon = Cog;
+  } else if (cleanText.includes('完成') || cleanText.includes('completed') || cleanText.includes('通过')) {
+    Icon = CheckCircle;
+    iconClass = 'w-3.5 h-3.5 text-green-500';
+  } else if (cleanText.includes('质检') || cleanText.includes('检查')) {
+    Icon = Check;
+  } else if (cleanText.includes('大纲')) {
+    Icon = BookOpen;
+  } else if (cleanText.includes('连接') || cleanText.includes('connecting')) {
+    Icon = Plug;
+  } else if (cleanText.includes('发送') || cleanText.includes('sent') || cleanText.includes('请求')) {
+    Icon = Send;
+  } else if (cleanText.includes('生成中') || cleanText.includes('generating') || cleanText.includes('生成内容')) {
+    Icon = Zap;
+  } else if (cleanText.includes('错误') || cleanText.includes('失败') || cleanText.includes('error') || cleanText.includes('超时')) {
+    Icon = XCircle;
+    iconClass = 'w-3.5 h-3.5 text-red-500';
+  } else if (cleanText.includes('等待') || cleanText.includes('时间')) {
+    Icon = Timer;
+  } else if (cleanText.includes('写作') || cleanText.includes('Writer') || cleanText.includes('writer')) {
+    Icon = PenTool;
+  } else if (cleanText.includes('取消')) {
+    Icon = Ban;
+  } else if (cleanText.includes('警告') || cleanText.includes('空内容') || cleanText.includes('注意')) {
+    Icon = AlertTriangle;
+  } else if (cleanText.includes('构思') || cleanText.includes('bootstrap') || cleanText.includes('新建') || cleanText.includes('创建')) {
+    Icon = Sparkles;
+  } else if (cleanText.includes('续写') || cleanText.includes('撰写')) {
+    Icon = PenTool;
+  } else if (cleanText.includes('学习') || cleanText.includes('自适应')) {
+    Icon = Brain;
+  } else if (cleanText.includes('设置') || cleanText.includes('配置')) {
+    Icon = Settings2;
+  }
+  
+  const isLoading = !cleanText.includes('完成') && !cleanText.includes('错误') && !cleanText.includes('失败');
+  
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Icon className={`${iconClass} ${isLoading ? 'animate-spin' : ''}`} />
+      <span>{cleanText}</span>
+    </span>
+  );
+};
 
 interface Story {
   id: string;
@@ -115,6 +180,59 @@ const FrontstageApp: React.FC = () => {
   const editorRef = useRef<RichTextEditorRef>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 生成任务计时器：记录开始时间 + 定时更新运行时长显示
+  const generationStartTimeRef = useRef<number | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 备用机制：记录最后收到事件的时间，如果10秒内无新事件则显示提示
+  const lastEventTimeRef = useRef<number>(Date.now());
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 辅助函数：启动运行时长计时器
+  const startElapsedTimer = useCallback(() => {
+    generationStartTimeRef.current = Date.now();
+    lastEventTimeRef.current = Date.now();
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    elapsedTimerRef.current = setInterval(() => {
+      const elapsed = generationStartTimeRef.current ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000) : 0;
+      setGenerationStatus(prev => {
+        // 保留原有的状态前缀，只更新后面的时间部分
+        const base = prev.split(' ('.split('')[0])[0];
+        return `${base} (${elapsed}s)`;
+      });
+    }, 1000);
+    // 启动备用提示定时器：每10秒检查一次是否有新事件
+    if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
+    fallbackTimerRef.current = setInterval(() => {
+      const sinceLastEvent = Date.now() - lastEventTimeRef.current;
+      if (sinceLastEvent > 10000) {
+        setGenerationStatus(prev => {
+          // 如果已经有模型生成中的提示，不要覆盖
+          if (prev.includes('正在生成中') || prev.includes('等待响应')) return prev;
+          const base = prev.split(' (')[0];
+          const elapsed = generationStartTimeRef.current ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000) : 0;
+          return `${base}（系统仍在处理中...） (${elapsed}s)`;
+        });
+      }
+    }, 10000);
+  }, []);
+
+  // 辅助函数：停止运行时长计时器
+  const stopElapsedTimer = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+    if (fallbackTimerRef.current) {
+      clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+    generationStartTimeRef.current = null;
+  }, []);
+  
+  // 辅助函数：更新最后收到事件的时间
+  const updateLastEventTime = useCallback(() => {
+    lastEventTimeRef.current = Date.now();
+  }, []);
 
   // 监听编辑器配置变化（同步幕后设置到幕前）
   useEffect(() => {
@@ -208,6 +326,7 @@ const FrontstageApp: React.FC = () => {
         message: string;
       }>('novel-bootstrap-progress', (event) => {
         const p = event.payload;
+        updateLastEventTime();
         setBootstrapProgress({
           stepName: p.step_name,
           stepNumber: p.step_number,
@@ -221,6 +340,88 @@ const FrontstageApp: React.FC = () => {
             setBootstrapProgress(null);
             setGenerationStatus('');
           }, 3000);
+        }
+      });
+
+      // 监听 plan-generator-progress 事件 — 方案C：流式进度反馈
+      await listen<{
+        stage: string;
+        message: string;
+      }>('plan-generator-progress', (event) => {
+        const p = event.payload;
+        updateLastEventTime();
+        setGenerationStatus(p.message);
+      });
+
+      // 监听 smart-execute-progress 事件 — 整体执行进度
+      await listen<{
+        stage: string;
+        message: string;
+        step_number: number;
+        total_steps: number;
+      }>('smart-execute-progress', (event) => {
+        const p = event.payload;
+        updateLastEventTime();
+        setGenerationStatus(p.message);
+      });
+
+      // 监听 plan-executor-step 事件 — 步骤级进度
+      await listen<{
+        step_id: string;
+        capability_id: string;
+        status: string;
+        message: string;
+        steps_completed: number;
+        total_steps: number;
+      }>('plan-executor-step', (event) => {
+        const p = event.payload;
+        updateLastEventTime();
+        console.log('[plan-executor-step]', p.status, p.message, `${p.steps_completed}/${p.total_steps}`);
+        if (p.step_id === '__complete__') {
+          setGenerationStatus(p.message);
+        } else if (p.status === 'running') {
+          setGenerationStatus(`${p.message} (${p.steps_completed + 1}/${p.total_steps})`);
+        } else if (p.status === 'completed') {
+          setGenerationStatus(p.message);
+        } else if (p.status === 'failed') {
+          setGenerationStatus(p.message);
+        }
+      });
+
+      // 监听 agent-stage-update 事件 — Agent内部阶段
+      await listen<{
+        agent_type: string;
+        stage: string;
+        message: string;
+        progress: number;
+      }>('agent-stage-update', (event) => {
+        const p = event.payload;
+        updateLastEventTime();
+        console.log('[agent-stage-update]', p.stage, p.agent_type, p.message);
+        // 显示所有阶段，让用户看到完整流程
+        setGenerationStatus(`${p.agent_type}: ${p.message}`);
+      });
+
+      // 监听 llm-generating-progress 事件 — LLM模型生成心跳
+      await listen<{
+        stage: string;
+        message: string;
+        elapsed_seconds: number;
+        model: string;
+      }>('llm-generating-progress', (event) => {
+        const p = event.payload;
+        updateLastEventTime();
+        console.log('[llm-generating-progress]', p.stage, p.message);
+        if (p.stage === 'connecting') {
+          setGenerationStatus(p.message);
+        } else if (p.stage === 'sent') {
+          setGenerationStatus(p.message);
+        } else if (p.stage === 'generating') {
+          setGenerationStatus(p.message);
+        } else if (p.stage === 'completed') {
+          setGenerationStatus(p.message);
+        } else if (p.stage === 'error') {
+          setGenerationStatus(p.message);
         }
       });
     } catch (e) {
@@ -326,7 +527,7 @@ const FrontstageApp: React.FC = () => {
   // Request AI generation -- now routes through backend smart_execute
   const handleRequestGeneration = useCallback(async (context?: string) => {
     if (isGenerating) {
-      toast('AI 正在生成中，请稍候...', { icon: '⏳' });
+      toast('AI 正在生成中，请稍候...');
       return;
     }
 
@@ -337,10 +538,19 @@ const FrontstageApp: React.FC = () => {
 
     setGeneratedText('');
     setIsGenerating(true);
-    setGenerationStatus('✍️ 正在续写...');
+    setGenerationStatus('正在续写...');
     setOrchestratorStatus(null);
+    startElapsedTimer();
 
     let unlisten: (() => void) | null = null;
+    // 续写功能也添加90秒超时保护
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error('前端超时：模型响应超过90秒，请检查模型服务是否正常运行'));
+      }, 90000);
+    });
+
     try {
       unlisten = await listen<{
         task_id: string;
@@ -349,6 +559,7 @@ const FrontstageApp: React.FC = () => {
         score?: number;
       }>('orchestrator-step', (event) => {
         const p = event.payload;
+        updateLastEventTime();
         const stepNames: Record<string, string> = {
           '生成': '生成中...',
           '质检': '质检中...',
@@ -361,6 +572,7 @@ const FrontstageApp: React.FC = () => {
         if (p.step_type === '质检' && typeof p.score === 'number') {
           message = `质检中... 评分 ${p.score}%`;
         }
+        // 注意：orchestrator-step 事件会直接覆盖状态，暂时不叠加时间显示
         setGenerationStatus(message);
         setOrchestratorStatus({
           stepType: p.step_type,
@@ -370,15 +582,20 @@ const FrontstageApp: React.FC = () => {
         });
       });
 
-      const result = await smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText() });
+      const result = await Promise.race([
+        smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText() }),
+        timeoutPromise,
+      ]);
+      if (timeoutId) clearTimeout(timeoutId);
 
-      setGenerationStatus('✨ 质检通过，生成完成');
+      setGenerationStatus('质检通过，生成完成');
       setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
 
       const text = result.final_content || '';
       if (!text.trim()) {
         console.error('[Generation] Backend returned empty content');
-        toast.error('AI 返回了空内容，请检查模型配置或重试');
+        toast.error('AI 返回了空内容，请检查模型配置或重试', { duration: 5000 });
+        stopElapsedTimer();
         setIsGenerating(false);
         setGenerationStatus('');
         setOrchestratorStatus(null);
@@ -393,6 +610,7 @@ const FrontstageApp: React.FC = () => {
             typewriterIntervalRef.current = null;
           }
           setGeneratedText(text);
+          stopElapsedTimer();
           setIsGenerating(false);
           setOrchestratorStatus(null);
         } else {
@@ -400,16 +618,21 @@ const FrontstageApp: React.FC = () => {
         }
       }, 16);
     } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      stopElapsedTimer();
       console.error('Generation request failed:', error);
       const msg = error instanceof Error ? error.message : String(error);
       const isQuotaError = /quota|exhausted|limit|配额|用完|不足|次数已达/i.test(msg);
       if (isQuotaError) {
         setQuotaExhausted(true);
         toast.error('AI 创作配额已用完，请升级专业版或明日再试');
+      } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
+        toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
       } else {
         toast.error(`生成失败: ${msg}`);
       }
       setIsGenerating(false);
+      setGenerationStatus('');
       setOrchestratorStatus(null);
     } finally {
       if (unlisten) {
@@ -469,23 +692,91 @@ const FrontstageApp: React.FC = () => {
     });
   }, []);
 
+  // 取消生成引用
+  const cancelGenerationRef = useRef<(() => void) | null>(null);
+
+  // 取消当前生成
+  const handleCancelGeneration = useCallback(() => {
+    if (cancelGenerationRef.current) {
+      cancelGenerationRef.current();
+      cancelGenerationRef.current = null;
+    }
+    setIsGenerating(false);
+    setGenerationStatus('');
+    toast('已取消生成');
+  }, []);
+
+  // 检测用户输入是否是"创建新小说"意图（需要更长的超时）
+  const isNovelCreationIntent = (input: string): boolean => {
+    const txt = input.toLowerCase();
+    const keywords = ['写', '创作', '生成', '新建', '创建', '开始', 'novel', 'story', 'book', '小说', '故事'];
+    return keywords.some(kw => txt.includes(kw));
+  };
+
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
   const handleSmartGeneration = useCallback(async (userInput: string) => {
     if (isGenerating) {
-      toast('AI 正在生成中，请稍候...', { icon: '⏳' });
+      toast('AI 正在生成中，请稍候...');
       return;
     }
 
+    // 创建新小说需要两次LLM调用（概念+正文），超时延长至180秒
+    const isBootstrap = stories.length === 0 && isNovelCreationIntent(userInput);
+    const timeoutSeconds = isBootstrap ? 180 : 90;
+    const timeoutMs = timeoutSeconds * 1000;
+
     setIsGenerating(true);
-    setGenerationStatus('🧠 正在理解您的创作意图...');
-    const toastId = toast.loading('🧠 正在理解您的创作意图...', { duration: Infinity });
+    setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
+    startElapsedTimer();
+    const toastId = toast.loading(
+      isBootstrap ? '正在创建新小说（需要构思故事概念并撰写开篇，请耐心等待）...' : '正在理解您的创作意图...',
+      { duration: Infinity }
+    );
+
+    // 方案A：前端动态超时 + 取消支持
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let aborted = false;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        aborted = true;
+        reject(new Error(`前端超时：模型响应超过${timeoutSeconds}秒，请检查模型服务是否正常运行（创建新小说需要更长时间）`));
+      }, timeoutMs);
+    });
+
+    // 暴露取消函数
+    cancelGenerationRef.current = () => {
+      aborted = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+
     try {
-      const result = await smartExecute({ user_input: userInput, current_content: editorRef.current?.getText() });
+      const result = await Promise.race([
+        smartExecute({ user_input: userInput, current_content: editorRef.current?.getText() }),
+        timeoutPromise,
+      ]);
+
+      if (timeoutId) clearTimeout(timeoutId);
+      if (aborted) {
+        stopElapsedTimer();
+        setIsGenerating(false);
+        setGenerationStatus('');
+        return;
+      }
 
       toast.dismiss(toastId);
-      if (result.final_content) {
-        setGeneratedText(result.final_content);
-        toast.success('✨ 创作完成！');
+      // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
+      const hasContent = result.final_content && result.final_content.trim().length > 0;
+      if (hasContent) {
+        setGeneratedText(result.final_content!);
+        toast.success('创作完成！');
+      } else if (!result.success) {
+        // 后端返回了失败
+        toast.error('创作失败：AI 未能生成内容，请检查模型配置或稍后重试');
+      } else {
+        // 后端返回了成功但没有内容 — 显示明确的错误提示（修复"没有提示地停止"）
+        toast.error('AI 返回了空内容，请检查模型配置或稍后重试', { duration: 5000 });
+        console.error('[SmartGeneration] Backend returned success=true but empty final_content', result);
       }
 
       // If a new story was created, refresh the story list
@@ -493,16 +784,19 @@ const FrontstageApp: React.FC = () => {
         loadStories();
       }
     } catch (e: any) {
+      if (timeoutId) clearTimeout(timeoutId);
       toast.dismiss(toastId);
       console.error('Smart execution failed:', e);
       const msg = e?.message || String(e);
       // 区分超时错误和其他错误
       if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
-        toast.error(`⏱ 模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
+        toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
       } else {
         toast.error(`执行失败: ${msg}`);
       }
     } finally {
+      stopElapsedTimer();
+      cancelGenerationRef.current = null;
       setIsGenerating(false);
       setGenerationStatus('');
     }
@@ -748,7 +1042,7 @@ const FrontstageApp: React.FC = () => {
               title={wensiTooltip}
             >
               <span className="wensi-icon">
-                {wensiMode === 'active' ? '🔥' : wensiMode === 'passive' ? '✨' : '·'}
+                {wensiMode === 'active' ? '热' : wensiMode === 'passive' ? '温' : '·'}
               </span>
             </button>
             <button
@@ -898,20 +1192,32 @@ const FrontstageApp: React.FC = () => {
                     </div>
                   </div>
 
-                  {isGenerating && generationStatus && (
-                    <span className="generation-status-text" title={generationStatus}>
-                      {generationStatus}
-                    </span>
+                  {isGenerating ? (
+                    <button
+                      className="frontstage-input-cancel"
+                      onClick={handleCancelGeneration}
+                      title="取消生成"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      className="frontstage-input-send"
+                      onClick={handleInputSubmit}
+                      disabled={!inputValue.trim()}
+                      title="发送"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
                   )}
-                  <button
-                    className={`frontstage-input-send ${isGenerating ? 'generating' : ''}`}
-                    onClick={handleInputSubmit}
-                    disabled={!inputValue.trim() || isGenerating}
-                    title={isGenerating ? generationStatus || '文思续写中...' : '发送'}
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
                 </div>
+
+                {/* 生成状态行 — 独立显示在输入框下方，完整宽度 */}
+                {isGenerating && generationStatus && (
+                  <div className="generation-status-row" title={generationStatus}>
+                    <StatusIcon text={generationStatus} />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1012,7 +1318,7 @@ const FrontstageApp: React.FC = () => {
       {/* 配额用尽提示 */}
       {quotaExhausted && subscription.isFree && (
         <div className="quota-exhausted-toast">
-          <p className="quota-exhausted-title">⚡ 今日配额已用完</p>
+          <p className="quota-exhausted-title">今日配额已用完</p>
           <p className="quota-exhausted-message">
             免费用户每日可使用 10 次 AI 创作。升级专业版，享受无限次文思泉涌。
           </p>

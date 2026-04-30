@@ -1001,7 +1001,22 @@ async fn smart_execute(
     current_content: Option<String>,
     app_handle: AppHandle,
 ) -> Result<planner::PlanExecutionResult, String> {
+    use tauri::Emitter;
+
     let pool = get_pool().ok_or("[smart_execute] Database not initialized")?;
+
+    // 辅助函数：发送 smart_execute 整体进度事件
+    let app_handle_for_progress = app_handle.clone();
+    let emit_progress = move |stage: &str, message: &str, step_number: usize, total_steps: usize| {
+        let _ = app_handle_for_progress.emit("smart-execute-progress", planner::SmartExecuteProgress {
+            stage: stage.to_string(),
+            message: message.to_string(),
+            step_number,
+            total_steps,
+        });
+    };
+
+    emit_progress("loading_context", "正在加载故事上下文...", 1, 5);
 
     // 构建 PlanContext：从当前系统状态推断
     let stories = StoryRepository::new(pool.clone()).get_all()
@@ -1237,6 +1252,8 @@ async fn smart_execute(
         return Ok(result);
     }
 
+    emit_progress("context_loaded", "故事上下文加载完成", 2, 5);
+
     let plan_context = planner::PlanContext {
         current_story_id,
         has_story: !stories.is_empty(),
@@ -1259,9 +1276,26 @@ async fn smart_execute(
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）
+    emit_progress("executing", "开始执行创作计划...", 3, 5);
     let executor = planner::PlanExecutor::new(app_handle);
     let result = executor.execute_with_context(&plan_context).await
         .map_err(|e| format!("[smart_execute] Plan execution failed: {}", e))?;
+    emit_progress("completed", "创作计划执行完成", 5, 5);
+
+    // 如果计划执行失败（所有步骤都失败或没有内容/空内容），返回错误
+    let is_empty_content = result.final_content.as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    if !result.success || is_empty_content {
+        let error_msg = if result.messages.iter().any(|m| m.contains("超时") || m.contains("timed out") || m.contains("timeout")) {
+            "模型响应超时，请检查模型服务是否正常运行".to_string()
+        } else if result.messages.is_empty() {
+            "计划执行失败：未生成任何内容".to_string()
+        } else {
+            format!("计划执行失败：{}", result.messages.join("; "))
+        };
+        return Err(error_msg);
+    }
 
     Ok(result)
 }

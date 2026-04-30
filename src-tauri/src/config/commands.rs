@@ -621,7 +621,15 @@ pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHan
         _ => return Err(format!("Unknown model type: {}", model_type)),
     }
     
-    config.save(&app_dir).map_err(|e| e.to_string())
+    config.save(&app_dir).map_err(|e| e.to_string())?;
+    
+    // 通知幕前窗口刷新模型状态
+    let _ = crate::window::WindowManager::send_to_frontstage(
+        &app_handle,
+        crate::window::FrontstageEvent::DataRefresh { entity: "model_config".to_string() }
+    );
+    
+    Ok(())
 }
 
 /// 获取Agent模型映射

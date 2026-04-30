@@ -41,6 +41,15 @@ pub struct GenerationError {
     pub error_code: String,
 }
 
+/// LLM 生成过程中的心跳进度事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGeneratingProgress {
+    pub stage: String, // "connecting" | "generating" | "completed" | "error"
+    pub message: String,
+    pub elapsed_seconds: u64,
+    pub model: String,
+}
+
 /// LLM服务 - 管理所有LLM调用
 pub struct LlmService {
     app_handle: AppHandle,
@@ -124,7 +133,17 @@ impl LlmService {
         }
     }
 
-    /// 同步生成文本（带 60 秒整体超时）
+    /// 发送 LLM 生成进度事件
+    fn emit_llm_progress(&self, stage: &str, message: &str, elapsed_seconds: u64, model: &str) {
+        let _ = self.app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
+            stage: stage.to_string(),
+            message: message.to_string(),
+            elapsed_seconds,
+            model: model.to_string(),
+        });
+    }
+
+    /// 同步生成文本（带 120 秒整体超时 + 心跳进度）
     pub async fn generate(
         &self,
         prompt: String,
@@ -134,6 +153,7 @@ impl LlmService {
         let profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
         
+        let model_name = profile.model.clone();
         let adapter = self.create_adapter(&profile)?;
         
         let request = GenerateRequest {
@@ -142,13 +162,64 @@ impl LlmService {
             temperature,
         };
         
-        timeout(Duration::from_secs(60), adapter.generate(request))
-            .await
-            .map_err(|_| "模型生成超时（60秒无响应）".to_string())?
-            .map_err(|e| format!("Generation failed: {}", e))
+        // 发送开始连接事件
+        self.emit_llm_progress("connecting", &format!("正在连接 {} 模型...", model_name), 0, &model_name);
+        
+        // 启动心跳任务：每3秒发送一次进度
+        let app_handle = self.app_handle.clone();
+        let model = model_name.clone();
+        let heartbeat_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            let start = std::time::Instant::now();
+            let mut tick_count = 0;
+            loop {
+                interval.tick().await;
+                tick_count += 1;
+                let elapsed = start.elapsed().as_secs();
+                let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
+                    stage: "generating".to_string(),
+                    message: format!("{} 正在生成中...（已等待 {} 秒）", model, elapsed),
+                    elapsed_seconds: elapsed,
+                    model: model.clone(),
+                });
+                // 最多心跳40次（120秒），避免无限循环
+                if tick_count >= 40 {
+                    break;
+                }
+            }
+        });
+        
+        // 发送已发送请求事件
+        self.emit_llm_progress("sent", &format!("已向 {} 发送请求，等待响应...", model_name), 0, &model_name);
+        
+        // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
+        let result = {
+            let r = timeout(Duration::from_secs(120), adapter.generate(request)).await;
+            match r {
+                Ok(Ok(resp)) => Ok(resp),
+                Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
+                Err(_) => Err("模型生成超时（120秒无响应）".to_string()),
+            }
+        };
+        
+        // 取消心跳任务
+        heartbeat_handle.abort();
+        let _ = heartbeat_handle.await;
+        
+        match result {
+            Ok(response) => {
+                self.emit_llm_progress("completed", &format!("{} 响应完成", model_name), 0, &model_name);
+                Ok(response)
+            }
+            Err(e) => {
+                let is_timeout = e.contains("超时");
+                self.emit_llm_progress("error", &e, if is_timeout { 120 } else { 0 }, &model_name);
+                Err(e)
+            }
+        }
     }
 
-    /// 使用指定模型配置同步生成文本
+    /// 使用指定模型配置同步生成文本（带60秒超时 + 心跳进度）
     pub async fn generate_with_profile(
         &self,
         profile_id: &str,
@@ -159,6 +230,7 @@ impl LlmService {
         let profile = self.get_profile_by_id(profile_id)
             .ok_or_else(|| format!("LLM profile '{}' not found", profile_id))?;
         
+        let model_name = profile.model.clone();
         let adapter = self.create_adapter(&profile)?;
         
         let request = GenerateRequest {
@@ -167,8 +239,60 @@ impl LlmService {
             temperature,
         };
         
-        adapter.generate(request).await
-            .map_err(|e| format!("Generation failed: {}", e))
+        // 发送开始连接事件
+        self.emit_llm_progress("connecting", &format!("正在连接 {} 模型...", model_name), 0, &model_name);
+        
+        // 启动心跳任务：每3秒发送一次进度
+        let app_handle = self.app_handle.clone();
+        let model = model_name.clone();
+        let heartbeat_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            let start = std::time::Instant::now();
+            let mut tick_count = 0;
+            loop {
+                interval.tick().await;
+                tick_count += 1;
+                let elapsed = start.elapsed().as_secs();
+                let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
+                    stage: "generating".to_string(),
+                    message: format!("{} 正在生成中...（已等待 {} 秒）", model, elapsed),
+                    elapsed_seconds: elapsed,
+                    model: model.clone(),
+                });
+                if tick_count >= 40 {
+                    break;
+                }
+            }
+        });
+        
+        // 发送已发送请求事件
+        self.emit_llm_progress("sent", &format!("已向 {} 发送请求，等待响应...", model_name), 0, &model_name);
+        
+        // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
+        let result = {
+            let r = timeout(Duration::from_secs(120), adapter.generate(request)).await;
+            match r {
+                Ok(Ok(resp)) => Ok(resp),
+                Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
+                Err(_) => Err("模型生成超时（120秒无响应）".to_string()),
+            }
+        };
+        
+        // 取消心跳任务
+        heartbeat_handle.abort();
+        let _ = heartbeat_handle.await;
+        
+        match result {
+            Ok(response) => {
+                self.emit_llm_progress("completed", &format!("{} 响应完成", model_name), 0, &model_name);
+                Ok(response)
+            }
+            Err(e) => {
+                let is_timeout = e.contains("超时");
+                self.emit_llm_progress("error", &e, if is_timeout { 60 } else { 0 }, &model_name);
+                Err(e)
+            }
+        }
     }
 
     /// 流式生成文本（带整体 90 秒超时 + chunk 15 秒超时）

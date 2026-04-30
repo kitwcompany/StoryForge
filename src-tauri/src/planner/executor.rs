@@ -2,13 +2,13 @@
 //!
 //! All intelligence is in the plan. This executor just follows instructions.
 
-use super::{ExecutionPlan, PlanContext, PlanGenerator, PlanStep};
+use super::{ExecutionPlan, PlanContext, PlanGenerator, PlanStep, PlanExecutorProgress};
 use crate::capabilities::{CapabilityEvolutionEngine, ExecutionRecord};
 use crate::planner::PlanTemplateLibrary;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,7 +70,8 @@ impl PlanExecutor {
             self.adapt_template_plan(template_plan, context)
         } else {
             let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
-            let generator = PlanGenerator::new(llm_service);
+            let generator = PlanGenerator::new(llm_service)
+                .with_app_handle(self.app_handle.clone());
             match generator.generate_plan(context).await {
                 Ok(plan) => plan,
                 Err(e) => {
@@ -130,6 +131,8 @@ impl PlanExecutor {
             log::info!("[PlanExecutor] Detected Inspector→Writer loop: {} → {}", inspect_id, writer_id);
         }
 
+        let total_steps = plan.steps.len();
+
         // 按批次执行（同批次内的步骤无相互依赖，未来可并行化）
         for (batch_idx, batch) in batches.batches.iter().enumerate() {
             log::info!("[PlanExecutor] Executing batch {}/{} with {} steps", 
@@ -143,6 +146,16 @@ impl PlanExecutor {
                         continue;
                     }
                 };
+
+                // 发送步骤开始进度事件（fire-and-forget，不阻塞）
+                let _ = self.app_handle.emit("plan-executor-step", PlanExecutorProgress {
+                    step_id: step.step_id.clone(),
+                    capability_id: step.capability_id.clone(),
+                    status: "running".to_string(),
+                    message: format!("正在执行: {}", Self::capability_display_name(&step.capability_id)),
+                    steps_completed,
+                    total_steps,
+                });
 
                 let step_start = std::time::Instant::now();
 
@@ -158,6 +171,14 @@ impl PlanExecutor {
                     }
                 }
                 if !deps_ok {
+                    let _ = self.app_handle.emit("plan-executor-step", PlanExecutorProgress {
+                        step_id: step.step_id.clone(),
+                        capability_id: step.capability_id.clone(),
+                        status: "failed".to_string(),
+                        message: "依赖步骤未满足，跳过".to_string(),
+                        steps_completed,
+                        total_steps,
+                    });
                     continue;
                 }
 
@@ -198,10 +219,28 @@ impl PlanExecutor {
                             final_content = Some(content.to_string());
                         }
                         steps_completed += 1;
+                        // 发送步骤完成进度事件
+                        let _ = self.app_handle.emit("plan-executor-step", PlanExecutorProgress {
+                            step_id: step.step_id.clone(),
+                            capability_id: step.capability_id.clone(),
+                            status: "completed".to_string(),
+                            message: format!("{} 完成", Self::capability_display_name(&step.capability_id)),
+                            steps_completed,
+                            total_steps,
+                        });
                     }
                     Err(e) => {
                         messages.push(format!("Step {} failed: {}", step.step_id, e));
                         log::warn!("[PlanExecutor] Step {} failed: {}", step.step_id, e);
+                        // 发送步骤失败进度事件
+                        let _ = self.app_handle.emit("plan-executor-step", PlanExecutorProgress {
+                            step_id: step.step_id.clone(),
+                            capability_id: step.capability_id.clone(),
+                            status: "failed".to_string(),
+                            message: format!("{} 失败: {}", Self::capability_display_name(&step.capability_id), e),
+                            steps_completed,
+                            total_steps,
+                        });
                     }
                 }
             }
@@ -229,11 +268,52 @@ impl PlanExecutor {
             }
         }
 
+        // 发送执行完成事件
+        let _ = self.app_handle.emit("plan-executor-step", PlanExecutorProgress {
+            step_id: "__complete__".to_string(),
+            capability_id: "__complete__".to_string(),
+            status: if success { "completed".to_string() } else { "failed".to_string() },
+            message: if success { "计划执行完成".to_string() } else { "计划执行失败".to_string() },
+            steps_completed,
+            total_steps,
+        });
+
         PlanExecutionResult {
             success,
             steps_completed,
             final_content,
             messages,
+        }
+    }
+
+    /// 将 capability_id 转换为用户友好的中文名称
+    fn capability_display_name(capability_id: &str) -> String {
+        match capability_id {
+            "writer" => "写作助手".to_string(),
+            "inspector" => "质检员".to_string(),
+            "outline_planner" => "大纲规划师".to_string(),
+            "style_mimic" => "风格模仿师".to_string(),
+            "plot_analyzer" => "情节分析师".to_string(),
+            "create_story" => "创建故事".to_string(),
+            "create_chapter" => "创建章节".to_string(),
+            "create_character" => "创建角色".to_string(),
+            "update_character" => "更新角色".to_string(),
+            "update_world_building" => "更新世界观".to_string(),
+            "update_scene" => "更新场景".to_string(),
+            "query_knowledge_graph" => "查询知识图谱".to_string(),
+            id if id.starts_with("builtin.") => {
+                let skill_name = id.strip_prefix("builtin.").unwrap_or(id);
+                match skill_name {
+                    "style_enhancer" => "风格增强".to_string(),
+                    "character_voice" => "角色声音".to_string(),
+                    "emotion_pacing" => "情感节奏".to_string(),
+                    "plot_twist" => "情节转折".to_string(),
+                    "text_formatter" => "文本格式化".to_string(),
+                    _ => format!("技能:{}", skill_name),
+                }
+            }
+            id if id.starts_with("mcp.") => "外部工具".to_string(),
+            _ => capability_id.to_string(),
         }
     }
 

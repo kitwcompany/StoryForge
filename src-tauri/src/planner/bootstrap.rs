@@ -75,7 +75,8 @@ impl NovelBootstrapWorkflow {
 
         // Step 1: 生成故事概念
         self.update_session(&session_id, "concept", 0, None).ok();
-        self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在生成故事概念...");
+        self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在构思故事概念...");
+        self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在调用AI生成故事概念...");
         let story_concept = match self.generate_story_concept(user_premise).await {
             Ok(c) => c,
             Err(e) => {
@@ -83,8 +84,10 @@ impl NovelBootstrapWorkflow {
                 return Err(e);
             }
         };
+        self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事概念已生成：《{}》", story_concept.title));
 
         // 创建 Story 记录
+        self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在保存故事...");
         let story_repo = StoryRepository::new(self.pool.clone());
         let story = match story_repo.create(CreateStoryRequest {
             title: story_concept.title.clone(),
@@ -103,7 +106,8 @@ impl NovelBootstrapWorkflow {
         self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事《{}》已创建", story.title));
 
         // Step 2: 立即生成第一章正文（不等待世界观/角色/场景，后台异步补全）
-        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在撰写第一章...");
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在准备写作上下文...");
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在调用AI撰写第一章...");
         // 传入空的世界观/角色/场景 — StoryContextBuilder 能优雅处理空数据
         let empty_world = WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] };
         let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &empty_world, &[], &[]).await {
@@ -113,6 +117,7 @@ impl NovelBootstrapWorkflow {
                 return Err(e);
             }
         };
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在保存第一章...");
         self.complete_session(&session_id, &story_id).ok();
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "第一章已完成");
 
@@ -199,7 +204,8 @@ impl NovelBootstrapWorkflow {
             user_premise.replace('"', "'")
         );
 
-        let response = self.llm_service.generate(prompt, Some(1024), Some(0.7)).await?;
+        // 故事概念JSON比较短，512 tokens足够，减少等待时间
+        let response = self.llm_service.generate(prompt, Some(512), Some(0.7)).await?;
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let concept: StoryConcept = serde_json::from_str(json_str)
@@ -478,7 +484,7 @@ impl NovelBootstrapWorkflow {
             agent_type: AgentType::Writer,
             context: agent_context,
             input: format!(
-                "请撰写《{}》的第一章开头（3000-5000字）。\n\n【故事概念】\n题材：{}\n基调：{}\n节奏：{}\n简介：{}\n主题：{}\n预计篇幅：{}\n\n这是故事的开篇，需要：\n1. 迅速建立世界观和氛围（紧扣题材和基调）\n2. 引入主角，展示其性格和目标\n3. 埋下至少一个伏笔\n4. 在第一幕结尾制造一个冲突或悬念\n\n世界观核心：{}\n核心角色：{}\n第一章场景：{}",
+                "请撰写《{}》的第一章开头（1500-2500字）。\n\n【故事概念】\n题材：{}\n基调：{}\n节奏：{}\n简介：{}\n主题：{}\n预计篇幅：{}\n\n这是故事的开篇，需要：\n1. 迅速建立世界观和氛围（紧扣题材和基调）\n2. 引入主角，展示其性格和目标\n3. 埋下至少一个伏笔\n4. 在第一幕结尾制造一个冲突或悬念\n\n世界观核心：{}\n核心角色：{}\n第一章场景：{}",
                 concept.title,
                 concept.genre,
                 concept.tone,

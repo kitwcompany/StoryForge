@@ -8,6 +8,7 @@ use crate::capabilities::build_default_registry;
 use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tauri::{AppHandle, Emitter};
 
 pub mod executor;
 pub mod bootstrap;
@@ -81,15 +82,31 @@ pub struct PlanContext {
 /// 计划生成器
 pub struct PlanGenerator {
     llm_service: LlmService,
+    app_handle: Option<AppHandle>,
 }
 
 impl PlanGenerator {
     pub fn new(llm_service: LlmService) -> Self {
-        Self { llm_service }
+        Self { llm_service, app_handle: None }
+    }
+
+    pub fn with_app_handle(mut self, app_handle: AppHandle) -> Self {
+        self.app_handle = Some(app_handle);
+        self
+    }
+
+    fn emit_progress(&self, stage: &str, message: &str) {
+        if let Some(ref app) = self.app_handle {
+            let _ = app.emit("plan-generator-progress", serde_json::json!({
+                "stage": stage,
+                "message": message,
+            }));
+        }
     }
 
     /// 根据用户输入和系统状态生成执行计划
     pub async fn generate_plan(&self, context: &PlanContext) -> Result<ExecutionPlan, String> {
+        self.emit_progress("context", "正在分析故事上下文...");
         let registry = build_default_registry();
         let registry_context = registry.to_llm_context();
 
@@ -107,19 +124,28 @@ impl PlanGenerator {
         let preview_clean = sanitize_for_prompt(preview);
         let registry_clean = sanitize_for_prompt(&registry_context);
 
-        // Build scene structure summary for prompt
+        // Build scene structure summary for prompt — 截断到最近10个场景，减少大故事的prompt长度
         let scenes_summary = if context.scenes_summary.is_empty() {
             "No scenes yet".to_string()
         } else {
-            context.scenes_summary.iter()
+            let total = context.scenes_summary.len();
+            let truncated: Vec<_> = context.scenes_summary.iter()
+                .rev()
+                .take(10)
+                .collect();
+            let mut lines: Vec<String> = truncated.iter()
                 .map(|s| {
                     let stage = s.execution_stage.as_deref().unwrap_or("unknown");
                     let title = s.title.as_deref().unwrap_or("Untitled");
                     let content_flag = if s.has_content { "✓" } else { "○" };
                     format!("  #{} [{}] {} {} ({} words)", s.sequence_number, stage, title, content_flag, s.word_count)
                 })
-                .collect::<Vec<_>>()
-                .join("\n")
+                .collect();
+            if total > 10 {
+                lines.insert(0, format!("  ... ({} earlier scenes omitted)", total - 10));
+            }
+            lines.reverse();
+            lines.join("\n")
         };
 
         let current_scene_info = if let Some(ref id) = context.current_scene_id {
@@ -128,12 +154,26 @@ impl PlanGenerator {
             "No current scene".to_string()
         };
 
-        // 构建增强上下文信息
-        let world_building_text = context.world_building_summary.as_deref().unwrap_or("No world building yet");
+        // 构建增强上下文信息 — 截断超长文本，减少token消耗
+        let world_building_text = context.world_building_summary.as_deref()
+            .map(|s| {
+                if s.chars().count() > 200 {
+                    format!("{}...(truncated)", s.chars().take(200).collect::<String>())
+                } else {
+                    s.to_string()
+                }
+            })
+            .unwrap_or_else(|| "No world building yet".to_string());
         let characters_text = if context.character_list.is_empty() {
             "No characters yet".to_string()
         } else {
-            format!("Characters: {}", context.character_list.join(", "))
+            let total = context.character_list.len();
+            let shown: Vec<_> = context.character_list.iter().take(5).cloned().collect();
+            let mut text = format!("Characters: {}", shown.join(", "));
+            if total > 5 {
+                text.push_str(&format!(" (+{} more)", total - 5));
+            }
+            text
         };
         let foreshadowing_text = if context.foreshadowing_status.is_empty() {
             "No active foreshadowing".to_string()
@@ -144,8 +184,37 @@ impl PlanGenerator {
         let mcp_tools_text = if context.mcp_tools_available.is_empty() {
             "No MCP tools available".to_string()
         } else {
-            format!("Available MCP tools:\n{}", context.mcp_tools_available.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>().join("\n"))
+            let total = context.mcp_tools_available.len();
+            let shown: Vec<_> = context.mcp_tools_available.iter().take(5).cloned().collect();
+            let mut lines = shown.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>();
+            if total > 5 {
+                lines.push(format!("  ... ({} more tools)", total - 5));
+            }
+            format!("Available MCP tools:\n{}", lines.join("\n"))
         };
+
+        // 简化 Capability Registry — 只保留核心 capability 列表，减少 prompt 长度
+        let registry_clean = if registry_clean.chars().count() > 1500 {
+            let core_caps = [
+                "writer: 生成故事正文",
+                "inspector: 质检内容",
+                "outline_planner: 规划大纲",
+                "create_chapter: 创建章节",
+                "create_character: 创建角色",
+                "update_character: 修改角色",
+                "update_world_building: 修改世界观",
+                "update_scene: 修改场景",
+                "builtin.style_enhancer: 风格增强",
+                "builtin.character_voice: 角色声音",
+                "builtin.emotion_pacing: 情感节奏",
+                "mcp.*: 外部工具",
+            ];
+            format!("Available capabilities (simplified):\n{}", core_caps.join("\n"))
+        } else {
+            registry_clean
+        };
+
+        self.emit_progress("planning", "正在生成执行计划...");
 
         let prompt = format!(
             r#"You are an intelligent orchestrator for a creative writing application.
@@ -161,7 +230,7 @@ Current system state:
 - Scene count: {}
 {}
 
-Scene structure:
+Scene structure (last 10 shown):
 {}
 
 World building:
@@ -244,7 +313,9 @@ Rules:
             registry_clean
         );
 
-        let response = self.llm_service.generate(prompt, Some(2048), Some(0.3)).await?;
+        // 计划生成JSON通常只需要几百tokens，1024足够，减少等待时间
+        let response = self.llm_service.generate(prompt, Some(1024), Some(0.3)).await?;
+        self.emit_progress("parsing", "正在解析执行计划...");
 
         // Robust JSON extraction: find first '{' and last '}'
         let content = response.content.trim();
@@ -265,6 +336,7 @@ Rules:
                 e, json_str
             )
         })?;
+        self.emit_progress("validating", "正在验证执行计划...");
 
         // 验证计划：确保所有 capability_id 在注册表中存在
         let registry = build_default_registry();
@@ -305,6 +377,26 @@ Rules:
 
         Ok(plan)
     }
+}
+
+/// smart_execute 统一进度事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartExecuteProgress {
+    pub stage: String,
+    pub message: String,
+    pub step_number: usize,
+    pub total_steps: usize,
+}
+
+/// PlanExecutor 步骤级进度事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanExecutorProgress {
+    pub step_id: String,
+    pub capability_id: String,
+    pub status: String, // running | completed | failed
+    pub message: String,
+    pub steps_completed: usize,
+    pub total_steps: usize,
 }
 
 #[cfg(test)]

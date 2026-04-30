@@ -224,9 +224,18 @@ impl AgentService {
             _ => max_tokens,
         };
         let agent_type = task.agent_type;
+        
+        // 发送准备调用LLM事件
+        self.emit_event(&task.id, agent_type, AgentStage::Generating, "准备调用模型...", 0.3);
+        
+        // 发送获取模型配置事件
+        self.emit_event(&task.id, agent_type, AgentStage::Generating, "正在获取模型配置...", 0.32);
+        
         let response = if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
+            self.emit_event(&task.id, agent_type, AgentStage::Generating, &format!("使用指定模型 {} 生成...", model_id), 0.35);
             self.llm_service.generate_with_profile(&model_id, prompt.clone(), effective_max, temperature).await
         } else {
+            self.emit_event(&task.id, agent_type, AgentStage::Generating, "使用默认模型生成...", 0.35);
             self.llm_service.generate(prompt.clone(), effective_max, temperature).await
         }?;
 
@@ -281,10 +290,14 @@ impl AgentService {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
         
-        // 构建写作提示词（根据 tier 决定是否注入高级扩展）
-        let prompt = self.build_writer_prompt(&task, tier);
+        self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "正在读取订阅配置...", 0.12);
         
-        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成内容", 0.3);
+        self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "正在构建写作提示词...", 0.15);
+        // 构建写作提示词（根据 tier 决定是否注入高级扩展）
+        let prompt = self.build_writer_prompt(&task, tier).await;
+        self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "写作提示词构建完成", 0.2);
+        
+        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "准备生成内容...", 0.25);
         
         // Phase 5: 动态生成策略 — 根据故事进度、场景阶段、用户反馈历史调整参数
         let user_temperature = self.llm_service.get_active_profile()
@@ -295,9 +308,12 @@ impl AgentService {
         let story_progress = task.parameters.get("story_progress").and_then(|v| v.as_str());
         let scene_stage = task.parameters.get("current_scene_stage").and_then(|v| v.as_str());
         
+        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在加载用户偏好...", 0.28);
+        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在查询用户反馈历史...", 0.281);
         let (max_tokens, temperature) = {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let generator = crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
+            self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在计算生成策略...", 0.285);
             match generator.build_strategy_with_context(
                 &task.context.story_id, 
                 Some(user_temperature),
@@ -307,10 +323,12 @@ impl AgentService {
                 Ok(strategy) => {
                     log::info!("[AgentService] Adaptive strategy for story {}: progress={:?}, stage={:?}, base_temp={}, adjusted_temp={}, max_tokens={}", 
                         task.context.story_id, story_progress, scene_stage, user_temperature, strategy.temperature, strategy.max_tokens);
+                    self.emit_event(&task.id, task.agent_type, AgentStage::Generating, &format!("生成策略已构建: temperature={:.2}, max_tokens={}", strategy.temperature, strategy.max_tokens), 0.3);
                     (Some(strategy.max_tokens), Some(strategy.temperature))
                 }
                 Err(e) => {
                     log::warn!("[AgentService] Failed to build adaptive strategy: {}, using defaults", e);
+                    self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "使用默认生成策略", 0.3);
                     (Some(2000), Some(user_temperature))
                 }
             }
@@ -654,15 +672,22 @@ impl AgentService {
 
     // ==================== 提示词构建（模板化） ====================
 
-    fn build_writer_prompt(&self, task: &AgentTask, tier: SubscriptionTier) -> String {
+    async fn build_writer_prompt(&self, task: &AgentTask, tier: SubscriptionTier) -> String {
         use crate::prompts::{TemplateEngine, PromptLibrary};
         use std::collections::HashMap;
 
         let ctx = &task.context;
         let has_selection = ctx.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
         let is_pro = tier != SubscriptionTier::Free;
+        let at = task.agent_type;
+        let tid = task.id.clone();
 
-        // 读取写作策略
+        // 辅助：emit + yield，确保前端及时收到事件
+        let emit_and_yield = |msg: &str, prog: f32| {
+            self.emit_event(&tid, at, AgentStage::Thinking, msg, prog);
+        };
+
+        emit_and_yield("正在读取写作策略配置...", 0.15);
         let strategy = {
             let app_dir = self.app_handle
                 .path()
@@ -670,8 +695,9 @@ impl AgentService {
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
             AppConfig::load(&app_dir).ok().map(|c| c.writing_strategy)
         };
+        tokio::task::yield_now().await;
 
-        // 构建模板变量
+        emit_and_yield("正在准备模板变量...", 0.155);
         let mut vars = HashMap::new();
         vars.insert("story_title".to_string(), ctx.story_title.clone());
         vars.insert("genre".to_string(), ctx.genre.clone());
@@ -683,13 +709,17 @@ impl AgentService {
         vars.insert("instruction".to_string(), task.input.clone());
         vars.insert("world_rules".to_string(), ctx.world_rules.clone().unwrap_or_default());
         vars.insert("scene_structure".to_string(), ctx.scene_structure.clone().unwrap_or_default());
+        tokio::task::yield_now().await;
 
+        emit_and_yield("正在渲染系统提示词...", 0.16);
         let mut system_prompt = TemplateEngine::render_with_conditions(
             PromptLibrary::writer_system_template(),
             &vars
         );
+        tokio::task::yield_now().await;
 
         // 注入写作策略约束
+        emit_and_yield("正在注入写作策略约束...", 0.165);
         if let Some(ref ws) = strategy {
             let mut strategy_lines = Vec::new();
 
@@ -735,9 +765,11 @@ impl AgentService {
                 }
             }
         }
+        tokio::task::yield_now().await;
 
         // 注入创作方法论扩展（仅专业版）
         if is_pro {
+            emit_and_yield("正在加载创作方法论...", 0.17);
             if let Some(ref method_id) = ctx.methodology_id {
                 use crate::creative_engine::methodology::{MethodologyConfig, MethodologyType, MethodologyEngine};
                 let method_type = match method_id.as_str() {
@@ -761,8 +793,10 @@ impl AgentService {
                     }
                 }
             }
+            tokio::task::yield_now().await;
 
             // 注入风格（混合优先，单一 DNA 回退，仅专业版）
+            emit_and_yield("正在加载风格 DNA...", 0.175);
             if let Some(ref blend) = ctx.style_blend {
                 use crate::db::DbPool;
                 use crate::db::repositories_v3::StyleDnaRepository;
@@ -804,8 +838,10 @@ impl AgentService {
                     }
                 }
             }
+            tokio::task::yield_now().await;
 
             // 注入个性化偏好（自适应学习，仅专业版）
+            emit_and_yield("正在加载个性化偏好...", 0.18);
             {
                 use crate::db::DbPool;
                 use crate::creative_engine::adaptive::PromptPersonalizer;
@@ -820,9 +856,11 @@ impl AgentService {
                     }
                 }
             }
+            tokio::task::yield_now().await;
         }
 
         // 注入 Canonical State（叙事阶段、伏笔、角色状态、活跃冲突）
+        emit_and_yield("正在构建叙事状态快照...", 0.185);
         {
             use crate::db::DbPool;
             use crate::canonical_state::CanonicalStateManager;
@@ -830,33 +868,45 @@ impl AgentService {
 
             let pool = self.app_handle.state::<DbPool>();
             let cs_manager = CanonicalStateManager::new(pool.inner().clone());
-            if let Ok(snapshot) = tauri::async_runtime::block_on(cs_manager.get_snapshot(&ctx.story_id)) {
+            emit_and_yield("正在读取故事与场景数据...", 0.187);
+            tokio::task::yield_now().await;
+
+            if let Ok(snapshot) = cs_manager.get_snapshot(&ctx.story_id).await {
+                emit_and_yield("正在注入叙事阶段指导...", 0.188);
                 system_prompt.push_str("\n\n【叙事阶段指导】\n");
                 system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
                 system_prompt.push('\n');
+                tokio::task::yield_now().await;
 
                 if !snapshot.story_context.active_conflicts.is_empty() {
+                    emit_and_yield("正在注入活跃冲突信息...", 0.189);
                     system_prompt.push_str("\n【当前活跃冲突】\n");
                     for conflict in &snapshot.story_context.active_conflicts {
                         system_prompt.push_str(&format!("- {}: 涉及 {}, 赌注: {}\n", conflict.conflict_type, conflict.parties.join(", "), conflict.stakes));
                     }
+                    tokio::task::yield_now().await;
                 }
 
                 if !snapshot.story_context.pending_payoffs.is_empty() {
+                    emit_and_yield("正在注入待回收伏笔...", 0.19);
                     system_prompt.push_str("\n【待回收伏笔】\n");
                     for payoff in &snapshot.story_context.pending_payoffs {
                         system_prompt.push_str(&format!("- {}（重要度: {}）\n", payoff.content, payoff.importance));
                     }
+                    tokio::task::yield_now().await;
                 }
 
                 if !snapshot.story_context.overdue_payoffs.is_empty() {
+                    emit_and_yield("正在注入逾期伏笔警告...", 0.191);
                     system_prompt.push_str("\n【⚠️ 逾期伏笔——请在续写中优先回收】\n");
                     for payoff in &snapshot.story_context.overdue_payoffs {
                         system_prompt.push_str(&format!("- {}（重要度: {}）\n", payoff.content, payoff.importance));
                     }
+                    tokio::task::yield_now().await;
                 }
 
                 if !snapshot.character_states.is_empty() {
+                    emit_and_yield("正在注入角色当前状态...", 0.192);
                     system_prompt.push_str("\n【角色当前状态】\n");
                     for cs in &snapshot.character_states {
                         let mut parts = vec![format!("{}:", cs.name)];
@@ -868,10 +918,12 @@ impl AgentService {
                         parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
                         system_prompt.push_str(&format!("- {}\n", parts.join(" ")));
                     }
+                    tokio::task::yield_now().await;
                 }
             }
         }
 
+        emit_and_yield("正在组装最终提示词...", 0.195);
         let user_prompt = if has_selection {
             vars.insert("selected_text".to_string(), ctx.selected_text.clone().unwrap_or_default());
             TemplateEngine::render_with_conditions(
@@ -884,7 +936,9 @@ impl AgentService {
                 &vars
             )
         };
+        tokio::task::yield_now().await;
 
+        emit_and_yield("写作提示词构建完成", 0.20);
         format!("{}\n\n{}", system_prompt, user_prompt)
     }
 
@@ -961,7 +1015,14 @@ impl AgentService {
             progress,
         };
         
-        let _ = self.app_handle.emit(&format!("agent-event-{}", task_id), event);
+        let _ = self.app_handle.emit(&format!("agent-event-{}", task_id), event.clone());
+        // 同时发送全局事件，让前端不需要知道task_id也能监听
+        let _ = self.app_handle.emit("agent-stage-update", serde_json::json!({
+            "agent_type": event.agent_type,
+            "stage": format!("{:?}", stage),
+            "message": event.message,
+            "progress": event.progress,
+        }));
     }
 
     fn calculate_quality_score(&self, content: &str) -> f32 {
