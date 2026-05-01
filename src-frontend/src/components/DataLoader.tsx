@@ -1,34 +1,21 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
-import { healthCheck, listStories } from '@services/tauri';
+import { healthCheck } from '@services/tauri';
 
-// This component handles data loading separately from rendering
-// to prevent React infinite loop issues
+// v5.0.0 修复：DataLoader 不再加载 stories，避免与 App.tsx 的 handleWindowShown 竞态
+// stories 的加载完全由 App.tsx 控制，确保窗口重新显示时数据刷新可靠
 export function DataLoader() {
-  const setStories = useAppStore((s) => s.setStories);
   const setError = useAppStore((s) => s.setError);
   const setIsLoading = useAppStore((s) => s.setIsLoading);
 
-  // First check if Tauri is available
-  const { data: health, isSuccess: isHealthOk } = useQuery({
+  // 只检查 Tauri 是否可用，不加载 stories
+  const { error, isLoading } = useQuery({
     queryKey: ['health'],
     queryFn: healthCheck,
     retry: 2,
     retryDelay: 1000,
     staleTime: 30000,
-    refetchOnWindowFocus: false,
-  });
-
-  // Only load stories after health check passes
-  const { data: stories, error, isLoading } = useQuery({
-    queryKey: ['stories'],
-    queryFn: listStories,
-    // Only enable after health check is successful
-    enabled: isHealthOk,
-    retry: 1,
-    retryDelay: 500,
-    staleTime: 60000,
     refetchOnWindowFocus: false,
   });
 
@@ -43,15 +30,6 @@ export function DataLoader() {
       setError((error as Error).message);
     }
   }, [error, setError]);
-
-  // Sync stories to store whenever data changes (not just first time)
-  // This ensures that when the window is re-shown after being hidden,
-  // the latest stories are always synced to the store.
-  useEffect(() => {
-    if (stories) {
-      setStories(stories);
-    }
-  }, [stories, setStories]);
 
   // This component doesn't render anything visible
   return null;

@@ -146,6 +146,9 @@ impl NovelBootstrapWorkflow {
             Ok(w) => w,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 世界观生成失败 for story {}: {}", story_id, e);
+                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                    "step": "world_building", "story_id": story_id, "error": e
+                }));
                 WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] }
             }
         };
@@ -156,6 +159,9 @@ impl NovelBootstrapWorkflow {
             Ok(o) => o,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 故事大纲生成失败 for story {}: {}", story_id, e);
+                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                    "step": "story_outline", "story_id": story_id, "error": e
+                }));
                 StoryOutlineData { acts: vec![] }
             }
         };
@@ -169,6 +175,9 @@ impl NovelBootstrapWorkflow {
             Ok(c) => c,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 角色生成失败 for story {}: {}", story_id, e);
+                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                    "step": "characters", "story_id": story_id, "error": e
+                }));
                 vec![]
             }
         };
@@ -179,6 +188,9 @@ impl NovelBootstrapWorkflow {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 场景大纲生成失败 for story {}: {}", story_id, e);
+                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                    "step": "scenes", "story_id": story_id, "error": e
+                }));
                 vec![]
             }
         };
@@ -192,6 +204,9 @@ impl NovelBootstrapWorkflow {
             Ok(f) => f,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 伏笔生成失败 for story {}: {}", story_id, e);
+                let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                    "step": "foreshadowing", "story_id": story_id, "error": e
+                }));
                 vec![]
             }
         };
@@ -200,6 +215,9 @@ impl NovelBootstrapWorkflow {
         self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在构建知识图谱...");
         if let Err(e) = self.create_genesis_knowledge_graph(&story_id, &characters, &scenes, &foreshadowings).await {
             log::warn!("[NovelBootstrapWorkflow] 知识图谱构建失败 for story {}: {}", story_id, e);
+            let _ = self.app_handle.emit("novel-bootstrap-error", serde_json::json!({
+                "step": "knowledge_graph", "story_id": story_id, "error": e
+            }));
         } else {
             self.emit_progress(&session_id, "塑造世界", 4, total_steps, "知识图谱已构建");
         }

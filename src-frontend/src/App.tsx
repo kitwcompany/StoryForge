@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
@@ -26,6 +27,7 @@ import type { ViewType, Story } from '@/types';
 import toast from 'react-hot-toast';
 
 function App() {
+  const queryClient = useQueryClient();
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -126,6 +128,14 @@ function App() {
           }
           useAppStore.getState().setStories(stories);
         }
+        // 强制刷新所有 TanStack Query 缓存，确保各页面重新获取数据
+        queryClient.invalidateQueries({ queryKey: ['characters'] });
+        queryClient.invalidateQueries({ queryKey: ['scenes'] });
+        queryClient.invalidateQueries({ queryKey: ['foreshadowings'] });
+        queryClient.invalidateQueries({ queryKey: ['story-outlines'] });
+        queryClient.invalidateQueries({ queryKey: ['world-building'] });
+        queryClient.invalidateQueries({ queryKey: ['knowledge-graph'] });
+        queryClient.invalidateQueries({ queryKey: ['character-relationships'] });
         // 触发全局数据刷新事件，让各页面重新获取数据
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
         // 强制触发 resize 帮助重绘
@@ -153,7 +163,7 @@ function App() {
     return () => {
       if (unlistenShown) unlistenShown();
     };
-  }, []);
+  }, [queryClient]);
 
   const renderView = () => {
     switch (currentView) {

@@ -1655,7 +1655,20 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
         window
     };
 
-    // v5.0.0 修复：强制 WebView 重排/重绘，防止隐藏后重新显示出现白屏
+    // v5.0.0 修复：强制 WebView2 重新创建渲染表面，防止 hide/show 后白屏
+    // 方法：微调窗口大小再恢复，触发 WebView2 重绘
+    if let Ok(size) = window.inner_size() {
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: size.width + 1,
+            height: size.height,
+        }));
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: size.width,
+            height: size.height,
+        }));
+    }
+
+    // 执行 JS 强制重排
     let _ = window.eval(r#"
         (function() {
             const body = document.body;
@@ -1669,13 +1682,19 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
         })();
     "#);
 
-    // 通知前端窗口已显示，需要刷新数据（解决 bootstrap 完成时 backstage 被隐藏导致事件丢失的问题）
-    let _ = window.emit("backstage-shown", serde_json::json!({
-        "timestamp": std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    }));
+    // 延迟发射 backstage-shown 事件，确保前端监听器已就绪
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        if let Some(window) = app_handle.get_webview_window("backstage") {
+            let _ = window.emit("backstage-shown", serde_json::json!({
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            }));
+        }
+    });
 
     Ok(())
 }
