@@ -2,6 +2,28 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.1.0] - 幕前幕后自动关联对齐（2026-05-01）
+
+### 🎯 幕前幕后自动关联
+- **Chapter↔Scene 双向映射**：Migration 37 新增 `chapters.scene_id` + `scenes.chapter_id` 外键关联，`ChapterRepository::create` 事务内自动查找/创建关联 Scene
+- **统一实时状态中心**：后端 `state_sync` 模块（`events.rs` + `service.rs` + `mod.rs`），定义 18 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件到 `sync-event` 频道
+- **前端 useSyncStore Hook**：监听 `sync-event`，根据事件类型自动 `invalidateQueries` / `removeQueries`，实现前后台数据零延迟对齐
+- **Bootstrap 完成后幕前自动加载**：`smartExecute` 返回后检测 `story_created:` 消息自动加载新故事并切换第一章；Bootstrap 完成后双重 `ChapterSwitch` 保险
+- **幕前→幕后快速跳转**：`Ctrl+Shift+B` 快捷键，标题栏点击，`show_backstage` 接收 `story_id` 参数，幕后自动定位当前故事
+
+### 🎯 后台自动化对齐
+- **AgentOrchestrator 闭环接入**：`execute_writer` 集成 `AgentOrchestrator::execute_write_with_inspection`，Writer→Inspector→StyleChecker→Writer 自动质检改写生效；修复递归 async fn 调用（`Box::pin`）
+- **自适应学习闭环激活**：`AdaptiveLearningEngine::record_feedback` 成功后 `std::thread::spawn` 异步触发 `mine_preferences`，偏好挖掘自动运行
+
+### 🎯 状态管理与数据流优化
+- **Zustand↔TanStack Query 同步**：`App.tsx` 使用 `useAppStore` 订阅 `currentStory`，`useEffect` 监听变化自动刷新关联数据缓存
+- **窗口通信事件标准化**：`DataRefresh` 统一由 `useSyncStore` 处理，移除 `backstage-update` 和 `handleWindowShown` 中的重复 `invalidateQueries`
+
+### 编译与测试
+- `cargo check`：零错误
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+
 ## [v5.0.0] - 创世引擎：一键创世，万物关联（2026-04-30）
 
 ### 🎯 创世引擎 (Genesis Engine)

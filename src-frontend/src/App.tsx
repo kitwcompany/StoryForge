@@ -21,6 +21,7 @@ import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
+import { useSyncStore } from '@/hooks/useSyncStore';
 import { LoginModal } from '@/pages/Login';
 import { useAppStore } from '@/stores/appStore';
 import type { ViewType, Story } from '@/types';
@@ -28,6 +29,37 @@ import toast from 'react-hot-toast';
 
 function App() {
   const queryClient = useQueryClient();
+  
+  // v5.1.0: Zustand↔TanStack Query 状态同步 — currentStory 变化时自动刷新关联数据
+  const currentStory = useAppStore((state) => state.currentStory);
+  useEffect(() => {
+    if (currentStory?.id) {
+      queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['chapters', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['world-building', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['foreshadowings', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['story-outlines', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['knowledge-graph', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['character-relationships', currentStory.id] });
+    }
+  }, [currentStory?.id, queryClient]);
+  
+  // 统一实时状态同步中心：监听后端数据变更事件，自动刷新缓存
+  useSyncStore({
+    onStoryCreated: (storyId) => {
+      toast.success('新故事已创建');
+      window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'stories' }));
+    },
+    onStoryUpdated: () => {
+      window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'stories' }));
+    },
+    onStoryDeleted: () => {
+      toast('故事已删除', { icon: '🗑️' });
+      window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'stories' }));
+    },
+  });
+  
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -87,20 +119,7 @@ function App() {
             case 'FrontstageFocused':
               setIsFrontstageOpen(true);
               break;
-            case 'DataRefresh':
-              const entity = payload?.entity || 'data';
-              toast(`幕后${entity}已更新`, { icon: '🔄' });
-              // 强制刷新相关 TanStack Query 缓存
-              queryClient.invalidateQueries({ queryKey: ['stories'] });
-              queryClient.invalidateQueries({ queryKey: ['characters'] });
-              queryClient.invalidateQueries({ queryKey: ['scenes'] });
-              queryClient.invalidateQueries({ queryKey: ['foreshadowings'] });
-              queryClient.invalidateQueries({ queryKey: ['story-outlines'] });
-              queryClient.invalidateQueries({ queryKey: ['world-building'] });
-              queryClient.invalidateQueries({ queryKey: ['knowledge-graph'] });
-              queryClient.invalidateQueries({ queryKey: ['character-relationships'] });
-              window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: entity }));
-              break;
+            // DataRefresh 已统一由 useSyncStore 处理，避免重复刷新
             case 'NavigateTo':
               const targetView = payload?.view || 'dashboard';
               setCurrentView(targetView as ViewType);
@@ -142,15 +161,8 @@ function App() {
           }
           useAppStore.getState().setStories(stories);
         }
-        // 强制刷新所有 TanStack Query 缓存，确保各页面重新获取数据
+        // v5.1.0: 简化刷新逻辑 — stories 刷新后，currentStory useEffect 会自动刷新关联数据
         queryClient.invalidateQueries({ queryKey: ['stories'] });
-        queryClient.invalidateQueries({ queryKey: ['characters'] });
-        queryClient.invalidateQueries({ queryKey: ['scenes'] });
-        queryClient.invalidateQueries({ queryKey: ['foreshadowings'] });
-        queryClient.invalidateQueries({ queryKey: ['story-outlines'] });
-        queryClient.invalidateQueries({ queryKey: ['world-building'] });
-        queryClient.invalidateQueries({ queryKey: ['knowledge-graph'] });
-        queryClient.invalidateQueries({ queryKey: ['character-relationships'] });
         // 触发全局数据刷新事件，让各页面重新获取数据
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
         // 强制触发 resize 帮助重绘

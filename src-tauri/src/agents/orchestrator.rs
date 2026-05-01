@@ -119,7 +119,7 @@ impl AgentOrchestrator {
 
         // 步骤1: Writer 生成初稿
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
-        let writer_result = self.service.execute_task(task.clone()).await?;
+        let writer_result = Box::pin(self.service.execute_task(task.clone())).await?;
         let mut current_content = writer_result.content.clone();
 
         steps.push(WorkflowStepResult {
@@ -143,7 +143,7 @@ impl AgentOrchestrator {
                 tier: None,
             };
 
-            let inspect_result = self.service.execute_task(inspect_task).await?;
+            let inspect_result = Box::pin(self.service.execute_task(inspect_task)).await?;
             let mut inspect_score = inspect_result.score.unwrap_or(0.0);
             let mut style_issues = Vec::new();
 
@@ -241,7 +241,7 @@ impl AgentOrchestrator {
                 tier: None,
             };
 
-            let rewrite_result = self.service.execute_task(rewrite_task).await?;
+            let rewrite_result = Box::pin(self.service.execute_task(rewrite_task)).await?;
             current_content = rewrite_result.content.clone();
 
             self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), rewrite_result.score);

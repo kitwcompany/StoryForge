@@ -88,6 +88,7 @@ export interface Chapter {
   chapter_number: number;
   status: 'draft' | 'outline' | 'completed';
   word_count?: number;
+  scene_id?: string;
   created_at: string;
   updated_at: string;
 }

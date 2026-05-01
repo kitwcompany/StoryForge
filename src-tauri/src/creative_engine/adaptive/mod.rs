@@ -30,10 +30,26 @@ impl AdaptiveLearningEngine {
         Self { pool }
     }
 
-    /// 记录用户反馈
+    /// 记录用户反馈（成功后异步触发偏好挖掘，激活自适应学习闭环）
     pub fn record_feedback(&self, event: FeedbackEvent) -> Result<(), String> {
         let recorder = FeedbackRecorder::new(self.pool.clone());
-        recorder.record(event)
+        let result = recorder.record(event.clone());
+        if result.is_ok() {
+            let pool = self.pool.clone();
+            let story_id = event.story_id.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let miner = PreferenceMiner::new(pool);
+                match miner.mine(&story_id) {
+                    Ok(prefs) if !prefs.is_empty() => {
+                        log::info!("[AdaptiveLearning] Mined {} preferences for story {}", prefs.len(), story_id);
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::warn!("[AdaptiveLearning] Preference mining failed: {}", e),
+                }
+            });
+        }
+        result
     }
 
     /// 挖掘故事偏好

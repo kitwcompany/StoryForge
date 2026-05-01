@@ -55,6 +55,9 @@ pub struct Scene {
     
     // 关联伏笔ID列表 (v5.0.0 - 创世引擎)
     pub foreshadowing_ids: Option<Vec<String>>,
+    
+    // 关联的章节ID (v5.1.0 - Chapter↔Scene双轨映射)
+    pub chapter_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

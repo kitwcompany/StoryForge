@@ -27,12 +27,50 @@ impl SceneRepository {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        conn.execute(
-            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, execution_stage, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        
+        // 1. 先插入 scene（chapter_id 暂时为 NULL，避免外键约束冲突）
+        tx.execute(
+            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, execution_stage, chapter_id, created_at, updated_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9)",
             params![&id, story_id, sequence_number, title, "[]", "[]", "drafting", now.to_rfc3339(), now.to_rfc3339()],
         )?;
+        
+        // 2. 查找或创建关联 chapter
+        let existing_chapter: Option<String> = tx.query_row(
+            "SELECT id FROM chapters WHERE story_id = ?1 AND chapter_number = ?2",
+            params![story_id, sequence_number],
+            |row| row.get(0)
+        ).optional()?;
+        
+        let chapter_id = if let Some(chapter_id) = existing_chapter {
+            // Link to existing chapter
+            tx.execute(
+                "UPDATE chapters SET scene_id = ?1 WHERE id = ?2",
+                params![&id, &chapter_id],
+            )?;
+            Some(chapter_id)
+        } else {
+            // Create a new chapter linked to this scene
+            let chapter_id = Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO chapters (id, story_id, chapter_number, title, word_count, model_used, cost, scene_id, created_at, updated_at) 
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![&chapter_id, story_id, sequence_number, title, 0, "", 0.0, &id, now.to_rfc3339(), now.to_rfc3339()],
+            )?;
+            Some(chapter_id)
+        };
+        
+        // 3. 更新 scene 的 chapter_id（此时 chapter 已存在，外键约束满足）
+        if let Some(ref cid) = chapter_id {
+            tx.execute(
+                "UPDATE scenes SET chapter_id = ?1 WHERE id = ?2",
+                params![cid, &id],
+            )?;
+        }
+        
+        tx.commit()?;
         
         Ok(Scene {
             id,
@@ -60,6 +98,7 @@ impl SceneRepository {
             confidence_score: None,
             style_blend_override: None,
             foreshadowing_ids: None,
+            chapter_id,
         })
     }
 
@@ -69,7 +108,7 @@ impl SceneRepository {
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids
+                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id
              FROM scenes WHERE story_id = ?1 ORDER BY sequence_number"
         )?;
 
@@ -117,6 +156,7 @@ impl SceneRepository {
                 draft_content,
                 style_blend_override: row.get(23)?,
                 foreshadowing_ids,
+                chapter_id: row.get(25)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -129,7 +169,7 @@ impl SceneRepository {
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids
+                    execution_stage, outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id
              FROM scenes WHERE id = ?1"
         )?;
 
@@ -177,6 +217,7 @@ impl SceneRepository {
                 draft_content,
                 style_blend_override: row.get(23)?,
                 foreshadowing_ids,
+                chapter_id: row.get(25)?,
             })
         }).optional()?;
 
@@ -184,10 +225,12 @@ impl SceneRepository {
     }
 
     pub fn update(&self, id: &str, updates: &SceneUpdate) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         
-        let count = conn.execute(
+        let tx = conn.transaction()?;
+        
+        let count = tx.execute(
             "UPDATE scenes SET 
                 title = COALESCE(?2, title),
                 dramatic_goal = COALESCE(?3, dramatic_goal),
@@ -229,9 +272,26 @@ impl SceneRepository {
                 updates.draft_content,
                 updates.style_blend_override,
                 updates.foreshadowing_ids.as_ref().map(|c| serde_json::to_string(c).unwrap()),
-                now
+                &now
             ],
         )?;
+        
+        // Sync associated chapter if title or content changed
+        if updates.title.is_some() || updates.content.is_some() {
+            let chapter_id: Option<String> = tx.query_row(
+                "SELECT chapter_id FROM scenes WHERE id = ?1",
+                [id],
+                |row| row.get(0)
+            ).optional()?;
+            if let Some(cid) = chapter_id {
+                tx.execute(
+                    "UPDATE chapters SET title = COALESCE(?2, title), content = COALESCE(?3, content), updated_at = ?4 WHERE id = ?1",
+                    params![cid, &updates.title, &updates.content, &now],
+                )?;
+            }
+        }
+        
+        tx.commit()?;
         Ok(count)
     }
 

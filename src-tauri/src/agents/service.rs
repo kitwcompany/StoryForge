@@ -391,8 +391,35 @@ impl AgentService {
             }
         }
         
+        // v5.1.0: AgentOrchestrator 闭环 — Writer → Inspector → StyleChecker → Writer(改写)
+        let final_content = {
+            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                self.clone(),
+                self.app_handle.clone(),
+            );
+            match orchestrator.execute_write_with_inspection(task.clone()).await {
+                Ok(workflow_result) => {
+                    log::info!(
+                        "[AgentOrchestrator] Workflow completed: score={:.2}, rewritten={}",
+                        workflow_result.final_score, workflow_result.was_rewritten
+                    );
+                    // 将 Orchestrator 步骤中的建议合并
+                    for step in &workflow_result.steps {
+                        if !step.suggestions.is_empty() {
+                            suggestions.extend(step.suggestions.clone());
+                        }
+                    }
+                    workflow_result.final_content
+                }
+                Err(e) => {
+                    log::warn!("[AgentOrchestrator] Workflow failed: {}, using original content", e);
+                    response.content
+                }
+            }
+        };
+
         // AfterAiWrite hook
-        let content_for_hook = response.content.clone();
+        let content_for_hook = final_content.clone();
         if let Some(manager) = crate::SKILL_MANAGER.get() {
             if let Ok(skill_manager) = manager.lock() {
                 let story_id = task.context.story_id.clone();
@@ -409,7 +436,7 @@ impl AgentService {
         }
 
         Ok(AgentResult {
-            content: response.content,
+            content: final_content,
             score: Some(score),
             suggestions,
         })

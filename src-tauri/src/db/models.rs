@@ -50,6 +50,8 @@ pub struct Chapter {
     pub word_count: Option<i32>,
     pub model_used: Option<String>,
     pub cost: Option<f64>,
+    /// 关联的场景ID (v5.1.0 - Chapter↔Scene双轨映射)
+    pub scene_id: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }

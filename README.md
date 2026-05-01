@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.0.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.1.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.0.0 最新更新**：创世引擎 — 一键创世，万物关联。输入一句话，系统自动在幕后所有对应栏目中创建完整关联卡片。新增故事大纲自动生成、角色完整性格小传入库、角色关系图谱、伏笔自动埋设、知识图谱自动构建、前后台智能联动导航。
+> **v5.1.0 最新更新**：幕前幕后自动关联对齐 — 从"各自为战"到"自动联动"。Chapter↔Scene 双向映射、统一实时状态中心（所有数据修改自动同步）、Bootstrap 完成后幕前自动加载并切换第一章、Ctrl+Shift+B 一键回幕后并定位当前故事、AgentOrchestrator 闭环接入（Writer→Inspector→StyleChecker→Writer 自动质检改写）、自适应学习闭环激活、Zustand↔TanStack Query 状态同步、窗口通信事件标准化。
+>
+> **v5.0.0 更新**：创世引擎 — 一键创世，万物关联。输入一句话，系统自动在幕后所有对应栏目中创建完整关联卡片。新增故事大纲自动生成、角色完整性格小传入库、角色关系图谱、伏笔自动埋设、知识图谱自动构建、前后台智能联动导航。
 >
 > **v4.3.0 最新更新**：智能交互创作流程深度优化 — 从"能创作"到"懂创作"。输入"写一稿都市玄幻小说"等创建意图后，**系统直接生成小说正文开头并以 ghost text 展示**，同时在后台自动完成 5 步初始化（故事概念→世界观→角色→场景→第一章），无需等待即可看到正文；PlanGenerator全面模型化，彻底移除关键词匹配，LLM自由理解意图，新增规则确保"写小说"类意图**强制调用 Writer 生成正文**而非返回大纲分析；新增设定修改智能响应（角色/世界观/场景自动更新并标记重写）；CapabilityRegistry扩展MCP工具和查询能力；PlanContext注入世界观、角色、伏笔、风格DNA等完整上下文，续写时真正"记得"故事的一切。
 >
@@ -200,7 +202,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.0.0  
+**当前版本**: v5.1.0  
 **最后更新**: 2026-04-30  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
@@ -511,6 +513,26 @@ v2-rust/
 ---
 
 ## 📅 更新历史
+
+### v5.1.0 (2026-05-01) - 幕前幕后自动关联对齐
+
+> **核心理念**：从"各自为战"到"自动联动"。所有数据修改自动同步，前后台零延迟对齐。
+
+**幕前幕后自动关联**
+- **Chapter↔Scene 双向映射** — Migration 37 建立双向外键关联，ChapterRepository 自动查找/创建关联 Scene
+- **统一实时状态中心** — 后端 `state_sync` 模块定义 18 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件
+- **前端 useSyncStore Hook** — 监听 `sync-event` 频道，根据事件类型自动 `invalidateQueries` / `removeQueries`
+- **Bootstrap 完成后幕前自动加载** — `smartExecute` 返回后检测 `story_created:` 消息，自动加载新故事并切换到第一章；Bootstrap 完成后双重 `ChapterSwitch` 保险
+- **幕前→幕后快速跳转** — `Ctrl+Shift+B` 快捷键，标题栏点击，幕后自动定位当前故事并高亮
+- **AgentOrchestrator 闭环接入** — `execute_writer` 集成 `AgentOrchestrator::execute_write_with_inspection`，Writer→Inspector→StyleChecker→Writer 自动质检改写生效
+- **自适应学习闭环激活** — `record_feedback` 成功后异步触发 `mine_preferences`，偏好挖掘自动运行
+- **Zustand↔TanStack Query 同步** — `App.tsx` 监听 `currentStory` 变化，自动刷新关联数据缓存
+- **窗口通信事件标准化** — `DataRefresh` 统一由 `useSyncStore` 处理，消除 `backstage-update` 和 `handleWindowShown` 中的重复刷新
+
+**编译与测试**
+- `cargo check`：零错误
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
 
 ### v5.0.0 (2026-04-30) - 创世引擎：一键创世，万物关联
 

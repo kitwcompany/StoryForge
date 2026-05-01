@@ -34,6 +34,7 @@ mod capabilities;
 mod planner;
 mod audit;
 mod auth;
+mod state_sync;
 
 #[cfg(test)]
 mod test_utils;
@@ -581,8 +582,10 @@ fn list_stories() -> Result<Vec<db::Story>, String> {
 }
 
 #[tauri::command]
-fn create_story(title: String, description: Option<String>, genre: Option<String>) -> Result<db::Story, String> {
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre, style_dna_id: None }).map_err(|e| e.to_string())
+fn create_story(title: String, description: Option<String>, genre: Option<String>, app: AppHandle) -> Result<db::Story, String> {
+    let story = StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre, style_dna_id: None }).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
+    Ok(story)
 }
 
 #[tauri::command]
@@ -595,14 +598,19 @@ fn update_story(
     style_dna_id: Option<String>,
     methodology_id: Option<String>,
     methodology_step: Option<i32>,
+    app: AppHandle,
 ) -> Result<(), String> {
-    let req = db::UpdateStoryRequest { title, description, tone, pacing, style_dna_id, methodology_id, methodology_step };
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| e.to_string()).map(|_| ())
+    let req = db::UpdateStoryRequest { title: title.clone(), description: description.clone(), tone, pacing, style_dna_id, methodology_id, methodology_step };
+    StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_story_updated(&app, &id, title.as_deref());
+    Ok(())
 }
 
 #[tauri::command]
-fn delete_story(id: String) -> Result<(), String> {
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string()).map(|_| ())
+fn delete_story(id: String, app: AppHandle) -> Result<(), String> {
+    StoryRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_story_deleted(&app, &id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -611,8 +619,8 @@ fn get_story_characters(story_id: String) -> Result<Vec<db::Character>, String> 
 }
 
 #[tauri::command]
-fn create_character(story_id: String, name: String, background: Option<String>) -> Result<db::Character, String> {
-    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id, name, background, personality: None, goals: None, appearance: None, gender: None, age: None }).map_err(|e| e.to_string())?;
+fn create_character(story_id: String, name: String, background: Option<String>, app: AppHandle) -> Result<db::Character, String> {
+    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality: None, goals: None, appearance: None, gender: None, age: None }).map_err(|e| e.to_string())?;
 
     // OnCharacterCreate hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -630,17 +638,22 @@ fn create_character(story_id: String, name: String, background: Option<String>) 
         }
     }
 
+    let _ = crate::state_sync::StateSync::emit_character_created(&app, &story_id, &character.id, &character.name);
     Ok(character)
 }
 
 #[tauri::command]
-fn update_character(id: String, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>) -> Result<(), String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, name, background, personality, goals, None, None, None).map_err(|e| e.to_string()).map(|_| ())
+fn update_character(id: String, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, app: AppHandle) -> Result<(), String> {
+    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, name.clone(), background, personality, goals, None, None, None).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref());
+    Ok(())
 }
 
 #[tauri::command]
-fn delete_character(id: String) -> Result<(), String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string()).map(|_| ())
+fn delete_character(id: String, app: AppHandle) -> Result<(), String> {
+    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -655,20 +668,23 @@ fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
 
 #[tauri::command]
 fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle) -> Result<(), String> {
-    let result = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, title, outline, content, word_count).map_err(|e| e.to_string());
+    let result = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, title.clone(), outline, content, word_count).map_err(|e| e.to_string());
     if result.is_ok() {
         let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
+        let _ = crate::state_sync::StateSync::emit_chapter_updated(&app, &id, title.as_deref());
     }
     result.map(|_| ())
 }
 
 #[tauri::command]
-fn delete_chapter(id: String) -> Result<(), String> {
-    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string()).map(|_| ())
+fn delete_chapter(id: String, app: AppHandle) -> Result<(), String> {
+    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id);
+    Ok(())
 }
 
 #[tauri::command]
-fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, outline: Option<String>, content: Option<String>) -> Result<db::Chapter, String> {
+fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, outline: Option<String>, content: Option<String>, app: AppHandle) -> Result<db::Chapter, String> {
     let repo = ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
 
     // 如果该 chapter_number 已存在，直接返回已有章节（幂等）
@@ -679,7 +695,7 @@ fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, 
         }
     }
 
-    let req = CreateChapterRequest { story_id, chapter_number, title, outline, content };
+    let req = CreateChapterRequest { story_id: story_id.clone(), chapter_number, title: title.clone(), outline, content };
     let chapter = repo.create(req).map_err(|e| e.to_string())?;
 
     // AfterChapterSave hook
@@ -698,6 +714,11 @@ fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, 
         }
     }
 
+    let _ = crate::state_sync::StateSync::emit_chapter_created(&app, &story_id, &chapter.id, title.as_deref());
+    // 同时发射 Scene 更新事件（chapter 创建会自动创建/关联 scene）
+    if let Some(ref scene_id) = chapter.scene_id {
+        let _ = crate::state_sync::StateSync::emit_scene_updated(&app, &story_id, scene_id, title.as_deref());
+    }
     Ok(chapter)
 }
 
@@ -1057,9 +1078,12 @@ async fn smart_execute(
 
     if is_bootstrap_intent {
         log::info!("[smart_execute] Detected novel creation intent, starting NovelBootstrapWorkflow");
-        let bootstrap = planner::bootstrap::NovelBootstrapWorkflow::new(app_handle);
+        let bootstrap = planner::bootstrap::NovelBootstrapWorkflow::new(app_handle.clone());
         match bootstrap.run(&user_input).await {
             Ok(session) => {
+                if let Some(ref story_id) = session.story_id {
+                    let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, story_id, "新故事");
+                }
                 return Ok(planner::PlanExecutionResult {
                     success: true,
                     steps_completed: session.total_steps,
@@ -1633,7 +1657,7 @@ fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), 
 
 /// 显示 backstage 窗口
 #[tauri::command]
-fn show_backstage(app: AppHandle) -> Result<(), String> {
+fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String> {
     let window = if let Some(window) = app.get_webview_window("backstage") {
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
@@ -1684,6 +1708,7 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
 
     // 延迟发射 backstage-shown 事件，确保前端监听器已就绪
     let app_handle = app.clone();
+    let story_id_clone = story_id.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         if let Some(window) = app_handle.get_webview_window("backstage") {
@@ -1691,10 +1716,23 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
                 "timestamp": std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_millis()
+                    .as_millis(),
+                "story_id": story_id_clone
             }));
         }
     });
+
+    // v5.1.0: 如果提供了 story_id，同时发射 NavigateTo 事件让幕后自动定位
+    if let Some(sid) = story_id {
+        let _ = crate::window::WindowManager::send_to_backstage(
+            &app,
+            crate::window::BackstageEvent::NavigateTo {
+                view: "stories".to_string(),
+                highlight_story_id: Some(sid),
+                open_panel: Some("overview".to_string()),
+            }
+        );
+    }
 
     Ok(())
 }

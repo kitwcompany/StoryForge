@@ -57,6 +57,7 @@ export interface Scene {
   previous_scene_id?: string;
   next_scene_id?: string;
   foreshadowing_ids?: string[];
+  chapter_id?: string;
   
   // 元数据
   model_used?: string;

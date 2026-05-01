@@ -27,6 +27,7 @@ pub async fn create_scene(
     content: Option<String>,
     confidence_score: Option<f32>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<Scene, String> {
     let repo = SceneRepository::new(pool.inner().clone());
     let scene = repo.create(&story_id, sequence_number, title.as_deref())
@@ -81,6 +82,7 @@ pub async fn create_scene(
         }
     }
 
+    let _ = crate::state_sync::StateSync::emit_scene_created(&app_handle, &story_id, &scene.id, scene.title.as_deref());
     Ok(scene)
 }
 
@@ -112,6 +114,8 @@ pub async fn update_scene(
     app_handle: AppHandle,
 ) -> Result<usize, String> {
     let repo = SceneRepository::new(pool.inner().clone());
+    // 获取 story_id 用于同步事件
+    let story_id = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id).unwrap_or_default();
     let result = repo.update(&scene_id, &updates)
         .map_err(|e| e.to_string())?;
 
@@ -195,6 +199,9 @@ pub async fn update_scene(
         });
     }
 
+    if !story_id.is_empty() {
+        let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, &story_id, &scene_id, updates.title.as_deref());
+    }
     Ok(result)
 }
 
@@ -202,17 +209,24 @@ pub async fn update_scene(
 pub async fn delete_scene(
     scene_id: String,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<usize, String> {
     let repo = SceneRepository::new(pool.inner().clone());
-    repo.delete(&scene_id)
-        .map_err(|e| e.to_string())
+    let story_id = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id);
+    let result = repo.delete(&scene_id)
+        .map_err(|e| e.to_string())?;
+    if let Some(story_id) = story_id {
+        let _ = crate::state_sync::StateSync::emit_scene_deleted(&app_handle, &story_id, &scene_id);
+    }
+    Ok(result)
 }
 
 #[command]
 pub async fn reorder_scenes(
-    _story_id: String,
+    story_id: String,
     scene_ids: Vec<String>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
     let repo = SceneRepository::new(pool.inner().clone());
     
@@ -221,6 +235,7 @@ pub async fn reorder_scenes(
             .map_err(|e| e.to_string())?;
     }
     
+    let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, &story_id, &scene_ids.first().cloned().unwrap_or_default(), None);
     Ok(())
 }
 
@@ -231,10 +246,13 @@ pub async fn create_world_building(
     story_id: String,
     concept: String,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<WorldBuilding, String> {
     let repo = WorldBuildingRepository::new(pool.inner().clone());
-    repo.create(&story_id, &concept)
-        .map_err(|e| e.to_string())
+    let wb = repo.create(&story_id, &concept)
+        .map_err(|e| e.to_string())?;
+    let _ = crate::state_sync::StateSync::emit_story_updated(&app_handle, &story_id, None);
+    Ok(wb)
 }
 
 #[command]
@@ -255,18 +273,22 @@ pub async fn update_world_building(
     history: Option<String>,
     cultures: Option<Vec<Culture>>,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<usize, String> {
     let repo = WorldBuildingRepository::new(pool.inner().clone());
     let result = repo.update(&id, concept.as_deref(), rules.as_deref(), history.as_deref(), cultures.as_deref())
         .map_err(|e| e.to_string())?;
 
     // OnWorldBuildingUpdate hook
-    let story_id_for_hook = pool.inner().get().ok().and_then(|c| {
+    let story_id_for_sync = pool.inner().get().ok().and_then(|c| {
         c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
             row.get::<_, String>(0)
         }).ok()
     });
-    if let Some(story_id) = story_id_for_hook {
+    if let Some(ref story_id) = story_id_for_sync {
+        let _ = crate::state_sync::StateSync::emit_story_updated(&app_handle, story_id, None);
+    }
+    if let Some(story_id) = story_id_for_sync {
         if let Some(manager) = crate::SKILL_MANAGER.get() {
             if let Ok(skill_manager) = manager.lock() {
                 let world_building_id = id.clone();

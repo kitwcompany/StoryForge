@@ -13,6 +13,8 @@ import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
+import { useSyncStore } from '@/hooks/useSyncStore';
+import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
@@ -94,6 +96,7 @@ interface Chapter {
   title?: string;
   chapter_number: number;
   content?: string;
+  scene_id?: string;
 }
 
 interface FrontstageEvent {
@@ -118,7 +121,9 @@ const FrontstageApp: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   const [content, setContent] = useState('');
   const [isSaved, setIsSaved] = useState(true);
   const [generatedText, setGeneratedText] = useState('');
@@ -137,6 +142,18 @@ const FrontstageApp: React.FC = () => {
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
+  // 统一实时状态同步中心：幕前监听后台数据变更，自动刷新本地状态
+  // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
+  useSyncStore({
+    onStoryCreated: (storyId, title) => {
+      toast.success(`故事「${title || '新故事'}」已创建`);
+      loadStories();
+    },
+    onStoryDeleted: () => {
+      loadStories();
+    },
+  });
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState('');
   const [orchestratorStatus, setOrchestratorStatus] = useState<{
@@ -295,8 +312,10 @@ const FrontstageApp: React.FC = () => {
                     const targetStory = allStories.find(s => s.id === payload.story_id);
                     if (targetStory) {
                       const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
+                      const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
                       setCurrentStory(targetStory);
                       setChapters(storyChapters);
+                      setScenes(storyScenes);
                       const targetChapter = storyChapters.find(c => c.id === payload.chapter_id);
                       if (targetChapter) {
                         selectChapter(targetChapter);
@@ -440,7 +459,7 @@ const FrontstageApp: React.FC = () => {
       const result = await invoke<Story[]>('list_stories');
       setStories(result);
       if (result.length > 0 && !currentStory) {
-        selectStory(result[0]);
+        await selectStory(result[0]);
       }
     } catch (e) {
       console.error('Failed to load stories:', e);
@@ -450,12 +469,17 @@ const FrontstageApp: React.FC = () => {
   const selectStory = async (story: Story) => {
     setCurrentStory(story);
     try {
-      const result = await invoke<Chapter[]>('get_story_chapters', { story_id: story.id });
+      const [result, scenesResult] = await Promise.all([
+        invoke<Chapter[]>('get_story_chapters', { story_id: story.id }),
+        invoke<Scene[]>('get_story_scenes', { story_id: story.id }),
+      ]);
       setChapters(result);
+      setScenes(scenesResult);
       if (result.length > 0) {
         selectChapter(result[0]);
       } else {
         setCurrentChapter(null);
+        setCurrentScene(null);
         setContent('');
       }
     } catch (e) {
@@ -471,6 +495,14 @@ const FrontstageApp: React.FC = () => {
     setCurrentChapter(chapter);
     setContent(chapter.content || '');
     setIsSaved(true);
+
+    // Sync currentScene if chapter has associated scene
+    if (chapter.scene_id) {
+      const associatedScene = scenes.find(s => s.id === chapter.scene_id);
+      setCurrentScene(associatedScene || null);
+    } else {
+      setCurrentScene(null);
+    }
   };
 
   const handleContentChange = useCallback(async (newContent: string) => {
@@ -511,7 +543,7 @@ const FrontstageApp: React.FC = () => {
 
   const openBackstage = async () => {
     try {
-      await invoke('show_backstage');
+      await invoke('show_backstage', { story_id: currentStory?.id || null });
     } catch (e) {
       console.error('Failed to open backstage:', e);
       const isTauri = !!(window as any).__TAURI__;
@@ -596,6 +628,30 @@ const FrontstageApp: React.FC = () => {
 
       setGenerationStatus('质检通过，生成完成');
       setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
+
+      // v5.1.0: Bootstrap 完成后自动加载新故事并切换到第一章
+      const storyCreatedMsg = result.messages?.find((m: string) => m.startsWith('story_created:'));
+      if (storyCreatedMsg) {
+        const newStoryId = storyCreatedMsg.replace('story_created:', '');
+        (async () => {
+          try {
+            const allStories = await invoke<Story[]>('list_stories');
+            const targetStory = allStories.find(s => s.id === newStoryId);
+            if (targetStory) {
+              const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
+              const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
+              setCurrentStory(targetStory);
+              setChapters(storyChapters);
+              setScenes(storyScenes);
+              if (storyChapters.length > 0) {
+                selectChapter(storyChapters[0]);
+              }
+            }
+          } catch (e) {
+            console.error('[Bootstrap] Failed to auto-load new story:', e);
+          }
+        })();
+      }
 
       const text = result.final_content || '';
       if (!text.trim()) {
@@ -957,6 +1013,12 @@ const FrontstageApp: React.FC = () => {
         handleRequestGeneration('');
         return;
       }
+      // Ctrl+Shift+B 快速切换到幕后工作室并定位当前故事
+      if (e.key === 'B' && e.ctrlKey && e.shiftKey && !isZenMode) {
+        e.preventDefault();
+        openBackstage();
+        return;
+      }
     };
 
     // F1 帮助面板
@@ -1303,6 +1365,7 @@ const FrontstageApp: React.FC = () => {
               </div>
               <div className="frontstage-help-section">
                 <h4>操作</h4>
+                <div className="frontstage-help-row"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd><span>回幕后工作室</span></div>
                 <div className="frontstage-help-row"><span className="no-kbd">点击标题</span><span>回幕后工作室</span></div>
                 <div className="frontstage-help-row"><span className="no-kbd">修 / 批 / 幕</span><span>侧边栏快捷按钮</span></div>
               </div>

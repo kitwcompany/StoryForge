@@ -243,6 +243,15 @@ impl NovelBootstrapWorkflow {
                 open_panel: Some("overview".to_string()),
             }
         );
+        // v5.1.0: Bootstrap 全部完成后再次发送 ChapterSwitch 到幕前，确保自动加载
+        let _ = crate::window::WindowManager::send_to_frontstage(
+            &self.app_handle,
+            crate::window::FrontstageEvent::ChapterSwitch {
+                story_id: story_id.clone(),
+                chapter_id: chapter_id.clone(),
+                title: "第一章".to_string(),
+            }
+        );
 
         Ok(BootstrapSession {
             id: session_id,

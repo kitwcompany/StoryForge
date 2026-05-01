@@ -9,6 +9,7 @@ import {
 } from '@services/tauri';
 import type { Chapter } from '@/types/index';
 import toast from 'react-hot-toast';
+import { useScene } from './useScenes';
 
 const CHAPTERS_KEY = 'chapters';
 
@@ -26,6 +27,18 @@ export function useChapter(id: string | null) {
     queryFn: () => id ? getChapter(id) : Promise.resolve(null),
     enabled: !!id,
   });
+}
+
+export function useChapterWithScene(chapterId: string | null) {
+  const { data: chapter, isLoading: chapterLoading, isError: chapterError } = useChapter(chapterId);
+  const { data: scene, isLoading: sceneLoading, isError: sceneError } = useScene(chapter?.scene_id || null);
+
+  return {
+    chapter,
+    scene,
+    isLoading: chapterLoading || sceneLoading,
+    isError: chapterError || sceneError,
+  };
 }
 
 export function useCreateChapter() {

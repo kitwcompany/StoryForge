@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v5.0.0
+- **版本**: v5.1.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -147,6 +147,17 @@ npm test
 ---
 
 ### 最近完成的功能
+
+- **v5.1.0 幕前幕后自动关联对齐** (2026-05-01) — 从"各自为战"到"自动联动"的全面升级
+  - **Phase 1.1 Chapter↔Scene 双向映射**: `chapters.scene_id` + `scenes.chapter_id` 外键关联，ChapterRepository 自动创建/关联 Scene
+  - **Phase 1.2 统一实时状态中心**: 后端 `state_sync` 模块 + 18 种 `SyncEvent`，所有数据修改命令自动发射同步事件
+  - **Phase 1.3 Bootstrap 自动加载**: `smartExecute` 返回后前端自动加载新故事并切换到第一章，Bootstrap 完成后双重 `ChapterSwitch` 保险
+  - **Phase 1.4 幕前→幕后快速跳转**: `Ctrl+Shift+B` 快捷键 + 标题栏点击，幕后自动定位当前故事
+  - **Phase 2.2 自适应学习闭环修复**: `record_feedback` 成功后异步触发 `mine_preferences`，偏好挖掘自动激活
+  - **Phase 2.4 AgentOrchestrator 闭环接入**: `execute_writer` 集成 `AgentOrchestrator::execute_write_with_inspection`，Writer→Inspector→StyleChecker→Writer 质检改写生效
+  - **Phase 3.1 Zustand↔TanStack Query 同步**: `App.tsx` 监听 `currentStory` 变化，自动刷新关联数据缓存
+  - **Phase 3.2 窗口通信事件标准化**: `DataRefresh` 统一由 `useSyncStore` 处理，消除重复刷新
+  - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
 
 - **v5.0.0 创世引擎：一键创世，万物关联** (2026-04-30) — 从"一键生成开头"到"一键生成完整小说世界"
   - **故事大纲自动生成**: `story_outlines` 表 + LLM 生成 3 幕结构大纲（标题/摘要/情节点/预估场景数）
@@ -396,6 +407,27 @@ npm test
 
 ---
 
+## [v5.1.0] - 幕前幕后自动关联对齐
+
+### 核心升级
+- **Chapter↔Scene 双向映射**: 自动关联，幕前切换章节同步切换场景
+- **统一实时状态中心**: 所有数据修改自动同步，前后台零延迟对齐
+- **Bootstrap 自动加载**: 创世完成后幕前自动加载新故事并切换到第一章
+- **AgentOrchestrator 闭环**: Writer 生成后自动质检→风格检查→改写
+
+### 技术细节
+- Migration 37: `chapters.scene_id` + `scenes.chapter_id`
+- 后端 `state_sync` 模块: `SyncEvent` 枚举 + `StateSync` 发射器
+- 前端 `useSyncStore` Hook: 监听 `sync-event`，自动 `invalidateQueries`
+- `show_backstage` 接收 `story_id` 参数，自动导航定位
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `cargo test` ✅ 193/193
+- `npm run build` ✅
+
+---
+
 ## [v5.0.0] - 创世引擎：一键创世，万物关联
 
 ### 核心升级
@@ -429,7 +461,13 @@ npm test
 
 ---
 
-*最后更新: 2026-04-30 - v5.0.0 Bug 修复 v3：后台窗口白屏与卡片显示问题*
+*最后更新: 2026-05-01 - v5.1.0 幕前幕后自动关联对齐*
+
+- **Bug Fix v4** (commit `70a8851`): 根因定位 — `TanStack Query` `['stories']` 缓存未被 invalidates
+  - `index.html` 添加加载指示器，防止 React 挂载前被误认为白屏
+  - `App.tsx` `DataRefresh` 事件处理添加 `invalidateQueries(['stories'])`，Bootstrap 完成后自动刷新故事列表
+  - `App.tsx` `handleWindowShown` 添加 `invalidateQueries(['stories'])`，窗口重新可见时刷新数据
+  - 编译: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
 
 ---
 

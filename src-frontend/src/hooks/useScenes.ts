@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Scene, CreateSceneRequest, UpdateSceneRequest, ConflictType } from '@/types';
+import type { Scene, CreateSceneRequest, UpdateSceneRequest, ConflictType, Chapter } from '@/types';
 
 const SCENES_KEY = 'scenes';
 
@@ -26,6 +26,25 @@ export function useScene(sceneId: string | null) {
     },
     enabled: !!sceneId,
   });
+}
+
+export function useSceneWithChapter(sceneId: string | null) {
+  const { data: scene, isLoading: sceneLoading, isError: sceneError } = useScene(sceneId);
+  const { data: chapter, isLoading: chapterLoading, isError: chapterError } = useQuery({
+    queryKey: [SCENES_KEY, 'chapter', sceneId],
+    queryFn: async () => {
+      if (!scene?.chapter_id) return null;
+      return invoke<Chapter | null>('get_chapter', { id: scene.chapter_id });
+    },
+    enabled: !!scene?.chapter_id,
+  });
+
+  return {
+    scene,
+    chapter,
+    isLoading: sceneLoading || chapterLoading,
+    isError: sceneError || chapterError,
+  };
 }
 
 // ==================== Mutations ====================
