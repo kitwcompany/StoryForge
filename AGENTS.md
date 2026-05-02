@@ -148,6 +148,13 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.2.1 超时修复与白屏修复** (2026-05-02) — 消灭用户报告的两个紧急问题
+  - **Bootstrap 超时延长**: 前端 `handleSmartGeneration` 创建新小说超时从 180 秒延长至 **600 秒**，匹配本地大模型多步 LLM 调用实际耗时
+  - **进度密度增强**: `bootstrap.rs` 每个 LLM 调用（概念/世界观/大纲/角色/场景/伏笔）前后增加细粒度进度事件，用户实时看到"调用AI→已生成→解析中"
+  - **LLM 心跳加速**: `llm/service.rs` 心跳间隔 3 秒→**2 秒**，上限 40 次→**300 次**，消息优化为"正在深度思考中..."
+  - **后台窗口白屏修复 v5.2.1**: `show_backstage` 双重维度尺寸微调（width+height）+ JS `html+body` 双重重排 + **800ms 延迟**（原 300ms）+ 延迟期间再次微调；`App.tsx` 立即+300ms 延迟两次 `setRenderKey` 强制 React 重挂载
+  - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
+
 - **v5.2.0 设计-实现对齐全面完成** (2026-05-02) — 通用 Workflow 引擎 + 能力进化闭环 + 双向同步
   - **`WorkflowScheduler::run_instance` 完整 DAG 执行**: 从空实现到支持 Start→WriteChapter→Inspect→Revise→VectorIndex→AnalyzePlot→End 全节点类型，串行拓扑执行 + 状态管理 + 上下文变量传递
   - **通用 Workflow IPC 命令**: `register_workflow` / `create_workflow_instance` / `start_workflow_instance` / `get_workflow_instance_status`，setup 时自动注册 `standard_writing_workflow` 模板
@@ -479,7 +486,7 @@ npm test
 
 ---
 
-*最后更新: 2026-05-02 - v5.2.0 设计-实现对齐全面完成*
+*最后更新: 2026-05-02 - v5.2.1 超时修复与白屏修复*
 
 - **Bug Fix v4** (commit `70a8851`): 根因定位 — `TanStack Query` `['stories']` 缓存未被 invalidates
   - `index.html` 添加加载指示器，防止 React 挂载前被误认为白屏

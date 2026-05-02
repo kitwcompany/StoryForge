@@ -1807,39 +1807,75 @@ fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String
         window
     };
 
-    // v5.0.0 修复：强制 WebView2 重新创建渲染表面，防止 hide/show 后白屏
-    // 方法：微调窗口大小再恢复，触发 WebView2 重绘
+    // v5.2.0 修复：强制 WebView2 重新创建渲染表面，防止 hide/show 后白屏
+    // 方法：微调窗口大小再恢复 + 双重维度触发 + JS强制重排 + 延迟事件
+    let _window_clone = window.clone();
     if let Ok(size) = window.inner_size() {
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-            width: size.width + 1,
-            height: size.height,
-        }));
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-            width: size.width,
-            height: size.height,
-        }));
+        if size.width > 0 && size.height > 0 {
+            // 第一步：宽度+1
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: size.width + 1,
+                height: size.height,
+            }));
+            // 第二步：高度+1
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: size.width + 1,
+                height: size.height + 1,
+            }));
+            // 第三步：恢复原始尺寸
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: size.width,
+                height: size.height,
+            }));
+        }
     }
 
-    // 执行 JS 强制重排
+    // 执行 JS 强制重排 + 通知前端准备恢复
     let _ = window.eval(r#"
         (function() {
             const body = document.body;
-            if (body) {
-                const originalDisplay = body.style.display;
+            const html = document.documentElement;
+            if (body && html) {
+                // 保存原始样式
+                const bodyDisplay = body.style.display;
+                const htmlDisplay = html.style.display;
+                // 强制重排
+                html.style.display = 'none';
                 body.style.display = 'none';
+                void html.offsetHeight;
                 void body.offsetHeight;
-                body.style.display = originalDisplay || '';
+                html.style.display = htmlDisplay || '';
+                body.style.display = bodyDisplay || '';
+                // 触发多重重绘事件
+                window.dispatchEvent(new Event('resize'));
+                window.dispatchEvent(new Event('scroll'));
+                // 通知React可能需要重新渲染
+                window.dispatchEvent(new CustomEvent('backstage-window-restored', { detail: { timestamp: Date.now() } }));
             }
-            window.dispatchEvent(new Event('resize'));
         })();
     "#);
 
-    // 延迟发射 backstage-shown 事件，确保前端监听器已就绪
+    // 延迟发射 backstage-shown 事件，确保前端监听器已就绪 + WebView2 渲染表面已恢复
+    // 800ms 给 WebView2 足够时间从休眠状态恢复
     let app_handle = app.clone();
     let story_id_clone = story_id.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        // 再次触发尺寸变化确保渲染表面激活
         if let Some(window) = app_handle.get_webview_window("backstage") {
+            if let Ok(size) = window.inner_size() {
+                if size.width > 0 && size.height > 0 {
+                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: size.width + 1,
+                        height: size.height,
+                    }));
+                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: size.width,
+                        height: size.height,
+                    }));
+                }
+            }
+            // 发射事件通知前端窗口已恢复
             let _ = window.emit("backstage-shown", serde_json::json!({
                 "timestamp": std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

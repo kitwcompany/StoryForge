@@ -165,11 +165,11 @@ impl LlmService {
         // 发送开始连接事件
         self.emit_llm_progress("connecting", &format!("正在连接 {} 模型...", model_name), 0, &model_name);
         
-        // 启动心跳任务：每3秒发送一次进度
+        // 启动心跳任务：每2秒发送一次进度（更快反馈，减少用户焦虑）
         let app_handle = self.app_handle.clone();
         let model = model_name.clone();
         let heartbeat_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            let mut interval = tokio::time::interval(Duration::from_secs(2));
             let start = std::time::Instant::now();
             let mut tick_count = 0;
             loop {
@@ -178,12 +178,12 @@ impl LlmService {
                 let elapsed = start.elapsed().as_secs();
                 let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
                     stage: "generating".to_string(),
-                    message: format!("{} 正在生成中...（已等待 {} 秒）", model, elapsed),
+                    message: format!("{} 正在深度思考中...（已等待 {} 秒）", model, elapsed),
                     elapsed_seconds: elapsed,
                     model: model.clone(),
                 });
-                // 最多心跳40次（120秒），避免无限循环
-                if tick_count >= 40 {
+                // 最多心跳300次（600秒），匹配前端Bootstrap超时
+                if tick_count >= 300 {
                     break;
                 }
             }

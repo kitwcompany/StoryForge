@@ -110,10 +110,10 @@ impl NovelBootstrapWorkflow {
         self.update_session(&session_id, "first_chapter", 1, Some(&story_id)).ok();
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在准备写作上下文...");
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在构建写作指令...");
-        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在调用AI撰写第一章...");
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在调用AI撰写第一章（1500-2500字，可能需要1-3分钟）...");
         // 传入空的世界观/角色/场景 — StoryContextBuilder 能优雅处理空数据
         let empty_world = WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] };
-        let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &empty_world, &[], &[]).await {
+        let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &session_id, &story_concept, &empty_world, &[], &[]).await {
             Ok(c) => c,
             Err(e) => {
                 self.fail_session(&session_id, &format!("第一章生成失败: {}", e)).ok();
@@ -141,8 +141,8 @@ impl NovelBootstrapWorkflow {
 
         // Step 3: 构建世界观 + 故事大纲
         self.update_session(&session_id, "world_building", 2, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成世界观设定...");
-        let world = match self.generate_world_building(&story_id, &story_concept).await {
+        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成世界观设定（可能需要1-2分钟）...");
+        let world = match self.generate_world_building(&story_id, &session_id, &story_concept).await {
             Ok(w) => w,
             Err(e) => {
                 log::warn!("[NovelBootstrapWorkflow] 世界观生成失败 for story {}: {}", story_id, e);
@@ -154,7 +154,7 @@ impl NovelBootstrapWorkflow {
         };
         self.emit_progress(&session_id, "构建世界", 3, total_steps, "世界观设定已生成");
 
-        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成故事大纲...");
+        self.emit_progress(&session_id, "构建世界", 3, total_steps, "正在生成故事大纲（三幕结构）...");
         let outline = match self.generate_story_outline(&story_id, &session_id, &story_concept).await {
             Ok(o) => o,
             Err(e) => {
@@ -170,7 +170,7 @@ impl NovelBootstrapWorkflow {
 
         // Step 4: 生成角色、场景、伏笔、知识图谱
         self.update_session(&session_id, "characters", 3, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成角色...");
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成角色（3-5个主要角色）...");
         let characters = match self.generate_characters(&story_id, &session_id, &story_concept, &world).await {
             Ok(c) => c,
             Err(e) => {
@@ -183,7 +183,7 @@ impl NovelBootstrapWorkflow {
         };
         self.emit_progress(&session_id, "塑造世界", 4, total_steps, &format!("已生成 {} 个角色", characters.len()));
 
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成场景大纲...");
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在生成场景大纲（8-12个核心场景）...");
         let scenes = match self.generate_scene_outline(&story_id, &session_id, &story_concept, &characters).await {
             Ok(s) => s,
             Err(e) => {
@@ -199,7 +199,7 @@ impl NovelBootstrapWorkflow {
         // 获取第一个场景ID用于伏笔关联
         let first_scene_id = scenes.first().map(|s| s.id.as_str());
 
-        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在埋设伏笔...");
+        self.emit_progress(&session_id, "塑造世界", 4, total_steps, "正在埋设伏笔（3-5处核心伏笔）...");
         let foreshadowings = match self.generate_foreshadowing(&story_id, &session_id, &story_concept, &outline, first_scene_id).await {
             Ok(f) => f,
             Err(e) => {
@@ -304,7 +304,8 @@ impl NovelBootstrapWorkflow {
 
     // ==================== Step 2: 世界观 ====================
 
-    async fn generate_world_building(&self, story_id: &str, concept: &StoryConcept) -> Result<WorldBuildingResult, String> {
+    async fn generate_world_building(&self, story_id: &str, session_id: &str, concept: &StoryConcept) -> Result<WorldBuildingResult, String> {
+        self.emit_progress(session_id, "构建世界", 3, 4, "正在构建世界观核心概念...");
         let prompt = format!(
             r#"你是一位世界观架构师。请为以下故事构建完整的世界观设定。
 
@@ -331,7 +332,9 @@ impl NovelBootstrapWorkflow {
             concept.title, concept.genre, concept.description
         );
 
+        self.emit_progress(session_id, "构建世界", 3, 4, "正在调用AI生成世界观设定...");
         let response = self.llm_service.generate(prompt, Some(2048), Some(0.6)).await?;
+        self.emit_progress(session_id, "构建世界", 3, 4, "AI世界观设定已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let wb_data: WorldBuildingData = serde_json::from_str(json_str)
@@ -404,7 +407,9 @@ impl NovelBootstrapWorkflow {
             concept.title, concept.genre, concept.description
         );
 
+        self.emit_progress(session_id, "构建世界", 3, 4, "正在调用AI设计故事大纲...");
         let response = self.llm_service.generate(prompt, Some(2048), Some(0.6)).await?;
+        self.emit_progress(session_id, "构建世界", 3, 4, "故事大纲已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let outline_data: StoryOutlineData = serde_json::from_str(json_str)
@@ -481,7 +486,9 @@ impl NovelBootstrapWorkflow {
             world.rules.iter().map(|r| format!("{}: {}", r.name, r.description)).collect::<Vec<_>>().join("; ")
         );
 
+        self.emit_progress(session_id, "塑造世界", 4, 4, "正在调用AI设计角色...");
         let response = self.llm_service.generate(prompt, Some(3000), Some(0.7)).await?;
+        self.emit_progress(session_id, "塑造世界", 4, 4, "角色设计已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let char_data: CharacterData = serde_json::from_str(json_str)
@@ -591,7 +598,9 @@ impl NovelBootstrapWorkflow {
             concept.title, concept.genre, concept.description, character_names
         );
 
+        self.emit_progress(session_id, "塑造世界", 4, 4, "正在调用AI设计场景...");
         let response = self.llm_service.generate(prompt, Some(3000), Some(0.6)).await?;
+        self.emit_progress(session_id, "塑造世界", 4, 4, "场景设计已生成，正在解析...");
         let content = response.content.trim();
         let json_str = Self::extract_json(content)?;
         let scene_data: SceneData = serde_json::from_str(json_str)
@@ -666,7 +675,8 @@ impl NovelBootstrapWorkflow {
 
     // ==================== Step 6: 第一章 ====================
 
-    async fn generate_first_chapter(&self, story_id: &str, concept: &StoryConcept, world: &WorldBuildingResult, characters: &[GeneratedCharacter], scenes: &[GeneratedScene]) -> Result<(String, String), String> {
+    async fn generate_first_chapter(&self, story_id: &str, session_id: &str, concept: &StoryConcept, world: &WorldBuildingResult, characters: &[GeneratedCharacter], scenes: &[GeneratedScene]) -> Result<(String, String), String> {
+        self.emit_progress(session_id, "撰写开篇", 2, 4, "正在加载故事上下文和角色信息...");
         // 构建完整的 AgentContext
         let builder = crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone());
         let agent_context = builder.build(story_id, Some(1), None, None)?;
@@ -705,7 +715,9 @@ impl NovelBootstrapWorkflow {
             tier: None,
         };
 
+        self.emit_progress(session_id, "撰写开篇", 2, 4, "AI写作完成，正在保存章节...");
         let result = service.execute_task(task).await?;
+        self.emit_progress(session_id, "撰写开篇", 2, 4, "章节内容已生成，正在存入数据库...");
 
         // 保存到第一个场景的 content 字段
         if let Some(first_scene) = scenes.first() {

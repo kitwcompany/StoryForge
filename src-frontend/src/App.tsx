@@ -144,7 +144,7 @@ function App() {
     };
   }, []);
 
-  // v5.0.0 修复：窗口重新可见时自动恢复数据和渲染
+  // v5.2.0 修复：窗口重新可见时自动恢复数据和渲染
   useEffect(() => {
     const handleWindowShown = async (retries = 3) => {
       // 窗口重新可见时，强制刷新故事列表并恢复 currentStory
@@ -165,16 +165,26 @@ function App() {
         queryClient.invalidateQueries({ queryKey: ['stories'] });
         // 触发全局数据刷新事件，让各页面重新获取数据
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
-        // 强制触发 resize 帮助重绘
-        window.dispatchEvent(new Event('resize'));
-        // 强制 React 重新渲染当前视图
-        setRenderKey(k => k + 1);
       } catch (e) {
         console.error('Failed to refresh on window shown:', e);
         if (retries > 0) {
           setTimeout(() => handleWindowShown(retries - 1), 500);
         }
       }
+    };
+
+    // v5.2.0 修复：激进的渲染恢复逻辑，防止 WebView2 hide/show 后白屏
+    const forceRedraw = () => {
+      // 多重重绘触发
+      window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new Event('scroll'));
+      // 强制 React 重新渲染当前视图
+      setRenderKey(k => k + 1);
+      // 延迟再次触发，确保 WebView2 渲染表面已完全恢复
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        setRenderKey(k => k + 1);
+      }, 300);
     };
 
     // 组件 mount 时执行一次
@@ -184,15 +194,25 @@ function App() {
     let unlistenShown: (() => void) | undefined;
     const setupShownListener = async () => {
       try {
-        unlistenShown = await listen('backstage-shown', () => handleWindowShown());
+        unlistenShown = await listen('backstage-shown', () => {
+          handleWindowShown();
+          forceRedraw();
+        });
       } catch (e) {
         console.error('Failed to setup backstage-shown listener:', e);
       }
     };
     setupShownListener();
 
+    // 监听前端自定义事件（Rust eval 触发）
+    const handleWindowRestored = () => {
+      forceRedraw();
+    };
+    window.addEventListener('backstage-window-restored', handleWindowRestored);
+
     return () => {
       if (unlistenShown) unlistenShown();
+      window.removeEventListener('backstage-window-restored', handleWindowRestored);
     };
   }, [queryClient]);
 

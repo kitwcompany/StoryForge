@@ -41,6 +41,31 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v5.2.1] - 超时修复与白屏修复（2026-05-02）
+
+### 🐛 Bug 修复
+
+#### 小说创建超时修复
+- **Bootstrap 超时延长**：前端 `handleSmartGeneration` 中创建新小说超时从 180 秒延长至 **600 秒**（10 分钟），匹配本地大模型多步 LLM 调用实际耗时
+- **超时提示优化**：超时错误信息区分 Bootstrap 与普通操作，引导用户检查模型服务
+- **进度事件密度增强**：`bootstrap.rs` 在 `generate_first_chapter`、`generate_world_building`、`generate_story_outline`、`generate_characters`、`generate_scene_outline` 等每个 LLM 调用前后增加进度事件，用户可实时看到"正在调用AI..."→"已生成，正在解析..."的细粒度状态
+- **LLM 心跳频率加快**：`llm/service.rs` 心跳间隔从 3 秒缩短至 **2 秒**，心跳上限从 40 次扩展到 300 次（匹配 600 秒超时），消息优化为"正在深度思考中..."
+- **Bootstrap 进度提示细化**：各步骤提示增加预计耗时说明，如"（1500-2500字，可能需要1-3分钟）"、"（8-12个核心场景）"
+
+#### 后台窗口白屏修复（v5.2.0 增强版）
+- **双重维度尺寸微调**：`show_backstage` 中不仅微调 width，还微调 height（width+1/height+1 → 恢复），更全面地触发 WebView2 重绘
+- **JS 重排增强**：`document.documentElement` 和 `document.body` 双重强制重排，额外触发 scroll 事件和自定义 `backstage-window-restored` 事件
+- **延迟时间延长**：`backstage-shown` 事件发射延迟从 300ms 延长至 **800ms**，给 WebView2 充足时间从休眠恢复；延迟期间再次执行尺寸微调
+- **前端刷新增强**：`App.tsx` `handleWindowShown` 后调用 `forceRedraw()`：立即 + 300ms 延迟两次触发 `setRenderKey`，确保 React 重新挂载
+- **前端监听恢复事件**：新增 `backstage-window-restored` DOM 事件监听，双重保险触发重绘
+
+### 编译与测试
+- `cargo check`：零错误（1 个已有警告 `unused import: events::SyncEvent`）
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+
+---
+
 ## [v5.1.1] - 设计-实现对齐全面修复（2026-05-01）
 
 ### 🎯 P0 核心断裂修复

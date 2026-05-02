@@ -821,16 +821,18 @@ const FrontstageApp: React.FC = () => {
       return;
     }
 
-    // 创建新小说需要两次LLM调用（概念+正文），超时延长至180秒
+    // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
     const isBootstrap = stories.length === 0 && isNovelCreationIntent(userInput);
-    const timeoutSeconds = isBootstrap ? 180 : 90;
+    const timeoutSeconds = isBootstrap ? 600 : 90;
     const timeoutMs = timeoutSeconds * 1000;
 
     setIsGenerating(true);
     setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
     startElapsedTimer();
     const toastId = toast.loading(
-      isBootstrap ? '正在创建新小说（需要构思故事概念并撰写开篇，请耐心等待）...' : '正在理解您的创作意图...',
+      isBootstrap
+        ? '正在创建新小说（构思故事→撰写开篇→构建世界→塑造角色，预计3-8分钟）...'
+        : '正在理解您的创作意图...',
       { duration: Infinity }
     );
 
@@ -841,7 +843,11 @@ const FrontstageApp: React.FC = () => {
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         aborted = true;
-        reject(new Error(`前端超时：模型响应超过${timeoutSeconds}秒，请检查模型服务是否正常运行（创建新小说需要更长时间）`));
+        reject(new Error(
+          isBootstrap
+            ? `前端超时：模型响应超过${timeoutSeconds / 60}分钟。创建新小说需要多次LLM调用，本地模型可能较慢。请检查模型服务是否正常运行，或尝试简化输入。`
+            : `前端超时：模型响应超过${timeoutSeconds}秒，请检查模型服务是否正常运行`
+        ));
       }, timeoutMs);
     });
 
