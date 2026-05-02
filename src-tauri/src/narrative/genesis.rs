@@ -254,7 +254,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            let result = service.execute_task(task).await
+            // v5.3.1: Bootstrap 初稿跳过 AgentOrchestrator 闭环，直接调用 raw 生成，防止超时
+            let result = service.execute_writer_raw(task).await
                 .map_err(|e| PipelineError::LlmError(e))?;
 
             // 保存到 Chapter

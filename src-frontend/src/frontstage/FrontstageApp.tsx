@@ -197,7 +197,61 @@ const FrontstageApp: React.FC = () => {
     message: string;
   } | null>(null);
 
-  // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress）
+  // v5.3.0: 顶部 Toast 大阶段实时提示 — 保存当前活动 toast ID 和当前大阶段
+  const activeToastIdRef = useRef<string | null>(null);
+  const currentToastPhaseRef = useRef<string | null>(null);
+
+  /** 将细粒度步骤名映射为大阶段提示文案 */
+  const getMajorPhase = useCallback((stepName: string): { icon: string; text: string } | null => {
+    const s = stepName.toLowerCase();
+    if (s.includes('构思') || s.includes('概念') || s.includes('创意') || s.includes('conception')) {
+      return { icon: '🎨', text: '正在构思故事概念...' };
+    }
+    if (s.includes('开篇') || s.includes('正文') || s.includes('第一章') || s.includes('first chapter') || s.includes('撰写')) {
+      return { icon: '✍️', text: '正在撰写第一章...' };
+    }
+    if (s.includes('世界') || s.includes('世界观') || s.includes('world')) {
+      return { icon: '🌍', text: '正在构建世界观...' };
+    }
+    if (s.includes('大纲') || s.includes('outline') || s.includes('结构')) {
+      return { icon: '📋', text: '正在生成故事大纲...' };
+    }
+    if (s.includes('角色') || s.includes('character') || s.includes('人物')) {
+      return { icon: '👤', text: '正在塑造角色...' };
+    }
+    if (s.includes('场景') || s.includes('scene') || s.includes('情节')) {
+      return { icon: '🎬', text: '正在铺设场景...' };
+    }
+    if (s.includes('伏笔') || s.includes('foreshadow') || s.includes('铺垫')) {
+      return { icon: '🔮', text: '正在埋设伏笔...' };
+    }
+    if (s.includes('图谱') || s.includes('kg') || s.includes('knowledge') || s.includes('graph')) {
+      return { icon: '🕸️', text: '正在构建知识图谱...' };
+    }
+    if (s.includes('后台') || s.includes('background') || s.includes('完善')) {
+      return { icon: '⏳', text: '后台正在完善小说世界...' };
+    }
+    if (s.includes('质检') || s.includes('检查') || s.includes('inspect')) {
+      return { icon: '🔍', text: '正在质检生成内容...' };
+    }
+    if (s.includes('改写') || s.includes('润色') || s.includes('revise')) {
+      return { icon: '✏️', text: '正在润色改写...' };
+    }
+    return null;
+  }, []);
+
+  /** 更新顶部 Toast 的大阶段提示（仅在阶段变化时更新，避免闪烁） */
+  const updateToastPhase = useCallback((stepName: string) => {
+    const phase = getMajorPhase(stepName);
+    if (!phase || !activeToastIdRef.current) return;
+    const phaseKey = phase.text;
+    // 只有大阶段变化时才更新 toast
+    if (currentToastPhaseRef.current === phaseKey) return;
+    currentToastPhaseRef.current = phaseKey;
+    toast.loading(`${phase.icon} ${phase.text}`, { id: activeToastIdRef.current });
+  }, [getMajorPhase]);
+
+  // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress + 顶部 Toast 大阶段）
   const { progress: pipelineProgress } = usePipelineProgress({ pipelineType: 'genesis' });
   useEffect(() => {
     if (pipelineProgress) {
@@ -208,8 +262,9 @@ const FrontstageApp: React.FC = () => {
         message: pipelineProgress.message,
       });
       setGenerationStatus(pipelineProgress.message);
+      updateToastPhase(pipelineProgress.stepName);
     }
-  }, [pipelineProgress]);
+  }, [pipelineProgress, updateToastPhase]);
 
   // WenSi 浮动面板
   const [showWenSiPanel, setShowWenSiPanel] = useState(false);
@@ -401,16 +456,24 @@ const FrontstageApp: React.FC = () => {
           message: p.message,
         });
         setGenerationStatus(p.message);
+        updateToastPhase(p.step_name);
         // v5.2.2: 区分即时阶段完成和后台阶段完成
         if (p.step_name === '撰写开篇' && p.step_number >= p.total_steps) {
           // 即时阶段完成：正文已生成，用户可开始写作
           setTimeout(() => {
             setBootstrapProgress(null);
             setGenerationStatus('后台正在完善小说世界...');
+            // 顶部 Toast 同步切换到大阶段提示
+            if (activeToastIdRef.current) {
+              toast.loading('⏳ 后台正在完善小说世界...', { id: activeToastIdRef.current });
+              currentToastPhaseRef.current = '后台正在完善小说世界...';
+            }
           }, 2000);
         } else if (p.step_name === '后台完善' && p.step_number >= p.total_steps) {
           // 后台阶段全部完成
           toast.success('创世完成！世界观、角色、场景、伏笔已全部生成');
+          activeToastIdRef.current = null;
+          currentToastPhaseRef.current = null;
           setTimeout(() => {
             setBootstrapProgress(null);
             setGenerationStatus('');
@@ -426,6 +489,7 @@ const FrontstageApp: React.FC = () => {
         const p = event.payload;
         updateLastEventTime();
         setGenerationStatus(p.message);
+        updateToastPhase(p.stage);
       });
 
       // 监听 smart-execute-progress 事件 — 整体执行进度
@@ -438,6 +502,7 @@ const FrontstageApp: React.FC = () => {
         const p = event.payload;
         updateLastEventTime();
         setGenerationStatus(p.message);
+        updateToastPhase(p.stage);
       });
 
       // 监听 plan-executor-step 事件 — 步骤级进度
@@ -456,6 +521,7 @@ const FrontstageApp: React.FC = () => {
           setGenerationStatus(p.message);
         } else if (p.status === 'running') {
           setGenerationStatus(`${p.message} (${p.steps_completed + 1}/${p.total_steps})`);
+          updateToastPhase(p.message);
         } else if (p.status === 'completed') {
           setGenerationStatus(p.message);
         } else if (p.status === 'failed') {
@@ -475,6 +541,7 @@ const FrontstageApp: React.FC = () => {
         console.log('[agent-stage-update]', p.stage, p.agent_type, p.message);
         // 显示所有阶段，让用户看到完整流程
         setGenerationStatus(`${p.agent_type}: ${p.message}`);
+        updateToastPhase(p.stage);
       });
 
       // 监听 llm-generating-progress 事件 — LLM模型生成心跳
@@ -502,6 +569,7 @@ const FrontstageApp: React.FC = () => {
             totalSteps: p.pipeline_context.total_steps,
             message: p.message,
           });
+          updateToastPhase(p.pipeline_context.step_name);
         }
         
         setGenerationStatus(p.message);
@@ -859,12 +927,12 @@ const FrontstageApp: React.FC = () => {
     setIsGenerating(true);
     setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
     startElapsedTimer();
-    const toastId = toast.loading(
-      isBootstrap
-        ? '正在创建新小说（构思故事→撰写开篇→构建世界→塑造角色，预计3-8分钟）...'
-        : '正在理解您的创作意图...',
-      { duration: Infinity }
-    );
+    const initialToastMsg = isBootstrap
+      ? '🎨 正在构思故事概念...'
+      : '💭 正在理解您的创作意图...';
+    const toastId = toast.loading(initialToastMsg, { duration: Infinity });
+    activeToastIdRef.current = toastId;
+    currentToastPhaseRef.current = initialToastMsg;
 
     // 方案A：前端动态超时 + 取消支持
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -902,6 +970,8 @@ const FrontstageApp: React.FC = () => {
       }
 
       toast.dismiss(toastId);
+      activeToastIdRef.current = null;
+      currentToastPhaseRef.current = null;
       // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
       const hasContent = result.final_content && result.final_content.trim().length > 0;
       if (hasContent) {
@@ -929,6 +999,8 @@ const FrontstageApp: React.FC = () => {
     } catch (e: any) {
       if (timeoutId) clearTimeout(timeoutId);
       toast.dismiss(toastId);
+      activeToastIdRef.current = null;
+      currentToastPhaseRef.current = null;
       console.error('Smart execution failed:', e);
       const msg = e?.message || String(e);
       // 区分超时错误和其他错误
@@ -940,6 +1012,8 @@ const FrontstageApp: React.FC = () => {
     } finally {
       stopElapsedTimer();
       cancelGenerationRef.current = null;
+      activeToastIdRef.current = null;
+      currentToastPhaseRef.current = null;
       setIsGenerating(false);
       setGenerationStatus('');
     }

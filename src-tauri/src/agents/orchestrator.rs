@@ -118,8 +118,9 @@ impl AgentOrchestrator {
         let mut was_rewritten = false;
 
         // 步骤1: Writer 生成初稿
+        // v5.3.1: 调用 execute_writer_raw 而不是 execute_task，切断递归链
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
-        let writer_result = Box::pin(self.service.execute_task(task.clone())).await?;
+        let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
         let mut current_content = writer_result.content.clone();
 
         steps.push(WorkflowStepResult {

@@ -269,42 +269,24 @@ impl AgentService {
         Ok(response)
     }
 
-    /// 执行写作助手
-    async fn execute_writer(&self, task: AgentTask) -> Result<AgentResult, String> {
-        // BeforeAiWrite hook
-        if let Some(manager) = crate::SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let story_id = task.context.story_id.clone();
-                let chapter_number = task.context.chapter_number;
-                let input = task.input.clone();
-                let skill_manager = skill_manager.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, input);
-                    let data = serde_json::json!({ "chapter_number": chapter_number });
-                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data).await;
-                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::BeforeAiWrite);
-                });
-            }
-        }
-
+    /// 原始 Writer 生成 — 只生成内容，不进入闭环
+    /// v5.3.1: 提取为独立方法，供 AgentOrchestrator 和 Bootstrap 直接调用，防止递归
+    pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, String> {
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "正在读取订阅配置...", 0.12);
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "正在构建写作提示词...", 0.15);
-        // 构建写作提示词（根据 tier 决定是否注入高级扩展）
         let prompt = self.build_writer_prompt(&task, tier).await;
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "写作提示词构建完成", 0.2);
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "准备生成内容...", 0.25);
         
-        // Phase 5: 动态生成策略 — 根据故事进度、场景阶段、用户反馈历史调整参数
         let user_temperature = self.llm_service.get_active_profile()
             .map(|p| p.temperature)
             .unwrap_or(0.8);
         
-        // 从 task parameters 读取 PlanContext 注入的结构信息
         let story_progress = task.parameters.get("story_progress").and_then(|v| v.as_str());
         let scene_stage = task.parameters.get("current_scene_stage").and_then(|v| v.as_str());
         
@@ -334,7 +316,6 @@ impl AgentService {
             }
         };
         
-        // 调用LLM生成（根据Agent映射选择模型，免费版限制 token）
         let response = self.generate_for_agent(
             &task,
             prompt,
@@ -343,10 +324,9 @@ impl AgentService {
             tier,
         ).await?;
 
-        // 防御：LLM 返回空内容时记录并返回错误
         if response.content.trim().is_empty() {
             log::error!(
-                "[AgentService::execute_writer] LLM returned empty content. story_id={}, chapter_number={}, instruction_len={}",
+                "[AgentService::execute_writer_raw] LLM returned empty content. story_id={}, chapter_number={}, instruction_len={}",
                 task.context.story_id, task.context.chapter_number, task.input.len()
             );
             return Err("AI 返回了空内容，请检查模型配置或重试".to_string());
@@ -354,7 +334,6 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Reviewing, "检查生成质量", 0.8);
         
-        // 简单的质量评分（后续可细化）
         let score = self.calculate_quality_score(&response.content);
         
         let mut suggestions = if score < 0.7 {
@@ -363,12 +342,10 @@ impl AgentService {
             vec![]
         };
         
-        // 连续性检查：验证生成内容与已有故事设定的一致性
         {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
             if let Ok(scenes) = scene_repo.get_by_story(&task.context.story_id) {
-                // 找到对应 chapter_number 的 scene
                 let target_scene = scenes.iter().find(|s| s.sequence_number == task.context.chapter_number as i32);
                 if let Some(scene) = target_scene {
                     let continuity = crate::creative_engine::continuity::ContinuityEngine::new(pool.inner().clone());
@@ -391,6 +368,33 @@ impl AgentService {
             }
         }
         
+        Ok(AgentResult {
+            content: response.content,
+            score: Some(score),
+            suggestions,
+        })
+    }
+
+    /// 执行写作助手（完整流程：raw + AgentOrchestrator 闭环 + hooks）
+    async fn execute_writer(&self, task: AgentTask) -> Result<AgentResult, String> {
+        // BeforeAiWrite hook
+        if let Some(manager) = crate::SKILL_MANAGER.get() {
+            if let Ok(skill_manager) = manager.lock() {
+                let story_id = task.context.story_id.clone();
+                let chapter_number = task.context.chapter_number;
+                let input = task.input.clone();
+                let skill_manager = skill_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let context = crate::agents::AgentContext::minimal(story_id, input);
+                    let data = serde_json::json!({ "chapter_number": chapter_number });
+                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data).await;
+                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::BeforeAiWrite);
+                });
+            }
+        }
+
+        let raw_result = self.execute_writer_raw(task.clone()).await?;
+        
         // v5.1.0: AgentOrchestrator 闭环 — Writer → Inspector → StyleChecker → Writer(改写)
         let final_content = {
             let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
@@ -403,17 +407,17 @@ impl AgentService {
                         "[AgentOrchestrator] Workflow completed: score={:.2}, rewritten={}",
                         workflow_result.final_score, workflow_result.was_rewritten
                     );
-                    // 将 Orchestrator 步骤中的建议合并
+                    let mut all_suggestions = raw_result.suggestions.clone();
                     for step in &workflow_result.steps {
                         if !step.suggestions.is_empty() {
-                            suggestions.extend(step.suggestions.clone());
+                            all_suggestions.extend(step.suggestions.clone());
                         }
                     }
                     workflow_result.final_content
                 }
                 Err(e) => {
                     log::warn!("[AgentOrchestrator] Workflow failed: {}, using original content", e);
-                    response.content
+                    raw_result.content.clone()
                 }
             }
         };
@@ -424,7 +428,7 @@ impl AgentService {
             if let Ok(skill_manager) = manager.lock() {
                 let story_id = task.context.story_id.clone();
                 let chapter_number = task.context.chapter_number;
-                let score_val = score;
+                let score_val = raw_result.score.unwrap_or(0.0);
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
                     let context = crate::agents::AgentContext::minimal(story_id, content_for_hook);
@@ -437,8 +441,8 @@ impl AgentService {
 
         Ok(AgentResult {
             content: final_content,
-            score: Some(score),
-            suggestions,
+            score: raw_result.score,
+            suggestions: raw_result.suggestions,
         })
     }
 
