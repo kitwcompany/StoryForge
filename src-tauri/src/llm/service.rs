@@ -163,7 +163,7 @@ impl LlmService {
         };
         
         // 发送开始连接事件
-        self.emit_llm_progress("connecting", &format!("正在连接 {} 模型...", model_name), 0, &model_name);
+        self.emit_llm_progress("connecting", "正在连接模型...", 0, &model_name);
         
         // 启动心跳任务：每2秒发送一次进度（更快反馈，减少用户焦虑）
         let app_handle = self.app_handle.clone();
@@ -178,7 +178,7 @@ impl LlmService {
                 let elapsed = start.elapsed().as_secs();
                 let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
                     stage: "generating".to_string(),
-                    message: format!("{} 正在深度思考中...（已等待 {} 秒）", model, elapsed),
+                    message: format!("AI 正在深度思考中...（已等待 {} 秒）", elapsed),
                     elapsed_seconds: elapsed,
                     model: model.clone(),
                 });
@@ -190,15 +190,16 @@ impl LlmService {
         });
         
         // 发送已发送请求事件
-        self.emit_llm_progress("sent", &format!("已向 {} 发送请求，等待响应...", model_name), 0, &model_name);
+        self.emit_llm_progress("sent", "已发送请求，等待响应...", 0, &model_name);
         
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
+        // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
         let result = {
-            let r = timeout(Duration::from_secs(120), adapter.generate(request)).await;
+            let r = timeout(Duration::from_secs(600), adapter.generate(request)).await;
             match r {
                 Ok(Ok(resp)) => Ok(resp),
                 Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
-                Err(_) => Err("模型生成超时（120秒无响应）".to_string()),
+                Err(_) => Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string()),
             }
         };
         
@@ -208,12 +209,12 @@ impl LlmService {
         
         match result {
             Ok(response) => {
-                self.emit_llm_progress("completed", &format!("{} 响应完成", model_name), 0, &model_name);
+                self.emit_llm_progress("completed", "AI 响应完成", 0, &model_name);
                 Ok(response)
             }
             Err(e) => {
                 let is_timeout = e.contains("超时");
-                self.emit_llm_progress("error", &e, if is_timeout { 120 } else { 0 }, &model_name);
+                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name);
                 Err(e)
             }
         }
@@ -240,7 +241,7 @@ impl LlmService {
         };
         
         // 发送开始连接事件
-        self.emit_llm_progress("connecting", &format!("正在连接 {} 模型...", model_name), 0, &model_name);
+        self.emit_llm_progress("connecting", "正在连接模型...", 0, &model_name);
         
         // 启动心跳任务：每3秒发送一次进度
         let app_handle = self.app_handle.clone();
@@ -255,7 +256,7 @@ impl LlmService {
                 let elapsed = start.elapsed().as_secs();
                 let _ = app_handle.emit("llm-generating-progress", LlmGeneratingProgress {
                     stage: "generating".to_string(),
-                    message: format!("{} 正在生成中...（已等待 {} 秒）", model, elapsed),
+                    message: format!("AI 正在生成中...（已等待 {} 秒）", elapsed),
                     elapsed_seconds: elapsed,
                     model: model.clone(),
                 });
@@ -266,15 +267,16 @@ impl LlmService {
         });
         
         // 发送已发送请求事件
-        self.emit_llm_progress("sent", &format!("已向 {} 发送请求，等待响应...", model_name), 0, &model_name);
+        self.emit_llm_progress("sent", "已发送请求，等待响应...", 0, &model_name);
         
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
+        // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
         let result = {
-            let r = timeout(Duration::from_secs(120), adapter.generate(request)).await;
+            let r = timeout(Duration::from_secs(600), adapter.generate(request)).await;
             match r {
                 Ok(Ok(resp)) => Ok(resp),
                 Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
-                Err(_) => Err("模型生成超时（120秒无响应）".to_string()),
+                Err(_) => Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string()),
             }
         };
         
@@ -284,12 +286,12 @@ impl LlmService {
         
         match result {
             Ok(response) => {
-                self.emit_llm_progress("completed", &format!("{} 响应完成", model_name), 0, &model_name);
+                self.emit_llm_progress("completed", "AI 响应完成", 0, &model_name);
                 Ok(response)
             }
             Err(e) => {
                 let is_timeout = e.contains("超时");
-                self.emit_llm_progress("error", &e, if is_timeout { 60 } else { 0 }, &model_name);
+                self.emit_llm_progress("error", &e, if is_timeout { 600 } else { 0 }, &model_name);
                 Err(e)
             }
         }

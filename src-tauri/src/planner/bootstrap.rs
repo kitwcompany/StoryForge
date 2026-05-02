@@ -87,6 +87,7 @@ impl NovelBootstrapWorkflow {
     /// 即时阶段：生成故事概念 + 第一章正文，立即返回给用户
     /// 用户只需等待2-3分钟即可看到正文并开始写作
     pub async fn run_quick_phase(&self, user_premise: &str) -> Result<(BootstrapSession, StoryConcept, String), String> {
+        let overall_start = std::time::Instant::now();
         let session_id = Uuid::new_v4().to_string();
         let total_steps = 2; // 用户可见只有2步：概念 + 正文
 
@@ -94,17 +95,21 @@ impl NovelBootstrapWorkflow {
         self.create_session(&session_id, total_steps).map_err(|e| format!("Failed to create session: {}", e))?;
 
         // Step 1: 生成故事概念
+        let step1_start = std::time::Instant::now();
         self.update_session(&session_id, "concept", 0, None).ok();
         self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在构思故事概念...");
         self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在调用AI生成故事概念...");
         let story_concept = match self.generate_story_concept(user_premise).await {
             Ok(c) => c,
             Err(e) => {
+                log::error!("[NovelBootstrapWorkflow] generate_story_concept FAILED after {:?}: {}", step1_start.elapsed(), e);
                 self.fail_session(&session_id, &format!("故事概念生成失败: {}", e)).ok();
                 return Err(e);
             }
         };
-        self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事概念已生成：《{}》", story_concept.title));
+        let step1_elapsed = step1_start.elapsed().as_secs();
+        log::info!("[NovelBootstrapWorkflow] generate_story_concept SUCCESS in {}s, title='{}'", step1_elapsed, story_concept.title);
+        self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事概念已生成：《{}》（耗时{}秒）", story_concept.title, step1_elapsed));
 
         // 创建 Story 记录
         self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在保存故事...");
@@ -126,6 +131,7 @@ impl NovelBootstrapWorkflow {
         self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事《{}》已创建", story.title));
 
         // Step 2: 生成第一章正文（用户立即可见）
+        let step2_start = std::time::Instant::now();
         self.update_session(&session_id, "first_chapter", 1, Some(&story_id)).ok();
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在准备写作上下文...");
         self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在构建写作指令...");
@@ -135,13 +141,19 @@ impl NovelBootstrapWorkflow {
         let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &session_id, &story_concept, &empty_world, &[], &[]).await {
             Ok(c) => c,
             Err(e) => {
+                log::error!("[NovelBootstrapWorkflow] generate_first_chapter FAILED after {:?}: {}", step2_start.elapsed(), e);
                 self.fail_session(&session_id, &format!("第一章生成失败: {}", e)).ok();
                 return Err(e);
             }
         };
-        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在保存第一章...");
-        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "第一章已完成！您现在可以开始写作了");
+        let step2_elapsed = step2_start.elapsed().as_secs();
+        let content_len = first_chapter_content.chars().count();
+        log::info!("[NovelBootstrapWorkflow] generate_first_chapter SUCCESS in {}s, {} chars", step2_elapsed, content_len);
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, &format!("第一章已完成！{}字（耗时{}秒）", content_len, step2_elapsed));
         self.update_session(&session_id, "first_chapter", 2, Some(&story_id)).ok();
+
+        let overall_elapsed = overall_start.elapsed().as_secs();
+        log::info!("[NovelBootstrapWorkflow] run_quick_phase TOTAL {}s (concept:{}s + chapter:{}s)", overall_elapsed, step1_elapsed, step2_elapsed);
 
         // 发送 ChapterSwitch 事件让前端自动切换到新故事（用户可以立刻开始写作）
         let _ = crate::window::WindowManager::send_to_frontstage(
