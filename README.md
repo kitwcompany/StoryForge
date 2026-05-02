@@ -520,7 +520,7 @@ v2-rust/
 
 **幕前幕后自动关联**
 - **Chapter↔Scene 双向映射** — Migration 37 建立双向外键关联，ChapterRepository 自动查找/创建关联 Scene
-- **统一实时状态中心** — 后端 `state_sync` 模块定义 18 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件
+- **统一实时状态中心** — 后端 `state_sync` 模块定义 16 种 `SyncEvent`，所有数据修改命令完成后自动发射同步事件
 - **前端 useSyncStore Hook** — 监听 `sync-event` 频道，根据事件类型自动 `invalidateQueries` / `removeQueries`
 - **Bootstrap 完成后幕前自动加载** — `smartExecute` 返回后检测 `story_created:` 消息，自动加载新故事并切换到第一章；Bootstrap 完成后双重 `ChapterSwitch` 保险
 - **幕前→幕后快速跳转** — `Ctrl+Shift+B` 快捷键，标题栏点击，幕后自动定位当前故事并高亮
