@@ -51,3 +51,6 @@ test-results/
 # Spec-Kit / Kimi Code agent credentials
 .kimi/
 .specify/feature.json
+
+.env
+
