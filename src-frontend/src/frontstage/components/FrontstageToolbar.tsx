@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Minimize2, Maximize2, X, Sparkles, Settings, Eye } from 'lucide-react';
+import { Minimize2, Maximize2, X, Eye } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface FrontstageToolbarProps {

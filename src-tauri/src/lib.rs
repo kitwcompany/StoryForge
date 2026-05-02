@@ -51,6 +51,9 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::collections::HashMap;
+use std::time::{Instant, Duration};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use collab::websocket::WebSocketServer;
 
@@ -58,6 +61,11 @@ use collab::websocket::WebSocketServer;
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
 pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
+
+/// 自动 Ingest 冷却状态：chapter_id -> (content_hash, last_ingest_time)
+/// 防止频繁保存导致重复 LLM 调用
+static INGEST_COOLDOWN: Lazy<Mutex<HashMap<String, (u64, Instant)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+const INGEST_COOLDOWN_SECONDS: u64 = 300; // 5 分钟冷却期
 
 fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
 fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
@@ -703,7 +711,15 @@ fn delete_chapter(id: String, app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 计算字符串的简单哈希（用于内容去重）
+fn hash_content(content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// 章节保存后自动触发 IngestPipeline，将内容分析并更新知识图谱
+/// 内置 5 分钟冷却期 + 内容哈希去重，防止频繁保存导致重复 LLM 调用
 async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
     let repo = db::ChapterRepository::new(pool.clone());
     let chapter = match repo.get_by_id(&chapter_id).ok().flatten() {
@@ -718,6 +734,26 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
     if content_text.len() < 20 {
         log::info!("[auto_ingest] Chapter {} content too short ({} chars), skipping ingest", chapter_id, content_text.len());
         return;
+    }
+
+    // 冷却期检查：内容未变化或 5 分钟内已 Ingest，则跳过
+    {
+        let mut cooldown = INGEST_COOLDOWN.lock().unwrap();
+        let content_hash = hash_content(&content_text);
+        let now = Instant::now();
+        let should_skip = cooldown.get(&chapter_id).map(|(last_hash, last_time)| {
+            let same_content = *last_hash == content_hash;
+            let within_cooldown = now.duration_since(*last_time) < Duration::from_secs(INGEST_COOLDOWN_SECONDS);
+            same_content || within_cooldown
+        }).unwrap_or(false);
+
+        if should_skip {
+            log::info!("[auto_ingest] Chapter {} skipped (cooldown or unchanged content)", chapter_id);
+            return;
+        }
+
+        // 记录本次 Ingest 的 hash 和时间
+        cooldown.insert(chapter_id.clone(), (content_hash, now));
     }
 
     let llm_service = crate::llm::LlmService::new(app);

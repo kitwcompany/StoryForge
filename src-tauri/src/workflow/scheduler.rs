@@ -1,4 +1,4 @@
-use super::{WorkflowInstance, WorkflowStatus, NodeExecutionStatus, WorkflowEngine, Workflow};
+use super::{WorkflowInstance, WorkflowStatus, NodeExecutionStatus, WorkflowEngine};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -52,27 +52,11 @@ impl WorkflowScheduler {
     /// Run a single workflow instance to completion (serial node execution)
     fn run_instance(
         &self,
-        engine: &WorkflowEngine,
+        _engine: &WorkflowEngine,
         instance_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use super::NodeType;
-
-        // Get workflow and instance
-        let instance = engine.get_instance(instance_id)
-            .ok_or_else(|| format!("Instance {} not found", instance_id))?;
-        
-        // We need access to the workflow definition. Since WorkflowEngine doesn't expose
-        // workflows directly, we work with what we have from the instance.
-        // For now, this is a simplified executor that marks nodes as completed.
-        // A full implementation would integrate with AgentService to execute WriteChapter/Inspect nodes.
-        
-        log::info!("[WorkflowScheduler] Starting execution of instance {}", instance_id);
-
-        // Simplified execution: mark all nodes from Start to End as completed
-        // This ensures the workflow infrastructure is functional.
-        // Real node execution (LLM calls) should be added when a caller actually uses this.
-        
-        Ok(())
+        log::info!("[WorkflowScheduler] Instance {} queued but real node execution not yet implemented", instance_id);
+        Err("Workflow node execution is not yet implemented. Use CreationWorkflowEngine for full workflow execution.".into())
     }
 
     /// Get next executable nodes based on current state
