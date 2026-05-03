@@ -19,6 +19,11 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **修复**：统一 `useSyncStore.ts` 中的 KEYS 为 hooks 实际使用的 queryKey
 - **文件**：`src-frontend/src/hooks/useSyncStore.ts`
 
+#### Bootstrap解析失败：missing field `id`
+- **根因**：`ConceptGenerationStep` 中 LLM 返回的 JSON 缺少 `id`/`story_id`/`source` 等后端生成字段，`serde_json::from_str::<StoryMetaElement>()` 反序列化失败
+- **修复**：给所有 `NarrativeElement` 结构体（`StoryMetaElement`/`CharacterElement`/`SceneElement`/`WorldBuildingElement`/`OutlineElement`/`ForeshadowingElement`）的 `id`/`story_id`/`source`/`source_ref_id`/`status` 字段添加 `#[serde(default)]`，允许 LLM 返回的 JSON 省略这些字段
+- **文件**：`src-tauri/src/narrative/elements.rs`
+
 #### 其他
 - 移除 `state_sync/mod.rs` 未使用的 `SyncEvent` 导入
 - `lib.rs`：后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件

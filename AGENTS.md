@@ -148,9 +148,10 @@ npm test
 
 ### 最近完成的功能
 
-- **v5.3.1 Bootstrap体验修复 + 幕后数据刷新** (2026-05-03) — 修复两个关键前端体验问题
+- **v5.3.1 Bootstrap体验修复 + 幕后数据刷新** (2026-05-03) — 修复三个关键体验问题
   - **Bootstrap重复显示小说开头**: `handleSmartGeneration` Bootstrap完成时不再设置 `generatedText` 幽灵文本，避免与 `ChapterSwitch` 加载的 `chapter.content` 正文叠加
   - **幕后结构要素不显示**: `useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致（`world-building`≠`world_building`、`story-outlines`≠`story-outline`），修复后 TanStack Query 缓存正确过期，幕后自动刷新世界观/大纲/角色/场景/伏笔数据
+  - **Bootstrap解析失败**: 给所有 `NarrativeElement` 结构体的 `id`/`story_id`/`source` 等字段添加 `#[serde(default)]`，允许 LLM 返回的 JSON 省略后端生成字段，修复 `missing field id` 反序列化错误
   - **后台数据刷新统一通道**: 后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件
   - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过，`cargo tauri build` Windows `.exe`/`.msi`/`-setup.exe` 生成
 
