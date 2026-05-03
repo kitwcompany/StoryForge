@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.3.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.3.1 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.3.0 最新更新**：叙事元素模型重构 — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构。正向 GenesisPipeline 与逆向 AnalysisPipeline 操作同一套 `NarrativeElement` 抽象，统一存储层、统一进度系统、统一数据模型。新增 StoryHealthAnalyzer 故事结构健康检查（6维度评分）。
+> **v5.3.1 最新更新**：Bootstrap 体验全面修复 — 修复重复显示小说开头（幽灵文本叠加）、幕后结构要素不显示（queryKey 不匹配）、LLM JSON 解析失败（`missing field id`）、Bootstrap 生成中断（数据库查询容错 + JSON 字段容错）。创世引擎现在可以完整生成第一章正文和全部幕后结构要素。
+>
+> **v5.3.0 更新**：叙事元素模型重构 — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构。正向 GenesisPipeline 与逆向 AnalysisPipeline 操作同一套 `NarrativeElement` 抽象，统一存储层、统一进度系统、统一数据模型。新增 StoryHealthAnalyzer 故事结构健康检查（6维度评分）。
 >
 > **v5.2.1 更新**：超时修复与白屏修复 — Bootstrap 创建新小说超时延长至 600 秒；进度事件密度增强；LLM 心跳加速至 2 秒；后台窗口白屏修复增强。
 >
