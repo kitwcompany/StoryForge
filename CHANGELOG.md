@@ -2,6 +2,35 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.3.1] - Bootstrap体验修复 + 幕后数据刷新（2026-05-03）
+
+### 🐛 Bug修复
+
+#### Bootstrap重复显示小说开头
+- **根因**：`handleSmartGeneration` 在 Bootstrap 完成时设置 `generatedText`（幽灵文本），同时 `ChapterSwitch` 事件加载 `chapter.content`（正文），编辑器同时显示两份内容
+- **修复**：Bootstrap 完成时不再设置 `generatedText`，内容已通过数据库保存并由 `ChapterSwitch` 事件加载到编辑器
+- **文件**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+
+#### 幕后结构要素不显示
+- **根因**：`useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致：
+  - `['world-building', storyId]` ≠ `['world_building', storyId]`
+  - `['story-outlines', storyId]` ≠ `['story-outline', storyId]`
+- **后果**：后台阶段生成数据保存到数据库并发射 `sync-event` 刷新事件，但 TanStack Query 缓存永不过期，幕后永远显示空数据
+- **修复**：统一 `useSyncStore.ts` 中的 KEYS 为 hooks 实际使用的 queryKey
+- **文件**：`src-frontend/src/hooks/useSyncStore.ts`
+
+#### 其他
+- 移除 `state_sync/mod.rs` 未使用的 `SyncEvent` 导入
+- `lib.rs`：后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件
+
+### 编译与测试
+- `cargo check`：零错误
+- `cargo test`：193/193 全部通过
+- `npm run build`：通过
+- `cargo tauri build`：Windows `.exe` / `.msi` / `-setup.exe` 生成成功
+
+---
+
 ## [v5.3.0] - 叙事元素模型重构：创世-拆书同构架构（2026-05-02）
 
 ### 🏗️ 架构级重构：统一叙事元素模型

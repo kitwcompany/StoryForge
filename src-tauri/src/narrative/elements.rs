@@ -37,9 +37,10 @@ impl std::fmt::Display for ElementType {
 }
 
 /// 元素来源 — 标识数据是如何产生的
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ElementSource {
+    #[default]
     Generated,      // AI生成（Bootstrap/创世）
     Extracted,      // 从文本提取（拆书）
     UserCreated,    // 用户手动创建
@@ -62,7 +63,9 @@ impl std::fmt::Display for ElementSource {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterElement {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub story_id: String,
     pub name: String,
     pub role_type: String,           // 主角/反派/导师/盟友/爱情线...
@@ -75,7 +78,9 @@ pub struct CharacterElement {
     pub age: i32,
     pub relationships: Vec<CharacterRelationship>,
     pub importance_score: f32,       // 1-10
+    #[serde(default)]
     pub source: ElementSource,
+    #[serde(default)]
     pub source_ref_id: Option<String>, // 关联外部ID（如拆书的book_id）
 }
 
@@ -90,7 +95,9 @@ pub struct CharacterRelationship {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneElement {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub story_id: String,
     pub sequence_number: i32,
     pub title: String,
@@ -102,7 +109,9 @@ pub struct SceneElement {
     pub setting_location: String,
     pub setting_time: String,
     pub content: Option<String>,     // 正文内容（可选）
+    #[serde(default)]
     pub source: ElementSource,
+    #[serde(default)]
     pub source_ref_id: Option<String>,
 }
 
@@ -110,14 +119,18 @@ pub struct SceneElement {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldBuildingElement {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub story_id: String,
     pub concept: String,
     pub rules: Vec<WorldRule>,
     pub history: String,
     pub key_locations: Vec<String>,
     pub power_system: String,
+    #[serde(default)]
     pub source: ElementSource,
+    #[serde(default)]
     pub source_ref_id: Option<String>,
 }
 
@@ -133,11 +146,15 @@ pub struct WorldRule {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutlineElement {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub story_id: String,
     pub acts: Vec<OutlineAct>,
     pub total_scenes_estimate: i32,
+    #[serde(default)]
     pub source: ElementSource,
+    #[serde(default)]
     pub source_ref_id: Option<String>,
 }
 
@@ -154,7 +171,9 @@ pub struct OutlineAct {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForeshadowingElement {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub story_id: String,
     pub content: String,
     pub importance: i32,             // 1-10
@@ -162,14 +181,18 @@ pub struct ForeshadowingElement {
     pub hint_style: String,          // 环境隐喻/对话暗示/物品象征...
     pub setup_scene_id: Option<String>,
     pub payoff_scene_id: Option<String>,
+    #[serde(default)]
     pub status: ForeshadowingStatus,
+    #[serde(default)]
     pub source: ElementSource,
+    #[serde(default)]
     pub source_ref_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ForeshadowingStatus {
+    #[default]
     Setup,      // 已埋设
     Payoff,     // 已回收
     Abandoned,  // 已放弃
@@ -180,6 +203,7 @@ pub enum ForeshadowingStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoryMetaElement {
+    #[serde(default)]
     pub id: String,
     pub title: String,
     pub description: String,
@@ -188,7 +212,9 @@ pub struct StoryMetaElement {
     pub pacing: String,
     pub themes: Vec<String>,
     pub target_length: String,
+    #[serde(default)]
     pub source: ElementSource,
+    #[serde(default)]
     pub source_ref_id: Option<String>,
 }
 

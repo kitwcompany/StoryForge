@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v5.1.1
+- **版本**: v5.3.1
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -147,6 +147,20 @@ npm test
 ---
 
 ### 最近完成的功能
+
+- **v5.3.1 Bootstrap体验修复 + 幕后数据刷新** (2026-05-03) — 修复两个关键前端体验问题
+  - **Bootstrap重复显示小说开头**: `handleSmartGeneration` Bootstrap完成时不再设置 `generatedText` 幽灵文本，避免与 `ChapterSwitch` 加载的 `chapter.content` 正文叠加
+  - **幕后结构要素不显示**: `useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致（`world-building`≠`world_building`、`story-outlines`≠`story-outline`），修复后 TanStack Query 缓存正确过期，幕后自动刷新世界观/大纲/角色/场景/伏笔数据
+  - **后台数据刷新统一通道**: 后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件
+  - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过，`cargo tauri build` Windows `.exe`/`.msi`/`-setup.exe` 生成
+
+- **v5.3.0 叙事元素模型重构：创世-拆书同构架构** (2026-05-02) — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构
+  - **统一数据模型**: 新建 `narrative/` 模块 — `CharacterElement/SceneElement` 等 + `ElementSource` 枚举区分 Generated/Extracted/UserCreated/Imported
+  - **GenesisPipeline**: 7步正向流程（概念→世界观→大纲→角色→场景→伏笔→知识图谱）
+  - **AnalysisPipeline**: 7步逆向流程（元数据→世界观→角色→场景→故事线→伏笔→知识图谱）
+  - **统一进度系统**: `usePipelineProgress.ts` Hook 替代两套进度系统
+  - **统一存储层**: `repositories_narrative.rs` 生产表和参考表数据汇聚到统一表
+  - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
 
 - **v5.2.2 Bootstrap 两阶段架构重构** (2026-05-02) — 核心体验优化：用户等待从10+分钟缩短到2-3分钟
   - **两阶段执行模型**: `bootstrap.rs` `run()` 拆分为 `run_quick_phase()`（同步：概念+正文，2-3分钟）+ `run_background_phase()`（异步 `tokio::spawn`：世界观/大纲/角色/场景/伏笔/知识图谱，5-8分钟）
@@ -492,7 +506,7 @@ npm test
 
 ---
 
-*最后更新: 2026-05-02 - v5.3.0 叙事元素模型重构：创世-拆书同构架构*
+*最后更新: 2026-05-03 - v5.3.1 Bootstrap体验修复 + 幕后数据刷新*
 
 - **v5.3.0 叙事元素模型重构** (2026-05-02) — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构
   - **统一数据模型**: 新建 `narrative/` 模块 — `CharacterElement/SceneElement` 等 + `ElementSource` 枚举区分 Generated/Extracted/UserCreated/Imported
