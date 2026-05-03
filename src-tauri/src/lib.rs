@@ -1190,15 +1190,20 @@ async fn smart_execute(
     let chapter_count = chapters.len();
 
     // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的内容
+    // v5.3.1 修复：从尾部截断（保留最新内容），让 LLM 知道最近写了什么
     let current_content_preview = current_content
         .filter(|c| !c.trim().is_empty())
         .or_else(|| chapters.last().and_then(|c| c.content.clone()))
         .map(|content| {
-            let preview: String = content.chars().take(2000).collect();
-            if content.chars().count() > 2000 {
-                format!("{}...", preview)
+            let max_chars = 6000;
+            let total = content.chars().count();
+            if total > max_chars {
+                // 从尾部截断：保留最后 max_chars 个字符，前面加省略号
+                let skip = total - max_chars;
+                let preview: String = content.chars().skip(skip).collect();
+                format!("...(前{}字已省略)\n{}", skip, preview)
             } else {
-                preview
+                content
             }
         });
 
