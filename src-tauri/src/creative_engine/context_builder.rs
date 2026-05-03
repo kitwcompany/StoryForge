@@ -65,10 +65,20 @@ impl StoryContextBuilder {
         selected_text: Option<String>,
     ) -> Result<AgentContext, String> {
         let story = self.fetch_story(story_id)?;
-        let characters = self.fetch_characters(story_id)?;
-        let previous_scenes = self.fetch_previous_scenes(story_id, scene_number)?;
+        // Bootstrap 容错：数据库可能为空，失败时返回默认值而非中断
+        let characters = self.fetch_characters(story_id).unwrap_or_else(|e| {
+            log::warn!("[StoryContextBuilder] fetch_characters failed for {}: {}, using empty", story_id, e);
+            vec![]
+        });
+        let previous_scenes = self.fetch_previous_scenes(story_id, scene_number).unwrap_or_else(|e| {
+            log::warn!("[StoryContextBuilder] fetch_previous_scenes failed for {}: {}, using empty", story_id, e);
+            vec![]
+        });
         let world_rules = self.fetch_world_rules(story_id)?;
-        let style = self.fetch_writing_style(story_id)?;
+        let style = self.fetch_writing_style(story_id).unwrap_or_else(|e| {
+            log::warn!("[StoryContextBuilder] fetch_writing_style failed for {}: {}, using None", story_id, e);
+            None
+        });
         let current_scene = scene_number.and_then(|n| self.fetch_current_scene(story_id, n).ok());
         let relevant_entities = self.fetch_relevant_entities(story_id, 10).unwrap_or_default();
 

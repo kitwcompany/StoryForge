@@ -76,7 +76,9 @@ pub struct CharacterElement {
     pub appearance: String,
     pub gender: String,
     pub age: i32,
+    #[serde(default)]
     pub relationships: Vec<CharacterRelationship>,
+    #[serde(default)]
     pub importance_score: f32,       // 1-10
     #[serde(default)]
     pub source: ElementSource,
@@ -105,6 +107,7 @@ pub struct SceneElement {
     pub dramatic_goal: String,
     pub external_pressure: String,
     pub conflict_type: String,       // man_vs_man | man_vs_self | ...
+    #[serde(default)]
     pub characters_present: Vec<String>,
     pub setting_location: String,
     pub setting_time: String,
@@ -124,9 +127,12 @@ pub struct WorldBuildingElement {
     #[serde(default)]
     pub story_id: String,
     pub concept: String,
+    #[serde(default)]
     pub rules: Vec<WorldRule>,
     pub history: String,
+    #[serde(default)]
     pub key_locations: Vec<String>,
+    #[serde(default)]
     pub power_system: String,
     #[serde(default)]
     pub source: ElementSource,
@@ -151,6 +157,7 @@ pub struct OutlineElement {
     #[serde(default)]
     pub story_id: String,
     pub acts: Vec<OutlineAct>,
+    #[serde(default)]
     pub total_scenes_estimate: i32,
     #[serde(default)]
     pub source: ElementSource,
@@ -163,7 +170,9 @@ pub struct OutlineAct {
     pub act_number: i32,
     pub title: String,
     pub summary: String,
+    #[serde(default)]
     pub key_plot_points: Vec<String>,
+    #[serde(default)]
     pub estimated_scenes: i32,
 }
 
