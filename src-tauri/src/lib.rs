@@ -1245,6 +1245,8 @@ async fn smart_execute(
                 let story_id_bg = story_id.clone();
                 let session_id_bg = session_id.clone();
                 tauri::async_runtime::spawn(async move {
+                    let story_id_for_emit = story_id_bg.clone();
+                    let app_handle_for_emit = app_handle_bg.clone();
                     let mut bg_ctx = narrative::genesis::GenesisContext::for_background(
                         app_handle_bg.clone(), story_id_bg, session_id_bg, user_input.clone(), bundle
                     );
@@ -1266,7 +1268,19 @@ async fn smart_execute(
                     if let Err(e) = bg_executor.execute(&mut bg_ctx, &llm_bg, progress_callback_bg).await {
                         log::warn!("[GenesisPipeline] 后台阶段失败: {}", e);
                     } else {
-                        log::info!("[GenesisPipeline] 后台阶段完成");
+                        log::info!("[GenesisPipeline] 后台阶段完成，发射数据刷新事件");
+                        // v5.3.1: 后台完成后通知前端刷新所有关联数据
+                        let _ = app_handle_for_emit.emit("backstage-data-refreshed", serde_json::json!({
+                            "story_id": story_id_for_emit,
+                            "entities": ["world-building", "characters", "scenes", "story-outlines", "foreshadowings", "knowledge-graph"],
+                            "source": "genesis_background"
+                        }));
+                        let _ = crate::window::WindowManager::send_to_backstage(
+                            &app_handle_for_emit,
+                            crate::window::BackstageEvent::DataRefresh {
+                                entity: "all".to_string(),
+                            }
+                        );
                     }
                 });
                 
