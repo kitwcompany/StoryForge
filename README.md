@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.3.1 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.4.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.3.1 最新更新**：Bootstrap 体验全面修复 — 修复重复显示小说开头（幽灵文本叠加）、幕后结构要素不显示（queryKey 不匹配）、LLM JSON 解析失败（`missing field id`）、Bootstrap 生成中断（数据库查询容错 + JSON 字段容错）。创世引擎现在可以完整生成第一章正文和全部幕后结构要素。
+> **v5.4.0 最新更新**：向量检索语义化 — 从关键词匹配升级到语义理解。新增 `OllamaEmbeddingProvider` 支持 `nomic-embed-text` / `all-minilm` 等真实语义嵌入模型；`QueryPipeline` 四阶段检索扩展为五阶段融合架构（CJK 分词搜索 + 语义向量搜索 + 加权融合 + 知识图谱扩展 + 预算控制）；LanceDB 真实 IVF-PQ 向量索引替代 SQLite 全表扫描，Cosine 距离精准召回。若用户未配置 Ollama/OpenAI embedding，自动 graceful fallback 到 FNV-1a 哈希，零额外配置即可运行。
+>
+> **v5.3.1 更新**：Bootstrap 体验全面修复 — 修复重复显示小说开头（幽灵文本叠加）、幕后结构要素不显示（queryKey 不匹配）、LLM JSON 解析失败（`missing field id`）、Bootstrap 生成中断（数据库查询容错 + JSON 字段容错）、续写时重复生成开头（预览从尾部截断 6000 字符）。创世引擎现在可以完整生成第一章正文和全部幕后结构要素。
 >
 > **v5.3.0 更新**：叙事元素模型重构 — 将 Bootstrap（生成小说）和拆书（分析小说）统一为可逆的 NarrativePipeline 架构。正向 GenesisPipeline 与逆向 AnalysisPipeline 操作同一套 `NarrativeElement` 抽象，统一存储层、统一进度系统、统一数据模型。新增 StoryHealthAnalyzer 故事结构健康检查（6维度评分）。
 >
@@ -210,8 +212,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.3.0  
-**最后更新**: 2026-05-02  
+**当前版本**: v5.4.0  
+**最后更新**: 2026-05-04  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -240,7 +242,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 创作工作流引擎 | ✅ 完成 | 100% |
 | 拆书功能 | ✅ 完成 | 100% |
 | 任务系统 | ✅ 完成 | 100% |
-| 测试覆盖 | ✅ 完成 | 193 tests |
+| 测试覆盖 | ✅ 完成 | 217 tests |
 | 创世引擎 | ✅ 完成 | 100% |
 
 ---
@@ -466,7 +468,7 @@ v2-rust/
 | CJK 分词器 | ✅ | 二元组分词，中日韩支持 |
 | Ingest 管线 | ✅ | 两步思维链：分析→生成 |
 | 知识图谱 | ✅ | 实体/关系带强度评分，ReactFlow 可视化 |
-| 查询检索 | ✅ | 四阶段检索管线 |
+| 查询检索 | ✅ | 五阶段融合检索（CJK 分词 + 语义向量 + 加权融合 + 图谱扩展 + 预算控制） |
 | 多助手会话 | ✅ | 6 种助手类型独立会话 |
 | 混合搜索 | ✅ | BM25 + 向量融合 (RRF) |
 | FTS5 全文索引 | ✅ | SQLite 原生全文加速 |
@@ -521,6 +523,22 @@ v2-rust/
 ---
 
 ## 📅 更新历史
+
+### v5.4.0 (2026-05-04) - 向量检索语义化：从关键词到语义理解
+- **OllamaEmbeddingProvider** — `embeddings/provider.rs` 新增 Ollama 语义嵌入后端，支持 `nomic-embed-text` / `all-minilm` / `mxbai-embed-large` 等模型
+- **全局语义嵌入路由** — `embed_text_async()` 优先查询全局 `EmbeddingProvider`（Ollama/OpenAI），失败 graceful fallback 到本地 FNV-1a 哈希；`tokio::sync::Mutex` 保证跨 async 边界 `Send` 安全
+- **QueryPipeline 五阶段融合** — `memory/query.rs` 从四阶段扩展为五阶段：1a `token_search`（CJK 分词）+ 1b `semantic_search`（embedding 生成 → `search_with_embedding`）+ 1c `fuse_results`（token 权重 0.4 / 语义权重 0.6 加权融合，去重+折半补偿+Top50 截断）+ 2 图谱扩展 + 3 预算控制 + 4 上下文组装
+- **LanceDB 真实向量索引** — `vector/lancedb_store.rs` 接入 IVF-PQ + Cosine 距离语义检索，`VectorStore` trait 扩展 `search_with_embedding` 接口；`DbVectorStore` 返回空结果 graceful 降级
+- **测试覆盖** — 新增 6 个 `fuse_results` 单元测试，Rust 总测试数 211→217
+- **编译验证** — `cargo check` 零错误，`cargo test` 217/217，`npm run build` 通过，`cargo check --release` 通过
+
+### v5.3.1 (2026-05-03) - Bootstrap 体验修复 + 幕后数据刷新
+- **Bootstrap 重复显示小说开头** — `handleSmartGeneration` 完成时不再设置 `generatedText` 幽灵文本，避免与 `ChapterSwitch` 加载的 `chapter.content` 叠加
+- **幕后结构要素不显示** — `useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致（`world-building`≠`world_building`），修复后 TanStack Query 缓存正确过期
+- **Bootstrap 解析失败** — 给所有 `NarrativeElement` 结构体字段添加 `#[serde(default)]`，允许 LLM 返回 JSON 省略后端生成字段
+- **Bootstrap 生成中断** — `StoryContextBuilder::build` 查询失败时返回默认值；LLM 缺少字段添加 `#[serde(default)]`
+- **续写重复生成开头** — `current_content_preview` 从尾部截断 6000 字符保留最新内容
+- **后台数据刷新统一通道** — 后台阶段完成后通过 `StateSync::emit_data_refresh()` 发射标准 `sync-event` 事件
 
 ### v5.3.0 (2026-05-02) - 叙事元素模型重构：创世-拆书同构架构
 - 统一叙事元素模型：`narrative/` 模块 — 正向/逆向共用同一套数据结构
@@ -842,17 +860,17 @@ cd src-tauri && cargo tauri build
 - [x] 全面代码审计与空实现修复
 - [x] 内存模块 SQLite 持久化
 
-### 短期计划 (v4.1.x)
+### 短期计划 (v5.5.x)
 - [ ] 云端同步
 - [ ] 协作写作增强（多人实时编辑 OT 完整实现）
 - [ ] 插件市场
 
-### 中期计划 (v4.2.0)
+### 中期计划 (v5.6.x)
 - [ ] WebAssembly 前端
 - [ ] 自研小模型
 - [ ] 移动端适配
 
-### 长期计划 (v5.0.0)
+### 长期计划 (v6.0.0)
 - [ ] 发布平台集成
 - [ ] AI 全自动长篇小说生成
 
