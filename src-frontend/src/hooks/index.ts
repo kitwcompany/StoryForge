@@ -53,3 +53,4 @@ export { useStoryOutline, useUpdateStoryOutline } from './useStoryOutline';
 export { useCharacterRelationships } from './useCharacterRelationships';
 export { useSyncStore } from './useSyncStore';
 export { usePipelineProgress, usePipelineComplete } from './usePipelineProgress';
+export { useWorkflowNodes } from './useWorkflowNodes';

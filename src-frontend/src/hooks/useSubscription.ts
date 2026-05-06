@@ -15,6 +15,9 @@ import {
   type QuotaCheckResult,
   type QuotaDetail,
 } from '@/services/tauri';
+import { createLogger } from '@/utils/logger';
+
+const subscriptionLogger = createLogger('hooks:useSubscription');
 
 export interface SubscriptionState {
   tier: 'free' | 'pro' | 'enterprise';
@@ -89,7 +92,7 @@ export function useSubscription() {
       saveCachedState(newState);
       setState(newState);
     } catch (err) {
-      console.error('Failed to fetch subscription status:', err);
+      subscriptionLogger.error('Failed to fetch subscription status', { error: err });
       setState(prev => ({ ...prev, isLoading: false, error: '获取订阅状态失败' }));
     }
   }, []);
@@ -99,7 +102,7 @@ export function useSubscription() {
     try {
       return await checkAutoWriteQuota(requestedChars);
     } catch (err) {
-      console.error('Failed to check auto-write quota:', err);
+      subscriptionLogger.error('Failed to check auto-write quota', { error: err });
       const detail = state.quotaDetail;
       const remaining = detail ? detail.auto_write_limit - detail.auto_write_used : 10;
       return {
@@ -118,7 +121,7 @@ export function useSubscription() {
     try {
       return await checkAutoReviseQuota(requestedChars);
     } catch (err) {
-      console.error('Failed to check auto-revise quota:', err);
+      subscriptionLogger.error('Failed to check auto-revise quota', { error: err });
       const detail = state.quotaDetail;
       const remaining = detail ? detail.auto_revise_limit - detail.auto_revise_used : 10;
       return {

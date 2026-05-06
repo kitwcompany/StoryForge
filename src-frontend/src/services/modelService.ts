@@ -7,7 +7,10 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { ModelConfig, getEmbeddingModel } from '@/config/models';
+import { createLogger } from '@/utils/logger';
 import { getConfig } from './tauri';
+
+const modelServiceLogger = createLogger('services:modelService');
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -85,7 +88,7 @@ class ModelService {
       const status = await invoke<string>('check_model_status');
       return status as 'connected' | 'disconnected';
     } catch (error) {
-      console.warn('Model status check failed:', error);
+      modelServiceLogger.warn('Model status check failed', { error });
       return 'disconnected';
     }
   }
@@ -162,7 +165,7 @@ class ModelService {
                 finalResponse = parsed;
               }
             } catch (e) {
-              console.warn('解析流数据失败:', e);
+              modelServiceLogger.warn('解析流数据失败', { error: e });
             }
           }
         }

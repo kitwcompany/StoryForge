@@ -148,6 +148,15 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.4.0 向量检索语义化 + QueryPipeline 端到端集成** (2026-05-04) — 从关键词匹配到语义理解的检索升级
+  - **OllamaEmbeddingAdapter**: 新增 `embeddings/provider.rs` 中 `OllamaEmbeddingProvider`，支持通过 Ollama API（`nomic-embed-text` / `all-minilm` / `mxbai-embed-large`）获取真实语义嵌入
+  - **全局语义嵌入路由**: `embeddings/embedding.rs` 中 `embed_text_async()` 优先查询全局 `EmbeddingProvider`（Ollama/OpenAI），失败 graceful fallback 到本地 FNV-1a 哈希；全局 provider 使用 `tokio::sync::Mutex` 保证跨 async 边界 `Send` 安全
+  - **QueryPipeline 语义搜索融合**: `memory/query.rs` 四阶段管线扩展为五阶段——1a token_search + 1b semantic_search（embedding 生成 → `search_with_embedding`）+ 1c `fuse_results` 加权融合（token 权重 0.4 / 语义权重 0.6）+ 2 图谱扩展 + 3 预算控制 + 4 上下文组装
+  - **Graceful 降级**: 若用户未配置 Ollama/OpenAI embedding，或 `DbVectorStore` 不支持 `search_with_embedding`，自动回退到纯 token 搜索，零额外配置即可运行
+  - **LanceDB 真实向量索引**: `vector/lancedb_store.rs` 已接入 IVF-PQ + Cosine 距离语义检索，`VectorStore` trait 扩展 `search_with_embedding` 接口
+  - **测试覆盖**: 新增 6 个 `fuse_results` 单元测试（双侧/仅token/仅语义/去重/空输入/截断），Rust 总测试数 211→217
+  - **编译**: `cargo check` 零错误，`cargo test` 217/217，`npm run build` 通过
+
 - **v5.3.1 Bootstrap体验修复 + 幕后数据刷新** (2026-05-03) — 修复四个关键体验问题
   - **Bootstrap重复显示小说开头**: `handleSmartGeneration` Bootstrap完成时不再设置 `generatedText` 幽灵文本，避免与 `ChapterSwitch` 加载的 `chapter.content` 正文叠加
   - **幕后结构要素不显示**: `useSyncStore` 中 `invalidateQueries` 的 queryKey 与 hooks 实际使用的 key 不一致（`world-building`≠`world_building`、`story-outlines`≠`story-outline`），修复后 TanStack Query 缓存正确过期，幕后自动刷新世界观/大纲/角色/场景/伏笔数据

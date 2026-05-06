@@ -197,7 +197,7 @@ impl HybridSearch {
         query: &str,
         story_id: &str,
         vector_store: &LanceVectorStore,
-    ) -> Result<Vec<HybridSearchResult>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<HybridSearchResult>, Box<dyn std::error::Error + Send + Sync>> {
         // 1. BM25 搜索
         let bm25_results = self.bm25.search(query, self.config.top_k_per_route);
 

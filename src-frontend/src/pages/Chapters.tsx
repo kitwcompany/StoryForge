@@ -8,7 +8,10 @@ import { useChapters, useCreateChapter, useUpdateChapter, useDeleteChapter } fro
 import { MonacoEditor } from '@/components/Editor';
 import { VectorSearch } from '@/components/VectorSearch';
 import { useCollaboration } from '@/hooks/useCollaboration';
+import { createLogger } from '@/utils/logger';
 import type { Chapter } from '@/types/index';
+
+const chaptersLogger = createLogger('ui:Chapters');
 
 export function Chapters() {
   const currentStory = useAppStore((s) => s.currentStory);
@@ -34,7 +37,7 @@ export function Chapters() {
     userName: currentUser?.name || 'Anonymous',
     onRemoteOperation: (op) => {
       // Apply remote operation to editor
-      console.log('Remote operation:', op);
+      chaptersLogger.debug('Remote operation', { op });
     },
     onUserJoined: (user) => {
       toast.success(`${user.user_name} 加入编辑`);

@@ -43,8 +43,9 @@ pub fn story_concept_prompt(mode: PromptMode, context: &str) -> String {
 要求：
 1. 标题要有吸引力，避免俗套
 2. 简介要概括核心冲突和卖点
-3. 题材要具体，不要笼统"小说"
-4. 只输出 JSON，不要其他内容"#,
+3. 题材必须严格遵循用户输入中的要求。如果用户明确提到了具体题材（如"都市玄幻"、"科幻"、"古言"等），则必须使用，不得擅自更改或替换为其他题材
+4. 题材要具体，不要笼统"小说"
+5. 只输出 JSON，不要其他内容"#,
             mode.verb(), context.replace('"', "'")
         ),
         PromptMode::Extract => format!(

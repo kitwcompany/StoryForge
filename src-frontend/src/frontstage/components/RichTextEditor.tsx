@@ -33,7 +33,10 @@ import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useSubscription } from '@/hooks/useSubscription';
 import type { ParagraphCommentary } from '@/types/v3';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
 import { generateParagraphCommentaries, writerAgentExecute, formatText } from '@/services/tauri';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
@@ -483,7 +486,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             );
           }
         } catch (err) {
-          console.error('Inline suggestion generation failed:', err);
+          rtEditorLogger.error('Inline suggestion generation failed', { error: err });
           const msg = err instanceof Error ? err.message : String(err);
           toast.error(`文思生成失败：${msg}`);
         } finally {
@@ -509,7 +512,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editor.commands.setContent(`<p>${formatted.replace(/\n/g, '</p><p>')}</p>`);
         toast.success('排版完成');
       } catch (error) {
-        console.error('Format text error:', error);
+        rtEditorLogger.error('Format text error', { error });
         const msg = error instanceof Error ? error.message : String(error);
         toast.error(`排版失败：${msg}`);
       } finally {
@@ -599,7 +602,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         }
         chain.run();
       } catch (error) {
-        console.error('Commentary error:', error);
+        rtEditorLogger.error('Commentary error', { error });
       } finally {
         setIsGeneratingCommentary(false);
       }
@@ -611,7 +614,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         await acceptChangeMutation.mutateAsync({ changeId, chapterId });
         toast.success('已接受变更');
       } catch (error) {
-        console.error('Failed to accept change:', error);
+        rtEditorLogger.error('Failed to accept change', { error });
         toast.error('操作失败');
       }
     };
@@ -621,7 +624,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         await rejectChangeMutation.mutateAsync({ changeId, chapterId });
         toast.success('已拒绝变更');
       } catch (error) {
-        console.error('Failed to reject change:', error);
+        rtEditorLogger.error('Failed to reject change', { error });
         toast.error('操作失败');
       }
     };

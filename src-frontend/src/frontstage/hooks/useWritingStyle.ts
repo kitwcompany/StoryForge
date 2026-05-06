@@ -5,7 +5,10 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { createLogger } from '@/utils/logger';
 import { WritingStyleId, WritingStyle, writingStyles, defaultStyle } from '@/frontstage/config/writingStyles';
+
+const writingStyleLogger = createLogger('hooks:useWritingStyle');
 
 const STORAGE_KEY = 'storyforge-writing-style';
 
@@ -24,7 +27,7 @@ export function useWritingStyle() {
         }
       }
     } catch (error) {
-      console.error('Failed to load writing style:', error);
+      writingStyleLogger.error('Failed to load writing style', { error });
     }
     setIsLoaded(true);
   }, []);
@@ -37,7 +40,7 @@ export function useWritingStyle() {
       try {
         localStorage.setItem(STORAGE_KEY, styleId);
       } catch (error) {
-        console.error('Failed to save writing style:', error);
+        writingStyleLogger.error('Failed to save writing style', { error });
       }
     }
   }, []);

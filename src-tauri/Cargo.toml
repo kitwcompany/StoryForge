@@ -42,13 +42,17 @@ epub-builder = "0.7"
 # File system
 dirs = "5"
 log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time", "local-time"] }
+tracing-appender = "0.2"
+tracing-log = "0.2"
 tokio-tungstenite = { version = "0.29.0", features = ["native-tls"] }
 futures-util = "0.3.32"
 
-# LanceDB - 向量数据库(待依赖冲突解决后启用)
-# lancedb = "0.18"
-# arrow-array = "54"
-# arrow-schema = "54"
+# LanceDB - 向量数据库(v5.4.0 启用)
+lancedb = "0.27"
+arrow-array = "57"
+arrow-schema = "57"
 
 # ZIP file handling (配置导出)
 zip = "0.6"

@@ -240,3 +240,90 @@ pub trait ContextBuilder<Input, Context: StepContext + Send> {
 pub trait ResultExtractor<Context: StepContext + Send, Output> {
     fn extract(&self, ctx: Context) -> Result<Output, PipelineError>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pipeline_error_display() {
+        let err = PipelineError::StepFailed {
+            step_name: "世界观生成".to_string(),
+            reason: "LLM超时".to_string(),
+        };
+        assert_eq!(format!("{}", err), "步骤 '世界观生成' 失败: LLM超时");
+
+        let err = PipelineError::Cancelled("用户取消".to_string());
+        assert_eq!(format!("{}", err), "已取消: 用户取消");
+
+        let err = PipelineError::LlmError("连接失败".to_string());
+        assert_eq!(format!("{}", err), "LLM错误: 连接失败");
+
+        let err = PipelineError::ParseError("JSON无效".to_string());
+        assert_eq!(format!("{}", err), "解析错误: JSON无效");
+
+        let err = PipelineError::StorageError("数据库锁定".to_string());
+        assert_eq!(format!("{}", err), "存储错误: 数据库锁定");
+    }
+
+    #[test]
+    fn test_cancel_flag_registration() {
+        let session_id = "test_session_001";
+        let flag = register_pipeline_cancel(session_id);
+        assert!(!flag.load(Ordering::Relaxed));
+
+        // 取消
+        let cancelled = cancel_pipeline(session_id);
+        assert!(cancelled);
+        assert!(flag.load(Ordering::Relaxed));
+
+        // 清理
+        unregister_pipeline_cancel(session_id);
+        // 再次取消应返回 false（已注销）
+        let cancelled_again = cancel_pipeline(session_id);
+        assert!(!cancelled_again);
+    }
+
+    #[test]
+    fn test_cancel_flag_multiple_sessions() {
+        let flag1 = register_pipeline_cancel("session_a");
+        let flag2 = register_pipeline_cancel("session_b");
+
+        assert!(!flag1.load(Ordering::Relaxed));
+        assert!(!flag2.load(Ordering::Relaxed));
+
+        cancel_pipeline("session_a");
+        assert!(flag1.load(Ordering::Relaxed));
+        assert!(!flag2.load(Ordering::Relaxed));
+
+        unregister_pipeline_cancel("session_a");
+        unregister_pipeline_cancel("session_b");
+    }
+
+    #[test]
+    fn test_narrative_pipeline_executor_new() {
+        // 使用空步骤列表构建 executor
+        let executor: NarrativePipelineExecutor<MockContext> = NarrativePipelineExecutor::new(vec![]);
+        // 设置取消标志不应 panic
+        let flag = Arc::new(AtomicBool::new(false));
+        let _ = executor.with_cancel_flag(flag);
+    }
+
+    /// 测试用的 MockContext
+    struct MockContext {
+        story_id: String,
+        current_step: String,
+    }
+
+    impl StepContext for MockContext {
+        fn story_id(&self) -> Option<&str> {
+            Some(&self.story_id)
+        }
+        fn set_current_step(&mut self, step_name: &str) {
+            self.current_step = step_name.to_string();
+        }
+        fn current_step(&self) -> &str {
+            &self.current_step
+        }
+    }
+}

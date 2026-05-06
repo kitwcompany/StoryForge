@@ -30,7 +30,10 @@ import { useWorkflows, useReloadWorkflows } from '@/hooks/useWorkflows';
 import { useUpdateStory } from '@/hooks/useStories';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const settingsLogger = createLogger('ui:Settings');
 import { colorThemeList, applyColorTheme, loadColorTheme, type ColorThemeId } from '@/frontstage/config/colorThemes';
 import { useUpdater } from '@/hooks/useUpdater';
 import { EditorSettings } from '@/components/EditorSettings';
@@ -1503,7 +1506,7 @@ function AccountSettings() {
       const config = await import('@/services/auth').then(m => m.getAuthConfig());
       setAuthConfig(config);
     } catch (e) {
-      console.error('Failed to load auth config:', e);
+      settingsLogger.error('Failed to load auth config', { error: e });
     }
   };
 

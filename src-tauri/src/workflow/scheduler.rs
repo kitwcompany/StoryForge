@@ -140,16 +140,17 @@ impl WorkflowScheduler {
                 break;
             }
 
+            // v5.4.0: 并行执行同一轮中的所有可执行节点
+            // Phase 1: Mark all nodes as Running (mutable borrow)
+            let mut node_clones = Vec::new();
             for node_id in &next_nodes {
                 let node = workflow.nodes.iter()
                     .find(|n| n.id == *node_id)
                     .ok_or("Node not found")?;
 
-                // Update node status to Running
                 self.update_node_status(&mut instance, node_id, NodeExecutionStatus::Running, None, None);
                 engine.update_instance(&instance);
 
-                // Emit node start event
                 let _ = app_handle.emit("workflow-node-started", serde_json::json!({
                     "instance_id": instance_id,
                     "node_id": node_id,
@@ -157,12 +158,29 @@ impl WorkflowScheduler {
                     "node_type": format!("{:?}", node.node_type),
                 }));
 
-                // Execute the node
-                let result = self.execute_node(node, &instance, app_handle).await;
+                node_clones.push(node.clone());
+            }
 
+            // Phase 2: Execute nodes in parallel (each closure gets its own clone)
+            let mut node_futures = Vec::new();
+            for node in &node_clones {
+                let app_handle_clone = app_handle.clone();
+                let scheduler_ref = self;
+                let instance_clone = instance.clone();
+                node_futures.push(async move {
+                    let result = scheduler_ref.execute_node(node, &instance_clone, &app_handle_clone).await;
+                    (node.id.clone(), node.name.clone(), result)
+                });
+            }
+
+            // Execute all nodes in parallel
+            let node_results = futures::future::join_all(node_futures).await;
+
+            // Process results serially to avoid concurrent mutable access to instance
+            for (node_id, _node_name, result) in node_results {
                 match result {
                     Ok(output) => {
-                        self.update_node_status(&mut instance, node_id, NodeExecutionStatus::Completed, Some(output.clone()), None);
+                        self.update_node_status(&mut instance, &node_id, NodeExecutionStatus::Completed, Some(output.clone()), None);
                         instance.context.variables.insert(node_id.clone(), output);
                         engine.update_instance(&instance);
 
@@ -172,7 +190,7 @@ impl WorkflowScheduler {
                         }));
                     }
                     Err(e) => {
-                        self.update_node_status(&mut instance, node_id, NodeExecutionStatus::Failed, None, Some(e.clone()));
+                        self.update_node_status(&mut instance, &node_id, NodeExecutionStatus::Failed, None, Some(e.clone()));
                         instance.status = WorkflowStatus::Failed;
                         engine.update_instance(&instance);
 

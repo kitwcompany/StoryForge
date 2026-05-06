@@ -249,8 +249,29 @@ pub fn embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>, Box<dyn std::err
     texts.iter().map(|t| embed_text(t)).collect()
 }
 
-/// 异步版本：在 spawn_blocking 中执行 embed_text，避免阻塞异步运行时
+/// 异步版本：优先使用语义嵌入提供者，回退到 FNV-1a
 pub async fn embed_text_async(text: String) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    // v5.4.0: 尝试使用全局语义嵌入提供者
+    if let Some(provider_arc) = super::provider::global_provider() {
+        let provider = provider_arc.lock().await;
+        match provider.embed(vec![text.clone()]).await {
+            Ok(mut embeddings) => {
+                if let Some(emb) = embeddings.pop() {
+                    let vector = if emb.vector.len() != 384 {
+                        super::provider::project_to_dim(emb.vector, 384)
+                    } else {
+                        emb.vector
+                    };
+                    return Ok(vector);
+                }
+            }
+            Err(e) => {
+                log::warn!("[embed_text_async] 语义嵌入失败，回退到 FNV-1a: {}", e);
+            }
+        }
+    }
+
+    // 回退到 FNV-1a
     tokio::task::spawn_blocking(move || {
         embed_text(&text).map_err(|e| {
             let msg = e.to_string();

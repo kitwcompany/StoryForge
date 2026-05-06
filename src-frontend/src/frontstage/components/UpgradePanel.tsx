@@ -8,7 +8,10 @@
 import React, { useState } from 'react';
 import { Sparkles, Zap, BookOpen, Infinity, X, Loader2, PenTool, Wand2 } from 'lucide-react';
 import { devUpgradeSubscription } from '@/services/tauri';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const upgradeLogger = createLogger('ui:frontstage:UpgradePanel');
 
 interface UpgradePanelProps {
   isOpen: boolean;
@@ -42,7 +45,7 @@ export const UpgradePanel: React.FC<UpgradePanelProps> = ({
       onUpgraded?.();
       onClose();
     } catch (err) {
-      console.error('Upgrade failed:', err);
+      upgradeLogger.error('Upgrade failed', { error: err });
       toast.error('升级失败，请稍后重试');
     } finally {
       setIsUpgrading(false);

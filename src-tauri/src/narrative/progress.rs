@@ -80,6 +80,85 @@ pub struct ProgressEmitter<R: tauri::Runtime> {
     app_handle: tauri::AppHandle<R>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pipeline_type_serialization() {
+        let ty = PipelineType::Genesis;
+        let json = serde_json::to_string(&ty).unwrap();
+        assert_eq!(json, "\"genesis\"");
+
+        let ty = PipelineType::Analysis;
+        let json = serde_json::to_string(&ty).unwrap();
+        assert_eq!(json, "\"analysis\"");
+    }
+
+    #[test]
+    fn test_step_status_serialization() {
+        assert_eq!(serde_json::to_string(&StepStatus::Running).unwrap(), "\"running\"");
+        assert_eq!(serde_json::to_string(&StepStatus::Completed).unwrap(), "\"completed\"");
+        assert_eq!(serde_json::to_string(&StepStatus::Failed).unwrap(), "\"failed\"");
+        assert_eq!(serde_json::to_string(&StepStatus::Cancelled).unwrap(), "\"cancelled\"");
+    }
+
+    #[test]
+    fn test_pipeline_progress_event_serialization() {
+        let event = PipelineProgressEvent {
+            pipeline_id: "pipe_001".to_string(),
+            pipeline_type: PipelineType::Genesis,
+            step_name: "世界观生成".to_string(),
+            step_number: 2,
+            total_steps: 7,
+            status: StepStatus::Running,
+            message: "正在生成世界观...".to_string(),
+            progress_percent: 28,
+            elapsed_seconds: 15,
+            metadata: Some(serde_json::json!({"model": "gpt-4"})),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: PipelineProgressEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.pipeline_id, "pipe_001");
+        assert_eq!(deserialized.step_name, "世界观生成");
+        assert_eq!(deserialized.progress_percent, 28);
+        assert!(deserialized.metadata.is_some());
+    }
+
+    #[test]
+    fn test_elements_count_default() {
+        let count = ElementsCount::default();
+        assert_eq!(count.characters, 0);
+        assert_eq!(count.scenes, 0);
+        assert_eq!(count.foreshadowings, 0);
+        assert_eq!(count.world_rules, 0);
+        assert_eq!(count.plot_points, 0);
+    }
+
+    #[test]
+    fn test_pipeline_complete_event_serialization() {
+        let event = PipelineCompleteEvent {
+            pipeline_id: "pipe_001".to_string(),
+            pipeline_type: PipelineType::Genesis,
+            success: true,
+            total_elapsed_seconds: 120,
+            elements_created: ElementsCount {
+                characters: 5,
+                scenes: 10,
+                foreshadowings: 3,
+                world_rules: 4,
+                plot_points: 8,
+            },
+            error_message: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: PipelineCompleteEvent = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.success);
+        assert_eq!(deserialized.elements_created.characters, 5);
+        assert_eq!(deserialized.total_elapsed_seconds, 120);
+    }
+}
+
 impl<R: tauri::Runtime> ProgressEmitter<R> {
     pub fn new(app_handle: tauri::AppHandle<R>) -> Self {
         Self { app_handle }

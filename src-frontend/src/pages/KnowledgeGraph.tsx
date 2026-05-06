@@ -4,7 +4,10 @@ import { getStoryGraph, getRetentionReport, archiveForgottenEntities, getArchive
 import { useAppStore } from '@/stores/appStore';
 import type { StoryGraph, RetentionReport, Entity, StorySummary } from '@/types/v3';
 import { Network, RefreshCw, Activity, AlertTriangle, CheckCircle, Brain, Archive, RotateCcw, PackageOpen, Sparkles, Trash2 } from 'lucide-react';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const kgLogger = createLogger('ui:KnowledgeGraph');
 import { useStorySummaries, useDistillStoryKnowledge, useDeleteStorySummary } from '@/hooks/useKnowledgeDistillation';
 
 type TabType = 'graph' | 'memory' | 'archived' | 'distillation';
@@ -57,7 +60,7 @@ export const KnowledgeGraph: React.FC = () => {
       setGraphData(graph);
       setReport(retention);
     } catch (error) {
-      console.error('Failed to load knowledge data:', error);
+      kgLogger.error('Failed to load knowledge data', { error });
       toast.error('加载知识数据失败');
     } finally {
       setIsLoading(false);
@@ -71,7 +74,7 @@ export const KnowledgeGraph: React.FC = () => {
       const entities = await getArchivedEntities(currentStory.id);
       setArchivedEntities(entities);
     } catch (error) {
-      console.error('Failed to load archived entities:', error);
+      kgLogger.error('Failed to load archived entities', { error });
       toast.error('加载归档实体失败');
     } finally {
       setIsLoading(false);
@@ -98,7 +101,7 @@ export const KnowledgeGraph: React.FC = () => {
       await distillMutation.mutateAsync(currentStory.id);
       toast.success('知识蒸馏完成');
     } catch (error) {
-      console.error('Failed to distill knowledge:', error);
+      kgLogger.error('Failed to distill knowledge', { error });
       toast.error('蒸馏失败');
     }
   };
@@ -108,7 +111,7 @@ export const KnowledgeGraph: React.FC = () => {
       await deleteMutation.mutateAsync({ summaryId: summary.id, storyId: summary.story_id });
       toast.success('摘要已删除');
     } catch (error) {
-      console.error('Failed to delete summary:', error);
+      kgLogger.error('Failed to delete summary', { error });
       toast.error('删除失败');
     }
   };
@@ -121,7 +124,7 @@ export const KnowledgeGraph: React.FC = () => {
       toast.success(`已归档 ${result.archived_count} 个遗忘实体`);
       await Promise.all([loadData(), loadArchived()]);
     } catch (error) {
-      console.error('Failed to archive forgotten entities:', error);
+      kgLogger.error('Failed to archive forgotten entities', { error });
       toast.error('归档失败');
     } finally {
       setIsArchiving(false);
@@ -135,7 +138,7 @@ export const KnowledgeGraph: React.FC = () => {
       toast.success(`「${entity.name}」已恢复`);
       await Promise.all([loadData(), loadArchived()]);
     } catch (error) {
-      console.error('Failed to restore entity:', error);
+      kgLogger.error('Failed to restore entity', { error });
       toast.error('恢复失败');
     } finally {
       setIsRestoringId(null);

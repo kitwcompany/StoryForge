@@ -7,7 +7,10 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const launcherLogger = createLogger('ui:FrontstageLauncher');
 
 interface FrontstageLauncherProps {
   isOpen: boolean;
@@ -36,7 +39,7 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
       toast.success('幕前写作界面已打开');
       onToggle();
     } catch (error) {
-      console.error('Failed to open frontstage:', error);
+      launcherLogger.error('Failed to open frontstage', { error });
       toast.error('无法打开幕前界面');
     }
   };

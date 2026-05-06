@@ -44,7 +44,10 @@ import { getConflictTypeLabel, getConflictTypeColor } from '@/hooks/useScenes';
 import { useCompressScene } from '@/hooks/useMemoryCompression';
 import { useAuditScene, type AuditReport } from '@/hooks/useAudit';
 import { invoke } from '@tauri-apps/api/core';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const sceneEditorLogger = createLogger('ui:SceneEditor');
 
 interface SceneEditorProps {
   scene: Scene | null;
@@ -295,7 +298,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                     setCompressionResult(result);
                     setShowCompression(true);
                   } catch (e) {
-                    console.error('Compress failed', e);
+                    sceneEditorLogger.error('Compress failed', { error: e });
                   }
                 }}
               >

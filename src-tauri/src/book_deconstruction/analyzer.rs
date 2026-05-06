@@ -53,7 +53,7 @@ impl BookAnalyzer {
         heartbeat_callback: Option<Box<dyn Fn() + Send + Sync>>,
         cancel_check: Option<Box<dyn Fn() -> bool + Send + Sync>>,
     ) -> Result<BookAnalysisResult, AnalysisError> {
-        log::info!("[BookAnalyzer] Starting analysis for book {}", book_id);
+        log::info!("[BookAnalyzer] Starting analysis: {} chunks, {} words", chunks.len(), total_word_count);
 
         let check_cancel = || -> Result<(), AnalysisError> {
             if let Some(ref cb) = cancel_check {
@@ -105,6 +105,7 @@ impl BookAnalyzer {
             self.emit_progress(book_id, "extracting", 7, "正在调用LLM识别元信息...").await;
             let metadata = self.extract_metadata(&sample_text).await?;
             self.emit_progress(book_id, "analyzing", 12, &format!("识别完成：{} / {}", metadata.title.as_deref().unwrap_or("未知"), metadata.genre.as_deref().unwrap_or("未知类型"))).await;
+            log::info!("[BookAnalyzer] Step {} completed: {}", "metadata", format!("{} / {}", metadata.title.as_deref().unwrap_or("未知"), metadata.genre.as_deref().unwrap_or("未知类型")));
             if let Some(ref cb) = heartbeat_callback { cb(); }
             check_cancel()?;
 
@@ -114,6 +115,7 @@ impl BookAnalyzer {
             check_cancel()?;
             let world_setting = self.extract_world_setting(book_id, chunks, total_word_count).await?;
             self.emit_progress(book_id, "analyzing", 28, "世界观设定分析完成").await;
+            log::info!("[BookAnalyzer] Step {} completed: {}", "world_setting", "世界观设定分析完成");
             if let Some(ref cb) = heartbeat_callback { cb(); }
             check_cancel()?;
 
@@ -123,6 +125,7 @@ impl BookAnalyzer {
             check_cancel()?;
             let characters = self.extract_characters(book_id, chunks, cancel_check.as_ref()).await?;
             self.emit_progress(book_id, "analyzing", 52, &format!("人物拆解完成，共识别 {} 个角色", characters.len())).await;
+            log::info!("[BookAnalyzer] Step {} completed: {}", "characters", format!("共识别 {} 个角色", characters.len()));
             if let Some(ref cb) = heartbeat_callback { cb(); }
             check_cancel()?;
 
@@ -132,6 +135,7 @@ impl BookAnalyzer {
             check_cancel()?;
             let scenes = self.extract_scene_summaries(book_id, chunks, cancel_check.as_ref()).await?;
             self.emit_progress(book_id, "analyzing", 78, &format!("章节概要完成，共 {} 章", scenes.len())).await;
+            log::info!("[BookAnalyzer] Step {} completed: {}", "scenes", format!("共 {} 章", scenes.len()));
             if let Some(ref cb) = heartbeat_callback { cb(); }
             check_cancel()?;
 
@@ -145,6 +149,11 @@ impl BookAnalyzer {
                 story_arc.sub_arcs.len(),
                 story_arc.climaxes.len()
             )).await;
+            log::info!("[BookAnalyzer] Step {} completed: {}", "story_arc", format!("主线{}、支线{}条、高潮{}处", 
+                if story_arc.main_arc.is_empty() { "待补充" } else { "已提取" },
+                story_arc.sub_arcs.len(),
+                story_arc.climaxes.len()
+            ));
             if let Some(ref cb) = heartbeat_callback { cb(); }
             check_cancel()?;
 
@@ -330,6 +339,7 @@ JSON格式：
 
         // 合并去重（按姓名）
         let merged = merge_characters(character_results);
+        log::info!("[BookAnalyzer] Merged {} unique characters", merged.len());
         
         // 转换为 ReferenceCharacter
         let now = Local::now();
@@ -514,6 +524,9 @@ JSON格式：
         });
         self.active_requests.fetch_add(1, Ordering::Relaxed);
         let result = self.call_llm(prompt, max_tokens, temperature).await;
+        if let Err(ref e) = result {
+            log::error!("[BookAnalyzer] LLM call failed: {}", e);
+        }
         self.active_requests.fetch_sub(1, Ordering::Relaxed);
         result
     }

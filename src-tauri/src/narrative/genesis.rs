@@ -234,8 +234,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 agent_type: crate::agents::service::AgentType::Writer,
                 context: agent_context,
                 input: format!(
-                    "请撰写《{}》的第一章开头（1500-2500字）。\n\n【故事概念】\n题材：{}\n基调：{}\n节奏：{}\n简介：{}\n主题：{}\n\n这是故事的开篇，需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. 埋下至少一个伏笔\n4. 在第一幕结尾制造一个冲突或悬念",
-                    meta.title, meta.genre, meta.tone, meta.pacing, meta.description, meta.themes.join(", ")
+                    "请撰写《{}》的第一章开头（1500-2500字）。\n\n【故事概念】\n题材：{}\n基调：{}\n节奏：{}\n简介：{}\n主题：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. 埋下至少一个伏笔\n4. 在第一幕结尾制造一个冲突或悬念\n\n重要：必须严格遵循用户原始要求中的题材设定，不得偏离。",
+                    meta.title, meta.genre, meta.tone, meta.pacing, meta.description, meta.themes.join(", "), ctx.user_premise
                 ),
                 parameters: HashMap::new(),
                 tier: None,
@@ -269,14 +269,17 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             }).map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
             // 发送 ChapterSwitch 事件
-            let _ = crate::window::WindowManager::send_to_frontstage(
+            match crate::window::WindowManager::send_to_frontstage(
                 &ctx.app_handle,
                 crate::window::FrontstageEvent::ChapterSwitch {
                     story_id: ctx.story_id.clone(),
                     chapter_id: chapter.id.clone(),
                     title: "第一章".to_string(),
                 }
-            );
+            ) {
+                Ok(()) => tracing::info!("[FirstChapterGenerationStep] ChapterSwitch event sent: story_id={}, chapter_id={}", ctx.story_id, chapter.id),
+                Err(e) => tracing::error!("[FirstChapterGenerationStep] Failed to send ChapterSwitch event: {}", e),
+            }
 
             ctx.first_chapter_content = Some(result.content.clone());
             let content_len = result.content.chars().count();

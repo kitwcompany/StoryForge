@@ -222,10 +222,13 @@ impl AgentOrchestrator {
 
             // 步骤3: Writer 改写
             self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), None);
+            // v5.4.0: 将初稿内容放入 selected_text，确保 build_writer_prompt 使用 writer_rewrite_template
+            let mut rewrite_context = task.context.clone();
+            rewrite_context.selected_text = Some(current_content.clone());
             let rewrite_task = AgentTask {
                 id: format!("{}-rewrite-{}", task.id, loop_idx),
                 agent_type: AgentType::Writer,
-                context: task.context.clone(),
+                context: rewrite_context,
                 input: feedback,
                 parameters: {
                     let mut params = task.parameters.clone();

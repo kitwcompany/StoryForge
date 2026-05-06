@@ -15,12 +15,15 @@ import {
   Plus, Trash2, Settings2 
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { createLogger } from '@/utils/logger';
 import { 
   WritingStyle, 
   WritingStyleId, 
   styleList,
   defaultStyle 
 } from '@/frontstage/config/writingStyles';
+
+const editorSettingsLogger = createLogger('ui:EditorSettings');
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 
 // 编辑器配置接口
@@ -65,7 +68,7 @@ export function loadEditorConfig(): EditorConfig {
       };
     }
   } catch {
-    console.error('Failed to load editor config');
+    editorSettingsLogger.error('Failed to load editor config');
   }
   return {
     styleId: 'default',
@@ -83,7 +86,7 @@ export function saveEditorConfig(config: EditorConfig) {
     // 同一窗口内 dispatch 自定义事件，通知所有监听者配置已变更
     window.dispatchEvent(new CustomEvent('editor-config-changed', { detail: config }));
   } catch {
-    console.error('Failed to save editor config');
+    editorSettingsLogger.error('Failed to save editor config');
   }
 }
 

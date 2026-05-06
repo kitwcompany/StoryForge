@@ -7,7 +7,10 @@ import { useStories, useCreateStory } from '@/hooks/useStories';
 import { createStoryWithWizard } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { formatNumber, formatDate } from '@/utils/format';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const dashboardLogger = createLogger('ui:Dashboard');
 
 export function Dashboard() {
   const stories = useAppStore((s) => s.stories);
@@ -101,7 +104,7 @@ export function Dashboard() {
         `「${result.story.title}」创建成功！已自动摄取 ${result.ingested_entities} 个实体、${result.ingested_relations} 条关系到知识图谱。`
       );
     } catch (error) {
-      console.error('Wizard creation failed:', error);
+      dashboardLogger.error('Wizard creation failed', { error });
       toast.error('创建失败，请重试');
     } finally {
       setIsCreating(false);

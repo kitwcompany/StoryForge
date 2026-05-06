@@ -24,6 +24,9 @@ import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
 import toast from 'react-hot-toast';
+import { createLogger } from '@/utils/logger';
+
+const frontstageLogger = createLogger('ui:FrontstageApp');
 
 /// 根据状态文本自动匹配 lucide 图标
 const StatusIcon: React.FC<{ text: string }> = ({ text }) => {
@@ -124,6 +127,14 @@ const FrontstageApp: React.FC = () => {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+
+  // v5.4.1: 使用 ref 跟踪最新状态，避免 event listener 中的 stale closure
+  const currentStoryRef = useRef(currentStory);
+  const chaptersRef = useRef(chapters);
+  const currentChapterRef = useRef(currentChapter);
+  useEffect(() => { currentStoryRef.current = currentStory; }, [currentStory]);
+  useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
+  useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   const [content, setContent] = useState('');
   const [isSaved, setIsSaved] = useState(true);
@@ -200,7 +211,7 @@ const FrontstageApp: React.FC = () => {
               });
             }
           } catch (e) {
-            console.error('Failed to refresh chapter content:', e);
+            frontstageLogger.error('Failed to refresh chapter content', { error: e });
           }
         })();
       }
@@ -429,38 +440,68 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
-              if (payload?.story_id && payload.story_id !== currentStory?.id) {
+              frontstageLogger.info('[ChapterSwitch] Received event', { story_id: payload.story_id, chapter_id: payload.chapter_id });
+              // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
+              if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
                 (async () => {
                   try {
                     const allStories = await invoke<Story[]>('list_stories');
                     const targetStory = allStories.find(s => s.id === payload.story_id);
+                    frontstageLogger.info('[ChapterSwitch] Target story lookup', { found: !!targetStory, story_count: allStories.length });
                     if (targetStory) {
                       const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
                       const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
+                      frontstageLogger.info('[ChapterSwitch] Loaded chapters', { count: storyChapters.length, chapter_ids: storyChapters.map(c => c.id) });
                       setCurrentStory(targetStory);
                       setChapters(storyChapters);
                       setScenes(storyScenes);
-                      const targetChapter = storyChapters.find(c => c.id === payload.chapter_id);
+                      let targetChapter = storyChapters.find(c => c.id === payload.chapter_id);
+                      // v5.4.0 fallback: 如果找不到目标 chapter，尝试加载第一个 chapter
+                      if (!targetChapter && storyChapters.length > 0) {
+                        targetChapter = storyChapters[0];
+                        frontstageLogger.warn('[ChapterSwitch] Target chapter not found by ID, falling back to first chapter', {
+                          expected_id: payload.chapter_id,
+                          fallback_id: targetChapter.id,
+                          has_content: !!targetChapter.content
+                        });
+                      }
                       if (targetChapter) {
+                        frontstageLogger.info('[ChapterSwitch] Selecting chapter', {
+                          chapter_id: targetChapter.id,
+                          content_length: targetChapter.content?.length || 0
+                        });
                         selectChapter(targetChapter);
+                      } else {
+                        frontstageLogger.error('[ChapterSwitch] No chapters available for new story');
                       }
                       // v5.0.0 修复：通知 backstage 刷新故事列表，确保幕后也能看到新故事
                       try {
-                        await invoke('notify_backstage_content_changed');
+                        await invoke('notify_backstage_content_changed', {
+                          text: targetChapter?.content || '',
+                          chapter_id: targetChapter?.id || ''
+                        });
                       } catch (e) {
                         // ignore
                       }
+                    } else {
+                      frontstageLogger.error('[ChapterSwitch] Target story not found in list_stories', { story_id: payload.story_id });
                     }
                   } catch (e) {
-                    console.error('Failed to switch to new story:', e);
+                    frontstageLogger.error('Failed to switch to new story', { error: e });
                   }
                 })();
               } else {
-                const chapter = chapters.find(c => c.id === payload.chapter_id);
+                // v5.4.1: 使用 ref 获取最新 chapters，避免 stale closure
+                const chapter = chaptersRef.current.find(c => c.id === payload.chapter_id);
                 if (chapter) {
+                  frontstageLogger.info('[ChapterSwitch] Selecting chapter (same story)', { chapter_id: chapter.id, content_length: chapter.content?.length || 0 });
                   selectChapter(chapter);
+                } else {
+                  frontstageLogger.warn('[ChapterSwitch] Chapter not found in current story', { chapter_id: payload.chapter_id });
                 }
               }
+            } else {
+              frontstageLogger.warn('[ChapterSwitch] Missing chapter_id in payload');
             }
             break;
         }
@@ -473,7 +514,7 @@ const FrontstageApp: React.FC = () => {
         error: string;
       }>('novel-bootstrap-error', (event) => {
         const p = event.payload;
-        console.error('[novel-bootstrap-error]', p.step, p.error);
+        frontstageLogger.error('[novel-bootstrap-error]', { step: p.step, error: p.error });
         toast.error(`后台完善失败（${p.step}）: ${p.error}`, { duration: 5000 });
         setGenerationStatus('');
         setBootstrapProgress(null);
@@ -562,7 +603,7 @@ const FrontstageApp: React.FC = () => {
       }>('plan-executor-step', (event) => {
         const p = event.payload;
         updateLastEventTime();
-        console.log('[plan-executor-step]', p.status, p.message, `${p.steps_completed}/${p.total_steps}`);
+        frontstageLogger.debug('[plan-executor-step]', { status: p.status, message: p.message, progress: `${p.steps_completed}/${p.total_steps}` });
         if (p.step_id === '__complete__') {
           setGenerationStatus(p.message);
         } else if (p.status === 'running') {
@@ -584,7 +625,7 @@ const FrontstageApp: React.FC = () => {
       }>('agent-stage-update', (event) => {
         const p = event.payload;
         updateLastEventTime();
-        console.log('[agent-stage-update]', p.stage, p.agent_type, p.message);
+        frontstageLogger.debug('[agent-stage-update]', { stage: p.stage, agent_type: p.agent_type, message: p.message });
         // 显示所有阶段，让用户看到完整流程
         setGenerationStatus(`${p.agent_type}: ${p.message}`);
         updateToastPhase(p.stage);
@@ -605,7 +646,7 @@ const FrontstageApp: React.FC = () => {
       }>('llm-generating-progress', (event) => {
         const p = event.payload;
         updateLastEventTime();
-        console.log('[llm-generating-progress]', p.stage, p.message, p.pipeline_context);
+        frontstageLogger.debug('[llm-generating-progress]', { stage: p.stage, message: p.message, pipeline_context: p.pipeline_context });
         
         // v5.2.4: 如果携带Pipeline步骤上下文，同步更新bootstrapProgress
         if (p.pipeline_context) {
@@ -628,11 +669,11 @@ const FrontstageApp: React.FC = () => {
         fallback: string;
       }>('context-degraded', (event) => {
         const p = event.payload;
-        console.warn('[context-degraded]', p.reason);
+        frontstageLogger.warn('[context-degraded]', { reason: p.reason });
         toast('正在使用简化上下文生成内容...', { icon: '⚡', duration: 3000 });
       });
     } catch (e) {
-      console.error('Failed to setup event listeners:', e);
+      frontstageLogger.error('Failed to setup event listeners', { error: e });
     }
   };
 
@@ -644,7 +685,7 @@ const FrontstageApp: React.FC = () => {
         await selectStory(result[0]);
       }
     } catch (e) {
-      console.error('Failed to load stories:', e);
+      frontstageLogger.error('Failed to load stories', { error: e });
     }
   };
 
@@ -654,7 +695,7 @@ const FrontstageApp: React.FC = () => {
       const result = await invoke<Scene[]>('get_story_scenes', { story_id: storyId });
       setScenes(result);
     } catch (e) {
-      console.error('Failed to load scenes:', e);
+      frontstageLogger.error('Failed to load scenes', { error: e });
     }
   };
 
@@ -664,7 +705,7 @@ const FrontstageApp: React.FC = () => {
       const result = await invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
       setChapters(result);
     } catch (e) {
-      console.error('Failed to load chapters:', e);
+      frontstageLogger.error('Failed to load chapters', { error: e });
     }
   };
 
@@ -731,7 +772,7 @@ const FrontstageApp: React.FC = () => {
           setIsSaved(true);
           justSavedRef.current = Date.now();
         } catch (e) {
-          console.error('Auto-save failed:', e);
+          frontstageLogger.error('Auto-save failed', { error: e });
         }
       }, 2000);
     }
@@ -740,7 +781,7 @@ const FrontstageApp: React.FC = () => {
       invoke('notify_backstage_content_changed', {
         text: newContent,
         chapter_id: currentChapter.id
-      }).catch(e => console.error('Failed to notify content change:', e));
+      }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
     }
   }, [currentChapter]);
 
@@ -748,7 +789,7 @@ const FrontstageApp: React.FC = () => {
     try {
       await invoke('show_backstage', { story_id: currentStory?.id || null });
     } catch (e) {
-      console.error('Failed to open backstage:', e);
+      frontstageLogger.error('Failed to open backstage', { error: e });
       const isTauri = !!(window as any).__TAURI__;
       if (!isTauri) {
         window.open('http://127.0.0.1:5173/index.html', '_blank');
@@ -851,14 +892,14 @@ const FrontstageApp: React.FC = () => {
               }
             }
           } catch (e) {
-            console.error('[Bootstrap] Failed to auto-load new story:', e);
+            frontstageLogger.error('[Bootstrap] Failed to auto-load new story', { error: e });
           }
         })();
       }
 
       const text = result.final_content || '';
       if (!text.trim()) {
-        console.error('[Generation] Backend returned empty content');
+        frontstageLogger.error('[Generation] Backend returned empty content');
         toast.error('AI 返回了空内容，请检查模型配置或重试', { duration: 5000 });
         stopElapsedTimer();
         setIsGenerating(false);
@@ -885,7 +926,7 @@ const FrontstageApp: React.FC = () => {
     } catch (error) {
       if (timeoutId) clearTimeout(timeoutId);
       stopElapsedTimer();
-      console.error('Generation request failed:', error);
+      frontstageLogger.error('Generation request failed', { error });
       const msg = error instanceof Error ? error.message : String(error);
       const isQuotaError = /quota|exhausted|limit|配额|用完|不足|次数已达/i.test(msg);
       if (isQuotaError) {
@@ -917,7 +958,7 @@ const FrontstageApp: React.FC = () => {
           feedback_type: 'accept',
           agent_type: 'writer',
           original_ai_text: generatedText,
-        }).catch(e => console.error('Feedback record failed:', e));
+        }).catch(e => frontstageLogger.error('Feedback record failed', { error: e }));
       }
       setGeneratedText('');
       // Mock learning data based on acceptance
@@ -974,7 +1015,7 @@ const FrontstageApp: React.FC = () => {
         await invoke('cancel_genesis_pipeline', { session_id: sessionIdRef.current });
         toast('已取消生成并通知后端停止后台任务');
       } catch (e) {
-        console.error('Failed to cancel genesis pipeline:', e);
+        frontstageLogger.error('Failed to cancel genesis pipeline', { error: e });
         toast('已取消生成');
       }
       sessionIdRef.current = null;
@@ -986,10 +1027,19 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   // 检测用户输入是否是"创建新小说"意图（需要更长的超时）
+  // v5.4.0: 增强检测，区分"创建新小说"和"续写当前故事"
   const isNovelCreationIntent = (input: string): boolean => {
     const txt = input.toLowerCase();
-    const keywords = ['写', '创作', '生成', '新建', '创建', '开始', 'novel', 'story', 'book', '小说', '故事'];
-    return keywords.some(kw => txt.includes(kw));
+    // 明确的创建新小说意图词（必须包含至少一个）
+    const creationSignals = ['写一部', '写一本', '写一篇', '写个', '创作一部', '创作一本', '创作一篇', '创作个', '生成一部', '生成一本', '生成一篇', '新建', '创建', '新开', 'novel', 'story', 'book'];
+    const hasCreationSignal = creationSignals.some(kw => txt.includes(kw));
+    if (!hasCreationSignal) return false;
+    // 排除明确的续写意图词
+    const continuationSignals = ['续写', '接着写', '往下写', '后面', '接下来', '继续', '后续'];
+    const hasContinuationSignal = continuationSignals.some(kw => txt.includes(kw));
+    // 如果同时包含创建信号和续写信号，优先判断为续写（用户说"续写一部小说"）
+    if (hasContinuationSignal) return false;
+    return true;
   };
 
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
@@ -1000,7 +1050,8 @@ const FrontstageApp: React.FC = () => {
     }
 
     // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
-    const isBootstrap = stories.length === 0 && isNovelCreationIntent(userInput);
+    // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
+    const isBootstrap = isNovelCreationIntent(userInput);
     const timeoutSeconds = isBootstrap ? 600 : 90;
     const timeoutMs = timeoutSeconds * 1000;
 
@@ -1061,7 +1112,17 @@ const FrontstageApp: React.FC = () => {
         if (isBootstrapCompleted) {
           toast.success('小说已创建！第一章已生成，您可以开始写作了');
         } else {
-          setGeneratedText(result.final_content!);
+          // v5.4.0: 去除与当前编辑器内容重复的部分，防止 LLM 返回完整文本导致"重复输出"
+          let finalContent = result.final_content!;
+          const currentText = editorRef.current?.getText() || '';
+          if (currentText && finalContent.startsWith(currentText)) {
+            finalContent = finalContent.slice(currentText.length).trimStart();
+            frontstageLogger.info('[SmartGeneration] Removed duplicate prefix from generated text', {
+              prefix_len: currentText.length,
+              remaining_len: finalContent.length
+            });
+          }
+          setGeneratedText(finalContent);
           toast.success('创作完成！');
         }
       } else if (!result.success) {
@@ -1070,12 +1131,40 @@ const FrontstageApp: React.FC = () => {
       } else {
         // 后端返回了成功但没有内容 — 显示明确的错误提示（修复"没有提示地停止"）
         toast.error('AI 返回了空内容，请检查模型配置或稍后重试', { duration: 5000 });
-        console.error('[SmartGeneration] Backend returned success=true but empty final_content', result);
+        frontstageLogger.error('[SmartGeneration] Backend returned success=true but empty final_content', { result });
       }
 
-      // If a new story was created, refresh the story list
-      if (result.messages.some(m => m.includes('story_created'))) {
-        loadStories();
+      // v5.4.1: Bootstrap 完成后直接加载新故事内容，不再完全依赖 ChapterSwitch 事件
+      const storyCreatedMsg = result.messages.find(m => m.startsWith('story_created:'));
+      if (storyCreatedMsg) {
+        const storyId = storyCreatedMsg.replace('story_created:', '');
+        frontstageLogger.info('[SmartGeneration] New story created, fetching content directly', { story_id: storyId });
+        // 直接加载新创建的故事和章节
+        (async () => {
+          try {
+            const allStories = await invoke<Story[]>('list_stories');
+            const targetStory = allStories.find(s => s.id === storyId);
+            if (targetStory) {
+              const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
+              const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: storyId });
+              frontstageLogger.info('[SmartGeneration] Loaded new story', {
+                story_id: storyId,
+                chapter_count: storyChapters.length,
+                first_chapter_has_content: !!(storyChapters[0]?.content)
+              });
+              setCurrentStory(targetStory);
+              setChapters(storyChapters);
+              setScenes(storyScenes);
+              if (storyChapters.length > 0) {
+                selectChapter(storyChapters[0]);
+              }
+            } else {
+              frontstageLogger.error('[SmartGeneration] New story not found in list_stories', { story_id: storyId });
+            }
+          } catch (e) {
+            frontstageLogger.error('[SmartGeneration] Failed to load new story', { error: e });
+          }
+        })();
       }
       // v5.4.0: 保存 session_id 用于取消后台任务
       const sessionIdMsg = result.messages.find(m => m.startsWith('session_id:'));
@@ -1087,7 +1176,7 @@ const FrontstageApp: React.FC = () => {
       toast.dismiss(toastId);
       activeToastIdRef.current = null;
       currentToastPhaseRef.current = null;
-      console.error('Smart execution failed:', e);
+      frontstageLogger.error('Smart execution failed', { error: e });
       const msg = e?.message || String(e);
       // 区分超时错误和其他错误
       if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
@@ -1131,7 +1220,7 @@ const FrontstageApp: React.FC = () => {
         setHistoryIndex(-1);
       }
     } catch (e) {
-      console.error('Failed to fetch input hint:', e);
+      frontstageLogger.error('Failed to fetch input hint', { error: e });
     }
   }, [currentChapter]);
 

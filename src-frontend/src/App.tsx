@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { createLogger } from '@/utils/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
@@ -22,6 +23,7 @@ import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
 import { useSyncStore } from '@/hooks/useSyncStore';
+import { useWorkflowNodes } from '@/hooks/useWorkflowNodes';
 import { LoginModal } from '@/pages/Login';
 import { useAppStore } from '@/stores/appStore';
 import type { ViewType, Story } from '@/types';
@@ -37,14 +39,17 @@ function App() {
       queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['chapters', currentStory.id] });
-      queryClient.invalidateQueries({ queryKey: ['world-building', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['world_building', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['foreshadowings', currentStory.id] });
-      queryClient.invalidateQueries({ queryKey: ['story-outlines', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['story-outline', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-graph', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['character-relationships', currentStory.id] });
     }
   }, [currentStory?.id, queryClient]);
   
+  // v5.4.0: 监听 Workflow 节点级执行事件（日志/调试用途）
+  useWorkflowNodes();
+
   // 统一实时状态同步中心：监听后端数据变更事件，自动刷新缓存
   useSyncStore({
     onStoryCreated: (storyId) => {
@@ -134,7 +139,7 @@ function App() {
           }
         });
       } catch (e) {
-        console.error('Failed to setup backstage listener:', e);
+        createLogger('ui:App').error('Failed to setup backstage listener', { error: e });
       }
     };
 
@@ -178,7 +183,7 @@ function App() {
         // 触发全局数据刷新事件，让各页面重新获取数据
         window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
       } catch (e) {
-        console.error('Failed to refresh on window shown:', e);
+        createLogger('ui:App').error('Failed to refresh on window shown', { error: e });
         if (retries > 0) {
           setTimeout(() => handleWindowShown(retries - 1), 500);
         }
@@ -211,7 +216,7 @@ function App() {
           forceRedraw();
         });
       } catch (e) {
-        console.error('Failed to setup backstage-shown listener:', e);
+        createLogger('ui:App').error('Failed to setup backstage-shown listener', { error: e });
       }
     };
     setupShownListener();

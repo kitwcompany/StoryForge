@@ -36,6 +36,7 @@ mod narrative;
 mod audit;
 mod auth;
 mod state_sync;
+mod logging;
 
 #[cfg(test)]
 mod test_utils;
@@ -117,6 +118,9 @@ pub fn run() {
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
             std::fs::create_dir_all(&app_dir).ok();
             
+            // 初始化结构化日志系统（必须在其他操作之前）
+            let _log_guard = logging::init_logger(&app_dir);
+            
             log::info!("App directory: {:?}", app_dir);
 
             match init_db(&app_dir) {
@@ -165,6 +169,18 @@ pub fn run() {
 
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
+
+            // v5.4.0: 加载配置并初始化语义嵌入提供者
+            match config::AppConfig::load(&app_dir) {
+                Ok(config) => {
+                    embeddings::provider::init_global_provider(&config);
+                    *APP_CONFIG.lock().unwrap() = Some(config);
+                }
+                Err(e) => {
+                    log::warn!("[Setup] 加载配置失败，使用默认嵌入: {}", e);
+                    embeddings::provider::init_global_provider(&config::AppConfig::default());
+                }
+            }
 
             // Bootstrap task system
             if let Some(pool) = get_pool() {
@@ -228,6 +244,7 @@ pub fn run() {
                     log::warn!("Failed to register standard workflow: {}", e);
                 }
                 let engine_arc = std::sync::Arc::new(engine);
+                scheduler.start_auto_drain(engine_arc.clone(), app.handle().clone());
                 app.manage(engine_arc.clone());
                 app.manage(std::sync::Arc::new(scheduler));
                 log::info!("Workflow engine and scheduler initialized");
@@ -279,6 +296,34 @@ pub fn run() {
                 }
             }
 
+            // v5.4.0: 自动触发能力进化（延迟30秒，避免启动时竞争资源）
+            {
+                let app_handle_evolve = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    let llm = llm::LlmService::new(app_handle_evolve.clone());
+                    let engine = capabilities::evolution::CapabilityEvolutionEngine::new(llm, &app_handle_evolve);
+                    let stats = engine.get_statistics();
+                    let total_records: usize = stats.values().map(|(t, _)| t).sum();
+                    if total_records >= 5 {
+                        log::info!("[CapabilityEvolution] Auto-triggering evolution with {} total records", total_records);
+                        match engine.evolve_capability_descriptions().await {
+                            Ok(improvements) => {
+                                log::info!("[CapabilityEvolution] Auto-evolution completed with {} improvements", improvements.len());
+                                let _ = app_handle_evolve.emit("capabilities-evolved", serde_json::json!({
+                                    "improvements": improvements,
+                                    "auto_triggered": true,
+                                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                                }));
+                            }
+                            Err(e) => log::warn!("[CapabilityEvolution] Auto-evolution failed: {}", e),
+                        }
+                    } else {
+                        log::info!("[CapabilityEvolution] Not enough records ({}) to trigger auto-evolution", total_records);
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -322,6 +367,7 @@ pub fn run() {
             llm::commands::llm_generate_stream,
             llm::commands::llm_test_connection,
             llm::commands::llm_cancel_generation,
+            llm::commands::init_llm,
             // Intent commands
             parse_intent,
             execute_intent,
@@ -334,6 +380,7 @@ pub fn run() {
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
             agents::commands::agent_cancel_task,
+            agents::commands::agent_get_status,
             agents::commands::writer_agent_execute,
             agents::commands::auto_write,
             agents::commands::auto_write_cancel,
@@ -495,6 +542,12 @@ pub fn run() {
             get_workflow_instance_status,
             list_workflows,
             reload_workflows,
+            // Capability evolution commands (v5.4.0)
+            evolve_capabilities,
+            // Logging commands (v5.4.0)
+            logging::write_frontend_log,
+            logging::get_log_directory,
+            logging::get_recent_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -1169,14 +1222,24 @@ async fn embed_chapter(chapter_id: String, content: String) -> Result<(), String
 
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
 
+    // v5.4.0: 查询 chapter 的 story_id 和 chapter_number
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let chapter = db::ChapterRepository::new(pool)
+        .get_by_id(&chapter_id)
+        .map_err(|e| e.to_string())?;
+    let (story_id, chapter_number) = match chapter {
+        Some(c) => (c.story_id, c.chapter_number),
+        None => (String::new(), 0),
+    };
+
     // v5.4.0: 使用 embed_text_async 避免阻塞异步运行时
     let embedding = embed_text_async(content.clone()).await.map_err(|e| e.to_string())?;
 
     let record = VectorRecord {
         id: format!("{}", uuid::Uuid::new_v4()),
-        story_id: String::new(), // 需要从chapter_id查询
+        story_id,
         chapter_id,
-        chapter_number: 0,
+        chapter_number,
         text: content.chars().take(500).collect(),
         record_type: "chapter".to_string(),
         embedding,
@@ -1262,8 +1325,8 @@ async fn smart_execute(
         });
 
     // 检测是否需要启动小说初始化工作流
-    let is_bootstrap_intent = stories.is_empty()
-        && is_novel_creation_intent(&user_input);
+    // v5.4.0: 移除 stories.is_empty() 限制，用户输入明确的创建意图时始终创建新小说
+    let is_bootstrap_intent = is_novel_creation_intent(&user_input);
 
     if is_bootstrap_intent {
         log::info!("[smart_execute] Detected novel creation intent, starting GenesisPipeline (v5.3.0 narrative model)");
@@ -1294,6 +1357,15 @@ async fn smart_execute(
         
         match executor.execute(&mut ctx, &llm, progress_callback.clone()).await {
             Ok(()) => {
+                // v5.4.0: 发射 pipeline-complete 事件，通知前端 Genesis 即时阶段完成
+                let _ = app_handle.emit("pipeline-complete", narrative::progress::PipelineCompleteEvent {
+                    pipeline_id: ctx.session_id.clone(),
+                    pipeline_type: narrative::progress::PipelineType::Genesis,
+                    success: true,
+                    total_elapsed_seconds: 0,
+                    elements_created: narrative::progress::ElementsCount::default(),
+                    error_message: None,
+                });
                 let story_id = ctx.story_id.clone();
                 let session_id = ctx.session_id.clone();
                 let first_chapter = ctx.first_chapter_content.clone();
@@ -1356,6 +1428,15 @@ async fn smart_execute(
                             "all"
                         );
                     }
+                    // v5.4.0: 发射 pipeline-complete 事件，通知前端 Genesis 后台阶段完成
+                    let _ = app_handle_for_emit.emit("pipeline-complete", narrative::progress::PipelineCompleteEvent {
+                        pipeline_id: session_id_bg.clone(),
+                        pipeline_type: narrative::progress::PipelineType::Genesis,
+                        success: true,
+                        total_elapsed_seconds: 0,
+                        elements_created: narrative::progress::ElementsCount::default(),
+                        error_message: None,
+                    });
                 });
 
                 return Ok(planner::PlanExecutionResult {
@@ -1628,12 +1709,27 @@ async fn smart_execute(
 /// 检测用户输入是否包含"创建新小说"的意图
 fn is_novel_creation_intent(user_input: &str) -> bool {
     let input = user_input.to_lowercase();
-    let creation_keywords = [
-        "写", "创作", "开始", "新建", "生成", "创建",
-        "write", "create", "start", "generate", "begin",
-        "novel", "story", "book", "小说", "故事", "书",
+    // v5.4.0: 增强检测，区分"创建新小说"和"续写当前故事"
+    let creation_signals = [
+        "写一部", "写一本", "写一篇", "写个",
+        "创作一部", "创作一本", "创作一篇", "创作个",
+        "生成一部", "生成一本", "生成一篇",
+        "新建", "创建", "新开",
+        "write a", "write an", "create a", "create an", "start a", "start an",
+        "novel", "story", "book",
     ];
-    creation_keywords.iter().any(|&kw| input.contains(kw))
+    let has_creation_signal = creation_signals.iter().any(|&kw| input.contains(kw));
+    if !has_creation_signal {
+        return false;
+    }
+    // 排除明确的续写意图词
+    let continuation_signals = ["续写", "接着写", "往下写", "后面", "接下来", "继续", "后续"];
+    let has_continuation_signal = continuation_signals.iter().any(|&kw| input.contains(kw));
+    // 如果同时包含创建信号和续写信号，优先判断为续写
+    if has_continuation_signal {
+        return false;
+    }
+    true
 }
 
 /// Phase 3: 轻量意图检测 — v4.2.0 模型驱动编排范式
@@ -2299,4 +2395,20 @@ fn cancel_genesis_pipeline(session_id: String) -> Result<bool, String> {
         log::warn!("[cancel_genesis_pipeline] Pipeline {} 未找到或已完成", session_id);
         Ok(false)
     }
+}
+
+/// v5.4.0: 手动触发能力进化分析
+#[tauri::command]
+async fn evolve_capabilities(app_handle: AppHandle) -> Result<Vec<(String, String)>, String> {
+    log::info!("[evolve_capabilities] 手动触发能力进化分析");
+    let llm = llm::LlmService::new(app_handle.clone());
+    let engine = capabilities::evolution::CapabilityEvolutionEngine::new(llm, &app_handle);
+    let improvements = engine.evolve_capability_descriptions().await?;
+    let _ = app_handle.emit("capabilities-evolved", serde_json::json!({
+        "improvements": improvements,
+        "auto_triggered": false,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }));
+    log::info!("[evolve_capabilities] 进化完成，生成 {} 条改进建议", improvements.len());
+    Ok(improvements)
 }

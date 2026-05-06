@@ -14,7 +14,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { Entity, Relation, EntityType } from '@/types/v3';
+import { createLogger } from '@/utils/logger';
 import { cn } from '@/utils/cn';
+
+const kgViewLogger = createLogger('ui:KnowledgeGraphView');
 import { Search, X, Filter, Pencil, Plus, Trash2, Check, RotateCcw } from 'lucide-react';
 
 interface KnowledgeGraphViewProps {
@@ -32,6 +35,7 @@ const ENTITY_COLORS: Record<EntityType, string> = {
   Organization: '#6b5b95', // Purple
   Concept: '#4a90a4',      // Teal
   Event: '#c75b39',        // Rust
+  PlotDevice: '#8b4513',   // Saddle brown
 };
 
 const ENTITY_LABELS: Record<EntityType, string> = {
@@ -41,6 +45,7 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   Organization: '组织',
   Concept: '概念',
   Event: '事件',
+  PlotDevice: ' plot装置',
 };
 
 function calculateLayout(entities: Entity[], relations: Relation[]) {
@@ -248,7 +253,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
       onEntityUpdate?.(updated);
       setIsEditing(false);
     } catch (error) {
-      console.error('Failed to update entity:', error);
+      kgViewLogger.error('Failed to update entity', { error });
       // Could add toast here if desired; keeping minimal
     } finally {
       setIsSaving(false);

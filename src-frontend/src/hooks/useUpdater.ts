@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createLogger } from '@/utils/logger';
 import { invoke } from '@tauri-apps/api/core';
+
+const updaterLogger = createLogger('hooks:useUpdater');
 
 export interface UpdateInfo {
   version: string;
@@ -41,7 +44,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
   useEffect(() => {
     invoke<string>('get_current_version')
       .then(setCurrentVersion)
-      .catch(console.error);
+      .catch((err) => updaterLogger.error('Failed to get current version', { error: err }));
   }, []);
 
   // 检查更新
@@ -57,12 +60,12 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
       setUpdateInfo(result.update_info);
 
       if (result.has_update) {
-        console.log(`[Updater] New version available: ${result.latest_version}`);
+        updaterLogger.debug(`[Updater] New version available: ${result.latest_version}`);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
-      console.error('[Updater] Check update failed:', err);
+      updaterLogger.error('[Updater] Check update failed', { error: err });
     } finally {
       setIsChecking(false);
     }
@@ -81,7 +84,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
-      console.error('[Updater] Install update failed:', err);
+      updaterLogger.error('[Updater] Install update failed', { error: err });
     } finally {
       setIsInstalling(false);
     }

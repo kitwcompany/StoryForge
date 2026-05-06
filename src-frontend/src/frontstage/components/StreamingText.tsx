@@ -10,7 +10,10 @@
 
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Sparkles, Check, X, RotateCcw, Pause, Play } from 'lucide-react';
+import { createLogger } from '@/utils/logger';
 import { useStreamingGeneration, GenerationState } from '../hooks/useStreamingGeneration';
+
+const streamingLogger = createLogger('ui:frontstage:StreamingText');
 
 interface StreamingTextProps {
   /** 用户输入的内容 */
@@ -125,7 +128,7 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
         startGeneration(generatedText);
       }
     } catch (error) {
-      console.error('Generation failed:', error);
+      streamingLogger.error('Generation failed', { error });
     }
   }, [aiEnabled, chapterId, userContent, onRequestGeneration, clearGeneration, startGeneration]);
 

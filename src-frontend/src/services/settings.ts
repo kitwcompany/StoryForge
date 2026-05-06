@@ -5,12 +5,15 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { createLogger } from '@/utils/logger';
 import type { 
   AppSettings, 
   ModelConfig, 
   AgentModelMapping,
   SettingsExport 
 } from '@/types/llm';
+
+const settingsServiceLogger = createLogger('services:settings');
 
 // 浏览器开发环境 fallback：三个真实本地模型
 const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
@@ -138,7 +141,7 @@ export async function getModels(): Promise<ModelConfig[]> {
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {
-      console.log('[Browser Fallback] Using local real models');
+      settingsServiceLogger.debug('[Browser Fallback] Using local real models');
       return BROWSER_FALLBACK_MODELS;
     }
     throw e;

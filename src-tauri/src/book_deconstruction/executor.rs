@@ -39,6 +39,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
         &self,
         task: &Task,
     ) -> Result<TaskResult, Box<dyn std::error::Error>> {
+        log::info!("[BookDeconstructionExecutor] Task {} started", task.id);
         let ctx = TaskExecutionContext::new(
             task.id.clone(),
             self.pool.clone(),
@@ -49,7 +50,17 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
         // 解析 payload
         let payload: serde_json::Value = match task.payload.as_deref() {
-            Some(p) => serde_json::from_str(p).unwrap_or(serde_json::json!({})),
+            Some(p) => match serde_json::from_str(p) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::error!("[BookDeconstructionExecutor] Invalid payload: {}", e);
+                    return Ok(TaskResult {
+                        success: false,
+                        result_json: None,
+                        error_message: Some(format!("Invalid payload: {}", e)),
+                    });
+                }
+            },
             None => serde_json::json!({}),
         };
 
@@ -168,9 +179,23 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
         let pipeline_result = pipeline_executor.execute(&mut analysis_ctx, &llm, progress_callback).await;
 
+        if pipeline_result.is_ok() {
+            log::info!("[BookDeconstructionExecutor] Pipeline completed for book {}", book_id);
+            // v5.4.0: 发射 pipeline-complete 事件，通知前端 Analysis 完成
+            let _ = self.app_handle.emit("pipeline-complete", crate::narrative::progress::PipelineCompleteEvent {
+                pipeline_id: task.id.clone(),
+                pipeline_type: crate::narrative::progress::PipelineType::Analysis,
+                success: true,
+                total_elapsed_seconds: 0,
+                elements_created: crate::narrative::progress::ElementsCount::default(),
+                error_message: None,
+            });
+        }
+
         let analysis_result = match pipeline_result {
             Ok(()) => convert_bundle_to_analysis_result(&analysis_ctx.bundle),
             Err(crate::narrative::pipeline::PipelineError::Cancelled(msg)) => {
+                log::warn!("[BookDeconstructionExecutor] Pipeline cancelled for task {}", task.id);
                 ctx.log("warn", &format!("分析被取消: {}", msg));
                 let repo = ReferenceBookRepository::new(self.pool.clone());
                 let _ = repo.update_status(book_id, AnalysisStatus::Cancelled, ctx.get_progress());

@@ -22,7 +22,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { llmCancelGeneration } from '@/services/tauri';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const streamLogger = createLogger('ui:StreamOutput');
 
 export interface StreamOutputProps {
   /** 当前显示的文本（流式或完整文本） */
@@ -168,7 +171,7 @@ export const StreamOutput: React.FC<StreamOutputProps> = ({
       try {
         await llmCancelGeneration(requestId);
       } catch (e) {
-        console.error('Failed to cancel generation:', e);
+        streamLogger.error('Failed to cancel generation', { error: e });
       }
     }
     onStop?.();

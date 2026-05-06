@@ -276,7 +276,8 @@ export type EntityType =
   | 'Item'
   | 'Organization'
   | 'Concept'
-  | 'Event';
+  | 'Event'
+  | 'PlotDevice';
 
 export interface Entity {
   id: string;
@@ -304,7 +305,9 @@ export type RelationType =
   // 因果关系
   | 'Causes' | 'Enables' | 'Prevents' | 'ResultsIn'
   // 语义关系
-  | 'SimilarTo' | 'OppositeOf' | 'RelatedTo' | 'EvolvesInto';
+  | 'SimilarTo' | 'OppositeOf' | 'RelatedTo' | 'EvolvesInto'
+  // 叙事关系 (v5.0.0+)
+  | 'ParticipatesIn' | 'SetUpIn';
 
 export interface Relation {
   id: string;

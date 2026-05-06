@@ -91,9 +91,14 @@ impl LlmService {
             .app_data_dir()
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         
-        if let Ok(config) = AppConfig::load(&app_dir) {
-            if let Ok(mut guard) = self.config.lock() {
-                *guard = config;
+        match AppConfig::load(&app_dir) {
+            Ok(config) => {
+                if let Ok(mut guard) = self.config.lock() {
+                    *guard = config;
+                }
+            }
+            Err(e) => {
+                log::warn!("[LLM] Failed to reload config: {}", e);
             }
         }
     }
@@ -140,7 +145,10 @@ impl LlmService {
                     profile.temperature,
                 )))
             }
-            _ => Err(format!("Provider {:?} not supported", profile.provider)),
+            _ => {
+                log::error!("[LLM] Unsupported provider: {:?}", profile.provider);
+                Err(format!("Provider {:?} not supported", profile.provider))
+            }
         }
     }
 
@@ -162,6 +170,7 @@ impl LlmService {
         max_tokens: Option<i32>,
         temperature: Option<f32>,
     ) -> Result<GenerateResponse, String> {
+        log::info!("[LLM] generate() called");
         self.generate_with_context_and_pipeline(prompt, max_tokens, temperature, None, None).await
     }
     
@@ -187,10 +196,20 @@ impl LlmService {
     ) -> Result<GenerateResponse, String> {
 
         let profile = self.get_active_profile()
-            .ok_or("No active LLM profile configured")?;
+            .ok_or_else(|| {
+                log::error!("[LLM] Active profile not found");
+                "No active LLM profile configured".to_string()
+            })?;
+        
+        log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile.id, prompt.len());
         
         let model_name = profile.model.clone();
-        let adapter = self.create_adapter(&profile)?;
+        let provider = profile.provider.clone();
+        log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
+        let adapter = self.create_adapter(&profile).map_err(|e| {
+            log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
+            e
+        })?;
         
         let request = GenerateRequest {
             prompt,
@@ -262,12 +281,17 @@ impl LlmService {
         
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
         // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
+        let start_time = std::time::Instant::now();
+        
         let result = {
             let r = timeout(Duration::from_secs(600), adapter.generate(request)).await;
             match r {
                 Ok(Ok(resp)) => Ok(resp),
                 Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
-                Err(_) => Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string()),
+                Err(_) => {
+                    log::warn!("[LLM] Generation timed out after {}s", 600);
+                    Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+                }
             }
         };
         
@@ -277,6 +301,8 @@ impl LlmService {
         
         match result {
             Ok(response) => {
+                let duration = start_time.elapsed().as_millis() as u64;
+                log::info!("[LLM] Sync generation completed in {}ms response_len={}", duration, response.content.len());
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, pipeline_ref);
                 Ok(response)
             }
@@ -308,11 +334,21 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, String> {
+        log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile_id, prompt.len());
+        
         let profile = self.get_profile_by_id(profile_id)
-            .ok_or_else(|| format!("LLM profile '{}' not found", profile_id))?;
+            .ok_or_else(|| {
+                log::error!("[LLM] Active profile not found: {}", profile_id);
+                format!("LLM profile '{}' not found", profile_id)
+            })?;
         
         let model_name = profile.model.clone();
-        let adapter = self.create_adapter(&profile)?;
+        let provider = profile.provider.clone();
+        log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
+        let adapter = self.create_adapter(&profile).map_err(|e| {
+            log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
+            e
+        })?;
         
         let request = GenerateRequest {
             prompt,
@@ -365,12 +401,17 @@ impl LlmService {
         
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
         // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
+        let start_time = std::time::Instant::now();
+        
         let result = {
             let r = timeout(Duration::from_secs(600), adapter.generate(request)).await;
             match r {
                 Ok(Ok(resp)) => Ok(resp),
                 Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
-                Err(_) => Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string()),
+                Err(_) => {
+                    log::warn!("[LLM] Generation timed out after {}s", 600);
+                    Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+                }
             }
         };
         
@@ -380,6 +421,8 @@ impl LlmService {
         
         match result {
             Ok(response) => {
+                let duration = start_time.elapsed().as_millis() as u64;
+                log::info!("[LLM] Sync generation completed in {}ms response_len={}", duration, response.content.len());
                 self.emit_llm_progress("completed", &completed_msg, 0, &model_name, None);
                 Ok(response)
             }
@@ -532,8 +575,11 @@ impl LlmService {
 
     /// 测试连接
     pub async fn test_connection(&self) -> Result<(bool, u64), String> {
-        let _profile = self.get_active_profile()
+        let profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
+        
+        let base_url = profile.api_base.as_deref().unwrap_or("default");
+        log::debug!("[LLM] Testing connection to {}", base_url);
         
         let start = std::time::Instant::now();
         
@@ -543,9 +589,13 @@ impl LlmService {
         match self.generate(test_prompt.to_string(), Some(10), Some(0.0)).await {
             Ok(_) => {
                 let latency = start.elapsed().as_millis() as u64;
+                log::info!("[LLM] Connection test passed for {}", base_url);
                 Ok((true, latency))
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                log::warn!("[LLM] Connection test failed: {}", e);
+                Err(e)
+            }
         }
     }
 

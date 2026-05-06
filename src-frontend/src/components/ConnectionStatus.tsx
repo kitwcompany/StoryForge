@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { createLogger } from '@/utils/logger';
 import { Wifi, WifiOff, Loader2 } from 'lucide-react';
+
+const connectionLogger = createLogger('ui:ConnectionStatus');
 
 export function ConnectionStatus() {
   const [status, setStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -12,7 +15,7 @@ export function ConnectionStatus() {
       await invoke('health_check');
       setStatus('connected');
     } catch (error) {
-      console.log('Connection check failed:', error);
+      connectionLogger.debug('Connection check failed', { error });
       if (retryCount < 3) {
         setTimeout(() => setRetryCount(c => c + 1), 1000);
       } else {

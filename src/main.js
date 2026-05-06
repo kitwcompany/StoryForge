@@ -57,7 +57,7 @@ const app = {
     async loadCharacters() {
         if (!this.state.currentStory) return;
         this.state.characters = await this.invoke('get_story_characters', {
-            storyId: this.state.currentStory.id
+            story_id: this.state.currentStory.id
         });
     },
 
@@ -65,7 +65,7 @@ const app = {
     async loadChapters() {
         if (!this.state.currentStory) return;
         this.state.chapters = await this.invoke('get_story_chapters', {
-            storyId: this.state.currentStory.id
+            story_id: this.state.currentStory.id
         });
     },
 
@@ -76,7 +76,7 @@ const app = {
 
     // Load settings
     async loadSettings() {
-        this.state.settings = await this.invoke('get_config_command');
+        this.state.settings = await this.invoke('get_settings');
     },
 
     // Navigate to view
@@ -255,7 +255,7 @@ const app = {
         const formData = new FormData(e.target);
 
         try {
-            await this.invoke('update_config', {
+            await this.invoke('save_settings', {
                 llm: {
                     provider: formData.get('provider'),
                     api_key: formData.get('api_key'),
@@ -285,9 +285,9 @@ const app = {
     async toggleSkill(skillId, enabled) {
         try {
             if (enabled) {
-                await this.invoke('enable_skill', { skillId });
+                await this.invoke('enable_skill', { skill_id: skillId });
             } else {
-                await this.invoke('disable_skill', { skillId });
+                await this.invoke('disable_skill', { skill_id: skillId });
             }
             Views.toast(enabled ? '技能已启用' : '技能已禁用', 'success');
         } catch (err) {

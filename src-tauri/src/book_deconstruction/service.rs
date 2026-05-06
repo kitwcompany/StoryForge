@@ -41,6 +41,8 @@ impl BookDeconstructionService {
     pub async fn upload_and_analyze(&self, file_path: &Path) -> Result<String, ParseError> {
         // 1. 校验文件
         self.validate_file(file_path)?;
+        let size = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
+        log::info!("[BookDeconstruction] Upload: path={} size={} bytes", file_path.display(), size);
 
         // 2. 计算文件哈希
         let file_hash = self.compute_file_hash(file_path).await?;
@@ -296,6 +298,7 @@ impl BookDeconstructionService {
             }
         }
 
+        log::info!("[BookDeconstruction] Book deleted: {}", book_id);
         Ok(())
     }
 
@@ -326,6 +329,7 @@ impl BookDeconstructionService {
     // ==================== 一键转故事 ====================
 
     pub async fn convert_to_story(&self, book_id: &str) -> Result<String, String> {
+        log::info!("[BookDeconstruction] Converting book {} to story", book_id);
         let analysis = self.get_analysis(book_id)?;
         let pool = self.pool.clone();
 
@@ -340,6 +344,7 @@ impl BookDeconstructionService {
             })
             .map_err(|e| e.to_string())?;
         let story_id = story.id;
+        log::info!("[BookDeconstruction] Convert step {}: created {}", "story", story_id);
 
         // 2. 创建世界观
         if let Some(ref world_setting) = analysis.book.world_setting {
@@ -347,6 +352,7 @@ impl BookDeconstructionService {
             wb_repo
                 .create(&story_id, world_setting)
                 .map_err(|e| e.to_string())?;
+            log::info!("[BookDeconstruction] Convert step {}: created {}", "world_building", story_id);
         }
 
         // 3. 创建角色（合并 personality + appearance 作为 background）
@@ -371,6 +377,7 @@ impl BookDeconstructionService {
                 })
                 .map_err(|e| e.to_string())?;
         }
+        log::info!("[BookDeconstruction] Convert step {}: created {}", "characters", analysis.characters.len());
 
         // 4. 创建场景（summary 保存为 content，保留 outline）
         for scene in &analysis.scenes {
@@ -396,6 +403,7 @@ impl BookDeconstructionService {
                 );
             }
         }
+        log::info!("[BookDeconstruction] Convert step {}: created {}", "scenes", analysis.scenes.len());
 
         Ok(story_id)
     }

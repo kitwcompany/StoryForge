@@ -140,9 +140,10 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             break;
           }
           case 'characterUpdated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.characters() });
-            if (characterId) {
-              queryClient.invalidateQueries({ queryKey: KEYS.characters(characterId) });
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters(storyId) });
+            } else {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters() });
             }
             optionsRef.current.onCharacterUpdated?.(characterId, p?.name);
             break;

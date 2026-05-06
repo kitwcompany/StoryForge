@@ -7,6 +7,7 @@
 
 use super::tokenizer::CJKTokenizer;
 use crate::db::models_v3::Entity;
+use crate::embeddings::embedding::embed_text_async;
 use rusqlite::params;
 
 /// 查询管道
@@ -99,7 +100,7 @@ impl QueryPipeline {
         }
     }
 
-    /// 四阶段查询检索
+    /// 四阶段查询检索（v5.4.0: 融合语义搜索）
     pub async fn query(
         &self,
         query: &str,
@@ -107,14 +108,20 @@ impl QueryPipeline {
         vector_store: &dyn VectorStore,
         knowledge_graph: &dyn KnowledgeGraph,
     ) -> Result<QueryResult, Box<dyn std::error::Error + Send + Sync>> {
-        // Stage 1: CJK二元组分词搜索
-        let search_results = self.token_search(query, story_id, vector_store).await?;
+        // Stage 1a: CJK二元组分词搜索
+        let token_results = self.token_search(query, story_id, vector_store).await?;
+        
+        // Stage 1b: 语义向量搜索（与 token 搜索并行执行）
+        let semantic_results = self.semantic_search(query, story_id, vector_store).await?;
+        
+        // Stage 1c: 融合两种搜索结果
+        let fused_results = Self::fuse_results(token_results, semantic_results);
         
         // Stage 2: 图谱扩展
-        let graph_expansion = self.graph_expansion(&search_results, knowledge_graph).await?;
+        let graph_expansion = self.graph_expansion(&fused_results, knowledge_graph).await?;
         
         // Stage 3: 预算控制
-        let selected = self.budget_control(&search_results, &graph_expansion)?;
+        let selected = self.budget_control(&fused_results, &graph_expansion)?;
         
         // Stage 4: 带引用编号的上下文组装
         let result = self.assemble_context(&selected)?;
@@ -122,7 +129,7 @@ impl QueryPipeline {
         Ok(result)
     }
 
-    /// Stage 1: CJK二元组分词搜索
+    /// Stage 1a: CJK二元组分词搜索
     async fn token_search(
         &self,
         query: &str,
@@ -146,6 +153,91 @@ impl QueryPipeline {
         
         // 返回Top 50
         Ok(all_results.into_iter().take(50).collect())
+    }
+
+    /// Stage 1b: 语义向量搜索
+    /// 
+    /// 将查询文本编码为 embedding，通过向量相似度检索语义相关的内容。
+    /// 若 embedding 生成失败或 vector_store 不支持语义搜索，则返回空结果（ graceful fallback）。
+    async fn semantic_search(
+        &self,
+        query: &str,
+        story_id: &str,
+        vector_store: &dyn VectorStore,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+        // 生成查询文本的 embedding（优先语义模型，fallback FNV-1a）
+        let embedding = match embed_text_async(query.to_string()).await {
+            Ok(emb) => emb,
+            Err(e) => {
+                log::warn!("[QueryPipeline] 查询 embedding 生成失败，跳过语义搜索: {}", e);
+                return Ok(vec![]);
+            }
+        };
+
+        // 执行向量相似度搜索
+        match vector_store.search_with_embedding(story_id, embedding, 30).await {
+            Ok(results) => Ok(results),
+            Err(e) => {
+                log::warn!("[QueryPipeline] 语义搜索失败，返回空结果: {}", e);
+                Ok(vec![])
+            }
+        }
+    }
+
+    /// Stage 1c: 融合 token 搜索与语义搜索结果
+    /// 
+    /// 策略：
+    /// - Token 搜索权重 0.4，语义搜索权重 0.6（语义召回更精准）
+    /// - 对同一文档取加权最高分
+    /// - 按融合分数降序排列，取 Top 50
+    fn fuse_results(
+        token_results: Vec<SearchResult>,
+        semantic_results: Vec<SearchResult>,
+    ) -> Vec<SearchResult> {
+        use std::collections::HashMap;
+
+        const TOKEN_WEIGHT: f32 = 0.4;
+        const SEMANTIC_WEIGHT: f32 = 0.6;
+
+        let mut merged: HashMap<String, (SearchResult, f32, f32)> = HashMap::new();
+
+        // 收集 token 结果
+        for r in token_results {
+            let entry = merged.entry(r.id.clone()).or_insert_with(|| {
+                (r.clone(), 0.0, 0.0)
+            });
+            entry.1 = r.score.max(entry.1);
+        }
+
+        // 收集语义结果
+        for r in semantic_results {
+            let entry = merged.entry(r.id.clone()).or_insert_with(|| {
+                (r.clone(), 0.0, 0.0)
+            });
+            entry.2 = r.score.max(entry.2);
+        }
+
+        // 计算加权融合分数并组装最终列表
+        let mut fused: Vec<SearchResult> = merged
+            .into_iter()
+            .map(|(id, (mut result, token_score, semantic_score))| {
+                // 加权融合：若只有一侧有结果，另一侧权重减半分配
+                let fused_score = if token_score > 0.0 && semantic_score > 0.0 {
+                    token_score * TOKEN_WEIGHT + semantic_score * SEMANTIC_WEIGHT
+                } else if token_score > 0.0 {
+                    token_score * (TOKEN_WEIGHT + SEMANTIC_WEIGHT * 0.5)
+                } else {
+                    semantic_score * (TOKEN_WEIGHT * 0.5 + SEMANTIC_WEIGHT)
+                };
+                result.score = fused_score;
+                result
+            })
+            .collect();
+
+        // 按融合分数降序排列
+        fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        fused.truncate(50);
+        fused
     }
 
     /// Stage 2: 图谱扩展
@@ -350,6 +442,14 @@ pub trait VectorStore: Send + Sync {
         token: &str,
         limit: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// 使用 embedding 向量进行语义搜索
+    async fn search_with_embedding(
+        &self,
+        story_id: &str,
+        embedding: Vec<f32>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// 基于数据库文本搜索的 VectorStore 适配器
@@ -435,6 +535,16 @@ impl VectorStore for DbVectorStore {
 
         Ok(results)
     }
+
+    async fn search_with_embedding(
+        &self,
+        _story_id: &str,
+        _embedding: Vec<f32>,
+        _limit: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+        // DbVectorStore 不支持语义嵌入搜索，返回空结果
+        Ok(vec![])
+    }
 }
 
 /// 知识图谱接口（用于查询）
@@ -450,4 +560,92 @@ pub trait KnowledgeGraph: Send + Sync {
         entity_id: &str,
         min_strength: f32,
     ) -> Result<Vec<(Entity, f32)>, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_result(id: &str, score: f32) -> SearchResult {
+        SearchResult {
+            id: id.to_string(),
+            content: format!("Content of {}", id),
+            score,
+            source_type: SourceType::Scene,
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn test_fuse_results_both_sides() {
+        // Token 和语义都有同一文档 → 加权融合
+        let token = vec![make_result("doc1", 0.8), make_result("doc2", 0.6)];
+        let semantic = vec![make_result("doc1", 0.95), make_result("doc3", 0.9)];
+
+        let fused = QueryPipeline::fuse_results(token, semantic);
+
+        assert_eq!(fused.len(), 3);
+        assert_eq!(fused[0].id, "doc1"); // 两边都有，分数最高
+        // doc1 score = 0.8*0.4 + 0.95*0.6 = 0.32 + 0.57 = 0.89
+        assert!((fused[0].score - 0.89).abs() < 0.01, "doc1 score should be ~0.89, got {}", fused[0].score);
+        // doc3 score = 0.9*(0.2 + 0.6) = 0.72 (只有语义，token 权重折半)
+        assert_eq!(fused[1].id, "doc3");
+        // doc2 score = 0.6*(0.4 + 0.3) = 0.42 (只有 token，语义权重折半)
+        assert_eq!(fused[2].id, "doc2");
+    }
+
+    #[test]
+    fn test_fuse_results_token_only() {
+        let token = vec![make_result("a", 0.9), make_result("b", 0.7)];
+        let semantic = vec![];
+
+        let fused = QueryPipeline::fuse_results(token, semantic);
+
+        assert_eq!(fused.len(), 2);
+        assert_eq!(fused[0].id, "a");
+        // 0.9 * (0.4 + 0.3) = 0.63
+        assert!((fused[0].score - 0.63).abs() < 0.01, "got {}", fused[0].score);
+    }
+
+    #[test]
+    fn test_fuse_results_semantic_only() {
+        let token = vec![];
+        let semantic = vec![make_result("x", 0.85), make_result("y", 0.75)];
+
+        let fused = QueryPipeline::fuse_results(token, semantic);
+
+        assert_eq!(fused.len(), 2);
+        assert_eq!(fused[0].id, "x");
+        // 0.85 * (0.2 + 0.6) = 0.68
+        assert!((fused[0].score - 0.68).abs() < 0.01, "got {}", fused[0].score);
+    }
+
+    #[test]
+    fn test_fuse_results_deduplicates() {
+        let token = vec![make_result("dup", 0.5), make_result("dup", 0.8)];
+        let semantic = vec![make_result("dup", 0.9), make_result("dup", 0.6)];
+
+        let fused = QueryPipeline::fuse_results(token, semantic);
+
+        assert_eq!(fused.len(), 1);
+        assert_eq!(fused[0].id, "dup");
+        // token max = 0.8, semantic max = 0.9 → 0.8*0.4 + 0.9*0.6 = 0.86
+        assert!((fused[0].score - 0.86).abs() < 0.01, "got {}", fused[0].score);
+    }
+
+    #[test]
+    fn test_fuse_results_empty() {
+        let fused = QueryPipeline::fuse_results(vec![], vec![]);
+        assert!(fused.is_empty());
+    }
+
+    #[test]
+    fn test_fuse_results_truncates_to_50() {
+        let token: Vec<_> = (0..60).map(|i| make_result(&format!("t{}", i), 0.5)).collect();
+        let semantic: Vec<_> = (0..60).map(|i| make_result(&format!("s{}", i), 0.6)).collect();
+
+        let fused = QueryPipeline::fuse_results(token, semantic);
+
+        assert_eq!(fused.len(), 50);
+    }
 }

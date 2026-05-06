@@ -57,7 +57,10 @@ interface StyleDnaItem {
   author?: string;
   is_builtin: boolean;
 }
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const wizardLogger = createLogger('ui:CreationWizard');
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface WizardData {
@@ -223,7 +226,7 @@ export function CreationWizard() {
       updateData({ worldBuilding: options[0] || null });
       goNext();
     } catch (error) {
-      console.error('Failed to generate worlds:', error);
+      wizardLogger.error('Failed to generate worlds', { error });
       toast.error('生成世界观失败，请重试');
     } finally {
       setIsGenerating(false);
@@ -246,7 +249,7 @@ export function CreationWizard() {
       updateData({ characters: sets[0] || null });
       goNext();
     } catch (error) {
-      console.error('Failed to generate characters:', error);
+      wizardLogger.error('Failed to generate characters', { error });
       toast.error('生成角色失败，请重试');
     } finally {
       setIsGenerating(false);
@@ -269,7 +272,7 @@ export function CreationWizard() {
       updateData({ writingStyle: styles[0] || null });
       goNext();
     } catch (error) {
-      console.error('Failed to generate styles:', error);
+      wizardLogger.error('Failed to generate styles', { error });
       toast.error('生成文风失败，请重试');
     } finally {
       setIsGenerating(false);
@@ -298,7 +301,7 @@ export function CreationWizard() {
       });
       goNext();
     } catch (error) {
-      console.error('Failed to generate scene:', error);
+      wizardLogger.error('Failed to generate scene', { error });
       toast.error('生成首个场景失败，请重试');
       setIsGenerating(false);
       setGenerationStep('');
@@ -331,7 +334,7 @@ export function CreationWizard() {
       // 跳转到场景页面
       setCurrentView('scenes');
     } catch (error) {
-      console.error('Failed to create story:', error);
+      wizardLogger.error('Failed to create story', { error });
       toast.error('创建故事失败');
     } finally {
       setIsCreating(false);

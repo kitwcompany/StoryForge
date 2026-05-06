@@ -122,6 +122,54 @@ impl AgentService {
         &self.app_handle
     }
 
+    /// 从用户指令中提取明确的题材要求
+    /// v5.4.0: 当用户指令中包含具体题材时，优先使用指令中的题材而非 story.genre
+    fn extract_genre_from_instruction(instruction: &str) -> Option<String> {
+        let lower = instruction.to_lowercase();
+        // 常见题材关键词映射（按匹配长度降序，避免"玄幻"匹配"都市玄幻"时丢失前缀）
+        let genre_keywords: &[(&str, &str)] = &[
+            ("都市玄幻", "都市玄幻"),
+            ("都市修仙", "都市修仙"),
+            ("都市异能", "都市异能"),
+            ("都市言情", "都市言情"),
+            ("都市", "都市"),
+            ("玄幻", "玄幻"),
+            ("仙侠", "仙侠"),
+            ("武侠", "武侠"),
+            ("科幻", "科幻"),
+            ("悬疑", "悬疑"),
+            ("推理", "推理"),
+            ("恐怖", "恐怖"),
+            ("灵异", "灵异"),
+            ("末世", "末世"),
+            ("末日", "末世"),
+            ("穿越", "穿越"),
+            ("重生", "重生"),
+            ("古言", "古言"),
+            ("古代言情", "古言"),
+            ("现言", "现言"),
+            ("现代言情", "现言"),
+            ("耽美", "耽美"),
+            ("同人", "同人"),
+            ("轻小说", "轻小说"),
+            ("历史", "历史"),
+            ("军事", "军事"),
+            ("游戏", "游戏"),
+            ("体育", "体育"),
+            ("洪荒", "洪荒"),
+            ("西游", "西游"),
+            ("封神", "封神"),
+            ("诸天", "诸天"),
+            ("无限流", "无限流"),
+        ];
+        for (keyword, genre) in genre_keywords {
+            if lower.contains(&keyword.to_lowercase()) {
+                return Some(genre.to_string());
+            }
+        }
+        None
+    }
+
     /// 执行Agent任务
     pub async fn execute_task(&self, task: AgentTask) -> Result<AgentResult, String> {
         let task_id = task.id.clone();
@@ -332,9 +380,25 @@ impl AgentService {
             return Err("AI 返回了空内容，请检查模型配置或重试".to_string());
         }
         
+        // v5.4.0: 去除与 current_content 重复的前缀，防止 LLM 返回完整文本导致前端"重复输出"
+        let mut content = response.content;
+        if let Some(ref current) = task.context.current_content {
+            if !current.is_empty() && current != "无" {
+                let current_trimmed = current.trim();
+                let content_trimmed = content.trim();
+                if content_trimmed.starts_with(current_trimmed) {
+                    content = content_trimmed[current_trimmed.len()..].trim_start().to_string();
+                    log::info!(
+                        "[execute_writer_raw] Removed duplicate prefix (len={}) from LLM output, remaining len={}",
+                        current_trimmed.len(), content.len()
+                    );
+                }
+            }
+        }
+        
         self.emit_event(&task.id, task.agent_type, AgentStage::Reviewing, "检查生成质量", 0.8);
         
-        let score = self.calculate_quality_score(&response.content);
+        let score = self.calculate_quality_score(&content);
         
         let mut suggestions = if score < 0.7 {
             vec!["建议：内容可能需要进一步润色".to_string()]
@@ -349,7 +413,7 @@ impl AgentService {
                 let target_scene = scenes.iter().find(|s| s.sequence_number == task.context.chapter_number as i32);
                 if let Some(scene) = target_scene {
                     let continuity = crate::creative_engine::continuity::ContinuityEngine::new(pool.inner().clone());
-                    match continuity.check_scene_continuity(&task.context.story_id, &scene.id, &response.content) {
+                    match continuity.check_scene_continuity(&task.context.story_id, &scene.id, &content) {
                         Ok(check) if !check.is_valid => {
                             for issue in check.issues {
                                 let msg = format!("[{}] {}", match issue.severity {
@@ -369,7 +433,7 @@ impl AgentService {
         }
         
         Ok(AgentResult {
-            content: response.content,
+            content,
             score: Some(score),
             suggestions,
         })
@@ -393,32 +457,35 @@ impl AgentService {
             }
         }
 
-        let raw_result = self.execute_writer_raw(task.clone()).await?;
-        
         // v5.1.0: AgentOrchestrator 闭环 — Writer → Inspector → StyleChecker → Writer(改写)
-        let final_content = {
-            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
-                self.clone(),
-                self.app_handle.clone(),
-            );
-            match orchestrator.execute_write_with_inspection(task.clone()).await {
-                Ok(workflow_result) => {
-                    log::info!(
-                        "[AgentOrchestrator] Workflow completed: score={:.2}, rewritten={}",
-                        workflow_result.final_score, workflow_result.was_rewritten
-                    );
-                    let mut all_suggestions = raw_result.suggestions.clone();
-                    for step in &workflow_result.steps {
-                        if !step.suggestions.is_empty() {
-                            all_suggestions.extend(step.suggestions.clone());
-                        }
+        // v5.4.0: 避免预先调用 execute_writer_raw，直接让 orchestrator 执行，减少一次 LLM 调用
+        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+            self.clone(),
+            self.app_handle.clone(),
+        );
+        let (final_content, final_score, final_suggestions) = match orchestrator.execute_write_with_inspection(task.clone()).await {
+            Ok(workflow_result) => {
+                log::info!(
+                    "[AgentOrchestrator] Workflow completed: score={:.2}, rewritten={}",
+                    workflow_result.final_score, workflow_result.was_rewritten
+                );
+                let mut all_suggestions = Vec::new();
+                for step in &workflow_result.steps {
+                    if !step.suggestions.is_empty() {
+                        all_suggestions.extend(step.suggestions.clone());
                     }
-                    workflow_result.final_content
                 }
-                Err(e) => {
-                    log::warn!("[AgentOrchestrator] Workflow failed: {}, using original content", e);
-                    raw_result.content.clone()
-                }
+                (
+                    workflow_result.final_content,
+                    Some(workflow_result.final_score),
+                    all_suggestions,
+                )
+            }
+            Err(e) => {
+                log::warn!("[AgentOrchestrator] Workflow failed: {}, falling back to raw generation", e);
+                // fallback: 直接调用 execute_writer_raw
+                let raw_result = self.execute_writer_raw(task.clone()).await?;
+                (raw_result.content, raw_result.score, raw_result.suggestions)
             }
         };
 
@@ -428,7 +495,7 @@ impl AgentService {
             if let Ok(skill_manager) = manager.lock() {
                 let story_id = task.context.story_id.clone();
                 let chapter_number = task.context.chapter_number;
-                let score_val = raw_result.score.unwrap_or(0.0);
+                let score_val = final_score.unwrap_or(0.0);
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
                     let context = crate::agents::AgentContext::minimal(story_id, content_for_hook);
@@ -441,8 +508,8 @@ impl AgentService {
 
         Ok(AgentResult {
             content: final_content,
-            score: raw_result.score,
-            suggestions: raw_result.suggestions,
+            score: final_score,
+            suggestions: final_suggestions,
         })
     }
 
@@ -731,7 +798,16 @@ impl AgentService {
         emit_and_yield("正在准备模板变量...", 0.155);
         let mut vars = HashMap::new();
         vars.insert("story_title".to_string(), ctx.story_title.clone());
-        vars.insert("genre".to_string(), ctx.genre.clone());
+        // v5.4.0: 检测 task.input 中是否包含明确的题材要求，如果与 ctx.genre 不一致，优先使用 instruction 中的题材
+        let effective_genre = Self::extract_genre_from_instruction(&task.input)
+            .unwrap_or_else(|| ctx.genre.clone());
+        if effective_genre != ctx.genre {
+            log::info!(
+                "[build_writer_prompt] Genre override: instruction hints '{}' vs story genre '{}', using '{}'",
+                effective_genre, ctx.genre, effective_genre
+            );
+        }
+        vars.insert("genre".to_string(), effective_genre);
         vars.insert("tone".to_string(), ctx.tone.clone());
         vars.insert("pacing".to_string(), ctx.pacing.clone());
         vars.insert("characters".to_string(), ctx.format_characters());

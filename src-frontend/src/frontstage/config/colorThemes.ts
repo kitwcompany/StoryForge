@@ -5,6 +5,10 @@
  * 平时以右下角状态点呈现，悬停展开选择面板
  */
 
+import { createLogger } from '@/utils/logger';
+
+const colorThemeLogger = createLogger('hooks:colorThemes');
+
 export type ColorThemeId = 'warm' | 'cool' | 'amber' | 'indigo';
 
 export interface ColorTheme {
@@ -128,7 +132,7 @@ export function loadColorTheme(): ColorThemeId {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && saved in colorThemes) return saved as ColorThemeId;
   } catch {
-    console.error('Failed to load color theme');
+    colorThemeLogger.error('Failed to load color theme');
   }
   return 'warm';
 }
@@ -138,7 +142,7 @@ export function saveColorTheme(themeId: ColorThemeId) {
   try {
     localStorage.setItem(STORAGE_KEY, themeId);
   } catch {
-    console.error('Failed to save color theme');
+    colorThemeLogger.error('Failed to save color theme');
   }
 }
 

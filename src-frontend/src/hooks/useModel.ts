@@ -7,7 +7,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ModelConfig } from '@/config/models';
 import { modelService, ChatMessage } from '@/services/modelService';
+import { createLogger } from '@/utils/logger';
 import { getConfig } from '@/services/tauri';
+
+const modelLogger = createLogger('hooks:useModel');
 
 export interface ModelState {
   currentModel: ModelConfig;
@@ -81,7 +84,7 @@ export function useModel() {
         currentModel: adaptedModel,
       }));
     }).catch((err) => {
-      console.warn('Failed to load backend model config:', err);
+      modelLogger.warn('Failed to load backend model config', { error: err });
     }).finally(() => {
       checkStatus();
     });

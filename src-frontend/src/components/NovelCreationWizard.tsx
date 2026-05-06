@@ -25,7 +25,10 @@ import type {
   SceneProposal,
   ConflictType
 } from '@/types/v3';
+import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
+
+const novelWizardLogger = createLogger('ui:NovelCreationWizard');
 
 type WizardStep =
   | 'genre_input'
@@ -71,7 +74,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       setWorldOptions(options);
       setStep('selecting_world');
     } catch (error) {
-      console.error('Failed to generate world building options:', error);
+      novelWizardLogger.error('Failed to generate world building options', { error });
       toast.error('生成世界观失败，请重试');
       setStep('genre_input');
     } finally {
@@ -88,7 +91,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       setCharacterSets(sets);
       setStep('selecting_characters');
     } catch (error) {
-      console.error('Failed to generate character profiles:', error);
+      novelWizardLogger.error('Failed to generate character profiles', { error });
       toast.error('生成角色失败，请重试');
       setStep('selecting_world');
       setSelectedWorld(null);
@@ -107,7 +110,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       setStyleOptions(styles);
       setStep('selecting_style');
     } catch (error) {
-      console.error('Failed to generate writing styles:', error);
+      novelWizardLogger.error('Failed to generate writing styles', { error });
       toast.error('生成文风失败，请重试');
       setStep('selecting_characters');
       setSelectedCharacters(null);
@@ -128,7 +131,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       setFirstScene(scene);
       setStep('completed');
     } catch (error) {
-      console.error('Failed to generate first scene:', error);
+      novelWizardLogger.error('Failed to generate first scene', { error });
       toast.error('生成首个场景失败，请重试');
       setStep('selecting_style');
       setSelectedStyle(null);

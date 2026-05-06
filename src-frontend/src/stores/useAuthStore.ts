@@ -4,8 +4,11 @@
  */
 
 import { create } from 'zustand';
+import { createLogger } from '@/utils/logger';
 import type { UserInfo, AuthConfig } from '@/services/auth';
 import { getAuthConfig, getCurrentUser, logout as logoutApi, openOAuthBrowser, oauthCallback } from '@/services/auth';
+
+const authLogger = createLogger('auth:store');
 
 interface AuthState {
   // State
@@ -50,9 +53,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // 在桌面端，回调通过本地 HTTP 服务器接收
       // 这里返回的 resp 包含 redirect_port，前端需要轮询或监听该端口
       // 简化实现：等待用户手动触发回调处理
-      console.log('OAuth started, redirect port:', resp.redirect_port);
+      authLogger.debug('OAuth started', { redirect_port: resp.redirect_port });
     } catch (error) {
-      console.error('Login failed:', error);
+      authLogger.error('Login failed', { error });
       throw error;
     } finally {
       set({ isLoading: false });
@@ -65,7 +68,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = await oauthCallback(provider, code, state);
       set({ user, isLoggedIn: true });
     } catch (error) {
-      console.error('OAuth callback failed:', error);
+      authLogger.error('OAuth callback failed', { error });
       throw error;
     } finally {
       set({ isLoading: false });
@@ -78,7 +81,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         await logoutApi(authToken);
       } catch (e) {
-        console.error('Logout API error:', e);
+        authLogger.error('Logout API error', { error: e });
       }
     }
     setAuthToken(null);
@@ -92,7 +95,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ user, isLoggedIn: true });
       }
     } catch (e) {
-      console.error('Auth check failed:', e);
+      authLogger.error('Auth check failed', { error: e });
     }
   },
 
@@ -101,7 +104,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const config = await getAuthConfig();
       set({ authConfig: config });
     } catch (e) {
-      console.error('Failed to load auth config:', e);
+      authLogger.error('Failed to load auth config', { error: e });
     }
   },
 }));
