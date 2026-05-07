@@ -110,6 +110,7 @@ interface FrontstageEvent {
     chapter_id?: string;
     story_id?: string;
     title?: string;
+    content?: string;
     hint?: string;
     position?: { line: number; column: number };
     duration_ms?: number;
@@ -440,7 +441,12 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
-              frontstageLogger.info('[ChapterSwitch] Received event', { story_id: payload.story_id, chapter_id: payload.chapter_id });
+              frontstageLogger.info('[ChapterSwitch] Received event', { story_id: payload.story_id, chapter_id: payload.chapter_id, has_content: !!payload.content, content_length: payload.content?.length || 0 });
+              // v5.4.1 fix: 如果事件中直接包含内容，直接使用（绕过 DB 查询竞态）
+              if (payload?.content && payload.content.trim().length > 0) {
+                frontstageLogger.info('[ChapterSwitch] Using content from event directly');
+                setContent(payload.content);
+              }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
                 (async () => {
@@ -497,7 +503,28 @@ const FrontstageApp: React.FC = () => {
                   frontstageLogger.info('[ChapterSwitch] Selecting chapter (same story)', { chapter_id: chapter.id, content_length: chapter.content?.length || 0 });
                   selectChapter(chapter);
                 } else {
-                  frontstageLogger.warn('[ChapterSwitch] Chapter not found in current story', { chapter_id: payload.chapter_id });
+                  // v5.4.1 fix: chaptersRef 可能为空（Bootstrap 竞态：storyCreated→loadStories→selectStory 在 ChapterSwitch 之前设置了空 chapters）
+                  // 此时必须重新查询数据库获取最新章节
+                  frontstageLogger.warn('[ChapterSwitch] Chapter not found in current story, re-fetching from DB', { chapter_id: payload.chapter_id, story_id: payload.story_id });
+                  (async () => {
+                    try {
+                      const freshChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: payload.story_id });
+                      const freshChapter = freshChapters.find(c => c.id === payload.chapter_id);
+                      if (freshChapter) {
+                        frontstageLogger.info('[ChapterSwitch] Found chapter after re-fetch', { chapter_id: freshChapter.id, content_length: freshChapter.content?.length || 0 });
+                        setChapters(freshChapters);
+                        selectChapter(freshChapter);
+                      } else if (freshChapters.length > 0) {
+                        frontstageLogger.warn('[ChapterSwitch] Target chapter not found after re-fetch, falling back to first', { expected_id: payload.chapter_id, fallback_id: freshChapters[0].id });
+                        setChapters(freshChapters);
+                        selectChapter(freshChapters[0]);
+                      } else {
+                        frontstageLogger.error('[ChapterSwitch] No chapters available after re-fetch');
+                      }
+                    } catch (e) {
+                      frontstageLogger.error('[ChapterSwitch] Failed to re-fetch chapters', { error: e });
+                    }
+                  })();
                 }
               }
             } else {
@@ -681,7 +708,9 @@ const FrontstageApp: React.FC = () => {
     try {
       const result = await invoke<Story[]>('list_stories');
       setStories(result);
-      if (result.length > 0 && !currentStory) {
+      // v5.4.1 fix: Bootstrap 期间（isGenerating=true）不要自动选择 story，
+      // 避免 FirstChapterGenerationStep 尚未完成时 selectStory 拿到空 chapters 导致编辑器被清空
+      if (result.length > 0 && !currentStory && !isGenerating) {
         await selectStory(result[0]);
       }
     } catch (e) {
@@ -1169,6 +1198,15 @@ const FrontstageApp: React.FC = () => {
                   content_length: storyChapters[0].content?.length ?? 0
                 });
                 selectChapter(storyChapters[0]);
+                // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
+                if ((!firstChapter?.content || firstChapter.content.trim().length === 0) && result.final_content && result.final_content.trim().length > 0) {
+                  frontstageLogger.warn('[SmartGeneration] DB chapter content is empty but final_content exists, using final_content as fallback');
+                  setContent(result.final_content);
+                }
+              } else if (result.final_content && result.final_content.trim().length > 0) {
+                // v5.4.1 fix: 极端情况——DB 中没有章节但 result.final_content 有内容，直接显示
+                frontstageLogger.warn('[SmartGeneration] No chapters in DB but final_content exists, displaying content directly');
+                setContent(result.final_content);
               }
             } else {
               frontstageLogger.error('[SmartGeneration] New story not found in list_stories', { story_id: storyId });

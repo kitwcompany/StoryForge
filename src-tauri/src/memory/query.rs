@@ -220,7 +220,7 @@ impl QueryPipeline {
         // 计算加权融合分数并组装最终列表
         let mut fused: Vec<SearchResult> = merged
             .into_iter()
-            .map(|(id, (mut result, token_score, semantic_score))| {
+            .map(|(_id, (mut result, token_score, semantic_score))| {
                 // 加权融合：若只有一侧有结果，另一侧权重减半分配
                 let fused_score = if token_score > 0.0 && semantic_score > 0.0 {
                     token_score * TOKEN_WEIGHT + semantic_score * SEMANTIC_WEIGHT

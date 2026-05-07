@@ -278,6 +278,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     story_id: ctx.story_id.clone(),
                     chapter_id: chapter.id.clone(),
                     title: "第一章".to_string(),
+                    content: Some(result.content.clone()),
                 }
             ) {
                 Ok(()) => tracing::info!("[FirstChapterGenerationStep] ChapterSwitch event sent: story_id={}, chapter_id={}", ctx.story_id, chapter.id),

@@ -112,7 +112,7 @@ pub enum FrontstageEvent {
     /// AI 生成段落预览
     AiPreview { text: String, insert_position: usize },
     /// 章节切换
-    ChapterSwitch { story_id: String, chapter_id: String, title: String },
+    ChapterSwitch { story_id: String, chapter_id: String, title: String, content: Option<String> },
     /// 保存状态更新
     SaveStatus { saved: bool, timestamp: Option<String> },
     /// 数据刷新通知（幕后数据变更，幕前需重新加载）

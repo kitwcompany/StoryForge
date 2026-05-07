@@ -282,6 +282,7 @@ pub async fn writer_agent_execute(
             story_id: story_id.clone(),
             chapter_id: scene.id.clone(),
             title: "第一场景".to_string(),
+            content: scene.content.clone(),
         };
         let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
 
