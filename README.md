@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.6.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.6.1 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.6.0 最新更新**：设计-实现对齐全面修复 v3 — 全面检视并修复 20 项设计-实现差距。**数据一致性修复**：Scene 删除清理外键、Wizard 同步事件、Character relationships 真实查询、Collab 文档 OT 重建、Workflow EdgeCondition 条件求值、Task 心跳超时指数退避重试。**缓存同步对称性**：Outline/Foreshadowing/Payoff 修改后发射同步事件，sceneUpdated↔chapters、chapterDeleted↔scenes 缓存对称失效。**Workflow 健壮性**：节点 300s 超时、INGEST_COOLDOWN 内存泄漏修复。**前端体验**：FrontstageApp 接入真实 feedback、WritingStyle 更新同步。**P2 优化**：Workflow 并发守卫与重试幂等、Pending vector SQLite 持久化、Task 执行超时。
+> **v5.6.1 最新更新**：设计-实现对齐全面修复 v4 — 全面检视并修复 8 项设计-实现差距。**幕前幕后自动关联补全**：`sceneCreated`/`sceneDeleted` 同步刷新 `chapters` 缓存，消除场景-章节关联状态滞后。**自适应学习真实反馈**：`record_feedback` 返回真实 `LearningPoint[]`，同步调用 `PreferenceMiner::mine` 获取用户偏好，前端使用返回结果替代硬编码 mock。**前端缓存同步完整覆盖**：`useSyncStore` 新增 `writingStyle`/`storyOutlines`/`foreshadowings` case，所有数据类型修改后前端缓存自动刷新。**后台自动化加固**：Pending vector 从 JSON 文件迁移到 SQLite 持久化（Migration 42），`save_pending_vector_indexes`/`load_pending_vector_indexes` 改为 SQLite 操作，保留 JSON fallback 用于迁移。**Workflow 健壮性**：`schedule_execution` 增加幂等检查（queue + running_instances 去重），防止同一实例重复入队。**文档一致性**：WorkflowScheduler 文档更新为"拓扑有序执行（同层可并行）"。
+>
+> **v5.6.0 更新**：设计-实现对齐全面修复 v3 — 全面检视并修复 20 项设计-实现差距。数据一致性修复、缓存同步对称性、Workflow 健壮性、前端体验、P2 优化。
 >
 > **v5.5.1 更新**：设计-实现对齐全面修复 v2 — 全面检视并修复 23 项设计-实现差距。**幕前幕后自动关联补全**：修复 5 处 `unwrap_or_default()` 导致空 story_id 的同步失效问题（update/delete 角色/章节/场景后前端缓存不刷新）、新增 `delete_world_building` 命令、DataRefresh 新增 worldBuilding 分支、scene-chapter 关联缓存正确失效、backstage-shown 事件精准定位故事。**后台自动化闭环**：Bootstrap 后台失败真实上报（`pipeline-complete` 不再硬编码 success）、向量存储启动竞态修复（积压队列自动处理）、Workflow Condition 节点支持变量比较、Workflow 失败自动重试、能力进化路径统一、Task Cron 解析精确化（引入 cron crate）、Genesis Pipeline 运行中取消支持。**技术债务清理**：4 个核心文档版本号同步、5 个过时 v3.x 文档归档、`tauri.ts` 死代码清理、`FrontstageToolbar` 废弃组件移除。
 >
@@ -220,8 +222,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.4.0  
-**最后更新**: 2026-05-04  
+**当前版本**: v5.6.1  
+**最后更新**: 2026-05-08  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
