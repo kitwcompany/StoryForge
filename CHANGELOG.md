@@ -2,6 +2,38 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.6.1] - 设计-实现对齐全面修复 v4（2026-05-08）
+
+### 🔴 P0 核心断裂修复
+
+#### 幕前幕后自动关联补全
+- **sceneCreated/sceneDeleted 缓存不对称** — `useSyncStore.ts` 中 `sceneCreated`/`sceneDeleted` 只刷新 `scenes` 缓存，不刷新 `chapters` 缓存。后端 `SceneRepository::create`/`delete` 会修改 `chapters.scene_id` / `chapters.chapter_id`，但前端 chapters 列表中的 scene 关联状态滞后。修复：两个 case 中追加 `invalidateQueries(['chapters', storyId])`
+
+#### 自适应学习真实反馈
+- **FrontstageApp learnings 伪实现** — v5.6.0 注释声称"非硬编码 mock"，但 `setLearnings()` 仍是固定字符串。修复：后端 `record_feedback` 返回 `Vec<LearningPoint>`，同步调用 `PreferenceMiner::mine` 获取真实偏好；前端 `handleAcceptGeneration`/`handleRejectGeneration` 使用返回结果设置 learnings，无结果时 graceful fallback
+
+### 🟡 P1 功能补全
+
+#### 前端缓存同步完整覆盖
+- **WritingStyle 更新缓存不刷新** — `update_writing_style` 发射 `data-refresh("writingStyle")`，但 `useSyncStore.ts` 无对应 case。修复：新增 `case 'writingStyle'` 刷新 `worldBuilding` 缓存
+- **Outline/Foreshadowing 更新缓存不刷新** — 后端发射 `storyOutlines`/`foreshadowings`，前端 `useSyncStore.ts` 缺少对应 case。修复：新增 `case 'storyOutlines'` 和 `case 'foreshadowings'` 分别刷新对应缓存
+
+#### 后台自动化加固
+- **Pending vector SQLite 持久化** — v5.5.0 使用 `pending_vector_indexes.json` 文件持久化，与文档声明的"SQLite 持久化"不符。修复：Migration 42 创建 `pending_vector_indexes` 表；`save_pending_vector_indexes`/`load_pending_vector_indexes` 改为 SQLite 操作，保留 JSON fallback 用于迁移
+
+### 🟢 P2 优化
+
+- **WorkflowScheduler 文档一致性** — 代码使用 `join_all` 并行执行同层节点，但文档描述为"串行拓扑执行"。修复：AGENTS.md 更新为"拓扑有序执行（同层可并行）"
+- **Workflow 幂等性** — `schedule_execution` 无幂等检查，同一 instance_id 可被重复入队。修复：入队前检查 queue 和 running_instances，已存在则跳过
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `cargo test` ✅ 217/217 通过
+- `npm run build` ✅ 通过
+- `cargo tauri build` ✅ Windows 安装包生成
+
+---
+
 ## [v5.6.0] - 设计-实现对齐全面修复 v3（2026-05-08）
 
 ### 🔴 P0 致命差距修复

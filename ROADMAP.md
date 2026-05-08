@@ -110,24 +110,24 @@
 
 ---
 
-## 📊 v5.6.0 项目状态
+## 📊 v5.6.1 项目状态
 
 | 模块 | 完成度 | 说明 |
 |------|--------|------|
 | 场景化叙事系统 | 100% | Scene 模型、StoryTimeline、SceneEditor |
-| 增强记忆系统 | 95% | Ingest/Query Pipeline、Knowledge Graph、LanceDB 语义搜索 |
-| AI 智能生成 | 100% | NovelCreationAgent、Bootstrap 两阶段、创建向导 |
+| 增强记忆系统 | 100% | Ingest/Query Pipeline、Knowledge Graph、LanceDB 语义搜索、Pending Vector SQLite 持久化 |
+| AI 智能生成 | 100% | NovelCreationAgent、Bootstrap 两阶段、创建向导、真实自适应学习反馈 |
 | 工作室配置 | 100% | 导入/导出、主题系统 |
 | 混合搜索 | 100% | BM25 + Vector RRF融合 + 语义嵌入 |
 | 场景版本 | 100% | 版本历史、对比、恢复 |
 | 记忆保留 | 100% | 遗忘曲线、优先级管理 |
 | 幕前界面 | 100% | 精简侧边栏、幽灵文本、`/` 菜单 |
-| 幕前幕后自动关联 | 100% | Chapter↔Scene 双向映射、state_sync、实时同步 |
-| 后台自动化 | 100% | Workflow 持久化、能力进化反馈环、向量索引闭环 |
+| 幕前幕后自动关联 | 100% | Chapter↔Scene 双向映射、state_sync、实时同步、Cache 对称失效完整 |
+| 后台自动化 | 100% | Workflow 持久化、能力进化反馈环、向量索引闭环、Workflow 幂等性 |
 | 本地模型配置 | 100% | 三模型集成 |
 | Tauri 构建 | 100% | MSI + NSIS 安装包 |
-| 设计-实现对齐 | 100% | v5.6.0 20 项差距全部修复 |
-| **整体 v5.6.0** | **100%** | 核心功能全部完成 |
+| 设计-实现对齐 | 100% | v5.6.1 8 项差距全部修复 |
+| **整体 v5.6.1** | **100%** | 核心功能全部完成 |
 
 ---
 

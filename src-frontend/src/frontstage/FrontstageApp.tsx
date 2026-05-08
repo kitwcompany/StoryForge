@@ -992,13 +992,19 @@ const FrontstageApp: React.FC = () => {
           feedback_type: 'accept',
           agent_type: 'writer',
           original_ai_text: generatedText,
-        }).catch(e => frontstageLogger.error('Feedback record failed', { error: e }));
+        })
+          .then(learnings => {
+            if (learnings && learnings.length > 0) {
+              setLearnings(learnings);
+            } else {
+              setLearnings([{ category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' }]);
+            }
+          })
+          .catch(e => frontstageLogger.error('Feedback record failed', { error: e }));
+      } else {
+        setLearnings([{ category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' }]);
       }
       setGeneratedText('');
-      // P1-13 修复: 基于真实反馈生成学习记录（非硬编码 mock）
-      setLearnings([
-        { category: '反馈', observation: '已记录接受偏好', impact: '系统将学习此方向' },
-      ]);
     }
   }, [generatedText, currentStory, currentChapter]);
 
@@ -1011,13 +1017,19 @@ const FrontstageApp: React.FC = () => {
         feedback_type: 'reject',
         agent_type: 'writer',
         original_ai_text: generatedText,
-      }).catch(e => console.error('Feedback record failed:', e));
+      })
+        .then(learnings => {
+          if (learnings && learnings.length > 0) {
+            setLearnings(learnings);
+          } else {
+            setLearnings([{ category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' }]);
+          }
+        })
+        .catch(e => console.error('Feedback record failed:', e));
+    } else {
+      setLearnings([{ category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' }]);
     }
     setGeneratedText('');
-    // P1-13 修复: 基于真实反馈生成学习记录（非硬编码 mock）
-    setLearnings([
-      { category: '反馈', observation: '已记录拒绝偏好', impact: '系统将调整生成策略' },
-    ]);
   }, [generatedText, currentStory, currentChapter]);
 
   // 处理内联修改建议

@@ -162,6 +162,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           case 'sceneCreated': {
             if (storyId) {
               queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
+              // v5.6.1 修复: Scene 创建会关联/创建 Chapter，同步刷新 chapters 缓存
+              queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
             }
             optionsRef.current.onSceneCreated?.(storyId, sceneId, title);
             break;
@@ -183,6 +185,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           case 'sceneDeleted': {
             if (storyId) {
               queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
+              // v5.6.1 修复: Scene 删除会清理 chapters.scene_id，同步刷新 chapters 缓存
+              queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
             }
             if (sceneId) {
               queryClient.removeQueries({ queryKey: KEYS.sceneDetail(sceneId) });
@@ -258,6 +262,23 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
               case 'worldBuilding':
                 if (storyId) {
                   queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
+                }
+                break;
+              // v5.6.1 修复: WritingStyle 更新后刷新缓存
+              case 'writingStyle':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
+                }
+                break;
+              // v5.6.1 修复: 大纲/伏笔更新后刷新缓存
+              case 'storyOutlines':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(storyId) });
+                }
+                break;
+              case 'foreshadowings':
+                if (storyId) {
+                  queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(storyId) });
                 }
                 break;
               case 'all':

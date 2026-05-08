@@ -21,10 +21,27 @@ impl WorkflowScheduler {
 
     /// Queue a workflow instance for execution
     /// 入队后会自动触发后台执行（若当前没有正在执行的任务）
+    /// v5.6.1: 增加幂等检查，防止同一实例重复入队
     pub async fn schedule_execution(
         &self,
         instance_id: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // 幂等检查: 已在队列或正在执行则跳过
+        {
+            let queue = self.queue.lock().unwrap();
+            if queue.contains(&instance_id) {
+                log::warn!("[WorkflowScheduler] Instance {} already in queue, skipping", instance_id);
+                return Ok(());
+            }
+        }
+        {
+            let running = self.running_instances.lock().unwrap();
+            if running.contains(&instance_id) {
+                log::warn!("[WorkflowScheduler] Instance {} already running, skipping", instance_id);
+                return Ok(());
+            }
+        }
+        
         log::info!("[WorkflowScheduler] Queuing workflow instance {} for execution", instance_id);
         let mut queue = self.queue.lock().unwrap();
         queue.push_back(instance_id);

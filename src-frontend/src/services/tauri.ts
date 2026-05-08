@@ -237,8 +237,14 @@ export interface RecordFeedbackRequest {
   final_text?: string;
 }
 
+export interface LearningPoint {
+  category: string;
+  observation: string;
+  impact: string;
+}
+
 export const recordFeedback = (req: RecordFeedbackRequest) =>
-  loggedInvoke<void>('record_feedback', { ...req });
+  loggedInvoke<LearningPoint[]>('record_feedback', { ...req });
 
 // Knowledge Graph
 export const getStoryGraph = (storyId: string) =>

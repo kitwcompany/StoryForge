@@ -272,7 +272,12 @@ pub fn run() {
                             }
                         }
                     }
-                    // P2-19 修复: drain 完成后删除持久化文件
+                    // v5.6.1 修复: drain 完成后清理 SQLite 表和旧 JSON 文件
+                    if let Some(pool) = get_pool() {
+                        if let Ok(conn) = pool.get() {
+                            let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
+                        }
+                    }
                     if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
                         let _ = std::fs::remove_file(path);
                     }
@@ -1306,23 +1311,63 @@ static PENDING_VECTOR_INDEXES: std::sync::Mutex<Vec<String>> = std::sync::Mutex:
 /// P2-19 修复: pending queue 持久化文件路径
 static PENDING_VECTOR_INDEXES_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
 
-/// 保存 pending vector indexes 到文件
+/// v5.6.1: 保存 pending vector indexes 到 SQLite
 fn save_pending_vector_indexes() {
-    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
-        if let Ok(pending) = PENDING_VECTOR_INDEXES.lock() {
-            let _ = std::fs::write(path, serde_json::to_string(&*pending).unwrap_or_default());
+    if let Ok(pending) = PENDING_VECTOR_INDEXES.lock() {
+        if let Some(pool) = get_pool() {
+            let conn = pool.get();
+            if let Ok(conn) = conn {
+                // 清空后重新插入
+                let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
+                for chapter_id in pending.iter() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO pending_vector_indexes (chapter_id, created_at) VALUES (?1, ?2)",
+                        rusqlite::params![chapter_id, now],
+                    );
+                }
+            }
         }
     }
 }
 
-/// 从文件加载 pending vector indexes
+/// v5.6.1: 从 SQLite 加载 pending vector indexes，保留 JSON fallback
 fn load_pending_vector_indexes() -> Vec<String> {
-    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            return serde_json::from_str(&content).unwrap_or_default();
+    let mut result = Vec::new();
+    
+    // 优先从 SQLite 加载
+    if let Some(pool) = get_pool() {
+        if let Ok(conn) = pool.get() {
+            if let Ok(mut stmt) = conn.prepare("SELECT chapter_id FROM pending_vector_indexes ORDER BY created_at") {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    let id: String = row.get(0)?;
+                    Ok(id)
+                }) {
+                    for row in rows {
+                        if let Ok(id) = row {
+                            result.push(id);
+                        }
+                    }
+                }
+            }
         }
     }
-    Vec::new()
+    
+    // Fallback: 从旧 JSON 文件加载（迁移用）
+    if result.is_empty() {
+        if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                if let Ok(loaded) = serde_json::from_str::<Vec<String>>(&content) {
+                    result = loaded;
+                }
+            }
+        }
+    }
+    
+    result
 }
 
 #[tauri::command]
@@ -1931,8 +1976,16 @@ struct RecordFeedbackRequest {
     final_text: Option<String>,
 }
 
+/// v5.6.1: 学习点，返回给前端展示
+#[derive(Debug, Clone, serde::Serialize)]
+struct LearningPoint {
+    category: String,
+    observation: String,
+    impact: String,
+}
+
 #[tauri::command]
-async fn record_feedback(request: RecordFeedbackRequest) -> Result<(), String> {
+async fn record_feedback(request: RecordFeedbackRequest) -> Result<Vec<LearningPoint>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let recorder = creative_engine::adaptive::FeedbackRecorder::new(pool.clone());
     let result = match request.feedback_type.as_str() {
@@ -1947,22 +2000,44 @@ async fn record_feedback(request: RecordFeedbackRequest) -> Result<(), String> {
         _ => Err("Unknown feedback type".to_string()),
     };
     
-    // 异步触发偏好挖掘，让自适应学习系统形成闭环
-    if result.is_ok() {
-        let story_id = request.story_id.clone();
-        tauri::async_runtime::spawn(async move {
-            let engine = creative_engine::adaptive::AdaptiveLearningEngine::new(pool);
-            match engine.mine_preferences(&story_id) {
-                Ok(prefs) if !prefs.is_empty() => {
-                    log::info!("[Adaptive] Mined {} preferences for story {}", prefs.len(), story_id);
-                }
-                Ok(_) => {}
-                Err(e) => log::warn!("[Adaptive] Preference mining failed: {}", e),
-            }
-        });
+    if result.is_err() {
+        return Err(result.err().unwrap());
     }
     
-    result
+    // v5.6.1: 同步挖掘偏好，返回真实学习点给前端
+    let miner = creative_engine::adaptive::PreferenceMiner::new(pool.clone());
+    let learnings = match miner.mine(&request.story_id) {
+        Ok(prefs) => {
+            prefs.into_iter()
+                .filter(|p| p.confidence >= 0.5)
+                .take(3)
+                .map(|p| LearningPoint {
+                    category: p.preference_type,
+                    observation: format!("{}: {} (置信度{:.0}%)", p.preference_key, p.preference_value, p.confidence * 100.0),
+                    impact: p.reasoning,
+                })
+                .collect()
+        }
+        Err(e) => {
+            log::warn!("[record_feedback] Preference mining failed: {}", e);
+            vec![]
+        }
+    };
+    
+    // 异步触发偏好挖掘保存，让自适应学习系统形成闭环
+    let story_id = request.story_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let engine = creative_engine::adaptive::AdaptiveLearningEngine::new(pool);
+        match engine.mine_preferences(&story_id) {
+            Ok(prefs) if !prefs.is_empty() => {
+                log::info!("[Adaptive] Mined {} preferences for story {}", prefs.len(), story_id);
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("[Adaptive] Preference mining failed: {}", e),
+        }
+    });
+    
+    Ok(learnings)
 }
 
 /// 获取输入栏智能提示 — 由LLM根据当前故事上下文生成建议

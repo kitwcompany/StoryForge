@@ -1948,5 +1948,28 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 42: 创建 Pending Vector Indexes 表 (v5.6.1 - SQLite 持久化替代 JSON)
+    let pending_vector_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_vector_indexes'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if pending_vector_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE pending_vector_indexes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chapter_id TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_pending_vector_chapter ON pending_vector_indexes(chapter_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }

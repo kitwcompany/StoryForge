@@ -148,6 +148,14 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.6.1 设计-实现对齐全面修复 v4** (2026-05-08) — 全面检视并修复 8 项设计-实现差距
+  - **幕前幕后自动关联补全**: `sceneCreated`/`sceneDeleted` 同步刷新 `chapters` 缓存，消除场景-章节关联状态滞后
+  - **自适应学习真实反馈**: `record_feedback` 返回 `Vec<LearningPoint>`，同步挖掘真实偏好；前端使用返回结果替代硬编码 mock
+  - **前端缓存同步完整覆盖**: `useSyncStore` 新增 `writingStyle`/`storyOutlines`/`foreshadowings` case，所有数据类型修改后自动刷新
+  - **Pending vector SQLite 持久化**: Migration 42 创建表，替代 JSON 文件持久化
+  - **Workflow 幂等性**: `schedule_execution` 入队前检查 queue/running，防止重复执行
+  - **编译**: `cargo check` 零错误，`cargo test` 217/217 通过，`npm run build` 通过
+
 - **v5.5.0 设计-实现对齐全面修复** (2026-05-07) — 全面检视并修复 10 项设计-实现差距
   - **幕前幕后自动关联补全**: `create_world_building`/`update_world_building` 正确发射 `WorldBuildingUpdated` 同步事件；`ChapterRepository::delete` 添加事务清理 `scenes.chapter_id` 外键；`characterDeleted` 按 `storyId` 精准失效缓存
   - **后台自动化闭环**: `auto_ingest_chapter` 成功后写入 LanceDB 向量存储（`embed_text_async` → `VectorRecord` → `add_record`），语义搜索可检索最新写作内容；WorkflowEngine 支持数据库持久化（Migration 41 + `with_pool` + 自动 save/load）；能力进化反馈环闭合（`evolve_capability_descriptions` 自动保存 + `build_default_registry` 加载进化描述 + PlanExecutor 后台触发）
@@ -201,7 +209,7 @@ npm test
   - **编译**: `cargo check` 零错误，`cargo test` 193/193，`npm run build` 通过
 
 - **v5.2.0 设计-实现对齐全面完成** (2026-05-02) — 通用 Workflow 引擎 + 能力进化闭环 + 双向同步
-  - **`WorkflowScheduler::run_instance` 完整 DAG 执行**: 从空实现到支持 Start→WriteChapter→Inspect→Revise→VectorIndex→AnalyzePlot→End 全节点类型，串行拓扑执行 + 状态管理 + 上下文变量传递
+  - **`WorkflowScheduler::run_instance` 完整 DAG 执行**: 从空实现到支持 Start→WriteChapter→Inspect→Revise→VectorIndex→AnalyzePlot→End 全节点类型，拓扑有序执行（同层可并行）+ 状态管理 + 上下文变量传递
   - **通用 Workflow IPC 命令**: `register_workflow` / `create_workflow_instance` / `start_workflow_instance` / `get_workflow_instance_status`，setup 时自动注册 `standard_writing_workflow` 模板
   - **能力进化反馈环闭合**: `ExecutionRecordStore` JSON 持久化 + `PlanExecutor` 自动记录每次能力执行 + `evolve_capability_descriptions` LLM 分析生成改进建议
   - **幕前↔场景内容双向同步**: `useSyncStore` chapterUpdated 刷新 scenes 缓存 + `FrontstageApp` 监听 chapter-updated 自动刷新编辑器内容（3 秒防循环保护）
@@ -470,8 +478,10 @@ npm test
 
 ### 编译状态
 
-- `cargo check` ✅ | 警告: 1 (已有 `unused import: events::SyncEvent`)
+- `cargo check` ✅ | 警告: 0（新增 `LearningPoint` 结构体，`RecordFeedbackRequest` 字段 `scene_id`/`chapter_id` 预留未读警告已存在）
 - `cargo check --release` ✅ | 警告: 0
+- `cargo test` ✅ 217/217
+- `npm run build` ✅
 - `npm run build` ✅
 - `cargo test` ✅ 193/193
 
