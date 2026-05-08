@@ -54,3 +54,7 @@ test-results/
 
 .env
 
+
+# Archived ghost crate
+src-core-archived/
+

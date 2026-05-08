@@ -20,6 +20,7 @@ pub struct ExecutionRecord {
 }
 
 /// 执行记录存储（基于 JSON 文件，无需数据库迁移）
+#[derive(Clone)]
 pub struct ExecutionRecordStore {
     storage_path: PathBuf,
     cache: Arc<Mutex<Vec<ExecutionRecord>>>,
@@ -92,6 +93,7 @@ impl ExecutionRecordStore {
     }
 }
 
+#[derive(Clone)]
 pub struct CapabilityEvolutionEngine {
     llm_service: LlmService,
     store: ExecutionRecordStore,
@@ -115,6 +117,34 @@ impl CapabilityEvolutionEngine {
             record.capability_id, record.user_input, record.success
         );
         self.store.append(record);
+        Ok(())
+    }
+
+    /// 加载已进化的能力描述（覆盖默认描述）
+    pub fn load_evolved_descriptions(&self) -> HashMap<String, String> {
+        let path = self.store.storage_path.parent()
+            .map(|p| p.join("evolved_descriptions.json"))
+            .unwrap_or_else(|| std::path::PathBuf::from("evolved_descriptions.json"));
+        if !path.exists() {
+            return HashMap::new();
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(e) => {
+                log::warn!("[CapabilityEvolution] Failed to load evolved descriptions: {}", e);
+                HashMap::new()
+            }
+        }
+    }
+
+    fn save_evolved_descriptions(&self, descriptions: &HashMap<String, String>) -> Result<(), String> {
+        let path = self.store.storage_path.parent()
+            .map(|p| p.join("evolved_descriptions.json"))
+            .unwrap_or_else(|| std::path::PathBuf::from("evolved_descriptions.json"));
+        let json = serde_json::to_string_pretty(descriptions)
+            .map_err(|e| format!("Serialize failed: {}", e))?;
+        std::fs::write(&path, json)
+            .map_err(|e| format!("Write failed: {}", e))?;
         Ok(())
     }
 
@@ -172,6 +202,19 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
                 Err(e) => {
                     log::warn!("[CapabilityEvolution] LLM analysis failed for {}: {}", capability_id, e);
                 }
+            }
+        }
+
+        // 自动保存进化后的描述
+        if !improvements.is_empty() {
+            let mut evolved = self.load_evolved_descriptions();
+            for (id, desc) in &improvements {
+                evolved.insert(id.clone(), desc.clone());
+            }
+            if let Err(e) = self.save_evolved_descriptions(&evolved) {
+                log::warn!("[CapabilityEvolution] Failed to save evolved descriptions: {}", e);
+            } else {
+                log::info!("[CapabilityEvolution] Saved {} evolved descriptions", improvements.len());
             }
         }
 

@@ -1,0 +1,1 @@
+plan_path = r" C:\\Users\\admin\\.kimi\\plans\\x-23-miss-martian-banshee.md\n

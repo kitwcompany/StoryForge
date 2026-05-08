@@ -123,6 +123,7 @@ pub enum NodeExecutionStatus {
 pub struct WorkflowEngine {
     workflows: Arc<Mutex<HashMap<String, Workflow>>>,
     instances: Arc<Mutex<HashMap<String, WorkflowInstance>>>,
+    pool: Option<crate::db::DbPool>,
 }
 
 impl WorkflowEngine {
@@ -130,7 +131,75 @@ impl WorkflowEngine {
         Self {
             workflows: Arc::new(Mutex::new(HashMap::new())),
             instances: Arc::new(Mutex::new(HashMap::new())),
+            pool: None,
         }
+    }
+
+    pub fn with_pool(pool: crate::db::DbPool) -> Self {
+        let mut engine = Self {
+            workflows: Arc::new(Mutex::new(HashMap::new())),
+            instances: Arc::new(Mutex::new(HashMap::new())),
+            pool: Some(pool.clone()),
+        };
+        // 从数据库恢复实例
+        if let Err(e) = engine.load_instances_from_db(&pool) {
+            log::warn!("[WorkflowEngine] Failed to load instances from db: {}", e);
+        }
+        engine
+    }
+
+    fn load_instances_from_db(&mut self, pool: &crate::db::DbPool) -> Result<(), rusqlite::Error> {
+        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, instance_json FROM workflow_instances WHERE status IN ('Pending', 'Running', 'Paused')"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let json: String = row.get(1)?;
+            Ok((id, json))
+        })?;
+
+        let mut instances = self.instances.lock().unwrap();
+        for row in rows {
+            let (id, json) = row?;
+            match serde_json::from_str::<WorkflowInstance>(&json) {
+                Ok(instance) => {
+                    instances.insert(id, instance);
+                }
+                Err(e) => {
+                    log::warn!("[WorkflowEngine] Failed to deserialize instance {}: {}", id, e);
+                }
+            }
+        }
+        log::info!("[WorkflowEngine] Loaded {} instances from database", instances.len());
+        Ok(())
+    }
+
+    fn save_instance_to_db(&self, instance: &WorkflowInstance) -> Result<(), rusqlite::Error> {
+        let pool = match &self.pool {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let json = serde_json::to_string(instance).unwrap_or_default();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO workflow_instances (id, workflow_id, story_id, status, instance_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                 status = excluded.status,
+                 instance_json = excluded.instance_json,
+                 updated_at = excluded.updated_at",
+            rusqlite::params![
+                instance.id,
+                instance.workflow_id,
+                instance.story_id,
+                format!("{:?}", instance.status),
+                json,
+                now,
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn register_workflow(
@@ -186,6 +255,9 @@ impl WorkflowEngine {
 
         let mut instances = self.instances.lock().unwrap();
         instances.insert(instance.id.clone(), instance.clone());
+        if let Err(e) = self.save_instance_to_db(&instance) {
+            log::warn!("[WorkflowEngine] Failed to persist new instance {}: {}", instance.id, e);
+        }
         Ok(instance)
     }
 
@@ -221,6 +293,9 @@ impl WorkflowEngine {
     pub fn update_instance(&self, instance: &WorkflowInstance) {
         let mut instances = self.instances.lock().unwrap();
         instances.insert(instance.id.clone(), instance.clone());
+        if let Err(e) = self.save_instance_to_db(instance) {
+            log::warn!("[WorkflowEngine] Failed to persist instance {}: {}", instance.id, e);
+        }
     }
 
     fn has_cycle(

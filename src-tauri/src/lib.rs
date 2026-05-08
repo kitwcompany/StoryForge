@@ -135,6 +135,10 @@ pub fn run() {
             }
             let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(Some(crate::llm::LlmService::new(app.handle().clone())))));
 
+            // 设置能力进化描述持久化路径
+            let evolved_desc_path = app_dir.join("evolved_descriptions.json");
+            crate::capabilities::set_evolved_descriptions_path(evolved_desc_path);
+
             // Seed built-in StyleDNAs
             if let Some(pool) = get_pool() {
                 let style_repo = db::repositories_v3::StyleDnaRepository::new(pool);
@@ -237,7 +241,11 @@ pub fn run() {
 
             // Initialize WorkflowEngine and WorkflowScheduler
             let workflow_engine_arc = {
-                let engine = workflow::WorkflowEngine::new();
+                let engine = if let Some(pool) = get_pool() {
+                    workflow::WorkflowEngine::with_pool(pool)
+                } else {
+                    workflow::WorkflowEngine::new()
+                };
                 let scheduler = workflow::WorkflowScheduler::new();
                 // Register the standard writing workflow template
                 if let Err(e) = engine.register_workflow(workflow::templates::standard_writing_workflow()) {
@@ -873,13 +881,13 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
     let llm_service = crate::llm::LlmService::new(app.clone());
     let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
     let ingest_content = crate::memory::ingest::IngestContent {
-        text: content_text,
+        text: content_text.clone(),
         source: format!("chapter:{}:{}", story_id, chapter_id),
         story_id: story_id.clone(),
         scene_id: chapter.scene_id.clone(),
     };
 
-    match pipeline.ingest(&ingest_content).await {
+    let ingest_success = match pipeline.ingest(&ingest_content).await {
         Ok(result) => {
             let kg_repo = db::repositories_v3::KnowledgeGraphRepository::new(pool.clone());
             let entity_count = result.entities.len();
@@ -902,12 +910,42 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
                     }));
                 }
             }
+            true
         }
         Err(e) => {
             log::warn!("[auto_ingest] IngestPipeline failed for chapter {}: {}", chapter_id, e);
             let _ = app.emit("ingestion-failed", serde_json::json!({
                 "chapter_id": chapter_id, "story_id": story_id, "error": e.to_string()
             }));
+            false
+        }
+    };
+
+    // 向量存储索引：章节内容写入 LanceDB，支持语义搜索
+    if ingest_success {
+        if let Some(store) = VECTOR_STORE.get() {
+            match embeddings::embed_text_async(content_text.clone()).await {
+                Ok(embedding) => {
+                    let record = vector::VectorRecord {
+                        id: format!("chapter:{}", chapter_id),
+                        story_id: story_id.clone(),
+                        chapter_id: chapter_id.clone(),
+                        chapter_number: chapter.chapter_number,
+                        text: content_text.clone(),
+                        record_type: "chapter".to_string(),
+                        embedding,
+                    };
+                    match store.add_record(record).await {
+                        Ok(_) => log::info!("[auto_ingest] Indexed chapter {} to vector store", chapter_id),
+                        Err(e) => log::warn!("[auto_ingest] Failed to index chapter {} to vector store: {}", chapter_id, e),
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[auto_ingest] Failed to generate embedding for chapter {}: {}", chapter_id, e);
+                }
+            }
+        } else {
+            log::warn!("[auto_ingest] Vector store not initialized, skipping vector indexing for chapter {}", chapter_id);
         }
     }
 }

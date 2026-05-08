@@ -148,6 +148,12 @@ npm test
 
 ### 最近完成的功能
 
+- **v5.5.0 设计-实现对齐全面修复** (2026-05-07) — 全面检视并修复 10 项设计-实现差距
+  - **幕前幕后自动关联补全**: `create_world_building`/`update_world_building` 正确发射 `WorldBuildingUpdated` 同步事件；`ChapterRepository::delete` 添加事务清理 `scenes.chapter_id` 外键；`characterDeleted` 按 `storyId` 精准失效缓存
+  - **后台自动化闭环**: `auto_ingest_chapter` 成功后写入 LanceDB 向量存储（`embed_text_async` → `VectorRecord` → `add_record`），语义搜索可检索最新写作内容；WorkflowEngine 支持数据库持久化（Migration 41 + `with_pool` + 自动 save/load）；能力进化反馈环闭合（`evolve_capability_descriptions` 自动保存 + `build_default_registry` 加载进化描述 + PlanExecutor 后台触发）
+  - **技术债务清理**: 移除 `src-core` 幽灵 crate（54 文件零引用）；同步 `FEATURES.md`/`ROADMAP.md`/`ARCHITECTURE.md` 版本号至 v5.4.1
+  - **编译**: `cargo check` 零错误，`cargo test` 217/217 通过，`npm run build` 通过
+
 - **v5.4.1 Bootstrap 编辑器内容丢失修复** (2026-05-07) — 修复创世流程"小说已创建但编辑器无文字"的竞态条件问题
   - `FrontstageEvent::ChapterSwitch` 新增 `content` 字段，后端直接传递生成内容
   - 前端优先使用事件中的 `payload.content`，绕过 DB 查询竞态

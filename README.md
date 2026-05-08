@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.4.1 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.5.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.4.1 最新更新**：Bootstrap 编辑器内容丢失修复 — 修复创世流程中"小说已创建但编辑器无文字"的竞态条件问题。`FrontstageEvent::ChapterSwitch` 新增 `content` 字段，后端生成第一章后直接通过事件传递正文内容到前端；前端优先使用事件中的内容，绕过 DB 查询竞态；增加 `final_content` 兜底机制和 chaptersRef 为空时自动重查数据库；`loadStories` 在生成期间禁止自动 `selectStory`，避免拿到空 chapters 导致编辑器被清空。
+> **v5.5.0 最新更新**：设计-实现对齐全面修复 — 全面检视并修复 10 项设计-实现差距。**幕前幕后自动关联补全**：世界观修改后前端缓存自动刷新（`WorldBuildingUpdated` 事件修复）、删除章节后 Scene 外键正确清理、角色删除精准缓存失效。**后台自动化闭环**：保存章节后自动索引到 LanceDB 向量存储（语义搜索可检索最新写作内容）、Workflow 实例数据库持久化（重启后恢复）、能力进化反馈环闭合（执行记录自动分析并优化能力描述）。**技术债务清理**：移除 54 文件幽灵 crate、同步所有文档版本号。
+>
+> **v5.4.1 更新**：Bootstrap 编辑器内容丢失修复 — 修复创世流程中"小说已创建但编辑器无文字"的竞态条件问题。`FrontstageEvent::ChapterSwitch` 新增 `content` 字段，后端生成第一章后直接通过事件传递正文内容到前端；前端优先使用事件中的内容，绕过 DB 查询竞态；增加 `final_content` 兜底机制和 chaptersRef 为空时自动重查数据库；`loadStories` 在生成期间禁止自动 `selectStory`，避免拿到空 chapters 导致编辑器被清空。
 >
 > **v5.4.0 更新**：向量检索语义化 — 从关键词匹配升级到语义理解。新增 `OllamaEmbeddingProvider` 支持 `nomic-embed-text` / `all-minilm` 等真实语义嵌入模型；`QueryPipeline` 四阶段检索扩展为五阶段融合架构（CJK 分词搜索 + 语义向量搜索 + 加权融合 + 知识图谱扩展 + 预算控制）；LanceDB 真实 IVF-PQ 向量索引替代 SQLite 全表扫描，Cosine 距离精准召回。若用户未配置 Ollama/OpenAI embedding，自动 graceful fallback 到 FNV-1a 哈希，零额外配置即可运行。
 >

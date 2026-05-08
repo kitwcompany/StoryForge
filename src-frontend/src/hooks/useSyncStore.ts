@@ -149,7 +149,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             break;
           }
           case 'characterDeleted': {
-            queryClient.invalidateQueries({ queryKey: KEYS.characters() });
+            if (storyId) {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters(storyId) });
+            } else {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters() });
+            }
             optionsRef.current.onCharacterDeleted?.(characterId);
             break;
           }

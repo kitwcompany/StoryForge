@@ -400,8 +400,11 @@ impl ChapterRepository {
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let count = conn.execute("DELETE FROM chapters WHERE id = ?1", [id])?;
+        let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+        tx.execute("UPDATE scenes SET chapter_id = NULL WHERE chapter_id = ?1", [id])?;
+        let count = tx.execute("DELETE FROM chapters WHERE id = ?1", [id])?;
+        tx.commit()?;
         Ok(count)
     }
 }

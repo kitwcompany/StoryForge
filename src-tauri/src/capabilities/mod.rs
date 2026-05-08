@@ -5,6 +5,37 @@ pub use evolution::{CapabilityEvolutionEngine, ExecutionRecord};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+/// 进化描述文件路径（应用初始化时设置）
+static EVOLVED_DESCRIPTIONS_PATH: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+
+pub fn set_evolved_descriptions_path(path: std::path::PathBuf) {
+    if let Ok(mut guard) = EVOLVED_DESCRIPTIONS_PATH.lock() {
+        *guard = Some(path);
+    }
+}
+
+fn load_evolved_descriptions() -> HashMap<String, String> {
+    let path = match EVOLVED_DESCRIPTIONS_PATH.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => None,
+    };
+    let path = match path {
+        Some(p) => p,
+        None => return HashMap::new(),
+    };
+    if !path.exists() {
+        return HashMap::new();
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(e) => {
+            log::warn!("[CapabilityRegistry] Failed to load evolved descriptions: {}", e);
+            HashMap::new()
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapabilityParam {
@@ -57,6 +88,22 @@ impl CapabilityRegistry {
 
     pub fn get_by_id(&self, id: &str) -> Option<&Capability> {
         self.capabilities.iter().find(|c| c.id == id)
+    }
+
+    pub fn get_by_id_mut(&mut self, id: &str) -> Option<&mut Capability> {
+        self.capabilities.iter_mut().find(|c| c.id == id)
+    }
+
+    /// 更新能力的 when_to_use 描述（能力进化反馈环）
+    pub fn update_when_to_use(&mut self, id: &str, new_when_to_use: &str) -> bool {
+        if let Some(cap) = self.get_by_id_mut(id) {
+            log::info!("[CapabilityRegistry] Evolving '{}' when_to_use: '{}' -> '{}'", id, cap.when_to_use, new_when_to_use);
+            cap.when_to_use = new_when_to_use.to_string();
+            true
+        } else {
+            log::warn!("[CapabilityRegistry] Cannot evolve unknown capability '{}'", id);
+            false
+        }
     }
 
     pub fn to_llm_context(&self) -> String {
@@ -347,6 +394,20 @@ pub fn build_default_registry() -> CapabilityRegistry {
         source_type: CapabilitySource::SystemCommand,
         metadata: HashMap::new(),
     });
+
+    // 应用已进化的能力描述（能力进化反馈环）
+    let evolved = load_evolved_descriptions();
+    if !evolved.is_empty() {
+        let mut applied = 0;
+        for (id, desc) in &evolved {
+            if registry.update_when_to_use(id, desc) {
+                applied += 1;
+            }
+        }
+        if applied > 0 {
+            log::info!("[CapabilityRegistry] Applied {} evolved descriptions from feedback loop", applied);
+        }
+    }
 
     registry
 }

@@ -2,6 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.5.0] - 设计-实现对齐全面修复（2026-05-07）
+
+### 🔧 架构对齐
+
+#### 幕前幕后自动关联补全
+- `create_world_building` / `update_world_building` 正确发射 `WorldBuildingUpdated` 同步事件（原错误发射 `StoryUpdated`）
+- `ChapterRepository::delete` 添加事务清理 `scenes.chapter_id` 外键，消除悬空引用
+- `characterDeleted` 按 `storyId` 精准失效缓存（原全局失效所有 characters）
+
+#### 后台自动化闭环
+- `auto_ingest_chapter` 成功后写入 LanceDB 向量存储：`embed_text_async` 生成 embedding → 创建 `VectorRecord` → `store.add_record()`，语义搜索可检索最新写作内容
+- WorkflowEngine 支持数据库持久化：Migration 41 创建 `workflow_instances` 表，`with_pool()` 初始化时自动加载，`update_instance()` 自动保存
+- 能力进化反馈环闭合：`evolve_capability_descriptions` 自动保存进化描述到 JSON；`build_default_registry()` 加载并应用已进化描述；PlanExecutor 每次执行完成后后台触发进化分析
+
+#### 技术债务清理
+- 移除 `src-core` 幽灵 crate（54 文件、15 模块，名义依赖但零引用）
+- 同步 `FEATURES.md` / `ROADMAP.md` / `ARCHITECTURE.md` 版本号至 v5.4.1
+
+### 🧪 质量保障
+- `cargo check` 零错误零警告
+- `cargo test` 217/217 全部通过
+- `npm run build` 通过
+- `cargo tauri build` Windows 安装包生成
+
 ## [v5.4.1] - Bootstrap 编辑器内容丢失修复（2026-05-07）
 
 ### 🐛 Bug修复

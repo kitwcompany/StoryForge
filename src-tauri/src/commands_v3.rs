@@ -267,7 +267,7 @@ pub async fn create_world_building(
             log::error!("[commands_v3] {} failed: {}", "create_world_building", e);
             e.to_string()
         })?;
-    let _ = crate::state_sync::StateSync::emit_story_updated(&app_handle, &story_id, None);
+    let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
     Ok(wb)
 }
 
@@ -306,7 +306,7 @@ pub async fn update_world_building(
         }).ok()
     });
     if let Some(ref story_id) = story_id_for_sync {
-        let _ = crate::state_sync::StateSync::emit_story_updated(&app_handle, story_id, None);
+        let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
     if let Some(story_id) = story_id_for_sync {
         if let Some(manager) = crate::SKILL_MANAGER.get() {

@@ -280,6 +280,20 @@ impl PlanExecutor {
             total_steps,
         });
 
+        // 异步触发能力进化反馈环（后台执行，不阻塞返回）
+        let evolution_engine = self.evolution_engine.clone();
+        tauri::async_runtime::spawn(async move {
+            match evolution_engine.evolve_capability_descriptions().await {
+                Ok(improvements) if !improvements.is_empty() => {
+                    log::info!("[PlanExecutor] Capability evolution triggered, {} descriptions improved", improvements.len());
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!("[PlanExecutor] Capability evolution failed: {}", e);
+                }
+            }
+        });
+
         PlanExecutionResult {
             success,
             steps_completed,
