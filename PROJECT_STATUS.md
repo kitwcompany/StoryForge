@@ -113,7 +113,7 @@
 |---------|------|--------|------|
 | 全新 Logo | ✅ | 100% | `logo.png` 立方体标志 |
 | Tauri 全平台图标 | ✅ | 100% | Windows/macOS/iOS/Android 图标包 |
-| 版本号统一 | ✅ | 100% | Cargo.toml / package.json / tauri.conf.json → 5.6.1 |
+| 版本号统一 | ✅ | 100% | Cargo.toml / package.json / tauri.conf.json → 5.6.2 |
 | 旧图标清理 | ✅ | 100% | 移除 LOGO.jpg / icon.jpg / logo-source.png |
 
 #### 💎 Freemium 付费系统 (100%)
