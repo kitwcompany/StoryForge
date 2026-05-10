@@ -1955,7 +1955,7 @@ pub async fn run_creation_workflow(
     log::info!("[commands_v3] {} called: story_id={}, mode={}", "run_creation_workflow", story_id, mode);
     let mode = match mode.as_str() {
         "ai_only" => CreationMode::AiOnly,
-        "human_first" => CreationMode::HumanDraftAiPolish,
+        "human_first" | "human_draft_ai_polish" => CreationMode::HumanDraftAiPolish,
         _ => CreationMode::AiDraftHumanEdit,
     };
 
@@ -2018,6 +2018,7 @@ pub async fn set_story_style_dna(
     let req = UpdateStoryRequest {
         title: None,
         description: None,
+        genre: None,
         tone: None,
         pacing: None,
         style_dna_id,

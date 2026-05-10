@@ -35,6 +35,7 @@ pub struct BootstrapProgressEvent {
     pub step_number: usize,
     pub total_steps: usize,
     pub message: String,
+    pub status: String, // running | completed | failed
 }
 
 /// 故事概念（供测试和向后兼容使用）

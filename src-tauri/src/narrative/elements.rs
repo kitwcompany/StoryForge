@@ -75,6 +75,7 @@ pub struct CharacterElement {
     pub fears: String,
     pub appearance: String,
     pub gender: String,
+    #[serde(default)]
     pub age: i32,
     #[serde(default)]
     pub relationships: Vec<CharacterRelationship>,
@@ -101,15 +102,23 @@ pub struct SceneElement {
     pub id: String,
     #[serde(default)]
     pub story_id: String,
+    #[serde(default)]
     pub sequence_number: i32,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub summary: String,
+    #[serde(default)]
     pub dramatic_goal: String,
+    #[serde(default)]
     pub external_pressure: String,
+    #[serde(default)]
     pub conflict_type: String,       // man_vs_man | man_vs_self | ...
     #[serde(default)]
     pub characters_present: Vec<String>,
+    #[serde(default)]
     pub setting_location: String,
+    #[serde(default)]
     pub setting_time: String,
     pub content: Option<String>,     // 正文内容（可选）
     #[serde(default)]
@@ -126,9 +135,11 @@ pub struct WorldBuildingElement {
     pub id: String,
     #[serde(default)]
     pub story_id: String,
+    #[serde(default)]
     pub concept: String,
     #[serde(default)]
     pub rules: Vec<WorldRule>,
+    #[serde(default)]
     pub history: String,
     #[serde(default)]
     pub key_locations: Vec<String>,

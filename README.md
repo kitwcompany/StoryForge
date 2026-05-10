@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.6.2 - AI 导演式小说创作系统
+# StoryForge (草苔) v5.6.3 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.6.2 最新更新**：设计-实现对齐全面修复 v5 — 全面检视并修复 5 项设计-实现差距。**前端缓存同步精确化**：`writingStyle` case 同时刷新 `writing_style` 缓存（修复只刷新 `world_building` 的遗漏），`chapterUpdated` 补充 `['chapters', storyId]` 精确刷新当前故事 chapters 列表。**update_scene 向量索引闭环**：Scene 内容更新后同步写入 LanceDB 向量存储，`embed_text_async` → `VectorRecord` → `add_record` 完整链路，语义搜索可检索最新场景内容。**storySelected 关联数据自动刷新**：切换故事时自动刷新 8 项关联数据缓存，消除时序依赖。**dataRefresh 完整覆盖**：补充 `knowledgeGraph`/`characterRelationships` 单独 case。**编译优化**：5 处 dead_code 警告清理，warnings 113→109。
+> **v5.6.3 最新更新**：IPC 参数一致性全面修复 + Bootstrap 序列化修复 — 幕后界面功能不可用的根本原因修复。**Bootstrap 进度卡死** — LLM 返回 JSON 省略 `age`/`sequence_number` 等字段导致 serde 反序列化失败，Pipeline 中断在前端显示永久 "塑造角色 (3/6)"。修复：给 `CharacterElement`/`SceneElement` 所有可能被 LLM 省略的字段添加 `#[serde(default)]`；`BootstrapProgressEvent` 新增 `status` 字段（`InProgress`/`Completed`/`Failed`），前端失败状态可见。**IPC 参数名全面审计** — 系统审计 `tauri.ts` 全部 40+ 命令与后端签名，修复 7 处 camelCase↔snake_case 不匹配（`smart_execute`/`get_input_hint`/`record_feedback`/`call_mcp_tool`/`check_auto_write_quota`/`check_auto_revise_quota`/`save_settings`）。**后端命令参数补全** — `run_creation_workflow` mode 映射增加 `"human_draft_ai_polish"`，`update_story` 补充 `genre`，`create_character`/`update_character` 补充 `personality`/`goals`/`appearance`/`gender`/`age` 扩展字段。幕后界面全部功能现已恢复正常。
+>
+> **v5.6.2 更新**：设计-实现对齐全面修复 v5 — 全面检视并修复 5 项设计-实现差距。**前端缓存同步精确化**：`writingStyle` case 同时刷新 `writing_style` 缓存（修复只刷新 `world_building` 的遗漏），`chapterUpdated` 补充 `['chapters', storyId]` 精确刷新当前故事 chapters 列表。**update_scene 向量索引闭环**：Scene 内容更新后同步写入 LanceDB 向量存储，`embed_text_async` → `VectorRecord` → `add_record` 完整链路，语义搜索可检索最新场景内容。**storySelected 关联数据自动刷新**：切换故事时自动刷新 8 项关联数据缓存，消除时序依赖。**dataRefresh 完整覆盖**：补充 `knowledgeGraph`/`characterRelationships` 单独 case。**编译优化**：5 处 dead_code 警告清理，warnings 113→109。
 >
 > **v5.6.1 更新**：设计-实现对齐全面修复 v4 — 全面检视并修复 8 项设计-实现差距。**幕前幕后自动关联补全**：`sceneCreated`/`sceneDeleted` 同步刷新 `chapters` 缓存，消除场景-章节关联状态滞后。**自适应学习真实反馈**：`record_feedback` 返回真实 `LearningPoint[]`，同步调用 `PreferenceMiner::mine` 获取用户偏好，前端使用返回结果替代硬编码 mock。**前端缓存同步完整覆盖**：`useSyncStore` 新增 `writingStyle`/`storyOutlines`/`foreshadowings` case，所有数据类型修改后前端缓存自动刷新。**后台自动化加固**：Pending vector 从 JSON 文件迁移到 SQLite 持久化（Migration 42），`save_pending_vector_indexes`/`load_pending_vector_indexes` 改为 SQLite 操作，保留 JSON fallback 用于迁移。**Workflow 健壮性**：`schedule_execution` 增加幂等检查（queue + running_instances 去重），防止同一实例重复入队。**文档一致性**：WorkflowScheduler 文档更新为"拓扑有序执行（同层可并行）"。
 >

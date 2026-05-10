@@ -98,9 +98,10 @@ impl StoryRepository {
 
         let count = conn.execute(
             "UPDATE stories SET title = COALESCE(?2, title), description = COALESCE(?3, description),
-             tone = COALESCE(?4, tone), pacing = COALESCE(?5, pacing), style_dna_id = COALESCE(?6, style_dna_id),
-             methodology_id = COALESCE(?7, methodology_id), methodology_step = COALESCE(?8, methodology_step), updated_at = ?9 WHERE id = ?1",
-            params![id, req.title, req.description, req.tone, req.pacing, req.style_dna_id, req.methodology_id, req.methodology_step, now],
+             genre = COALESCE(?4, genre), tone = COALESCE(?5, tone), pacing = COALESCE(?6, pacing),
+             style_dna_id = COALESCE(?7, style_dna_id), methodology_id = COALESCE(?8, methodology_id),
+             methodology_step = COALESCE(?9, methodology_step), updated_at = ?10 WHERE id = ?1",
+            params![id, req.title, req.description, req.genre, req.tone, req.pacing, req.style_dna_id, req.methodology_id, req.methodology_step, now],
         )?;
         Ok(count)
     }

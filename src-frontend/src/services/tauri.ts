@@ -126,7 +126,7 @@ export const connectMcpServer = (config: McpServer) =>
   loggedInvoke<McpTool[]>('connect_mcp_server', { config });
 
 export const callMcpTool = (serverId: string, toolName: string, args: unknown) => 
-  loggedInvoke<unknown>('call_mcp_tool', { server_id: serverId, toolName, arguments: args });
+  loggedInvoke<unknown>('call_mcp_tool', { server_id: serverId, tool_name: toolName, arguments: args });
 
 export const disconnectMcpServer = (serverId: string) =>
   loggedInvoke<void>('disconnect_mcp_server', { server_id: serverId });
@@ -200,7 +200,7 @@ export const updateConfig = async (config: { llm: LlmConfig }) => {
     chatModel.max_tokens = config.llm.max_tokens;
     chatModel.api_base = config.llm.base_url;
   }
-  await invoke('save_settings', { settings });
+  await loggedInvoke<void>('save_settings', { settings });
 };
 
 // Intent Engine
@@ -224,7 +224,7 @@ export interface SmartExecuteResult {
 }
 
 export const smartExecute = (req: SmartExecuteRequest) =>
-  loggedInvoke<SmartExecuteResult>('smart_execute', { userInput: req.user_input, currentContent: req.current_content });
+  loggedInvoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input, current_content: req.current_content });
 
 // Feedback Recording
 export interface RecordFeedbackRequest {
@@ -244,7 +244,7 @@ export interface LearningPoint {
 }
 
 export const recordFeedback = (req: RecordFeedbackRequest) =>
-  loggedInvoke<LearningPoint[]>('record_feedback', { ...req });
+  loggedInvoke<LearningPoint[]>('record_feedback', { request: req });
 
 // Knowledge Graph
 export const getStoryGraph = (storyId: string) =>
@@ -434,10 +434,10 @@ export const getQuotaDetail = () =>
   loggedInvoke<QuotaDetail>('get_quota_detail');
 
 export const checkAutoWriteQuota = (requestedChars: number) =>
-  loggedInvoke<QuotaCheckResult>('check_auto_write_quota', { requestedChars });
+  loggedInvoke<QuotaCheckResult>('check_auto_write_quota', { requested_chars: requestedChars });
 
 export const checkAutoReviseQuota = (requestedChars: number) =>
-  loggedInvoke<QuotaCheckResult>('check_auto_revise_quota', { requestedChars });
+  loggedInvoke<QuotaCheckResult>('check_auto_revise_quota', { requested_chars: requestedChars });
 
 // ==================== 文思泉涌 ====================
 
@@ -470,7 +470,7 @@ export const notifyFrontstageDataRefresh = (entity: string) =>
 
 // Input hint — LLM智能输入建议
 export const getInputHint = (currentContent?: string) =>
-  loggedInvoke<string>('get_input_hint', { currentContent });
+  loggedInvoke<string>('get_input_hint', { current_content: currentContent });
 
 // ==================== Genesis Engine (v5.0.0) ====================
 

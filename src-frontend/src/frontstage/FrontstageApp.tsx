@@ -234,6 +234,7 @@ const FrontstageApp: React.FC = () => {
     stepNumber: number;
     totalSteps: number;
     message: string;
+    status: string;
   } | null>(null);
 
   // v5.3.0: 顶部 Toast 大阶段实时提示 — 保存当前活动 toast ID 和当前大阶段
@@ -299,6 +300,7 @@ const FrontstageApp: React.FC = () => {
         stepNumber: pipelineProgress.stepNumber,
         totalSteps: pipelineProgress.totalSteps,
         message: pipelineProgress.message,
+        status: pipelineProgress.status,
       });
       setGenerationStatus(pipelineProgress.message);
       updateToastPhase(pipelineProgress.stepName);
@@ -559,6 +561,7 @@ const FrontstageApp: React.FC = () => {
         step_number: number;
         total_steps: number;
         message: string;
+        status: string;
       }>('novel-bootstrap-progress', (event) => {
         const p = event.payload;
         updateLastEventTime();
@@ -567,12 +570,22 @@ const FrontstageApp: React.FC = () => {
           stepNumber: p.step_number,
           totalSteps: p.total_steps,
           message: p.message,
+          status: p.status || 'running',
         });
         setGenerationStatus(p.message);
         updateToastPhase(p.step_name);
         // v5.2.2 / v5.4.0: 区分即时阶段完成和后台阶段完成
         // GenesisPipeline 即时阶段 total_steps=2，后台阶段 total_steps=6
-        if (p.total_steps === 2 && p.step_number >= p.total_steps) {
+        if (p.status === 'failed') {
+          // 步骤失败：显示错误提示并清理进度
+          toast.error(`创世失败: ${p.message}`, { duration: 8000 });
+          activeToastIdRef.current = null;
+          currentToastPhaseRef.current = null;
+          setTimeout(() => {
+            setBootstrapProgress(null);
+            setGenerationStatus('');
+          }, 8000);
+        } else if (p.total_steps === 2 && p.step_number >= p.total_steps) {
           // 即时阶段完成：正文已生成，用户可开始写作
           setTimeout(() => {
             setBootstrapProgress(null);
@@ -682,6 +695,7 @@ const FrontstageApp: React.FC = () => {
             stepNumber: p.pipeline_context.step_number,
             totalSteps: p.pipeline_context.total_steps,
             message: p.message,
+            status: 'running',
           });
           updateToastPhase(p.pipeline_context.step_name);
         }
@@ -1489,8 +1503,13 @@ const FrontstageApp: React.FC = () => {
             {bootstrapProgress && (
               <>
                 <span className="status-separator">·</span>
-                <span className="status-item saving" title="小说初始化进度">
-                  {bootstrapProgress.stepName} ({bootstrapProgress.stepNumber}/{bootstrapProgress.totalSteps})
+                <span
+                  className={`status-item ${bootstrapProgress.status === 'failed' ? 'error' : bootstrapProgress.status === 'completed' ? 'saved' : 'saving'}`}
+                  title={bootstrapProgress.status === 'failed' ? `失败: ${bootstrapProgress.message}` : '小说初始化进度'}
+                >
+                  {bootstrapProgress.stepName}
+                  {bootstrapProgress.status === 'failed' ? ' ❌' : ''}
+                  ({bootstrapProgress.stepNumber}/{bootstrapProgress.totalSteps})
                 </span>
               </>
             )}

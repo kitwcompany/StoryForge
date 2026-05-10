@@ -71,6 +71,7 @@ mod tests {
         let update_req = UpdateStoryRequest {
             title: Some("新标题".to_string()),
             description: Some("新描述".to_string()),
+            genre: None,
             tone: Some("轻快".to_string()),
             pacing: Some("快速".to_string()),
             style_dna_id: None,

@@ -69,6 +69,7 @@ pub struct CreateStoryRequest {
 pub struct UpdateStoryRequest {
     pub title: Option<String>,
     pub description: Option<String>,
+    pub genre: Option<String>,
     pub tone: Option<String>,
     pub pacing: Option<String>,
     pub style_dna_id: Option<String>,

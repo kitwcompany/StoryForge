@@ -2,6 +2,35 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.6.3] - IPC 参数一致性全面修复 + Bootstrap 序列化修复（2026-05-08）
+
+### 🔴 P0 核心断裂修复
+
+#### Bootstrap 进度卡死修复
+- **角色字段缺失导致 serde 反序列化失败** — LLM 返回的 JSON 可能省略 `CharacterElement::age` 和 `SceneElement` 的 8 个核心字段（`sequence_number`/`title`/`summary`/`dramatic_goal`/`external_pressure`/`conflict_type`/`setting_location`/`setting_time`）。缺失字段导致 `serde_json::from_str` 失败 → `PipelineError::ParseError` → 后续步骤永不执行 → 前端永久显示 "塑造角色 (3/6)"。修复：给所有可能被 LLM 省略的字段添加 `#[serde(default)]`
+- **Bootstrap 事件缺少状态传递** — `BootstrapProgressEvent` 没有 `status` 字段，前端无法区分进行中和失败。修复：新增 `BootstrapStatus` 枚举（`InProgress`/`Completed`/`Failed`），事件包含 `status`，前端根据状态显示 ❌ 失败标记
+
+#### IPC 参数名全面审计与修复
+- **smart_execute camelCase 传参** — 前端传 `userInput`/`currentContent`，后端期望 `user_input`/`current_content`。Tauri v2 反序列化不匹配导致参数静默丢弃为 `None`，AI 续写/润色完全不可用。修复：前端改为 snake_case 传参
+- **get_input_hint camelCase 传参** — 前端传 `currentContent`，后端期望 `current_content`。修复：改为 snake_case
+- **record_feedback 参数结构错误** — 前端将请求对象展开为平铺字段传递，后端期望 `{ request: RecordFeedbackRequest }` 包裹对象。修复：前端改为 `{ request: req }`
+- **call_mcp_tool camelCase 传参** — 前端传 `toolName`，后端期望 `tool_name`。修复：改为 snake_case
+- **check_auto_write_quota / check_auto_revise_quota camelCase 传参** — 前端传 `requestedChars`，后端期望 `requested_chars`。修复：改为 snake_case
+- **updateConfig 裸 invoke** — `save_settings` 使用裸 `invoke` 绕过日志追踪和错误脱敏。修复：统一使用 `loggedInvoke`
+
+#### 后端命令参数补全
+- **run_creation_workflow mode 映射错误** — 前端传 `"human_draft_ai_polish"`，后端只识别 `"human_first"`，导致 "我初稿 + AI 润色" 模式被错误映射为 "AI 初稿 + 我精修"。修复： `"human_draft_ai_polish"` 映射到 `CreationMode::HumanDraftAiPolish`
+- **update_story 缺少 genre 参数** — 后端 `update_story` 命令签名缺少 `genre`，前端 Stories.tsx 编辑表单修改类型被静默忽略。修复：后端添加 `genre: Option<String>`，更新 `UpdateStoryRequest` / `StoryRepository::update` SQL
+- **create_character 扩展字段被忽略** — 后端只接受 `story_id`/`name`/`background`，前端传的 `personality`/`goals`/`appearance`/`gender`/`age` 被硬编码为 `None`。修复：后端扩展参数列表
+- **update_character 扩展字段被忽略** — 后端只接受 `name`/`background`/`personality`/`goals`，缺少 `appearance`/`gender`/`age`。修复：后端扩展参数并传给 Repository
+
+### 编译状态
+- `cargo check` ✅ 零错误（109 warnings）
+- `npm run build` ✅ 通过
+- `cargo tauri build` ✅ Windows 安装包生成
+
+---
+
 ## [v5.6.2] - 设计-实现对齐全面修复 v5（2026-05-08）
 
 ### 🔴 P0 核心断裂修复

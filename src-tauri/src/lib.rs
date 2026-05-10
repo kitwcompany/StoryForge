@@ -789,6 +789,7 @@ fn update_story(
     id: String,
     title: Option<String>,
     description: Option<String>,
+    genre: Option<String>,
     tone: Option<String>,
     pacing: Option<String>,
     style_dna_id: Option<String>,
@@ -796,7 +797,7 @@ fn update_story(
     methodology_step: Option<i32>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let req = db::UpdateStoryRequest { title: title.clone(), description: description.clone(), tone, pacing, style_dna_id, methodology_id, methodology_step };
+    let req = db::UpdateStoryRequest { title: title.clone(), description: description.clone(), genre, tone, pacing, style_dna_id, methodology_id, methodology_step };
     StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| e.to_string())?;
     let _ = crate::state_sync::StateSync::emit_story_updated(&app, &id, title.as_deref());
     Ok(())
@@ -815,8 +816,13 @@ fn get_story_characters(story_id: String) -> Result<Vec<db::Character>, String> 
 }
 
 #[tauri::command]
-fn create_character(story_id: String, name: String, background: Option<String>, app: AppHandle) -> Result<db::Character, String> {
-    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality: None, goals: None, appearance: None, gender: None, age: None }).map_err(|e| e.to_string())?;
+fn create_character(
+    story_id: String, name: String, background: Option<String>,
+    personality: Option<String>, goals: Option<String>, appearance: Option<String>,
+    gender: Option<String>, age: Option<i32>,
+    app: AppHandle
+) -> Result<db::Character, String> {
+    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age }).map_err(|e| e.to_string())?;
 
     // OnCharacterCreate hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -839,11 +845,16 @@ fn create_character(story_id: String, name: String, background: Option<String>, 
 }
 
 #[tauri::command]
-fn update_character(id: String, name: Option<String>, background: Option<String>, personality: Option<String>, goals: Option<String>, app: AppHandle) -> Result<(), String> {
+fn update_character(
+    id: String, name: Option<String>, background: Option<String>,
+    personality: Option<String>, goals: Option<String>,
+    appearance: Option<String>, gender: Option<String>, age: Option<i32>,
+    app: AppHandle
+) -> Result<(), String> {
     let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
     // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.update(&id, name.clone(), background, personality, goals, None, None, None).map_err(|e| e.to_string())?;
+    repo.update(&id, name.clone(), background, personality, goals, appearance, gender, age).map_err(|e| e.to_string())?;
     if let Some(story_id) = story_id_opt {
         let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref(), &story_id);
     }
@@ -1541,6 +1552,7 @@ async fn smart_execute(
                 step_number: evt.step_number,
                 total_steps: evt.total_steps,
                 message: evt.message.clone(),
+                status: format!("{:?}", evt.status).to_lowercase(),
             });
         });
         
@@ -1603,6 +1615,7 @@ async fn smart_execute(
                             step_number: evt.step_number,
                             total_steps: evt.total_steps,
                             message: evt.message.clone(),
+                            status: format!("{:?}", evt.status).to_lowercase(),
                         });
                     });
 
