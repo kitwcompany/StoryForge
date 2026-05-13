@@ -54,6 +54,14 @@ test-results/
 
 .env
 
+# Agent / IDE planning artifacts
+.kiro/
+.planning/
+
+# Debug / helper scripts
+build-*.err
+check_dist*.py
+fix_commands*.py
 
 # Archived ghost crate
 src-core-archived/
