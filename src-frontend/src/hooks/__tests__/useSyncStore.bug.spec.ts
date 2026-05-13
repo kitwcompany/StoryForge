@@ -91,7 +91,8 @@ function hasInvalidationForKey(keyPrefix: string): boolean {
   });
 }
 
-describe('useSyncStore bug exploration (C_1_9 frontend)', () => {
+// v5.6.4: Bug condition fixed — payoffLedgerUpdated case added to useSyncStore
+describe.skip('useSyncStore bug exploration (C_1_9 frontend)', () => {
   it('DataRefresh { resourceType: "payoffLedger" } NEVER invalidates ["payoff-ledger", ...]', async () => {
     await fc.assert(
       fc.asyncProperty(
