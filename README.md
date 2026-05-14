@@ -8,7 +8,15 @@
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.6.4 最新更新**：设计-实现对齐全面修复 v6 — 全面检视并修复 **13 项关键设计-实现差距**，将项目从"功能框架"提升到"生产就绪"状态。
+> **v5.6.4 最新更新（2026-05-15）**：JSON 解析加固 + 场景生成去重 + 前端自动排版 + CI 三平台修复 — 在 v6 设计-实现对齐基础上，修复 **4 项生产环境关键问题**。
+>
+> **JSON 解析全面加固**：`extract_and_sanitize_json` 新增字符串内未转义换行符修复（状态机精确替换）、C 风格注释移除、移除破坏性中文引号替换（原代码破坏 JSON 字符串边界），LLM 返回的"脏 JSON"容错能力大幅提升。
+>
+> **场景生成去重与幂等性**：`SceneGenerationStep` 新增 `seen_seqs` 去重，跳过 LLM 返回的重复 `sequence_number`；已存在场景直接更新而非重复创建，Bootstrap 重试安全。
+>
+> **前端自动排版引擎**：新增 `autoFormatText` 智能分段与引号规范化（直引号 →「」『』），集成到所有内容更新路径，LLM 未格式化输出自动转换为标准 HTML 段落；AI 续写新增重复前缀去除保护，避免生成内容与当前文本重复。
+>
+> **CI 三平台修复**：移除 `.cargo/config.toml` UTF-8 BOM（修复 Windows/Ubuntu 构建失败）；macOS 目标从 `x86_64` 改为 `aarch64-apple-darwin`（适配 GitHub Apple Silicon runner，修复 LanceDB AVX512 链接错误）。
 >
 > **维度一：幕前幕后自动关联补全（4项）** — `auto_ingest_chapter` / `update_scene` 自动触发知识图谱同步事件（`ingestionCompleted` + `dataRefresh(knowledgeGraph)`），Ingest 完成后 KG 可视化自动刷新；`commands_v3.rs` KG CRUD 命令（`create_entity`/`update_entity`/`create_relation`/`delete_relation`/`delete_entity`）统一发射 `dataRefresh(knowledgeGraph)`，消除直接更新路径绕过 StateSync 的问题；前端 `useSyncStore` 补全 `characterRelationshipsUpdated` / `payoffLedgerUpdated` / `ingestionCompleted` case，特定事件独立响应。
 >

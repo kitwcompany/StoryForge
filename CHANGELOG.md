@@ -2,6 +2,57 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v5.6.4] - v5.6.4 补丁：JSON 修复、场景去重、自动排版、CI 修复（2026-05-15）
+
+### 🔴 P0 JSON 解析与生成稳定性
+
+#### `extract_and_sanitize_json` 全面增强
+- **字符串内未转义换行符修复** — LLM 经常在 JSON 字符串值中直接换行，导致 `serde_json::from_str` 解析失败。新增状态机：仅在字符串内部将实际换行符替换为 `\n`，避免破坏 JSON 结构
+- **C 风格注释移除** — LLM 有时在 JSON 中插入 `//` 或 `/* */` 注释，导致解析失败。新增注释跳过逻辑（保留换行以维持行号）
+- **移除破坏性中文引号替换** — 原代码将中文引号「」『』强制替换为 ASCII 引号 `"`，这会破坏 JSON 字符串边界（如键名或值中包含中文引号时）。修复：不再替换中文引号，JSON 格式错误由 LLM 自行修正
+
+#### 场景生成去重与幂等性
+- **跳过重复 `sequence_number`** — LLM 返回的场景列表中可能包含重复的 `sequence_number`（重试或格式错误）。`SceneGenerationStep` 新增 `seen_seqs` HashSet，遇到重复序号时跳过并记录警告日志
+- **更新已存在场景而非重复创建** — Bootstrap 重试或重新执行时，`sequence_number` 已存在的场景不再新建，而是获取现有记录并更新标题/内容，避免数据库中出现重复场景
+
+#### 数据库类型安全加固
+- **`scene_id`/`chapter_id` 显式类型注解** — `repositories.rs` 和 `repositories_v3.rs` 中 `row.get(9)?` 等调用添加显式 `Option<String>` 类型注解，消除编译器推断歧义，防止空值场景下的运行时 panic
+- **`pending_vector_indexes` 查询容错** — `lib.rs` 中 `chapter_id` 查询结果从 `String` 改为 `Option<String>`，数据库中可能存在的 NULL 值不再导致 `rusqlite::Error`
+
+### 🟡 P1 前端排版与体验
+
+#### `autoFormatText` 自动排版引擎
+- **新增 `src-frontend/src/utils/format.ts`** — 智能中文段落分段与引号规范化
+  - 直引号 `"..."` / `'...'` 自动转换为中文弯引号「...」/『...』
+  - 按句子长度（2~4 句/段）、对话检测（以引号开头优先独立成段）智能分段
+  - 已有 `<p>` 标签的 HTML 输入保留结构，仅规范化引号
+  - 输出标准 HTML `<p>` 包裹
+- **集成到 `FrontstageApp`** — 所有内容更新路径（`ContentUpdate`/`AppendContent`/`ChapterSwitch`/`SmartGeneration`）统一经过 `autoFormatText`，LLM 返回的未格式化纯文本自动转换为标准 HTML 段落
+
+#### AI 续写去重保护
+- **去除重复前缀** — LLM 有时返回包含当前编辑器完整内容的续写结果，导致用户看到重复文本。`requestGeneration` 中新增前缀检测：若生成内容以当前编辑器文本开头，自动截去重复前缀，仅保留新增部分
+- **空内容保护** — 去重后若内容为空，直接提示"AI 续写内容与当前文本相同，无需添加"，不插入空幽灵文本
+
+#### 排版与样式优化
+- **`frontstage.css` 借鉴 heti 排版理念** — 添加 `overflow-wrap: break-word`、`hyphens: auto`、`text-spacing-trim: space-all`、`text-autospace: ideograph-alpha`，改善中西文混排效果
+- **段落间距公式化** — `.ProseMirror p` 的 `margin-block-start/end` 改为基于行高的动态计算，更符合中文排版网格
+- **`AiSuggestionNode` 接受逻辑修复** — 接受 AI 建议时先删除原文段落再插入新内容，避免旧内容残留导致重复
+
+### 🟢 P2 基础设施
+
+#### GitHub Actions CI 修复
+- **移除 `.cargo/config.toml` UTF-8 BOM** — 字符 65279（`\u{feff}`）导致 `tauri-action` 发布步骤在 Windows 和 Ubuntu 上解析失败。移除 BOM 后三平台构建通过
+- **macOS 构建目标修正** — `macos-latest`  runner 已升级为 Apple Silicon（arm64/M1/M2），原 `x86_64-apple-darwin` 目标在交叉编译时触发 LanceDB AVX512 链接错误（`_sum_4bit_dist_table_32bytes_batch_avx512` symbol not found）。修复：目标改为 `aarch64-apple-darwin`
+- **同步本地缺失的 workflow 文件** — `.github/workflows/build.yml` 之前仅存在于 GitHub 远程，未纳入本地版本控制。现已同步到仓库
+
+### 编译状态
+- `cargo check` ✅ 零错误（121 warnings）
+- `cargo test` ✅ 226/226 通过
+- `npm run build` ✅ 通过
+- GitHub Actions ✅ rust-check / frontend-check / e2e-check 全部通过；tauri-build 三平台修复验证中
+
+---
+
 ## [v5.6.4] - Tauri v2 IPC `rename_all = "snake_case"` 根本修复（2026-05-08）
 
 ### 🔴 P0 核心断裂修复
