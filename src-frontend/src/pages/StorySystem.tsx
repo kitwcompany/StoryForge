@@ -212,7 +212,7 @@ export function StorySystem() {
               {runtimeContract ? (
                 <div className="space-y-2 text-sm">
                   <p className="text-gray-400">核心基调: {JSON.parse(runtimeContract.master_setting.contract_json).core_tone || 'N/A'}</p>
-                  <p className="text-gray-400">体裁: {JSON.parse(runtimeContract.master_setting.contract_json).genre || 'N/A'}></p>
+                  <p className="text-gray-400">体裁: {JSON.parse(runtimeContract.master_setting.contract_json).genre || 'N/A'}</p>
                   {runtimeContract.chapter_contract && (
                     <p className="text-gray-400">章节目标: {JSON.parse(runtimeContract.chapter_contract.contract_json).chapter_directive?.goal || 'N/A'}</p>
                   )}
