@@ -245,18 +245,19 @@ export interface CharacterRelationship {
   created_at: string;
 }
 
-export type ViewType = 
-  | 'dashboard' 
-  | 'stories' 
-  | 'characters' 
-  | 'scenes' 
+export type ViewType =
+  | 'dashboard'
+  | 'stories'
+  | 'characters'
+  | 'scenes'
   | 'knowledge-graph'
-  | 'skills' 
-  | 'mcp' 
+  | 'skills'
+  | 'mcp'
   | 'book-deconstruction'
   | 'tasks'
   | 'foreshadowing'
   | 'creation-wizard'
+  | 'story-system'
   | 'settings';
 
 // ===== Intent Engine Types =====

@@ -2,13 +2,25 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v5.6.4 - AI 导演式小说创作系统
+# StoryForge (草苔) v6.0.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v5.6.4 最新更新（2026-05-15）**：JSON 解析加固 + 场景生成去重 + 前端自动排版 + CI 三平台修复 — 在 v6 设计-实现对齐基础上，修复 **4 项生产环境关键问题**。
+> **v6.0.0 最新更新（2026-05-15）**：Story System 合同驱动体系 + 三层记忆编排器 + 追读力评估系统 + 37 体裁模板库 + Anti-AI 五维审查 — 全面重构小说创作的"写前-写中-写后"质量管控闭环。
+>
+> **Story System 合同驱动体系**：引入 `MASTER_SETTING` / `CHAPTER` / `REVIEW` 四级合同架构，写前真源（story_contracts）与写后真源（chapter_commits）分离，CHAPTER_COMMIT 提交链驱动 5 个 Projection Writer（State/Index/Summary/Memory/Vector）自动更新 read-model，实现"合同即法律、设定即物理、发明需识别"的防幻觉三定律。
+>
+> **三层记忆编排器**：Working Memory（最近 5 章 + 活跃角色 + 开放伏笔）+ Episodic Memory（state_changes + relationships）+ Semantic Memory（长期事实，按优先级和源章节窗口过滤），支持按任务类型（write/plan/review）动态分配预算。
+>
+> **追读力评估系统**：Hook 检测（悬念/冲突/转折）+ Coolpoint 追踪（打脸/收获/揭秘）+ Micropayoff 微兑现 + Debt 债务追踪（含利息与覆盖合同），每章输出 0-100 追读力评分与趋势图。
+>
+> **37 体裁模板库**：玄幻/仙侠/都市/历史/科幻/悬疑/言情/武侠/无限流/系统流/重生/穿越/凡人流/争霸流/幕后流/签到流/御兽流/诡异流/赛博朋克/克苏鲁/国运流等 37 个内置网文体裁模板，每个含核心基调、节奏策略、反模式清单、参考数据表、典型结构五要素。
+>
+> **Anti-AI 五维审查**：词汇（cliché 检测 + 重复用词）/ 语法（句式多样性 + 被动语态）/ 叙事（段落均匀度 + 感官密度）/ 情感（标签化检测 + 展示vs告知）/ 对话（说明性对话 + 标签单调），输出综合评分与改进建议。
+>
+> **v5.6.4 更新**：JSON 解析加固 + 场景生成去重 + 前端自动排版 + CI 三平台修复 — 修复 **4 项生产环境关键问题**。
 >
 > **JSON 解析全面加固**：`extract_and_sanitize_json` 新增字符串内未转义换行符修复（状态机精确替换）、C 风格注释移除、移除破坏性中文引号替换（原代码破坏 JSON 字符串边界），LLM 返回的"脏 JSON"容错能力大幅提升。
 >
@@ -244,8 +256,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v5.6.4  
-**最后更新**: 2026-05-13  
+**当前版本**: v6.0.0  
+**最后更新**: 2026-05-15  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -276,6 +288,11 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 任务系统 | ✅ 完成 | 100% |
 | 测试覆盖 | ✅ 完成 | 226 tests |
 | 创世引擎 | ✅ 完成 | 100% |
+| Story System 合同驱动 | ✅ 完成 | 100% |
+| 三层记忆编排器 | ✅ 完成 | 100% |
+| 追读力评估系统 | ✅ 完成 | 100% |
+| 37 体裁模板库 | ✅ 完成 | 100% |
+| Anti-AI 五维审查 | ✅ 完成 | 100% |
 
 ---
 
@@ -345,36 +362,44 @@ v2-rust/
 │   │   │   ├── memory_compressor.rs
 │   │   │   └── novel_creation.rs
  │   │   ├── creative_engine/     # 智能化创作引擎 (v3.4.0)
- │   │   │   ├── mod.rs
- │   │   │   ├── context_builder.rs    # 真实 DB 上下文构建
- │   │   │   ├── continuity.rs         # 连续性追踪
- │   │   │   ├── foreshadowing.rs      # 伏笔回收系统
- │   │   │   ├── methodology/          # 创作方法论引擎
- │   │   │   │   ├── mod.rs
- │   │   │   │   ├── snowflake.rs
- │   │   │   │   ├── scene_structure.rs
- │   │   │   │   ├── hero_journey.rs
- │   │   │   │   └── character_depth.rs
- │   │   │   ├── style/                # StyleDNA 系统
- │   │   │   │   ├── mod.rs
- │   │   │   │   ├── dna.rs
- │   │   │   │   └── classic_styles.rs
- │   │   │   ├── adaptive/             # 自适应学习系统
- │   │   │   │   ├── mod.rs
- │   │   │   │   ├── feedback.rs
- │   │   │   │   ├── miner.rs
- │   │   │   │   ├── generator.rs
- │   │   │   │   └── personalizer.rs
- │   │   │   └── workflow/             # 工作流引擎
- │   │   │       ├── mod.rs
- │   │   │       ├── engine.rs
- │   │   │       └── quality.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── context_builder.rs    # 真实 DB 上下文构建
+│   │   │   ├── continuity.rs         # 连续性追踪
+│   │   │   ├── foreshadowing.rs      # 伏笔回收系统
+│   │   │   ├── methodology/          # 创作方法论引擎
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── snowflake.rs
+│   │   │   │   ├── scene_structure.rs
+│   │   │   │   ├── hero_journey.rs
+│   │   │   │   └── character_depth.rs
+│   │   │   ├── style/                # StyleDNA 系统
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── dna.rs
+│   │   │   │   └── classic_styles.rs
+│   │   │   ├── adaptive/             # 自适应学习系统
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── feedback.rs
+│   │   │   │   ├── miner.rs
+│   │   │   │   ├── generator.rs
+│   │   │   │   └── personalizer.rs
+│   │   │   └── workflow/             # 工作流引擎
+│   │   │       ├── mod.rs
+│   │   │       ├── engine.rs
+│   │   │       └── quality.rs
 │   │   ├── memory/              # 记忆系统
 │   │   │   ├── tokenizer.rs
 │   │   │   ├── ingest.rs
 │   │   │   ├── query.rs
 │   │   │   ├── hybrid_search.rs
-│   │   │   └── multi_agent.rs
+│   │   │   ├── multi_agent.rs
+│   │   │   └── orchestrator.rs       # 三层记忆编排器 (v6.0.0)
+│   │   ├── story_system/        # Story System 合同驱动 (v6.0.0)
+│   │   │   ├── mod.rs
+│   │   │   └── projection_writers.rs
+│   │   ├── reading_power/       # 追读力评估系统 (v6.0.0)
+│   │   │   └── mod.rs
+│   │   ├── anti_ai/             # Anti-AI 五维审查 (v6.0.0)
+│   │   │   └── mod.rs
 │   │   ├── llm/                 # LLM 适配器
 │   │   │   ├── adapter.rs
 │   │   │   ├── openai.rs
@@ -386,6 +411,9 @@ v2-rust/
 │   │       └── studio_manager.rs
 │   ├── Cargo.toml
 │   └── tauri.conf.json
+│
+├── templates/                   # 模板库
+│   └── genres/                  # 37 个体裁模板 (v6.0.0)
 │
 ├── docs/                        # 文档
 ├── README.md
@@ -552,9 +580,112 @@ v2-rust/
 | 导出功能 | 100% | PDF/EPUB/Markdown |
 | Tauri 打包 | 100% | MSI + NSIS 安装包 |
 
+### 8. Story System 合同驱动体系 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| MASTER_SETTING 合同 | ✅ | 故事级全局设定合同，约束所有子合同 |
+| Volume 合同 | ✅ | 卷级设定合同，支持多卷结构 |
+| Chapter 合同 | ✅ | 章节级设定与预期合同 |
+| Review 合同 | ✅ | 审阅与修订合同，记录修改指令 |
+| CHAPTER_COMMIT 提交链 | ✅ | 写后真源提交，驱动 Projection Writer |
+| StateProjectionWriter | ✅ | 解析 state_deltas 写入语义记忆 |
+| IndexProjectionWriter | ✅ | 解析 entity_deltas 写入实体记忆 |
+| SummaryProjectionWriter | ✅ | 自动生成章节摘要并持久化 |
+| MemoryProjectionWriter | ✅ | 解析 accepted_events 写入事件记忆 |
+| VectorProjectionWriter | ✅ | 章节摘要 embedding 写入 LanceDB |
+| ContractTree 查询 | ✅ | 按故事/卷/章节层级查询合同树 |
+| RuntimeContract 计算 | ✅ | 动态合并上层合同生成运行时合同 |
+
+### 9. 三层记忆编排器 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Working Memory | ✅ | 最近 5 章 + 活跃角色 + 开放伏笔 |
+| Episodic Memory | ✅ | state_changes + relationships 时间线 |
+| Semantic Memory | ✅ | 长期事实，按优先级和源章节窗口过滤 |
+| MemoryPack 组装 | ✅ | 按任务类型（write/plan/review）动态分配预算 |
+| 冲突检测与警告 | ✅ | 记忆项间矛盾检测，输出 MemoryWarning |
+| 优先级排序 | ✅ | Critical > High > Medium > Low > Background |
+
+### 10. 追读力评估系统 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Hook 检测 | ✅ | 悬念/冲突/转折三类钩子识别 |
+| Coolpoint 追踪 | ✅ | 打脸/收获/揭秘爽点计数 |
+| Micropayoff 微兑现 | ✅ | 章节内小承诺兑现检测 |
+| Debt 债务追踪 | ✅ | 未兑现承诺与伏笔债务，含利息计算 |
+| OverrideContract | ✅ | 覆盖合同机制，允许临时跳过债务 |
+| 综合评分 | ✅ | 0-100 追读力评分与趋势图 |
+
+### 11. 37 体裁模板库 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 内置模板 | ✅ | 玄幻/仙侠/都市/历史/科幻/悬疑/言情/武侠/无限流/系统流/重生/穿越/凡人流/争霸流/幕后流/签到流/御兽流/诡异流/赛博朋克/克苏鲁/国运流等 37 个 |
+| 模板五要素 | ✅ | 核心基调、节奏策略、反模式清单、参考数据表、典型结构 |
+| 前端体裁选择 | ✅ | StorySystem 页面支持按体裁过滤和查看 |
+| 后端 GenreProfile | ✅ | CRUD + 按 ID 查询接口 |
+
+### 12. Anti-AI 五维审查 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 词汇维度 | ✅ | Cliché 检测 + 重复用词统计 |
+| 语法维度 | ✅ | 句式多样性 + 被动语态计数 |
+| 叙事维度 | ✅ | 段落均匀度 + 感官密度评估 |
+| 情感维度 | ✅ | 标签化检测（"愤怒地"）+ 展示 vs 告知 |
+| 对话维度 | ✅ | 说明性对话检测 + 标签单调性 |
+| 综合评分 | ✅ | 0-100 分 + 改进建议 + 标记段落 |
+
 ---
 
 ## 📅 更新历史
+
+### v6.0.0 (2026-05-15) - Story System 合同驱动 + 三层记忆 + 追读力 + 体裁模板 + Anti-AI 审查
+
+> **核心理念**：全面重构小说创作的"写前-写中-写后"质量管控闭环，从"自由创作"升级为"合同约束下的高质量创作"。
+
+**Story System 合同驱动体系**
+- **四级合同架构**：`MASTER_SETTING`（故事级）/ `Volume`（卷级）/ `Chapter`（章节级）/ `Review`（审阅级）
+- **CHAPTER_COMMIT 提交链**：写后真源分离，每次章节保存生成 `ChapterCommit`，驱动 5 个 Projection Writer 自动更新 read-model
+- **5 个 Projection Writer**：State（状态变化）、Index（实体索引）、Summary（章节摘要）、Memory（事件记忆）、Vector（向量嵌入）
+- **ContractTree & RuntimeContract**：按层级查询合同树，动态合并生成运行时约束合同
+- **防幻觉三定律**：合同即法律、设定即物理、发明需识别
+
+**三层记忆编排器**
+- **Working Memory**：最近 5 章 + 活跃角色 + 开放伏笔，实时上下文窗口
+- **Episodic Memory**：state_changes + relationships 时间线，支持叙事连续性
+- **Semantic Memory**：长期事实存储，按优先级（Critical > High > Medium > Low）和源章节窗口过滤
+- **MemoryPack 动态组装**：按任务类型（write/plan/review）分配不同预算权重
+
+**追读力评估系统**
+- **Hook 检测**：悬念/冲突/转折三类钩子识别与计数
+- **Coolpoint 追踪**：打脸/收获/揭秘三类爽点追踪
+- **Micropayoff 微兑现**：章节内小承诺兑现检测
+- **Debt 债务追踪**：未兑现承诺与伏笔债务，含利息计算与逾期检测
+- **OverrideContract**：覆盖合同机制，允许作者声明临时跳过债务并记录理由
+- **综合评分**：0-100 追读力评分，支持趋势图查询
+
+**37 体裁模板库**
+- **内置 37 个网文体裁模板**：玄幻/仙侠/都市/历史/科幻/悬疑/言情/武侠/无限流/系统流/重生/穿越/凡人流/争霸流/幕后流/签到流/御兽流/诡异流/赛博朋克/克苏鲁/国运流等
+- **模板五要素**：核心基调、节奏策略、反模式清单、参考数据表、典型结构
+- **前端集成**：StorySystem 页面支持按体裁过滤和查看详情
+
+**Anti-AI 五维审查**
+- **词汇维度**：Cliché 检测（"浩瀚"、"磅礴"等 AI 高频词）+ 重复用词统计
+- **语法维度**：句式多样性（标准差评估）+ 被动语态计数
+- **叙事维度**：段落长度均匀度 + 感官密度（视觉/听觉/触觉/嗅觉/味觉关键词密度）
+- **情感维度**：标签化检测（"愤怒地"、"悲伤地说"）+ 展示 vs 告知判断
+- **对话维度**：说明性对话检测（ exposition_ratio ）+ 标签单调性（"说道"重复）
+- **输出**：综合评分 + 各维度评分 + 改进建议 + 标记段落列表
+
+**编译与测试**
+- `cargo check`：零错误（121 warnings）
+- `cargo test`：226/226 全部通过
+- `npm run build`：通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 6.0.0
 
 ### v5.4.1 (2026-05-07) - Bootstrap 编辑器内容丢失修复
 
@@ -903,17 +1034,24 @@ cd src-tauri && cargo tauri build
 - [x] 全面代码审计与空实现修复
 - [x] 内存模块 SQLite 持久化
 
-### 短期计划 (v5.5.x)
+### 已完成 (v6.0.0) ✅
+- [x] **Story System 合同驱动** - MASTER_SETTING/Volume/Chapter/Review 四级合同 + CHAPTER_COMMIT 提交链 + 5 个 Projection Writer
+- [x] **三层记忆编排器** - Working/Episodic/Semantic 三层记忆，按任务类型动态分配预算
+- [x] **追读力评估系统** - Hook/Coolpoint/Micropayoff/Debt 四维度 + 综合评分与趋势图
+- [x] **37 体裁模板库** - 内置 37 个网文体裁模板，含核心基调/节奏策略/反模式/参考数据/典型结构
+- [x] **Anti-AI 五维审查** - 词汇/语法/叙事/情感/对话五维度审查，输出综合评分与改进建议
+
+### 短期计划 (v6.1.x)
 - [ ] 云端同步
 - [ ] 协作写作增强（多人实时编辑 OT 完整实现）
 - [ ] 插件市场
 
-### 中期计划 (v5.6.x)
+### 中期计划 (v6.2.x)
 - [ ] WebAssembly 前端
 - [ ] 自研小模型
 - [ ] 移动端适配
 
-### 长期计划 (v6.0.0)
+### 长期计划 (v7.0.0)
 - [ ] 发布平台集成
 - [ ] AI 全自动长篇小说生成
 

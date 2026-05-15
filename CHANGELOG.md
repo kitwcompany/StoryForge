@@ -2,6 +2,127 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v6.0.0] - Story System 合同驱动 + 三层记忆编排 + 追读力评估 + 37 体裁模板 + Anti-AI 审查（2026-05-15）
+
+### 🏗️ 架构级新体系：Story System 合同驱动
+
+#### 四级合同架构
+- **`story_contracts` 表**（Migration 47）— 四级合同存储：`MASTER_SETTING`（故事级全局设定）/ `Volume`（卷级设定）/ `Chapter`（章节级设定与预期）/ `Review`（审阅与修订合同）
+- **`chapter_commits` 表**（Migration 48）— CHAPTER_COMMIT 写后真源，记录 `state_deltas_json`、`entity_deltas_json`、`accepted_events_json`，形成提交链
+- **8 个新 Repository** — `StoryContractRepository`、`ChapterCommitRepository`、`MemoryItemRepository`、`ChapterReadingPowerRepository`、`ChaseDebtRepository`、`OverrideContractRepository`、`ReviewIssueRepository`、`GenreProfileRepository`
+
+#### CHAPTER_COMMIT 提交链与 Projection Writer
+- `ChapterCommitService::init_commit()` — 创建初始 commit 记录
+- `ChapterCommitService::apply_commit()` — 异步应用 commit，驱动 5 个 Projection Writer
+  - `StateProjectionWriter` — 解析 `state_deltas_json`，写入 `memory_items`（category="state"）
+  - `IndexProjectionWriter` — 解析 `entity_deltas_json`，写入 `memory_items`（category="entity"）
+  - `SummaryProjectionWriter` — 生成章节摘要，写入 `story_summaries`
+  - `MemoryProjectionWriter` — 解析 `accepted_events_json`，写入 `memory_items`（category="event"）
+  - `VectorProjectionWriter` — 生成摘要 embedding，写入 LanceDB `VectorRecord`
+- `ContractTree` / `RuntimeContract` — 按故事/卷/章节层级查询合同树，动态合并上层合同生成运行时约束合同
+- **防幻觉三定律**：合同即法律、设定即物理、发明需识别
+
+### 🧠 三层记忆编排器
+
+#### MemoryOrchestrator
+- `build_memory_pack()` — 按任务类型（write/plan/review）动态组装 MemoryPack
+- **三层记忆模型**：
+  - **Working Memory**：最近 5 章 + 活跃角色（出场 > 3 次）+ 开放伏笔（未回收）
+  - **Episodic Memory**：state_changes + relationships 时间线，最近 10 条
+  - **Semantic Memory**：长期事实，按优先级排序（Critical > High > Medium > Low > Background），支持源章节窗口过滤（仅保留最近 30 章内的事实）
+- **MemoryBudget**：write 任务分配 Working 50% / Episodic 30% / Semantic 20%；plan 任务 Semantic 优先
+- **冲突检测**：比较 Working 与 Semantic 记忆，检测矛盾并输出 `MemoryWarning`
+- `MemoryPack` / `MemoryEntry` / `MemoryItemDto` / `MemoryStats` 完整数据结构
+
+### 📈 追读力评估系统
+
+#### ReadingPowerEvaluator
+- `evaluate()` — 单章追读力五维评估：
+  - **Hook 检测**：悬念/冲突/转折三类钩子识别与计数
+  - **Coolpoint 追踪**：打脸/收获/揭秘三类爽点追踪
+  - **Micropayoff 微兑现**：章节内小承诺兑现检测
+  - **综合评分**：0-100 分，加权计算
+- `get_trend()` — 返回最近 N 章评分趋势数组
+
+#### DebtManager
+- `create_debt()` — 创建未兑现承诺/伏笔债务
+- `accrue_interest()` — 债务逾期自动计算利息（每日 5%）
+- `check_overdue_debts()` — 扫描逾期债务并返回告警
+- `create_override_contract()` — 作者声明临时跳过债务并记录理由
+- `fulfill_contract()` — 债务兑现后更新状态
+- `OverrideContract` / `ChaseDebt` 完整数据结构
+
+### 📚 37 体裁模板库
+
+#### GenreProfile
+- **`templates/genres/`** 目录新增 37 个 Markdown 体裁模板文件
+- **内置模板覆盖**：玄幻/仙侠/都市/历史/科幻/悬疑/言情/武侠/游戏/修真/无限流/系统流/重生/穿越/快穿/凡人流/争霸流/幕后流/签到流/御兽流/驭鬼流/诡异流/赛博朋克/蒸汽朋克/克苏鲁/国运流/种田/末世/轻小说/体育/军事/西幻/灵异/现实/洪荒/武侠仙侠/诸天万界
+- **模板五要素**：核心基调、节奏策略、反模式清单、参考数据表、典型结构
+- `GenreProfileRepository` — SQLite 持久化，支持 `get_all()` / `get_by_id()`
+- 前端 `StorySystem.tsx` 集成体裁查看面板
+
+### 🔍 Anti-AI 五维审查
+
+#### AntiAiReviewer
+- `review(text, genre)` — 对输入文本进行五维度 AI 痕迹审查：
+  - **词汇维度**：Cliché 检测（"浩瀚"、"磅礴"、"无尽"、"宛如"等 AI 高频词列表）+ 重复用词统计
+  - **语法维度**：句式多样性（句长标准差评估，< 5 为单调）+ 被动语态计数
+  - **叙事维度**：段落长度均匀度（变异系数 < 0.3 为可疑）+ 感官密度（五感关键词密度，< 3% 为贫乏）
+  - **情感维度**：标签化检测（"愤怒地"、"悲伤地说"等副词+说组合）+ 展示 vs 告知判断（直接情感词密度 > 5% 为过度告知）
+  - **对话维度**：说明性对话检测（对话中包含设定/背景信息占比 > 30% 为过度说明）+ 标签单调性（连续 3 句使用相同对话标签如"说道"）
+- **输出结构**：`overall_score`（0-100）+ `dimensions[]`（各维度 0-100 分）+ `issues[]`（问题列表）+ `suggestions[]`（改进建议）+ `flagged_passages[]`（标记段落）
+
+### 🖥️ 前端集成
+
+#### StorySystem.tsx
+- 新增幕后页面「故事系统」，5 个标签页：
+  - **Contracts** — 合同树浏览、运行时合同查看
+  - **Commits** — CHAPTER_COMMIT 提交历史、Projection 状态追踪
+  - **Reading** — 追读力评分与趋势图、Debt 债务看板
+  - **Memory** — 记忆包组装结果、三层记忆浏览
+  - **Anti-AI** — 五维审查结果、评分与建议
+
+#### Sidebar.tsx
+- 新增「故事系统」导航入口（ShieldCheck 图标）
+
+#### App.tsx
+- 导入 `StorySystem` 组件，添加 `story-system` 路由 case
+
+#### tauri.ts
+- 新增 17 个 v6.0.0 IPC 命令的 TypeScript 接口与 API 函数：
+  - `create_master_setting` / `create_chapter_contract` / `get_contract_tree` / `get_runtime_contract`
+  - `init_chapter_commit` / `apply_chapter_commit` / `get_chapter_commits`
+  - `build_memory_pack` / `get_memory_items` / `create_memory_item`
+  - `evaluate_reading_power` / `get_reading_power_trend` / `get_chase_debts` / `create_override_contract`
+  - `get_genre_profiles` / `get_genre_profile`
+  - `anti_ai_review`
+
+### 🗄️ 数据库迁移
+- **Migration 47**：`story_contracts` 表（四级合同）
+- **Migration 48**：`chapter_commits` 表（提交链）
+- **Migration 49**：`memory_items` 表（记忆项）
+- **Migration 50**：`story_summaries` 表（章节摘要）
+- **Migration 51**：`chapter_reading_powers` 表（追读力评分）
+- **Migration 52**：`chase_debts` 表（债务追踪）
+- **Migration 53**：`override_contracts` 表（覆盖合同）
+- **Migration 54**：`review_issues` 表（审查问题）
+- **Migration 55**：`genre_profiles` 表（体裁模板）
+- **scenes 表扩展**：新增 `writing_phase` 字段（v6.0.0 叙事阶段标记）
+
+### 🔧 技术细节
+- `IpcResponse` trait 要求 `Serialize` derive — `ContractTree` / `RuntimeContract` / `MemoryPack` / `ReadingPowerEvaluation` 等新增结构体均已实现
+- `apply_chapter_commit` 为异步 Tauri 命令，通过 `VECTOR_STORE.get()` 获取 LanceDB 实例进行向量投影
+- `rusqlite 0.39` 兼容：`row.get::<_, i32>()` 显式类型注解
+- Anti-AI 审查中中文引号使用 Unicode 转义（`\u{201C}` / `\u{201D}` / `\u{2018}` / `\u{2019}`）避免空字符字面量编译错误
+
+### 编译状态
+- `cargo check` ✅ 零错误（121 warnings）
+- `cargo test` ✅ 226/226 通过
+- `npm run build` ✅ 通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 6.0.0
+
+---
+
 ## [v5.6.4] - v5.6.4 补丁：JSON 修复、场景去重、自动排版、CI 修复（2026-05-15）
 
 ### 🔴 P0 JSON 解析与生成稳定性

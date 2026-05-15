@@ -2090,6 +2090,325 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // ==================== v6.0.0: Story System 合同驱动体系 ====================
+
+    // Migration 47: 创建 story_contracts 表 — 合同真源
+    let story_contract_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_contracts'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if story_contract_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE story_contracts (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                contract_type TEXT NOT NULL,
+                contract_json TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_contracts_story ON story_contracts(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_contracts_type ON story_contracts(story_id, contract_type)",
+            [],
+        )?;
+    }
+
+    // Migration 48: 创建 chapter_commits 表 — 章节提交链
+    let chapter_commit_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_commits'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if chapter_commit_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE chapter_commits (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT,
+                chapter_number INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                outline_snapshot_json TEXT,
+                review_result_json TEXT,
+                fulfillment_result_json TEXT,
+                accepted_events_json TEXT,
+                state_deltas_json TEXT,
+                entity_deltas_json TEXT,
+                summary_text TEXT,
+                dominant_strand TEXT,
+                projection_status_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_chapter_commits_story ON chapter_commits(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_chapter_commits_scene ON chapter_commits(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE UNIQUE INDEX idx_chapter_commits_number ON chapter_commits(story_id, chapter_number)",
+            [],
+        )?;
+    }
+
+    // Migration 49: 创建 memory_items 表 — 长期记忆
+    let memory_item_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_items'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if memory_item_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE memory_items (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                subject TEXT,
+                field TEXT,
+                value TEXT,
+                source_chapter INTEGER,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                status TEXT NOT NULL DEFAULT 'active',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_memory_items_story ON memory_items(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_memory_items_category ON memory_items(story_id, category)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_memory_items_status ON memory_items(story_id, status)",
+            [],
+        )?;
+    }
+
+    // Migration 50: 创建 chapter_reading_power 表 — 追读力
+    let reading_power_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_reading_power'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if reading_power_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE chapter_reading_power (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT,
+                chapter_number INTEGER NOT NULL,
+                hook_type TEXT,
+                hook_strength TEXT DEFAULT 'medium',
+                coolpoint_patterns_json TEXT,
+                micropayoffs_json TEXT,
+                hard_violations_json TEXT,
+                soft_suggestions_json TEXT,
+                is_transition INTEGER NOT NULL DEFAULT 0,
+                override_count INTEGER NOT NULL DEFAULT 0,
+                debt_balance REAL NOT NULL DEFAULT 0.0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_reading_power_story ON chapter_reading_power(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE UNIQUE INDEX idx_reading_power_chapter ON chapter_reading_power(story_id, chapter_number)",
+            [],
+        )?;
+    }
+
+    // Migration 51: 创建 chase_debt 表 — 追读力债务
+    let chase_debt_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chase_debt'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if chase_debt_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE chase_debt (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                story_id TEXT NOT NULL,
+                debt_type TEXT NOT NULL,
+                original_amount REAL NOT NULL DEFAULT 1.0,
+                current_amount REAL NOT NULL DEFAULT 1.0,
+                interest_rate REAL NOT NULL DEFAULT 0.1,
+                source_chapter INTEGER NOT NULL,
+                due_chapter INTEGER NOT NULL,
+                override_contract_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_chase_debt_story ON chase_debt(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_chase_debt_status ON chase_debt(story_id, status)",
+            [],
+        )?;
+    }
+
+    // Migration 52: 创建 override_contracts 表 — 违背约束合约
+    let override_contract_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='override_contracts'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if override_contract_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE override_contracts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                story_id TEXT NOT NULL,
+                chapter_number INTEGER NOT NULL,
+                constraint_type TEXT NOT NULL,
+                constraint_id TEXT NOT NULL,
+                rationale_type TEXT NOT NULL,
+                rationale_text TEXT NOT NULL,
+                payback_plan TEXT NOT NULL,
+                due_chapter INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                fulfilled_at TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_override_contracts_story ON override_contracts(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_override_contracts_status ON override_contracts(story_id, status)",
+            [],
+        )?;
+    }
+
+    // Migration 53: 创建 review_issues 表 — 结构化审查问题
+    let review_issue_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='review_issues'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if review_issue_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE review_issues (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT,
+                chapter_number INTEGER NOT NULL,
+                severity TEXT NOT NULL,
+                category TEXT NOT NULL,
+                location TEXT,
+                description TEXT NOT NULL,
+                evidence TEXT,
+                fix_hint TEXT,
+                blocking INTEGER NOT NULL DEFAULT 0,
+                resolved INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_review_issues_story ON review_issues(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_review_issues_severity ON review_issues(story_id, severity)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_review_issues_blocking ON review_issues(story_id, blocking)",
+            [],
+        )?;
+    }
+
+    // Migration 54: 创建 genre_profiles 表 — 体裁画像
+    let genre_profile_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='genre_profiles'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if genre_profile_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE genre_profiles (
+                id TEXT PRIMARY KEY,
+                genre_name TEXT NOT NULL UNIQUE,
+                canonical_name TEXT NOT NULL,
+                aliases_json TEXT,
+                core_tone TEXT,
+                pacing_strategy TEXT,
+                anti_patterns_json TEXT,
+                reference_tables_json TEXT,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_genre_profiles_canonical ON genre_profiles(canonical_name)",
+            [],
+        )?;
+    }
+
+    // Migration 55: 为 chapters 表添加 writing_phase 字段 — 写作流程状态机
+    let chapter_columns_m55: Vec<String> = conn.prepare(
+        "PRAGMA table_info(chapters)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !chapter_columns_m55.iter().any(|c| c == "writing_phase") {
+        conn.execute(
+            "ALTER TABLE chapters ADD COLUMN writing_phase TEXT DEFAULT 'planning'",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 

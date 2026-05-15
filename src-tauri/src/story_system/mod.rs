@@ -1,0 +1,358 @@
+//! Story System - 合同驱动体系
+//!
+//! 参考 webnovel-writer 的 Story System Phase 5 设计：
+//! - 写前真源：story_contracts 表
+//! - 写后真源：chapter_commits 表
+//! - 投影/read-model：state.json, index.db, summaries
+//!
+//! 防幻觉三定律：
+//! 1. 大纲即法律 — 遵循合同约束
+//! 2. 设定即物理 — 不违反已有规则
+//! 3. 发明需识别 — 新实体必须入库
+
+use crate::db::{DbPool, StoryContractRepository, ChapterCommitRepository};
+use crate::vector::lancedb_store::LanceVectorStore;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+pub mod contract_builder;
+pub mod preflight;
+pub mod projection_writers;
+
+/// 合同类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContractType {
+    MasterSetting,
+    Volume,
+    Chapter,
+    Review,
+}
+
+impl std::fmt::Display for ContractType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ContractType::MasterSetting => "MASTER_SETTING",
+            ContractType::Volume => "VOLUME",
+            ContractType::Chapter => "CHAPTER",
+            ContractType::Review => "REVIEW",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+/// Story System 引擎
+pub struct StorySystemEngine {
+    pool: DbPool,
+}
+
+impl StorySystemEngine {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    /// 创建 MASTER_SETTING 合同
+    pub fn create_master_setting(
+        &self,
+        story_id: &str,
+        genre: &str,
+        core_tone: &str,
+        pacing_strategy: &str,
+        anti_patterns: &[String],
+        world_rules: &[String],
+    ) -> Result<crate::db::StoryContract, String> {
+        let contract = MasterSettingContract {
+            schema_version: "story-system/v1".to_string(),
+            contract_type: "MASTER_SETTING".to_string(),
+            generator_version: "v6.0.0".to_string(),
+            genre: genre.to_string(),
+            core_tone: core_tone.to_string(),
+            pacing_strategy: pacing_strategy.to_string(),
+            anti_patterns: anti_patterns.to_vec(),
+            world_rules: world_rules.to_vec(),
+        };
+
+        let json = serde_json::to_string(&contract)
+            .map_err(|e| format!("序列化合同失败: {}", e))?;
+
+        let repo = StoryContractRepository::new(self.pool.clone());
+        repo.create(story_id, "MASTER_SETTING", &json)
+            .map_err(|e| format!("创建合同失败: {}", e))
+    }
+
+    /// 创建章节合同
+    pub fn create_chapter_contract(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+        goal: &str,
+        must_cover_nodes: &[String],
+        forbidden_zones: &[String],
+        time_anchor: Option<&str>,
+        chapter_span: Option<&str>,
+    ) -> Result<crate::db::StoryContract, String> {
+        let contract = ChapterContract {
+            schema_version: "story-system/v1".to_string(),
+            contract_type: "CHAPTER".to_string(),
+            generator_version: "v6.0.0".to_string(),
+            chapter_number,
+            chapter_directive: ChapterDirective {
+                goal: goal.to_string(),
+                must_cover_nodes: must_cover_nodes.to_vec(),
+                forbidden_zones: forbidden_zones.to_vec(),
+                time_anchor: time_anchor.map(|s| s.to_string()),
+                chapter_span: chapter_span.map(|s| s.to_string()),
+            },
+        };
+
+        let json = serde_json::to_string(&contract)
+            .map_err(|e| format!("序列化合同失败: {}", e))?;
+
+        let repo = StoryContractRepository::new(self.pool.clone());
+        repo.create(story_id, "CHAPTER", &json)
+            .map_err(|e| format!("创建合同失败: {}", e))
+    }
+
+    /// 获取故事的合同树
+    pub fn get_contract_tree(&self, story_id: &str) -> Result<ContractTree, String> {
+        let repo = StoryContractRepository::new(self.pool.clone());
+        let contracts = repo.get_by_story(story_id)
+            .map_err(|e| format!("查询合同失败: {}", e))?;
+
+        let mut tree = ContractTree {
+            master_setting: None,
+            volumes: HashMap::new(),
+            chapters: HashMap::new(),
+            reviews: HashMap::new(),
+        };
+
+        for contract in contracts {
+            match contract.contract_type.as_str() {
+                "MASTER_SETTING" => {
+                    tree.master_setting = Some(contract);
+                }
+                "VOLUME" => {
+                    tree.volumes.insert(contract.id.clone(), contract);
+                }
+                "CHAPTER" => {
+                    tree.chapters.insert(contract.id.clone(), contract);
+                }
+                "REVIEW" => {
+                    tree.reviews.insert(contract.id.clone(), contract);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(tree)
+    }
+
+    /// 获取指定章节的运行时合同
+    pub fn get_runtime_contract(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<RuntimeContract, String> {
+        let tree = self.get_contract_tree(story_id)?;
+
+        let master = tree.master_setting
+            .ok_or_else(|| "缺少 MASTER_SETTING 合同".to_string())?;
+
+        // 查找章节合同
+        let chapter_contract = tree.chapters.values()
+            .find(|c| {
+                if let Ok(cc) = serde_json::from_str::<ChapterContract>(&c.contract_json) {
+                    cc.chapter_number == chapter_number
+                } else {
+                    false
+                }
+            })
+            .cloned();
+
+        Ok(RuntimeContract {
+            master_setting: master,
+            chapter_contract,
+        })
+    }
+}
+
+/// 合同树
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractTree {
+    pub master_setting: Option<crate::db::StoryContract>,
+    pub volumes: HashMap<String, crate::db::StoryContract>,
+    pub chapters: HashMap<String, crate::db::StoryContract>,
+    pub reviews: HashMap<String, crate::db::StoryContract>,
+}
+
+/// 运行时合同（写前加载）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeContract {
+    pub master_setting: crate::db::StoryContract,
+    pub chapter_contract: Option<crate::db::StoryContract>,
+}
+
+/// MASTER_SETTING 合同结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasterSettingContract {
+    #[serde(rename = "schema_version")]
+    pub schema_version: String,
+    #[serde(rename = "contract_type")]
+    pub contract_type: String,
+    #[serde(rename = "generator_version")]
+    pub generator_version: String,
+    pub genre: String,
+    #[serde(rename = "core_tone")]
+    pub core_tone: String,
+    #[serde(rename = "pacing_strategy")]
+    pub pacing_strategy: String,
+    #[serde(rename = "anti_patterns")]
+    pub anti_patterns: Vec<String>,
+    #[serde(rename = "world_rules")]
+    pub world_rules: Vec<String>,
+}
+
+/// 章节合同结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChapterContract {
+    #[serde(rename = "schema_version")]
+    pub schema_version: String,
+    #[serde(rename = "contract_type")]
+    pub contract_type: String,
+    #[serde(rename = "generator_version")]
+    pub generator_version: String,
+    #[serde(rename = "chapter_number")]
+    pub chapter_number: i32,
+    #[serde(rename = "chapter_directive")]
+    pub chapter_directive: ChapterDirective,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChapterDirective {
+    pub goal: String,
+    #[serde(rename = "must_cover_nodes")]
+    pub must_cover_nodes: Vec<String>,
+    #[serde(rename = "forbidden_zones")]
+    pub forbidden_zones: Vec<String>,
+    #[serde(rename = "time_anchor")]
+    pub time_anchor: Option<String>,
+    #[serde(rename = "chapter_span")]
+    pub chapter_span: Option<String>,
+}
+
+/// CHAPTER_COMMIT 服务
+pub struct ChapterCommitService {
+    pool: DbPool,
+}
+
+impl ChapterCommitService {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    /// 初始化 commit（写作前）
+    pub fn init_commit(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_number: i32,
+    ) -> Result<crate::db::ChapterCommit, String> {
+        let repo = ChapterCommitRepository::new(self.pool.clone());
+        repo.create(story_id, scene_id, chapter_number, "pending")
+            .map_err(|e| format!("初始化 commit 失败: {}", e))
+    }
+
+    /// 提交 accepted commit（异步，含投影写入）
+    pub async fn apply_commit(
+        &self,
+        commit_id: &str,
+        outline_snapshot_json: &str,
+        review_result_json: &str,
+        fulfillment_result_json: &str,
+        accepted_events_json: &str,
+        state_deltas_json: &str,
+        entity_deltas_json: &str,
+        summary_text: &str,
+        dominant_strand: &str,
+        vector_store: Option<&LanceVectorStore>,
+    ) -> Result<(), String> {
+        let repo = ChapterCommitRepository::new(self.pool.clone());
+
+        // 先更新 commit 状态
+        repo.update_commit(
+            commit_id,
+            "accepted",
+            Some(outline_snapshot_json),
+            Some(review_result_json),
+            Some(fulfillment_result_json),
+            Some(accepted_events_json),
+            Some(state_deltas_json),
+            Some(entity_deltas_json),
+            Some(summary_text),
+            Some(dominant_strand),
+            None,
+        ).map_err(|e| format!("更新 commit 失败: {}", e))?;
+
+        // 获取 commit 所属 story_id 和 chapter_number
+        let commit = repo.get_by_id(commit_id)
+            .map_err(|e| format!("查询 commit 失败: {}", e))?
+            .ok_or_else(|| "Commit 不存在".to_string())?;
+
+        let story_id = commit.story_id.clone();
+        let chapter_number = commit.chapter_number;
+
+        // 构建 commit JSON 供 projection writers 使用
+        let commit_json = serde_json::json!({
+            "state_deltas_json": state_deltas_json,
+            "entity_deltas_json": entity_deltas_json,
+            "accepted_events_json": accepted_events_json,
+            "summary_text": summary_text,
+        }).to_string();
+
+        // 执行同步 projection writers
+        let writers = projection_writers::get_projection_writers(self.pool.clone());
+        let mut projection_status = serde_json::json!({
+            "state": "pending",
+            "index": "pending",
+            "summary": "pending",
+            "memory": "pending",
+            "vector": "pending",
+        });
+
+        for writer in writers {
+            let name = writer.name();
+            match writer.apply(&story_id, chapter_number, &commit_json) {
+                Ok(true) => {
+                    projection_status[name] = serde_json::json!("success");
+                }
+                Ok(false) => {
+                    projection_status[name] = serde_json::json!("skipped");
+                }
+                Err(e) => {
+                    projection_status[name] = serde_json::json!(format!("error: {}", e));
+                }
+            }
+        }
+
+        // 执行向量投影（异步）
+        if let Some(store) = vector_store {
+            match projection_writers::apply_vector_projection(
+                store, &story_id, chapter_number, summary_text
+            ).await {
+                Ok(_) => {
+                    projection_status["vector"] = serde_json::json!("success");
+                }
+                Err(e) => {
+                    projection_status["vector"] = serde_json::json!(format!("error: {}", e));
+                }
+            }
+        } else {
+            projection_status["vector"] = serde_json::json!("skipped: no_store");
+        }
+
+        // 更新投影状态
+        repo.update_projection_status(commit_id, &projection_status.to_string())
+            .map_err(|e| format!("更新投影状态失败: {}", e))?;
+
+        Ok(())
+    }
+}

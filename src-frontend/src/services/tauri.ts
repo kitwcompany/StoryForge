@@ -596,3 +596,285 @@ export const createRelation = (params: {
 
 export const getEntityRelations = (entityId: string) =>
   loggedInvoke<import('@/types/v3').Relation[]>('get_entity_relations', { entity_id: entityId });
+
+// ==================== v6.0.0: Story System ====================
+
+export interface StoryContract {
+  id: string;
+  story_id: string;
+  contract_type: string;
+  contract_json: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChapterCommit {
+  id: string;
+  story_id: string;
+  scene_id: string | null;
+  chapter_number: number;
+  status: string;
+  outline_snapshot_json: string | null;
+  review_result_json: string | null;
+  fulfillment_result_json: string | null;
+  accepted_events_json: string | null;
+  state_deltas_json: string | null;
+  entity_deltas_json: string | null;
+  summary_text: string | null;
+  dominant_strand: string | null;
+  projection_status_json: string | null;
+  created_at: string;
+}
+
+export interface ContractTree {
+  master_setting: StoryContract | null;
+  volumes: Record<string, StoryContract>;
+  chapters: Record<string, StoryContract>;
+  reviews: Record<string, StoryContract>;
+}
+
+export interface RuntimeContract {
+  master_setting: StoryContract;
+  chapter_contract: StoryContract | null;
+}
+
+export const createMasterSetting = (params: {
+  story_id: string;
+  genre: string;
+  core_tone: string;
+  pacing_strategy: string;
+  anti_patterns: string[];
+  world_rules: string[];
+}) => loggedInvoke<StoryContract>('create_master_setting', params);
+
+export const createChapterContract = (params: {
+  story_id: string;
+  chapter_number: number;
+  goal: string;
+  must_cover_nodes: string[];
+  forbidden_zones: string[];
+  time_anchor?: string;
+  chapter_span?: string;
+}) => loggedInvoke<StoryContract>('create_chapter_contract', params);
+
+export const getContractTree = (storyId: string) =>
+  loggedInvoke<ContractTree>('get_contract_tree', { story_id: storyId });
+
+export const getRuntimeContract = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<RuntimeContract>('get_runtime_contract', { story_id: storyId, chapter_number: chapterNumber });
+
+export const initChapterCommit = (storyId: string, chapterNumber: number, sceneId?: string) =>
+  loggedInvoke<ChapterCommit>('init_chapter_commit', { story_id: storyId, chapter_number: chapterNumber, scene_id: sceneId });
+
+export const applyChapterCommit = (params: {
+  commit_id: string;
+  outline_snapshot_json: string;
+  review_result_json: string;
+  fulfillment_result_json: string;
+  accepted_events_json: string;
+  state_deltas_json: string;
+  entity_deltas_json: string;
+  summary_text: string;
+  dominant_strand: string;
+}) => loggedInvoke<void>('apply_chapter_commit', params);
+
+export const getChapterCommits = (storyId: string) =>
+  loggedInvoke<ChapterCommit[]>('get_chapter_commits', { story_id: storyId });
+
+// ==================== v6.0.0: Memory System ====================
+
+export interface MemoryPack {
+  working_memory: MemoryEntry[];
+  episodic_memory: MemoryEntry[];
+  semantic_memory: MemoryItemDto[];
+  long_term_facts: MemoryItemDto[];
+  active_constraints: string[];
+  recent_changes: string[];
+  warnings: MemoryWarning[];
+  stats: MemoryStats;
+}
+
+export interface MemoryEntry {
+  subject: string;
+  field: string;
+  value: string;
+  source_chapter: number;
+}
+
+export interface MemoryItemDto {
+  id: string;
+  category: string;
+  subject: string | null;
+  field: string | null;
+  value: string | null;
+  source_chapter: number | null;
+  confidence: number;
+}
+
+export interface MemoryWarning {
+  category: string;
+  subject: string;
+  count: number;
+}
+
+export interface MemoryStats {
+  total: number;
+  working_total: number;
+  episodic_total: number;
+  semantic_total: number;
+  injected: number;
+  layered_total_injected: number;
+  filtered: number;
+  conflicts: number;
+}
+
+export interface MemoryItem {
+  id: string;
+  story_id: string;
+  category: string;
+  subject: string | null;
+  field: string | null;
+  value: string | null;
+  source_chapter: number | null;
+  confidence: number;
+  status: string;
+  updated_at: string;
+}
+
+export const buildMemoryPack = (storyId: string, chapterNumber: number, taskType: string, outline?: string) =>
+  loggedInvoke<MemoryPack>('build_memory_pack', { story_id: storyId, chapter_number: chapterNumber, task_type: taskType, outline });
+
+export const getMemoryItems = (storyId: string) =>
+  loggedInvoke<MemoryItem[]>('get_memory_items', { story_id: storyId });
+
+export const createMemoryItem = (params: {
+  story_id: string;
+  category: string;
+  subject?: string;
+  field?: string;
+  value?: string;
+  source_chapter?: number;
+  confidence: number;
+}) => loggedInvoke<MemoryItem>('create_memory_item', params);
+
+// ==================== v6.0.0: Reading Power ====================
+
+export interface ReadingPowerEvaluation {
+  chapter_number: number;
+  hook_type: string | null;
+  hook_strength: string;
+  coolpoint_patterns: string[];
+  micropayoffs: string[];
+  hard_violations: string[];
+  soft_suggestions: string[];
+  is_transition: boolean;
+  override_count: number;
+  debt_balance: number;
+  score: number;
+}
+
+export interface ChaseDebt {
+  id: number;
+  story_id: string;
+  debt_type: string;
+  original_amount: number;
+  current_amount: number;
+  interest_rate: number;
+  source_chapter: number;
+  due_chapter: number;
+  override_contract_id: number | null;
+  status: string;
+  created_at: string;
+}
+
+export interface OverrideContract {
+  id: number;
+  story_id: string;
+  chapter_number: number;
+  constraint_type: string;
+  constraint_id: string;
+  rationale_type: string;
+  rationale_text: string;
+  payback_plan: string;
+  due_chapter: number;
+  status: string;
+  fulfilled_at: string | null;
+  created_at: string;
+}
+
+export const evaluateReadingPower = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<ReadingPowerEvaluation>('evaluate_reading_power', { story_id: storyId, chapter_number: chapterNumber });
+
+export const getReadingPowerTrend = (storyId: string, lastN: number) =>
+  loggedInvoke<ReadingPowerEvaluation[]>('get_reading_power_trend', { story_id: storyId, last_n: lastN });
+
+export const getChaseDebts = (storyId: string) =>
+  loggedInvoke<ChaseDebt[]>('get_chase_debts', { story_id: storyId });
+
+export const createOverrideContract = (params: {
+  story_id: string;
+  chapter_number: number;
+  constraint_type: string;
+  constraint_id: string;
+  rationale_type: string;
+  rationale_text: string;
+  payback_plan: string;
+  due_chapter: number;
+}) => loggedInvoke<OverrideContract>('create_override_contract', params);
+
+// ==================== v6.0.0: Genre Profiles ====================
+
+export interface GenreProfile {
+  id: number;
+  genre_name: string;
+  canonical_name: string;
+  aliases: string[];
+  core_tone: string;
+  pacing_strategy: string;
+  anti_patterns: string[];
+  reference_tables: string[];
+  is_builtin: boolean;
+  created_at: string;
+}
+
+export const getGenreProfiles = () =>
+  loggedInvoke<GenreProfile[]>('get_genre_profiles');
+
+export const getGenreProfile = (genreName: string) =>
+  loggedInvoke<GenreProfile | null>('get_genre_profile', { genre_name: genreName });
+
+// ==================== v6.0.0: Anti-AI Review ====================
+
+export interface AntiAiReview {
+  overall_score: number;
+  dimensions: DimensionScore[];
+  issues: ReviewIssue[];
+  suggestions: string[];
+  flagged_passages: FlaggedPassage[];
+}
+
+export interface DimensionScore {
+  name: string;
+  score: number;
+  weight: number;
+  description: string;
+}
+
+export interface ReviewIssue {
+  dimension: string;
+  severity: string;
+  description: string;
+  example: string;
+  suggestion: string;
+}
+
+export interface FlaggedPassage {
+  text: string;
+  dimension: string;
+  reason: string;
+  position: number;
+}
+
+export const antiAiReview = (text: string, genre?: string) =>
+  loggedInvoke<AntiAiReview>('anti_ai_review', { text, genre });

@@ -37,6 +37,9 @@ mod auth;
 mod state_sync;
 mod logging;
 mod automation;
+mod story_system;
+mod reading_power;
+mod anti_ai;
 
 #[cfg(test)]
 mod test_utils;
@@ -678,6 +681,28 @@ pub fn run() {
             logging::write_frontend_log,
             logging::get_log_directory,
             logging::get_recent_logs,
+            // Story System commands (v6.0.0)
+            create_master_setting,
+            create_chapter_contract,
+            get_contract_tree,
+            get_runtime_contract,
+            init_chapter_commit,
+            apply_chapter_commit,
+            get_chapter_commits,
+            // Memory commands (v6.0.0)
+            build_memory_pack,
+            get_memory_items,
+            create_memory_item,
+            // Reading Power commands (v6.0.0)
+            evaluate_reading_power,
+            get_reading_power_trend,
+            get_chase_debts,
+            create_override_contract,
+            // Genre Profile commands (v6.0.0)
+            get_genre_profiles,
+            get_genre_profile,
+            // Anti-AI Review command (v6.0.0)
+            anti_ai_review,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -2856,4 +2881,212 @@ async fn evolve_capabilities(app_handle: AppHandle) -> Result<Vec<(String, Strin
     }));
     log::info!("[evolve_capabilities] 进化完成，生成 {} 条改进建议", improvements.len());
     Ok(improvements)
+}
+
+// ==================== v6.0.0: Story System Commands ====================
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_master_setting(
+    story_id: String,
+    genre: String,
+    core_tone: String,
+    pacing_strategy: String,
+    anti_patterns: Vec<String>,
+    world_rules: Vec<String>,
+) -> Result<crate::db::StoryContract, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let engine = story_system::StorySystemEngine::new(pool);
+    engine.create_master_setting(
+        &story_id, &genre, &core_tone, &pacing_strategy, &anti_patterns, &world_rules
+    )
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_chapter_contract(
+    story_id: String,
+    chapter_number: i32,
+    goal: String,
+    must_cover_nodes: Vec<String>,
+    forbidden_zones: Vec<String>,
+    time_anchor: Option<String>,
+    chapter_span: Option<String>,
+) -> Result<crate::db::StoryContract, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let engine = story_system::StorySystemEngine::new(pool);
+    engine.create_chapter_contract(
+        &story_id, chapter_number, &goal, &must_cover_nodes, &forbidden_zones,
+        time_anchor.as_deref(), chapter_span.as_deref()
+    )
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_contract_tree(story_id: String) -> Result<story_system::ContractTree, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let engine = story_system::StorySystemEngine::new(pool);
+    engine.get_contract_tree(&story_id)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_runtime_contract(
+    story_id: String,
+    chapter_number: i32,
+) -> Result<story_system::RuntimeContract, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let engine = story_system::StorySystemEngine::new(pool);
+    engine.get_runtime_contract(&story_id, chapter_number)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn init_chapter_commit(
+    story_id: String,
+    scene_id: Option<String>,
+    chapter_number: i32,
+) -> Result<crate::db::ChapterCommit, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let service = story_system::ChapterCommitService::new(pool);
+    service.init_commit(&story_id, scene_id.as_deref(), chapter_number)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn apply_chapter_commit(
+    commit_id: String,
+    outline_snapshot_json: String,
+    review_result_json: String,
+    fulfillment_result_json: String,
+    accepted_events_json: String,
+    state_deltas_json: String,
+    entity_deltas_json: String,
+    summary_text: String,
+    dominant_strand: String,
+) -> Result<(), String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let service = story_system::ChapterCommitService::new(pool);
+    let store = VECTOR_STORE.get();
+    service.apply_commit(
+        &commit_id, &outline_snapshot_json, &review_result_json,
+        &fulfillment_result_json, &accepted_events_json, &state_deltas_json,
+        &entity_deltas_json, &summary_text, &dominant_strand,
+        store
+    ).await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_chapter_commits(story_id: String) -> Result<Vec<crate::db::ChapterCommit>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::ChapterCommitRepository::new(pool);
+    repo.get_by_story(&story_id).map_err(|e| e.to_string())
+}
+
+// ==================== v6.0.0: Memory Commands ====================
+
+#[tauri::command(rename_all = "snake_case")]
+fn build_memory_pack(
+    story_id: String,
+    chapter_number: i32,
+    task_type: String,
+    outline: Option<String>,
+) -> Result<memory::MemoryPack, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let orchestrator = memory::MemoryOrchestrator::new(pool);
+    orchestrator.build_memory_pack(&story_id, chapter_number, &task_type, outline.as_deref()
+    )
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_memory_items(story_id: String) -> Result<Vec<crate::db::MemoryItem>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::MemoryItemRepository::new(pool);
+    repo.get_active_by_story(&story_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_memory_item(
+    story_id: String,
+    category: String,
+    subject: Option<String>,
+    field: Option<String>,
+    value: Option<String>,
+    source_chapter: Option<i32>,
+    confidence: f32,
+) -> Result<crate::db::MemoryItem, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::MemoryItemRepository::new(pool);
+    repo.create(&story_id, &category, subject.as_deref(), field.as_deref(),
+        value.as_deref(), source_chapter, confidence
+    ).map_err(|e| e.to_string())
+}
+
+// ==================== v6.0.0: Reading Power Commands ====================
+
+#[tauri::command(rename_all = "snake_case")]
+fn evaluate_reading_power(
+    story_id: String,
+    chapter_number: i32,
+) -> Result<reading_power::ReadingPowerEvaluation, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let evaluator = reading_power::ReadingPowerEvaluator::new(pool);
+    evaluator.evaluate(&story_id, chapter_number)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_reading_power_trend(
+    story_id: String,
+    last_n: i64,
+) -> Result<Vec<reading_power::ReadingPowerEvaluation>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let evaluator = reading_power::ReadingPowerEvaluator::new(pool);
+    evaluator.get_trend(&story_id, last_n)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_chase_debts(story_id: String) -> Result<Vec<crate::db::ChaseDebt>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::ChaseDebtRepository::new(pool);
+    repo.get_active_by_story(&story_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_override_contract(
+    story_id: String,
+    chapter_number: i32,
+    constraint_type: String,
+    constraint_id: String,
+    rationale_type: String,
+    rationale_text: String,
+    payback_plan: String,
+    due_chapter: i32,
+) -> Result<crate::db::OverrideContract, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let manager = reading_power::DebtManager::new(pool);
+    manager.create_override_contract(
+        &story_id, chapter_number, &constraint_type, &constraint_id,
+        &rationale_type, &rationale_text, &payback_plan, due_chapter
+    )
+}
+
+// ==================== v6.0.0: Genre Profile Commands ====================
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_genre_profiles() -> Result<Vec<crate::db::GenreProfile>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::GenreProfileRepository::new(pool);
+    repo.get_all().map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_genre_profile(genre_name: String) -> Result<Option<crate::db::GenreProfile>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::GenreProfileRepository::new(pool);
+    repo.get_by_name(&genre_name).map_err(|e| e.to_string())
+}
+
+// ==================== v6.0.0: Anti-AI Review Command ====================
+
+#[tauri::command(rename_all = "snake_case")]
+fn anti_ai_review(
+    text: String,
+    genre: Option<String>,
+) -> Result<anti_ai::AntiAiReview, String> {
+    let reviewer = anti_ai::AntiAiReviewer::new();
+    Ok(reviewer.review(&text, genre.as_deref()))
 }

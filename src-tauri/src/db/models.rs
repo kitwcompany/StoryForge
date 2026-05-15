@@ -210,3 +210,129 @@ pub struct CreateAiOperationRequest {
     pub new_content: Option<String>,
     pub metadata: Option<String>,
 }
+
+// ==================== Story System Models (v6.0.0) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryContract {
+    pub id: String,
+    pub story_id: String,
+    pub contract_type: String, // MASTER_SETTING | VOLUME | CHAPTER | REVIEW
+    pub contract_json: String,
+    pub version: i32,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChapterCommit {
+    pub id: String,
+    pub story_id: String,
+    pub scene_id: Option<String>,
+    pub chapter_number: i32,
+    pub status: String, // pending | accepted | rejected
+    pub outline_snapshot_json: Option<String>,
+    pub review_result_json: Option<String>,
+    pub fulfillment_result_json: Option<String>,
+    pub accepted_events_json: Option<String>,
+    pub state_deltas_json: Option<String>,
+    pub entity_deltas_json: Option<String>,
+    pub summary_text: Option<String>,
+    pub dominant_strand: Option<String>,
+    pub projection_status_json: Option<String>,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryItem {
+    pub id: String,
+    pub story_id: String,
+    pub category: String, // world_rule | character_state | relationship | story_fact | open_loop | reader_promise | timeline
+    pub subject: Option<String>,
+    pub field: Option<String>,
+    pub value: Option<String>,
+    pub source_chapter: Option<i32>,
+    pub confidence: f32,
+    pub status: String, // active | archived | conflicting
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChapterReadingPower {
+    pub id: String,
+    pub story_id: String,
+    pub scene_id: Option<String>,
+    pub chapter_number: i32,
+    pub hook_type: Option<String>,
+    pub hook_strength: String,
+    pub coolpoint_patterns_json: Option<String>,
+    pub micropayoffs_json: Option<String>,
+    pub hard_violations_json: Option<String>,
+    pub soft_suggestions_json: Option<String>,
+    pub is_transition: bool,
+    pub override_count: i32,
+    pub debt_balance: f64,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaseDebt {
+    pub id: i64,
+    pub story_id: String,
+    pub debt_type: String,
+    pub original_amount: f64,
+    pub current_amount: f64,
+    pub interest_rate: f64,
+    pub source_chapter: i32,
+    pub due_chapter: i32,
+    pub override_contract_id: Option<i64>,
+    pub status: String, // active | paid | overdue | written_off
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverrideContract {
+    pub id: i64,
+    pub story_id: String,
+    pub chapter_number: i32,
+    pub constraint_type: String,
+    pub constraint_id: String,
+    pub rationale_type: String,
+    pub rationale_text: String,
+    pub payback_plan: String,
+    pub due_chapter: i32,
+    pub status: String, // pending | fulfilled | overdue | cancelled
+    pub fulfilled_at: Option<DateTime<Local>>,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewIssue {
+    pub id: String,
+    pub story_id: String,
+    pub scene_id: Option<String>,
+    pub chapter_number: i32,
+    pub severity: String, // critical | high | medium | low
+    pub category: String, // continuity | setting | character | timeline | ai_flavor | logic | pacing | other
+    pub location: Option<String>,
+    pub description: String,
+    pub evidence: Option<String>,
+    pub fix_hint: Option<String>,
+    pub blocking: bool,
+    pub resolved: bool,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenreProfile {
+    pub id: String,
+    pub genre_name: String,
+    pub canonical_name: String,
+    pub aliases_json: Option<String>,
+    pub core_tone: Option<String>,
+    pub pacing_strategy: Option<String>,
+    pub anti_patterns_json: Option<String>,
+    pub reference_tables_json: Option<String>,
+    pub is_builtin: bool,
+    pub created_at: DateTime<Local>,
+}

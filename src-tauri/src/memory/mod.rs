@@ -17,8 +17,13 @@ pub mod query;
 pub mod multi_agent;
 pub mod hybrid_search;
 pub mod retention;
+pub mod orchestrator;
 
 pub use tokenizer::CJKTokenizer;
+pub use orchestrator::{
+    MemoryOrchestrator, MemoryPack, MemoryEntry, MemoryItemDto,
+    MemoryWarning, MemoryStats, MemoryBudget, MEMORY_PRIORITY,
+};
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
 pub struct ShortTermMemory {
