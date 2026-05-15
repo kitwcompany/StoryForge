@@ -1,6 +1,7 @@
 // CINEMA-AI Frontend Types
 export * from './llm';
 export * from './v3';
+export * from './pipeline';
 
 export interface User {
   id: string;
@@ -75,6 +76,15 @@ export interface Character {
   appearance?: string;
   gender?: string;
   age?: number;
+  // v7.0.0: 动态状态字段
+  cs_location?: string;
+  cs_power_level?: string;
+  cs_physical_state?: string;
+  cs_mental_state?: string;
+  cs_key_items?: string;
+  cs_recent_events?: string;
+  cs_updated_at_chapter?: number;
+  cs_json?: string;
   created_at: string;
   updated_at: string;
 }
@@ -258,6 +268,7 @@ export type ViewType =
   | 'foreshadowing'
   | 'creation-wizard'
   | 'story-system'
+  | 'usage-stats'
   | 'settings';
 
 // ===== Intent Engine Types =====

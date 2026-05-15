@@ -7,7 +7,7 @@ import {
   Plug, Zap, XCircle, Timer, PenTool, Hourglass, 
   Ban, AlertTriangle, BookOpen, Sparkles, Loader2, Settings2
 } from 'lucide-react';
-import { writerAgentExecute, recordFeedback, smartExecute, getInputHint } from '@/services/tauri';
+import { writerAgentExecute, recordFeedback, smartExecute, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
 import { modelService } from '@/services/modelService';
 import { cn } from '@/utils/cn';
 import { autoFormatText } from '@/utils/format';
@@ -1420,6 +1420,68 @@ const FrontstageApp: React.FC = () => {
     }
   }, [handleInputSubmit, ghostHint, inputValue, hintSource, historyIndex, inputHistory, fetchSmartHint]);
 
+  // Pipeline 命令处理
+  const handlePipelineRefine = useCallback(async () => {
+    if (!currentStory?.id || !currentChapter) {
+      toast.error('请先选择故事和章节');
+      return;
+    }
+    try {
+      toast.loading('正在执行 AI 修稿...', { id: 'pipeline-refine' });
+      const draft = await getPipelineActiveDraft(currentStory.id, currentChapter.chapter_number);
+      if (!draft) {
+        toast.error('当前章节没有活跃草稿', { id: 'pipeline-refine' });
+        return;
+      }
+      const result = await runRefine(currentStory.id, draft.id, undefined);
+      toast.success(`修稿完成：${result.change_summary || '已生成修订版本'}`, { id: 'pipeline-refine' });
+      // 刷新编辑器内容
+      if (result.refined_content) {
+        editorRef.current?.setContent(result.refined_content);
+      }
+    } catch (e: any) {
+      toast.error('修稿失败: ' + (e.message || String(e)), { id: 'pipeline-refine' });
+    }
+  }, [currentStory, currentChapter]);
+
+  const handlePipelineReview = useCallback(async () => {
+    if (!currentStory?.id || !currentChapter) {
+      toast.error('请先选择故事和章节');
+      return;
+    }
+    try {
+      toast.loading('正在执行 AI 审稿...', { id: 'pipeline-review' });
+      const draft = await getPipelineActiveDraft(currentStory.id, currentChapter.chapter_number);
+      if (!draft) {
+        toast.error('当前章节没有活跃草稿', { id: 'pipeline-review' });
+        return;
+      }
+      const result = await runReview(currentStory.id, draft.id, undefined);
+      toast.success(`审稿完成：综合评分 ${result.overall_score}分`, { id: 'pipeline-review' });
+    } catch (e: any) {
+      toast.error('审稿失败: ' + (e.message || String(e)), { id: 'pipeline-review' });
+    }
+  }, [currentStory, currentChapter]);
+
+  const handlePipelineFinalize = useCallback(async () => {
+    if (!currentStory?.id || !currentChapter) {
+      toast.error('请先选择故事和章节');
+      return;
+    }
+    try {
+      toast.loading('正在定稿...', { id: 'pipeline-finalize' });
+      const draft = await getPipelineActiveDraft(currentStory.id, currentChapter.chapter_number);
+      if (!draft) {
+        toast.error('当前章节没有活跃草稿', { id: 'pipeline-finalize' });
+        return;
+      }
+      await runFinalize(currentStory.id, draft.id, currentChapter.chapter_number, currentChapter.title);
+      toast.success('定稿完成，后处理已启动', { id: 'pipeline-finalize' });
+    } catch (e: any) {
+      toast.error('定稿失败: ' + (e.message || String(e)), { id: 'pipeline-finalize' });
+    }
+  }, [currentStory, currentChapter]);
+
   // 处理编辑器 Slash 命令
   const handleSlashCommand = useCallback((commandId: string) => {
     if (commandId === 'auto_write') {
@@ -1433,6 +1495,12 @@ const FrontstageApp: React.FC = () => {
     } else if (commandId === 'dialog') {
       setWenSiTab('dialog');
       setShowWenSiPanel(true);
+    } else if (commandId === 'pipeline_refine') {
+      handlePipelineRefine();
+    } else if (commandId === 'pipeline_review') {
+      handlePipelineReview();
+    } else if (commandId === 'pipeline_finalize') {
+      handlePipelineFinalize();
     }
   }, []);
 

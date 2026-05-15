@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2, Eye, Users, FileText, LayoutList, History, RotateCcw } from 'lucide-react';
+import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette, ChevronDown, Wand2, Eye, Users, FileText, LayoutList, History, RotateCcw, GitMerge } from 'lucide-react';
 import { useWorkflowProgress } from '@/hooks/useWorkflowProgress';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -127,6 +127,58 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
           )}
         </div>
       </div>
+
+      {/* Pipeline Progress */}
+      {scenes.length > 0 && (
+        <div>
+          <h4 className="text-sm font-medium text-cinema-gold mb-2 flex items-center gap-1.5">
+            <GitMerge className="w-3.5 h-3.5" />
+            创作管线进度
+          </h4>
+          <div className="space-y-1.5">
+            {scenes.map((scene) => {
+              const stage = scene.execution_stage || 'planning';
+              const stageColors: Record<string, string> = {
+                planning: 'bg-gray-500/20 text-gray-400',
+                outline: 'bg-blue-500/20 text-blue-400',
+                drafting: 'bg-purple-500/20 text-purple-400',
+                review: 'bg-amber-500/20 text-amber-400',
+                final: 'bg-green-500/20 text-green-400',
+              };
+              const stageLabels: Record<string, string> = {
+                planning: '策划',
+                outline: '大纲',
+                drafting: '草稿',
+                review: '审稿',
+                final: '定稿',
+              };
+              return (
+                <div key={scene.id} className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-500 w-8">#{scene.sequence_number}</span>
+                  <span className="text-white/70 flex-1 truncate">{scene.title || `场景 ${scene.sequence_number}`}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${stageColors[stage] || stageColors.planning}`}>
+                    {stageLabels[stage] || stage}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 h-1.5 bg-cinema-800 rounded-full overflow-hidden flex">
+            {scenes.map((scene) => {
+              const stage = scene.execution_stage || 'planning';
+              const stageColor = stage === 'final' ? 'bg-green-400' : stage === 'review' ? 'bg-amber-400' : stage === 'drafting' ? 'bg-purple-400' : stage === 'outline' ? 'bg-blue-400' : 'bg-gray-600';
+              return (
+                <div
+                  key={scene.id}
+                  className={`h-full ${stageColor}`}
+                  style={{ width: `${100 / scenes.length}%` }}
+                  title={`场景 ${scene.sequence_number}: ${scene.title || ''} (${stage})`}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* AI Operation History */}
       {operations.length > 0 && (

@@ -106,6 +106,7 @@ export interface RichTextEditorRef {
   getSelectedText: () => string;
   focus: () => void;
   generateCommentary: () => void;
+  setContent: (text: string) => void;
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
@@ -601,6 +602,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         onSlashCommand?.('auto_write');
       } else if (text === '审校') {
         onSlashCommand?.('auto_revise');
+      } else if (text === 'AI修稿' || text === '修稿') {
+        onSlashCommand?.('pipeline_refine');
+      } else if (text === 'AI审稿' || text === '审稿') {
+        onSlashCommand?.('pipeline_review');
+      } else if (text === '定稿') {
+        onSlashCommand?.('pipeline_finalize');
       } else {
         onSmartGeneration?.(text);
       }
@@ -772,6 +779,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       focus: () => editor?.commands.focus(),
       generateCommentary: () => {
         handleGenerateCommentary();
+      },
+      setContent: (text: string) => {
+        if (editor) {
+          editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
+        }
       },
     }), [editor, handleGenerateCommentary, selectedRange]);
 

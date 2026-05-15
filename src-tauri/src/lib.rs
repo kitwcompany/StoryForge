@@ -23,6 +23,9 @@ mod utils;
 mod window;
 mod updater;
 mod commands_v3;
+mod commands_pipeline;
+mod pipeline;
+mod knowledge_base;
 mod intent;
 mod creative_engine;
 mod subscription;
@@ -773,6 +776,59 @@ pub fn run() {
             anti_ai_review,
             get_feature_usage_stats,
             log_frontend_feature_usage,
+            // Pipeline commands (v7.0.0)
+            commands_pipeline::create_blueprint,
+            commands_pipeline::get_story_blueprints,
+            commands_pipeline::get_chapter_blueprint,
+            commands_pipeline::update_blueprint,
+            commands_pipeline::delete_blueprint,
+            commands_pipeline::create_draft,
+            commands_pipeline::get_draft,
+            commands_pipeline::get_story_chapter_drafts,
+            commands_pipeline::get_latest_draft,
+            commands_pipeline::get_finalized_draft,
+            commands_pipeline::update_draft_status,
+            commands_pipeline::update_draft_content,
+            commands_pipeline::delete_draft,
+            commands_pipeline::create_revision,
+            commands_pipeline::get_draft_revisions,
+            commands_pipeline::get_revision,
+            commands_pipeline::update_revision_status,
+            commands_pipeline::delete_revision,
+            commands_pipeline::create_pipeline_review,
+            commands_pipeline::get_draft_reviews,
+            commands_pipeline::get_latest_pipeline_review,
+            commands_pipeline::delete_pipeline_review,
+            commands_pipeline::create_post_process_run,
+            commands_pipeline::get_post_process_run,
+            commands_pipeline::get_story_chapter_post_process_runs,
+            commands_pipeline::update_post_process_run_status,
+            commands_pipeline::create_post_process_step,
+            commands_pipeline::get_post_process_steps,
+            commands_pipeline::update_post_process_step_status,
+            commands_pipeline::delete_post_process_run,
+            commands_pipeline::record_llm_call,
+            commands_pipeline::get_story_llm_calls,
+            commands_pipeline::get_recent_llm_calls,
+            commands_pipeline::get_llm_call_stats,
+            commands_pipeline::update_character_state,
+            commands_pipeline::batch_update_character_states,
+            commands_pipeline::get_character_state,
+            // Pipeline orchestrator commands (v7.0.0)
+            pipeline::commands::run_refine,
+            pipeline::commands::run_review,
+            pipeline::commands::run_finalize,
+            pipeline::commands::repair_finalize,
+            pipeline::commands::get_post_process_status,
+            pipeline::commands::get_pipeline_active_draft,
+            pipeline::commands::merge_revision,
+            pipeline::commands::get_draft_revision_history,
+            pipeline::commands::get_draft_review_history,
+            // Knowledge Base commands (v7.0.0)
+            knowledge_base::commands::kb_import_text,
+            knowledge_base::commands::kb_search,
+            knowledge_base::commands::kb_delete_chapter,
+            knowledge_base::commands::kb_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

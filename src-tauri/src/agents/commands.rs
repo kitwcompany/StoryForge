@@ -882,29 +882,46 @@ pub async fn auto_revise_cancel(task_id: String) -> Result<(), String> {
 }
 
 /// 构建Agent上下文
-/// 
-/// 使用 StoryContextBuilder 从数据库读取真实故事数据，
-/// 为Agent提供完整的创作上下文（包含世界观规则、场景结构等）。
+///
+/// 使用 ContextOptimizer (L0/L1/L2) 从数据库读取真实故事数据，
+/// 为Agent提供完整且紧凑的创作上下文。
+/// L0: 静态元数据 | L1: 结构化知识 | L2: 动态工具检索
 pub(crate) async fn build_agent_context(
     app_handle: &AppHandle,
     request: &ExecuteAgentRequest,
 ) -> Result<super::AgentContext, String> {
     use crate::db::DbPool;
-    use crate::creative_engine::StoryContextBuilder;
+    use crate::agents::context_optimizer::{ContextOptimizer, default_writing_tools};
     use tauri::Manager;
 
     let pool = app_handle.state::<DbPool>();
     let story_id = request.story_id.clone();
     let chapter_number = request.chapter_number.unwrap_or(1);
 
-    let builder = StoryContextBuilder::new(pool.inner().clone());
-    let mut context = match builder.build_with_query(&story_id, Some(chapter_number as i32), None, None).await {
+    let optimizer = ContextOptimizer::new(pool.inner().clone());
+
+    // 根据 Agent 类型选择默认 L2 工具
+    let l2_tools = match request.agent_type {
+        super::service::AgentType::Writer => default_writing_tools(chapter_number),
+        super::service::AgentType::Inspector => {
+            crate::agents::context_optimizer::default_inspection_tools(&request.input, chapter_number)
+        }
+        _ => vec![],
+    };
+
+    let mut context = match optimizer.build_full_context(
+        &story_id,
+        chapter_number,
+        None,
+        None,
+        l2_tools,
+    ).await {
         Ok(ctx) => ctx,
         Err(e) => {
-            log::warn!("[build_agent_context] StoryContextBuilder failed: {}, falling back to minimal", e);
+            log::warn!("[build_agent_context] ContextOptimizer failed: {}, falling back to minimal", e);
             let _ = app_handle.emit("context-degraded", serde_json::json!({
                 "story_id": story_id,
-                "reason": format!("StoryContextBuilder failed: {}", e),
+                "reason": format!("ContextOptimizer failed: {}", e),
                 "fallback": "minimal",
             }));
             return Ok(super::AgentContext::minimal(story_id, String::new()));

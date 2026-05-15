@@ -6,6 +6,7 @@ import { StoryTimeline } from '@/components/StoryTimeline';
 import { SceneEditor } from '@/components/SceneEditor';
 import { VersionTimeline } from '@/components/VersionTimeline';
 import { DiffViewer } from '@/components/DiffViewer';
+import { PipelinePanel } from '@/components/pipeline/PipelinePanel';
 import { useScenes, useCreateScene, useUpdateScene, useDeleteScene, useReorderScenes } from '@/hooks/useScenes';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useAppStore } from '@/stores/appStore';
@@ -413,16 +414,25 @@ export function Scenes() {
         )}
       </div>
 
-      {/* Right Panel - Execution Panel */}
+      {/* Right Panel - Pipeline when editing, Execution otherwise */}
       <div className="w-72 flex-shrink-0">
-        <ExecutionPanel
-          storyId={currentStory.id}
-          onCreateScene={handleCreateScene}
-          onEditScene={(sceneId) => {
-            const scene = scenes.find((s) => s.id === sceneId);
-            if (scene) handleEditScene(scene);
-          }}
-        />
+        {isEditing && selectedScene ? (
+          <PipelinePanel
+            storyId={selectedScene.story_id}
+            chapterNumber={selectedScene.sequence_number}
+            chapterTitle={selectedScene.title}
+            currentContent={selectedScene.content}
+          />
+        ) : (
+          <ExecutionPanel
+            storyId={currentStory.id}
+            onCreateScene={handleCreateScene}
+            onEditScene={(sceneId) => {
+              const scene = scenes.find((s) => s.id === sceneId);
+              if (scene) handleEditScene(scene);
+            }}
+          />
+        )}
       </div>
     </div>
   );

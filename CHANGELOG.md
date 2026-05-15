@@ -2,6 +2,86 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v7.0.0] - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级（2026-05-15）
+
+### 🏭 AI 三审 Pipeline 系统
+
+#### Pipeline 核心架构
+- **`pipeline/mod.rs`** — 四级创作管线：`Rewrite` → `Refine` → `Review` → `Finalize`
+- **`pipeline/refine.rs`** — `run_refine(story_id, draft_id, chapter_info, config)`：AI 修稿，对章节草稿进行语言润色、结构调整、错别字修正
+- **`pipeline/review.rs`** — `run_review(...)`：AI 审稿，输出 `overall_score`（0-100）+ `dimensions` JSON 数组 + `issues` JSON 数组 + `content` 总结
+- **`pipeline/finalize.rs`** — `finalize_draft(...)`：定稿主流程，创建 `PostProcessStep` 记录 → 执行各后处理步骤 → 更新状态为 Success/Failed
+- **`pipeline/post_process.rs`** — `run_post_process_step(...)` + `run_character_cards(...)`：执行单个后处理步骤，LLM 驱动角色状态解析
+
+#### 后处理步骤追踪
+- **`PostProcessStepDef`** 定义 4 个标准步骤：`kb_import`（知识库更新）、`chapter_notes`（章节笔记）、`character_cards`（角色状态卡）、`style_analysis`（风格分析）
+- **`PostProcessStep`** 数据库记录：`id`/`story_id`/`chapter_number`/`step_type`/`status`（Running/Success/Failed）/`is_critical`/`error_message`/`created_at`/`updated_at`
+- **关键/非关键分类**：`is_critical=true` 的步骤失败时阻断定稿流程；非关键步骤失败仅记录日志，不影响整体定稿
+- **真实执行**：`finalize.rs` 创建 `LlmService` 并调用 `run_post_process_step`，更新每一步的真实状态（替代原占位实现）
+
+#### LLM 驱动角色状态解析
+- `run_character_cards` 构建综合 Prompt：角色上下文（姓名/背景/性格/目标/外貌/关系）+ 章节内容
+- 调用 LLM 输出 JSON 数组：`[{ "character_id": "...", "cs_location": "...", "cs_power_level": "...", ... }]`
+- 解析 JSON 后批量更新 `characters` 表的 6 个动态状态字段 + `cs_updated_at_chapter`
+
+#### 前端 Pipeline 面板
+- **`Stories.tsx`** 场景级 Pipeline 进度看板：场景列表显示 `execution_stage` 彩色徽章（plan/outline/draft/review/final）+ 多色进度条
+- **Actions/Drafts/Reviews 三标签页**：Actions 执行修稿/审稿/定稿；Drafts 查看草稿列表；Reviews 查看审稿结果与评分
+- **`usePipeline.ts`** 新增 `parseReviewResult()` 辅助函数，将后端 `PipelineReview`（JSON 字符串字段）解析为结构化 `ReviewResult`
+
+#### 幕前 `/` 指令打通
+- **`RichTextEditor.tsx`** 扩展 slash 命令映射：`AI修稿`/`修稿` → `pipeline_refine`、`AI审稿`/`审稿` → `pipeline_review`、`定稿` → `pipeline_finalize`
+- **`FrontstageApp.tsx`** 新增 `handlePipelineRefine` / `handlePipelineReview` / `handlePipelineFinalize` 处理器，调用 `runRefine` / `runReview` / `runFinalize` IPC
+- `RichTextEditorRef` 扩展 `setContent(text: string)` 方法，支持 Pipeline 执行后自动回写编辑器内容
+
+### 🧬 角色动态状态系统
+
+#### 6 项动态状态字段
+- `cs_location` — 角色当前所在位置
+- `cs_power_level` — 实力等级/修为层次
+- `cs_physical_state` — 身体状态（健康/负伤/疲惫等）
+- `cs_mental_state` — 心理状态（平静/焦虑/愤怒等）
+- `cs_key_items` — 随身携带的关键物品
+- `cs_recent_events` — 最近经历的重要事件
+- `cs_updated_at_chapter` — 状态最后更新的章节号
+
+#### `CharacterStatePanel` 组件
+- 可折叠 UI：每个角色卡片下方展开/收起状态面板
+- 6 字段只读展示 + `cs_updated_at_chapter` 时间戳
+- 内联编辑：点击字段值进入编辑模式，失焦自动保存
+- API：`update_character_state` IPC 命令更新单字段
+
+### 📊 用量统计与可观测性
+
+#### `UsageStats` 页面
+- 幕后独立页面，Sidebar `BarChart3` 图标导航
+- **全局统计卡片**：总调用次数 / 总 token 数 / 平均响应时间 / 成功率
+- **单故事统计**：按故事维度聚合（调用次数 / token 消耗）
+- **最近调用记录表**：最近 20 条，展示模型名称、功能、token、耗时、状态、时间
+
+#### 后端 API
+- `get_llm_call_stats(story_id?: string)` — 返回 `LlmCallStats`（全局或单故事）
+- `get_recent_llm_calls(limit: i64)` — 返回最近 N 条 `LlmCallRecord`
+- `LlmCallRepository` — `get_stats()` / `get_recent()` 统计查询
+
+### 🖥️ 前端架构升级
+- **`Sidebar.tsx`** 新增「用量统计」导航项（`BarChart3` 图标）
+- **`App.tsx`** 新增 `UsageStats` 路由 case（`'usage-stats'`）
+- **`types/index.ts`** `ViewType` 扩展 `'usage-stats'`
+
+### 🔧 技术细节
+- `finalize.rs` 原占位实现重写为真实执行逻辑：创建 `LlmService` → 遍历步骤定义 → 执行 `run_post_process_step` → 更新数据库状态
+- `post_process.rs` 修复 `resp.text` → `resp.content`（`GenerateResponse` 字段名修正）
+- `usePipeline.ts` 类型对齐：`refreshReviews` 返回 `ReviewResult | null`（通过 `parseReviewResult` 转换）
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `cargo test` ✅ ~225/225 全部通过
+- `npm run build` ✅ 通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 7.0.0
+
+---
+
 ## [v6.0.0] - Story System 合同驱动 + 三层记忆编排 + 追读力评估 + 37 体裁模板 + Anti-AI 审查（2026-05-15）
 
 ### 🏗️ 架构级新体系：Story System 合同驱动

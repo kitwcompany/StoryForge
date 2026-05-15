@@ -5,7 +5,8 @@ import {
   BookMarked,
   ListChecks,
   Eye,
-  ShieldCheck
+  ShieldCheck,
+  BarChart3
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -34,6 +35,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'tasks', label: '任务', icon: ListChecks },
   { id: 'foreshadowing', label: '伏笔看板', icon: Eye },
   { id: 'story-system', label: 'Story System', icon: ShieldCheck },
+  { id: 'usage-stats', label: '用量统计', icon: BarChart3 },
   { id: 'settings', label: '设置', icon: Settings },
 ];
 

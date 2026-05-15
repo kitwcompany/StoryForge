@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use super::{DbPool, Story, Character, Chapter, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest, DynamicTrait};
+use super::{DbPool, Story, Character, Chapter, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest, DynamicTrait, CharacterState};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
@@ -196,10 +196,10 @@ impl CharacterRepository {
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO characters (id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![&id, &req.story_id, &req.name, req.background, req.personality, req.goals, req.appearance, req.gender, req.age, traits_json, now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![&id, &req.story_id, &req.name, req.background, req.personality, req.goals, req.appearance, req.gender, req.age, traits_json, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, rusqlite::types::Null, now.to_rfc3339(), now.to_rfc3339()],
         )?;
-        
+
         Ok(Character {
             id,
             story_id: req.story_id,
@@ -211,6 +211,14 @@ impl CharacterRepository {
             gender: req.gender,
             age: req.age,
             dynamic_traits: vec![],
+            cs_location: None,
+            cs_power_level: None,
+            cs_physical_state: None,
+            cs_mental_state: None,
+            cs_key_items: None,
+            cs_recent_events: None,
+            cs_updated_at_chapter: None,
+            cs_json: None,
             created_at: now,
             updated_at: now,
         })
@@ -219,14 +227,14 @@ impl CharacterRepository {
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Character>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, created_at, updated_at FROM characters WHERE story_id = ?1"
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at FROM characters WHERE story_id = ?1"
         )?;
 
         let characters = stmt.query_map([story_id], |row| {
             let traits_json: String = row.get(9)?;
             let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
+            let created_str: String = row.get(17)?;
+            let updated_str: String = row.get(18)?;
 
             Ok(Character {
                 id: row.get(0)?,
@@ -239,6 +247,14 @@ impl CharacterRepository {
                 gender: row.get(7)?,
                 age: row.get(8)?,
                 dynamic_traits,
+                cs_location: row.get(10).ok(),
+                cs_power_level: row.get(11).ok(),
+                cs_physical_state: row.get(12).ok(),
+                cs_mental_state: row.get(13).ok(),
+                cs_key_items: row.get(14).ok(),
+                cs_recent_events: row.get(15).ok(),
+                cs_updated_at_chapter: row.get(16).ok(),
+                cs_json: row.get(17).ok(),
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -250,14 +266,14 @@ impl CharacterRepository {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Character>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, created_at, updated_at FROM characters WHERE id = ?1"
+            "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, created_at, updated_at FROM characters WHERE id = ?1"
         )?;
 
         let character = stmt.query_row([id], |row| {
             let traits_json: String = row.get(9)?;
             let dynamic_traits: Vec<DynamicTrait> = serde_json::from_str(&traits_json).unwrap_or_default();
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
+            let created_str: String = row.get(17)?;
+            let updated_str: String = row.get(18)?;
 
             Ok(Character {
                 id: row.get(0)?,
@@ -270,6 +286,14 @@ impl CharacterRepository {
                 gender: row.get(7)?,
                 age: row.get(8)?,
                 dynamic_traits,
+                cs_location: row.get(10).ok(),
+                cs_power_level: row.get(11).ok(),
+                cs_physical_state: row.get(12).ok(),
+                cs_mental_state: row.get(13).ok(),
+                cs_key_items: row.get(14).ok(),
+                cs_recent_events: row.get(15).ok(),
+                cs_updated_at_chapter: row.get(16).ok(),
+                cs_json: row.get(17).ok(),
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -289,6 +313,75 @@ impl CharacterRepository {
             params![id, name, background, personality, goals, appearance, gender, age, now],
         )?;
         Ok(count)
+    }
+
+    pub fn update_character_state(
+        &self,
+        character_id: &str,
+        state: &CharacterState,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+
+        let count = conn.execute(
+            "UPDATE characters SET
+                cs_location = COALESCE(?2, cs_location),
+                cs_power_level = COALESCE(?3, cs_power_level),
+                cs_physical_state = COALESCE(?4, cs_physical_state),
+                cs_mental_state = COALESCE(?5, cs_mental_state),
+                cs_key_items = COALESCE(?6, cs_key_items),
+                cs_recent_events = COALESCE(?7, cs_recent_events),
+                cs_updated_at_chapter = COALESCE(?8, cs_updated_at_chapter),
+                updated_at = ?9
+            WHERE id = ?1",
+            params![
+                character_id,
+                state.location,
+                state.power_level,
+                state.physical_state,
+                state.mental_state,
+                state.key_items,
+                state.recent_events,
+                state.updated_at_chapter,
+                now,
+            ],
+        )?;
+        Ok(count)
+    }
+
+    pub fn batch_update_states(
+        &self,
+        updates: &[(String, CharacterState)],
+    ) -> Result<usize, rusqlite::Error> {
+        let mut total = 0;
+        for (character_id, state) in updates {
+            total += self.update_character_state(character_id, state)?;
+        }
+        Ok(total)
+    }
+
+    pub fn get_character_state(
+        &self,
+        character_id: &str,
+    ) -> Result<Option<CharacterState>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT cs_location, cs_power_level, cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, cs_updated_at_chapter FROM characters WHERE id = ?1"
+        )?;
+
+        let state = stmt.query_row([character_id], |row| {
+            Ok(CharacterState {
+                location: row.get(0).ok(),
+                power_level: row.get(1).ok(),
+                physical_state: row.get(2).ok(),
+                mental_state: row.get(3).ok(),
+                key_items: row.get(4).ok(),
+                recent_events: row.get(5).ok(),
+                updated_at_chapter: row.get(6).ok(),
+            })
+        }).optional()?;
+
+        Ok(state)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {

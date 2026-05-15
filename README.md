@@ -2,13 +2,19 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v6.0.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v7.0.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
-> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
+> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v6.0.0 最新更新（2026-05-15）**：Story System 合同驱动体系 + 三层记忆编排器 + 追读力评估系统 + 37 体裁模板库 + Anti-AI 五维审查 + 幕前窥视面板 + 角色悬浮卡片 + 导出出版前体检 — 全面重构小说创作的"写前-写中-写后"质量管控闭环。
+> **v7.0.0 最新更新（2026-05-15）**：AI 三审 Pipeline 系统（修稿 → 审稿 → 定稿 → 后处理）+ 角色动态状态面板（LLM 驱动实时更新）+ 用量统计看板 + 幕前 `/` 指令打通 Pipeline + Stories 场景进度看板 — 从"能创作"到"高质量创作"的完整质量管控闭环。
+>
+> **AI 三审 Pipeline 系统**：引入 `Rewrite → Refine → Review → Finalize` 四级创作管线，每章正文经过 AI 修稿（语言润色）、AI 审稿（多维评分与问题标注）、定稿（通过后处理步骤自动更新知识库、章节笔记、角色动态状态卡、风格分析），实现"每章必审、每稿必改、定稿即入库"的工业化创作流程。
+>
+> **角色动态状态面板**：每个角色新增 6 项动态状态字段（当前位置、实力等级、身体状态、心理状态、关键物品、近期事件），定稿时由 LLM 自动解析章节内容并更新角色状态，前台 `Characters.tsx` 集成可折叠状态面板，支持实时查看与手动修正。
+>
+> **用量统计看板**：全局 LLM 调用统计（总次数/总 token/平均响应时间/成功率）+ 单故事维度统计 + 最近 20 条调用记录明细，帮助作者了解 AI 辅助成本与效率。
 >
 > **Story System 合同驱动体系**：引入 `MASTER_SETTING` / `CHAPTER` / `REVIEW` 四级合同架构，写前真源（story_contracts）与写后真源（chapter_commits）分离，CHAPTER_COMMIT 提交链驱动 5 个 Projection Writer（State/Index/Summary/Memory/Vector）自动更新 read-model，实现"合同即法律、设定即物理、发明需识别"的防幻觉三定律。
 >
@@ -108,10 +114,11 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 **设计理念**：专业作家的数字工作台
 
-- **故事管理** - 多故事、多场景结构化组织，故事概览面板聚合大纲/角色/场景/伏笔摘要
-- **角色管理** - 角色卡片含完整性格/目标/外貌/年龄/性别，关系图谱可视化，性格追踪
+- **故事管理** - 多故事、多场景结构化组织，故事概览面板聚合大纲/角色/场景/伏笔摘要，场景级 Pipeline 进度看板
+- **角色管理** - 角色卡片含完整性格/目标/外貌/年龄/性别，关系图谱可视化，性格追踪，动态状态面板（位置/实力/身心状态/物品/事件）
 - **场景化叙事** - 以场景为单位的戏剧冲突驱动
 - **场景编辑器** - 三标签页设计（基础信息 / 戏剧结构 / 内容编辑）
+- **AI 三审 Pipeline** (v7.0.0) - 场景级修稿(Refine)/审稿(Review)/定稿(Finalize)工作流，自动后处理（知识库更新、角色状态同步、风格分析）
 - **伏笔看板** - 伏笔全生命周期管理：setup / payoff / abandoned 状态追踪，逾期检测与回收推荐
 - **知识图谱可视化** - 基于 ReactFlow 的交互式力导向图谱，支持搜索、筛选、实体编辑，bootstrap 期间自动构建
 - **记忆健康与自动归档** - 基于艾宾浩斯遗忘曲线的实体保留分析，一键归档遗忘内容
@@ -129,8 +136,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **体裁模板库** (v6.0.0) - 37 内置网文体裁模板，支持自定义编辑与外部化配置
 - **数据统计** (v6.0.0) - Settings 页面「数据统计」标签，显示最近 30 天各功能使用次数
 - **Projection 健康检查** (v6.0.0) - StorySystem 页面每行提交后查看 5 个 Writer 的投影状态
+- **用量统计** (v7.0.0) - 全局与单故事 LLM 调用统计（次数/token/响应时间/成功率），最近 20 条调用明细
 - **多账号 OAuth 登录** (v4.5.0) - 支持 Google / GitHub 登录，可选登录、本地优先，微信/QQ 预留框架
-- **云端主站** (v4.5.0) - Linux 服务端（Actix-web + PostgreSQL + Docker），落地页 / Web 登录 / 用户后台
 
 ![幕后界面预览](docs/images/backstage-preview.png)
 
@@ -154,6 +161,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 伏笔追踪 | ✅ 窥视面板逾期警告 | ✅ 伏笔看板全生命周期管理 |
 | 体裁模板 | - | ✅ 37 内置模板 / 自定义编辑 |
 | Anti-AI 审查 | - | ✅ 导出前体检 + StorySystem 卡片 |
+| Pipeline 审校 | ✅ `/` 指令触发修稿/审稿/定稿 | ✅ 场景级 Actions/Drafts/Reviews 面板 |
 
 **快捷键对照**：
 - `Ctrl+Enter` / `Cmd+Enter` - 触发 AI 续写（active 模式下）
@@ -161,7 +169,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - `F11` - 禅模式切换（绝对纯净，隐藏所有 UI）
 - `Tab` - 接受 AI 幽灵文本建议
 - `Esc` - 拒绝 AI 幽灵文本建议
-- `/` - 内联命令菜单（8 命令）
+- `/` - 内联命令菜单（续写/润色/古风/场景/自动续写/审校/评点/排版/修稿/审稿/定稿）
 
 ---
 
@@ -266,7 +274,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v6.0.0  
+**当前版本**: v7.0.0  
 **最后更新**: 2026-05-15  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
@@ -287,7 +295,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | Agent 系统 / 意图引擎 | ✅ 完成 | 100% |
 | 技能系统 / MCP | ✅ 完成 | 100% |
 | 版本控制 / 修订模式 | ✅ 完成 | 100% |
-| 文本批注 | ✅ 完成 | 100% |
+| 场景级批注 | ✅ 完成 | 100% |
 | 前端界面 | ✅ 完成 | 100% |
 | 桌面构建打包 | ✅ 完成 | 100% |
 | 创作方法论引擎 | ✅ 完成 | 100% |
@@ -303,6 +311,9 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 追读力评估系统 | ✅ 完成 | 100% |
 | 37 体裁模板库 | ✅ 完成 | 100% |
 | Anti-AI 五维审查 | ✅ 完成 | 100% |
+| AI 三审 Pipeline | ✅ 完成 | 100% |
+| 角色动态状态 | ✅ 完成 | 100% |
+| 用量统计 | ✅ 完成 | 100% |
 
 ---
 
@@ -688,9 +699,78 @@ v2-rust/
 | 体裁模板外部化 | ✅ | 37 个模板从 Markdown 迁移到 `templates/genres.json`，支持用户自定义 |
 | 导出出版前体检 | ✅ | ExportDialog 4 步流程：格式选择 → 健康检查 → 审查中 → 结果展示 |
 
+### 16. AI 三审 Pipeline 系统 v7.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Pipeline 核心架构 | ✅ | `pipeline/mod.rs` — Refine/Review/Finalize 三阶段 + 后处理(post-process) |
+| `run_refine` | ✅ | AI 修稿：对章节草稿进行语言润色、结构调整、错别字修正 |
+| `run_review` | ✅ | AI 审稿：多维度评分（overall_score + dimensions JSON）+ 问题列表（issues JSON） |
+| `run_finalize` | ✅ | 定稿：执行后处理步骤（kb_import / chapter_notes / character_cards / style_analysis） |
+| 后处理步骤追踪 | ✅ | `PostProcessStep` 记录每个步骤状态（Running/Success/Failed），支持关键/非关键分类 |
+| `run_character_cards` | ✅ | LLM 驱动角色状态解析：构建角色上下文 + 章节内容 Prompt，解析 JSON 状态更新 |
+| 前端 Actions/Drafts/Reviews | ✅ | `Stories.tsx` 场景级 Pipeline 面板：三标签页 + 执行/查看/接受按钮 |
+| 前端进度看板 | ✅ | 场景列表显示 execution_stage 彩色徽章 + 多色进度条 |
+| 幕前 `/` 指令打通 | ✅ | `AI修稿`/`修稿` → `pipeline_refine`、`AI审稿`/`审稿` → `pipeline_review`、`定稿` → `pipeline_finalize` |
+
+### 17. 角色动态状态 v7.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 6 项动态状态字段 | ✅ | `cs_location` / `cs_power_level` / `cs_physical_state` / `cs_mental_state` / `cs_key_items` / `cs_recent_events` |
+| LLM 自动解析更新 | ✅ | `finalize.rs` 调用 `run_character_cards`，从章节内容提取角色状态变化 |
+| `CharacterStatePanel` | ✅ | 前端可折叠状态面板，展示 6 字段 + `cs_updated_at_chapter` 时间戳 |
+| 手动修正 | ✅ | 面板内联编辑，调用 `update_character_state` API 实时更新 |
+| 角色卡片集成 | ✅ | `Characters.tsx` 每个角色卡片下方展开状态面板 |
+
+### 18. 用量统计与可观测性 v7.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `UsageStats` 页面 | ✅ | 幕后独立页面「用量统计」（Sidebar 导航 + `BarChart3` 图标） |
+| 全局统计 | ✅ | 总调用次数 / 总 token 数 / 平均响应时间 / 成功率 |
+| 单故事统计 | ✅ | 按故事维度统计 LLM 调用次数与 token 消耗 |
+| 最近调用记录 | ✅ | 最近 20 条调用明细表（模型/功能/token/耗时/状态） |
+| IPC 命令 | ✅ | `get_llm_call_stats` / `get_recent_llm_calls` |
+
 ---
 
 ## 📅 更新历史
+
+### v7.0.0 (2026-05-15) - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级
+
+> **核心理念**：从"能创作"到"高质量创作"，引入工业化级 AI 审校流水线。每章正文经过修稿→审稿→定稿→后处理四级质量关卡，角色状态随剧情自动演进，用量透明可观测。
+
+**AI 三审 Pipeline 系统**
+- **四级创作管线**：`Rewrite` → `Refine`（AI 修稿）→ `Review`（AI 审稿）→ `Finalize`（定稿 + 后处理）
+- **Refine 修稿**：对章节草稿进行语言润色、结构调整、错别字修正，输出精炼版本
+- **Review 审稿**：多维度评分（overall_score 0-100 + dimensions JSON）+ 问题列表（issues JSON）+ 改进建议
+- **Finalize 定稿**：通过后处理步骤自动完成知识入库、章节笔记生成、角色状态更新、风格分析
+- **后处理步骤追踪**：`PostProcessStep` 记录 kb_import / chapter_notes / character_cards / style_analysis 执行状态，关键步骤失败阻断、非关键步骤失败记录
+- **LLM 驱动角色状态解析**：`run_character_cards` 构建角色上下文 + 章节内容 Prompt，调用 LLM 输出 JSON 状态更新，自动更新 `cs_location`/`cs_power_level`/`cs_physical_state`/`cs_mental_state`/`cs_key_items`/`cs_recent_events`
+- **前端 Pipeline 面板**：`Stories.tsx` 场景级 Actions（执行修稿/审稿/定稿）/ Drafts（草稿列表）/ Reviews（审稿结果）三标签页
+- **场景进度看板**：场景列表显示 `execution_stage` 彩色徽章（plan/outline/draft/review/final）+ 多色进度条
+- **幕前 `/` 指令打通**：`AI修稿`/`修稿` → `pipeline_refine`、`AI审稿`/`审稿` → `pipeline_review`、`定稿` → `pipeline_finalize`，幕前编辑器内直接触发 Pipeline
+
+**角色动态状态面板**
+- **6 项动态状态**：`cs_location`（当前位置）、`cs_power_level`（实力等级）、`cs_physical_state`（身体状态）、`cs_mental_state`（心理状态）、`cs_key_items`（关键物品）、`cs_recent_events`（近期事件）
+- **自动更新**：定稿时 LLM 自动解析章节内容提取角色变化，写入数据库
+- **手动修正**：`CharacterStatePanel` 组件支持内联编辑，实时更新角色状态
+- **时间戳追踪**：`cs_updated_at_chapter` 记录最后更新章节号
+
+**用量统计看板**
+- **全局统计**：总调用次数 / 总 token 数 / 平均响应时间 / 成功率
+- **单故事统计**：按故事维度聚合 LLM 调用与 token 消耗
+- **最近调用明细**：最近 20 条调用记录表（模型/功能/token/耗时/状态/时间）
+- **独立页面**：幕后 Sidebar「用量统计」入口，`UsageStats.tsx` 完整实现
+
+**编译与测试**
+- `cargo check`：零错误
+- `cargo test`：~225/225 通过
+- `npm run build`：通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 7.0.0
+
+---
 
 ### v6.0.0 (2026-05-15) - Story System 合同驱动 + 三层记忆 + 追读力 + 体裁模板 + Anti-AI 审查
 
@@ -1117,17 +1197,24 @@ cd src-tauri && cargo tauri build
 - [x] **体裁模板外部化** - 37 模板从 Markdown 迁移到 JSON，支持用户自定义编辑
 - [x] **导出出版前体检** - ExportDialog 4 步流程，可选 Anti-AI 审查后再导出
 
-### 短期计划 (v6.1.x)
+### 已完成 (v7.0.0) ✅
+- [x] **AI 三审 Pipeline** - Refine/Review/Finalize + 后处理（知识库/笔记/角色状态/风格分析）
+- [x] **角色动态状态** - 6 字段动态追踪，LLM 自动解析更新，前台可折叠面板
+- [x] **用量统计看板** - 全局/单故事 LLM 统计 + 最近 20 条调用明细
+- [x] **幕前 Pipeline 指令** - `/` 菜单支持修稿/审稿/定稿直达 Pipeline
+- [x] **场景进度看板** - execution_stage 彩色徽章 + 多色进度条
+
+### 短期计划 (v7.1.x)
 - [ ] 云端同步
 - [ ] 协作写作增强（多人实时编辑 OT 完整实现）
 - [ ] 插件市场
 
-### 中期计划 (v6.2.x)
+### 中期计划 (v7.2.x)
 - [ ] WebAssembly 前端
 - [ ] 自研小模型
 - [ ] 移动端适配
 
-### 长期计划 (v7.0.0)
+### 长期计划 (v8.0.0)
 - [ ] 发布平台集成
 - [ ] AI 全自动长篇小说生成
 

@@ -20,6 +20,7 @@ pub mod memory_compressor;
 pub mod commentator;
 pub mod distiller;
 pub mod orchestrator;
+pub mod context_optimizer;
 
 // ==================== 核心Trait ====================
 

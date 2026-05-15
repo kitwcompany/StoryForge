@@ -45,6 +45,13 @@ import type {
 import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary, AgentResult, VectorSearchResult, StorySummary } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
 import type { AppSettings } from '@/types/llm';
+import type {
+  Blueprint, CreateBlueprintRequest, UpdateBlueprintRequest,
+  Draft, Revision, PipelineReview, ReviewDimension, ReviewIssueItem,
+  PostProcessRun, PostProcessStep, LlmCall, RecordLlmCallRequest,
+  CharacterState,
+  RefineResult, ReviewResult, PipelineResult
+} from '@/types/pipeline';
 
 // Health Check
 export const healthCheck = () => 
@@ -916,3 +923,200 @@ export interface FlaggedPassage {
 
 export const antiAiReview = (text: string, genre?: string) =>
   loggedInvoke<AntiAiReview>('anti_ai_review', { text, genre });
+
+// ==================== v7.0.0: Pipeline 管线体系 ====================
+
+// --- Blueprint ---
+
+export const createBlueprint = (req: CreateBlueprintRequest) =>
+  loggedInvoke<Blueprint>('create_blueprint', { ...req });
+
+export const getStoryBlueprints = (storyId: string) =>
+  loggedInvoke<Blueprint[]>('get_story_blueprints', { story_id: storyId });
+
+export const getChapterBlueprint = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<Blueprint | null>('get_chapter_blueprint', { story_id: storyId, chapter_number: chapterNumber });
+
+export const updateBlueprint = (blueprintId: string, req: UpdateBlueprintRequest) =>
+  loggedInvoke<number>('update_blueprint', { blueprint_id: blueprintId, ...req });
+
+export const deleteBlueprint = (blueprintId: string) =>
+  loggedInvoke<number>('delete_blueprint', { blueprint_id: blueprintId });
+
+// --- Draft ---
+
+export const createDraft = (params: {
+  story_id: string;
+  chapter_number: number;
+  version: number;
+  status: string;
+  source: string;
+  content: string;
+  word_count: number;
+  model_used?: string;
+  cost?: number;
+  metadata?: string;
+}) => loggedInvoke<Draft>('create_draft', params);
+
+export const getDraft = (draftId: string) =>
+  loggedInvoke<Draft | null>('get_draft', { draft_id: draftId });
+
+export const getStoryChapterDrafts = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<Draft[]>('get_story_chapter_drafts', { story_id: storyId, chapter_number: chapterNumber });
+
+export const getLatestDraft = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<Draft | null>('get_latest_draft', { story_id: storyId, chapter_number: chapterNumber });
+
+export const getFinalizedDraft = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<Draft | null>('get_finalized_draft', { story_id: storyId, chapter_number: chapterNumber });
+
+export const updateDraftStatus = (draftId: string, status: string) =>
+  loggedInvoke<number>('update_draft_status', { draft_id: draftId, status });
+
+export const updateDraftContent = (draftId: string, content: string, wordCount: number) =>
+  loggedInvoke<number>('update_draft_content', { draft_id: draftId, content, word_count: wordCount });
+
+export const deleteDraft = (draftId: string) =>
+  loggedInvoke<number>('delete_draft', { draft_id: draftId });
+
+// --- Revision ---
+
+export const createRevision = (params: {
+  story_id: string;
+  draft_id: string;
+  revision_index: number;
+  revision_type: string;
+  user_prompt?: string;
+  original_content: string;
+  revised_content: string;
+  word_count: number;
+  change_summary?: string;
+  model_used?: string;
+  cost?: number;
+  metadata?: string;
+}) => loggedInvoke<Revision>('create_revision', params);
+
+export const getDraftRevisions = (draftId: string) =>
+  loggedInvoke<Revision[]>('get_draft_revisions', { draft_id: draftId });
+
+export const getRevision = (revisionId: string) =>
+  loggedInvoke<Revision | null>('get_revision', { revision_id: revisionId });
+
+export const updateRevisionStatus = (revisionId: string, status: string) =>
+  loggedInvoke<number>('update_revision_status', { revision_id: revisionId, status });
+
+export const deleteRevision = (revisionId: string) =>
+  loggedInvoke<number>('delete_revision', { revision_id: revisionId });
+
+// --- Pipeline Review ---
+
+export const createPipelineReview = (params: {
+  story_id: string;
+  draft_id: string;
+  review_index: number;
+  content: string;
+  dimensions?: ReviewDimension[];
+  issues?: ReviewIssueItem[];
+  overall_score?: number;
+  review_focus?: string;
+  model_used?: string;
+  cost?: number;
+  metadata?: string;
+}) => loggedInvoke<PipelineReview>('create_pipeline_review', params);
+
+export const getDraftReviews = (draftId: string) =>
+  loggedInvoke<PipelineReview[]>('get_draft_reviews', { draft_id: draftId });
+
+export const getLatestPipelineReview = (draftId: string) =>
+  loggedInvoke<PipelineReview | null>('get_latest_pipeline_review', { draft_id: draftId });
+
+export const deletePipelineReview = (reviewId: string) =>
+  loggedInvoke<number>('delete_pipeline_review', { review_id: reviewId });
+
+// --- Post Process ---
+
+export const createPostProcessRun = (params: {
+  story_id: string;
+  chapter_number: number;
+  source_label: string;
+  scope?: string;
+}) => loggedInvoke<PostProcessRun>('create_post_process_run', params);
+
+export const getPostProcessRun = (runId: string) =>
+  loggedInvoke<PostProcessRun | null>('get_post_process_run', { run_id: runId });
+
+export const getStoryChapterPostProcessRuns = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<PostProcessRun[]>('get_story_chapter_post_process_runs', { story_id: storyId, chapter_number: chapterNumber });
+
+export const updatePostProcessRunStatus = (runId: string, status: string, errorMessage?: string) =>
+  loggedInvoke<number>('update_post_process_run_status', { run_id: runId, status, error_message: errorMessage });
+
+export const createPostProcessStep = (params: {
+  run_id: string;
+  step_key: string;
+  step_label: string;
+  critical: boolean;
+}) => loggedInvoke<PostProcessStep>('create_post_process_step', params);
+
+export const getPostProcessSteps = (runId: string) =>
+  loggedInvoke<PostProcessStep[]>('get_post_process_steps', { run_id: runId });
+
+export const updatePostProcessStepStatus = (stepId: string, status: string, logOutput?: string, errorMessage?: string) =>
+  loggedInvoke<number>('update_post_process_step_status', { step_id: stepId, status, log_output: logOutput, error_message: errorMessage });
+
+export const deletePostProcessRun = (runId: string) =>
+  loggedInvoke<number>('delete_post_process_run', { run_id: runId });
+
+// --- LLM Call ---
+
+export const recordLlmCall = (req: RecordLlmCallRequest, totalTokens: number, durationMs: number, promptPreview?: string, metadata?: string) =>
+  loggedInvoke<LlmCall>('record_llm_call', { ...req, total_tokens: totalTokens, duration_ms: durationMs, prompt_preview: promptPreview, metadata });
+
+export const getStoryLlmCalls = (storyId: string, limit: number) =>
+  loggedInvoke<LlmCall[]>('get_story_llm_calls', { story_id: storyId, limit });
+
+export const getRecentLlmCalls = (limit: number) =>
+  loggedInvoke<LlmCall[]>('get_recent_llm_calls', { limit });
+
+export const getLlmCallStats = (storyId: string) =>
+  loggedInvoke<{ count: number; total_tokens: number; total_cost: number }>('get_llm_call_stats', { story_id: storyId });
+
+// --- Pipeline High-Level Commands ---
+
+export const runRefine = (storyId: string, draftId: string, userPrompt?: string) =>
+  loggedInvoke<RefineResult>('run_refine', { story_id: storyId, draft_id: draftId, user_prompt: userPrompt });
+
+export const runReview = (storyId: string, draftId: string, reviewFocus?: string) =>
+  loggedInvoke<ReviewResult>('run_review', { story_id: storyId, draft_id: draftId, review_focus: reviewFocus });
+
+export const runFinalize = (storyId: string, draftId: string, chapterNumber: number, chapterTitle?: string) =>
+  loggedInvoke<PipelineResult>('run_finalize', { story_id: storyId, draft_id: draftId, chapter_number: chapterNumber, chapter_title: chapterTitle });
+
+export const repairFinalize = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<PipelineResult>('repair_finalize', { story_id: storyId, chapter_number: chapterNumber });
+
+export const getPipelineActiveDraft = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<Draft | null>('get_pipeline_active_draft', { story_id: storyId, chapter_number: chapterNumber });
+
+export const mergeRevision = (revisionId: string) =>
+  loggedInvoke<number>('merge_revision', { revision_id: revisionId });
+
+export const getDraftRevisionHistory = (draftId: string) =>
+  loggedInvoke<Revision[]>('get_draft_revision_history', { draft_id: draftId });
+
+export const getDraftReviewHistory = (draftId: string) =>
+  loggedInvoke<PipelineReview[]>('get_draft_review_history', { draft_id: draftId });
+
+export const getPostProcessStatus = (runId: string) =>
+  loggedInvoke<{ run: PostProcessRun; steps: PostProcessStep[] } | null>('get_post_process_status', { run_id: runId });
+
+// --- Character State ---
+
+export const updateCharacterState = (characterId: string, state: CharacterState) =>
+  loggedInvoke<number>('update_character_state', { character_id: characterId, state });
+
+export const batchUpdateCharacterStates = (updates: Array<{ character_id: string; state: CharacterState }>) =>
+  loggedInvoke<number>('batch_update_character_states', { updates: updates.map(u => [u.character_id, u.state]) });
+
+export const getCharacterState = (characterId: string) =>
+  loggedInvoke<CharacterState | null>('get_character_state', { character_id: characterId });

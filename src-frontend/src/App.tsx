@@ -17,6 +17,7 @@ import { Tasks } from '@/pages/Tasks';
 import { Foreshadowing } from '@/pages/Foreshadowing';
 import { CreationWizard } from '@/pages/CreationWizard';
 import { StorySystem } from '@/pages/StorySystem';
+import { UsageStats } from '@/pages/UsageStats';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -255,6 +256,7 @@ function App() {
       case 'tasks': return <Tasks />;
       case 'foreshadowing': return <Foreshadowing />;
       case 'story-system': return <StorySystem />;
+      case 'usage-stats': return <UsageStats />;
       default: return <Dashboard />;
     }
   };

@@ -1,11 +1,54 @@
-# StoryForge (草苔) v6.0.0 项目完成状态
+# StoryForge (草苔) v7.0.0 项目完成状态
 
-> 最后更新: 2026-05-15（v6.0.0 + Story System + 记忆编排 + 追读力 + 体裁模板 + Anti-AI + 类型安全 + 可观测性 + UX 微优化）
+> 最后更新: 2026-05-15（v7.0.0 + AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v7.0.0 全面重构：AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级（2026-05-15）
+
+#### AI 三审 Pipeline 系统
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Pipeline 核心架构 | ✅ | Refine/Review/Finalize + 后处理 |
+| `run_refine` | ✅ | AI 修稿：语言润色、结构调整、错别字修正 |
+| `run_review` | ✅ | AI 审稿：多维度评分 + 问题列表 + 改进建议 |
+| `run_finalize` | ✅ | 定稿：后处理步骤自动执行 |
+| 后处理步骤追踪 | ✅ | `PostProcessStep` Running/Success/Failed 状态，关键/非关键分类 |
+| `run_character_cards` | ✅ | LLM 驱动角色状态解析：Prompt → JSON → 批量更新 |
+| `kb_import` | ✅ | 知识库自动更新 |
+| `chapter_notes` | ✅ | 章节笔记自动生成 |
+| `style_analysis` | ✅ | 风格分析自动执行 |
+| 前端 Pipeline 面板 | ✅ | Actions/Drafts/Reviews 三标签页 |
+| 场景进度看板 | ✅ | execution_stage 彩色徽章 + 多色进度条 |
+| 幕前 `/` 指令打通 | ✅ | 修稿/审稿/定稿 → `pipeline_refine`/`pipeline_review`/`pipeline_finalize` |
+
+#### 角色动态状态系统
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `cs_location` | ✅ | 当前位置 |
+| `cs_power_level` | ✅ | 实力等级 |
+| `cs_physical_state` | ✅ | 身体状态 |
+| `cs_mental_state` | ✅ | 心理状态 |
+| `cs_key_items` | ✅ | 关键物品 |
+| `cs_recent_events` | ✅ | 近期事件 |
+| `cs_updated_at_chapter` | ✅ | 最后更新章节号 |
+| LLM 自动解析 | ✅ | 定稿时自动从章节内容提取状态变化 |
+| `CharacterStatePanel` | ✅ | 可折叠状态面板，内联编辑 |
+
+#### 用量统计与可观测性
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `UsageStats` 页面 | ✅ | 幕后独立页面，Sidebar 导航 |
+| 全局统计 | ✅ | 总次数 / 总 token / 平均响应时间 / 成功率 |
+| 单故事统计 | ✅ | 按故事维度聚合 |
+| 最近调用记录 | ✅ | 最近 20 条明细表 |
+| `get_llm_call_stats` | ✅ | IPC 命令 |
+| `get_recent_llm_calls` | ✅ | IPC 命令 |
+
+---
 
 ### v6.0.0 全面重构：质量管控闭环 + 类型安全 + 可观测性 + UX 微优化（2026-05-15）
 
@@ -529,13 +572,22 @@
 | StyleDNA 系统 | 100% | 10% | 10.0 |
 | 自适应学习系统 | 100% | 5% | 5.0 |
 | 创作工作流引擎 | 100% | 5% | 5.0 |
-| **v3.4.0 总计** | - | 100% | **100.0%** |
+| **v3.4.0 基础总计** | - | 100% | **100.0%** |
+
+### v7.0.0 新增模块完成度
+
+| 模块 | 状态 | 完成度 |
+|------|------|--------|
+| AI 三审 Pipeline | ✅ 完成 | 100% |
+| 角色动态状态 | ✅ 完成 | 100% |
+| 用量统计看板 | ✅ 完成 | 100% |
+| 幕前 Pipeline 指令 | ✅ 完成 | 100% |
 
 ---
 
 ## 🎯 待完善功能
 
-### v6.1.x 短期计划
+### v7.1.x 短期计划
 
 #### P1 - 重要功能
 1. **云端同步**
@@ -577,7 +629,11 @@
 - ✅ 记忆压缩（MemoryCompressorAgent）
 - ✅ 语义搜索优化（FTS5 + RRF 融合）
 - ✅ 修订模式与变更追踪
-- ✅ 评论批注系统
+- ✅ 评论批注系统（v4.1.0 从幕前移除，场景级批注保留）
+- ✅ AI 三审 Pipeline（v7.0.0）
+- ✅ 角色动态状态自动更新（v7.0.0）
+- ✅ 用量统计看板（v7.0.0）
+- ✅ 幕前 `/` 指令打通 Pipeline（v7.0.0）
 
 ---
 

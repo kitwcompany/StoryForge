@@ -5,6 +5,7 @@ import { useCharacterRelationships } from '@/hooks/useCharacterRelationships';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { CharacterStatePanel } from '@/components/CharacterStatePanel';
 import { Users, Plus, Trash2, Heart, UserX, Link2 } from 'lucide-react';
 import type { CharacterRelationship } from '@/types/index';
 
@@ -203,6 +204,15 @@ export function Characters() {
                     )}
                   </div>
                 </div>
+
+                <CharacterStatePanel
+                  character={char}
+                  onUpdate={() => {
+                    if (currentStory?.id) {
+                      queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
+                    }
+                  }}
+                />
               </CardContent>
             </Card>
           ))}
