@@ -73,8 +73,19 @@ export const createCharacter = (req: CreateCharacterRequest) =>
 export const updateCharacter = (id: string, updates: Partial<Character>) => 
   loggedInvoke<void>('update_character', { id, ...updates });
 
-export const deleteCharacter = (id: string) => 
+export const deleteCharacter = (id: string) =>
   loggedInvoke<void>('delete_character', { id });
+
+export interface CharacterQuickView {
+  id: string;
+  name: string;
+  appearance_summary: string;
+  status_tags: string[];
+  last_seen_chapter: number;
+}
+
+export const getCharacterByName = (storyId: string, name: string) =>
+  loggedInvoke<CharacterQuickView | null>('get_character_by_name', { story_id: storyId, name });
 
 // Chapters
 export const getStoryChapters = (storyId: string) => 
@@ -596,6 +607,33 @@ export const createRelation = (params: {
 
 export const getEntityRelations = (entityId: string) =>
   loggedInvoke<import('@/types/v3').Relation[]>('get_entity_relations', { entity_id: entityId });
+
+export const getIngestJobs = (storyId: string, limit: number = 10) =>
+  loggedInvoke<import('@/types/v3').IngestJob[]>('get_ingest_jobs', { story_id: storyId, limit });
+
+export const checkProjectionHealth = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<import('@/types/v3').ProjectionHealthReport>('check_projection_health', { story_id: storyId, chapter_number: chapterNumber });
+
+export const saveGenreProfile = (params: {
+  id?: string;
+  genre_name: string;
+  canonical_name: string;
+  aliases_json?: string;
+  core_tone?: string;
+  pacing_strategy?: string;
+  anti_patterns_json?: string;
+  reference_tables_json?: string;
+}) =>
+  loggedInvoke<GenreProfile>('save_genre_profile', params);
+
+export const deleteGenreProfile = (id: string) =>
+  loggedInvoke<number>('delete_genre_profile', { id });
+
+export const getFeatureUsageStats = (days: number = 30) =>
+  loggedInvoke<Array<{ feature_id: string; action: string; count: number }>>('get_feature_usage_stats', { days });
+
+export const logFeatureUsage = (featureId: string, action: string, storyId?: string) =>
+  loggedInvoke<void>('log_frontend_feature_usage', { feature_id: featureId, action, story_id: storyId });
 
 // ==================== v6.0.0: Story System ====================
 

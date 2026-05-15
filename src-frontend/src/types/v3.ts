@@ -325,6 +325,34 @@ export interface StoryGraph {
   relations: Relation[];
 }
 
+// ==================== Ingest 作业追踪 ====================
+
+export interface IngestJob {
+  id: string;
+  story_id: string;
+  resource_type: string;
+  resource_id?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  error_message?: string;
+  created_at: string;
+  completed_at?: string;
+}
+
+// ==================== Story System ====================
+
+export interface WriterHealth {
+  name: string;
+  status: string;
+}
+
+export interface ProjectionHealthReport {
+  story_id: string;
+  chapter_number: number;
+  commit_id: string;
+  overall_healthy: boolean;
+  writers: WriterHealth[];
+}
+
 // ==================== 请求/响应类型 ====================
 
 export interface CreateSceneRequest {

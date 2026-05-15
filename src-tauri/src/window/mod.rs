@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Manager, WebviewWindow, Emitter};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowState {
@@ -102,7 +103,8 @@ impl WindowManager {
 }
 
 /// 发送给幕前窗口的事件
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "../src-frontend/src/generated/")]
 #[serde(tag = "type", content = "payload")]
 pub enum FrontstageEvent {
     /// 更新正文内容（完全替换）
@@ -120,7 +122,8 @@ pub enum FrontstageEvent {
 }
 
 /// 发送给幕后窗口的事件
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "../src-frontend/src/generated/")]
 #[serde(tag = "type", content = "payload")]
 pub enum BackstageEvent {
     /// 幕前内容变更
@@ -138,7 +141,8 @@ pub enum BackstageEvent {
 }
 
 /// AI 提示位置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "../src-frontend/src/generated/")]
 pub struct HintPosition {
     pub line: usize,
     pub column: usize,
@@ -170,4 +174,32 @@ pub fn get_window_state(app: AppHandle) -> Result<WindowState, String> {
 pub fn update_frontstage_content(app: AppHandle, text: String, chapter_id: String) -> Result<(), String> {
     let event = FrontstageEvent::ContentUpdate { text, chapter_id };
     WindowManager::send_to_frontstage(&app, event)
+}
+
+// =============================================================================
+// Phase 1.1: TypeScript 绑定导出测试
+// =============================================================================
+
+#[cfg(test)]
+mod ts_export_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// 将窗口事件类型导出为 TypeScript 类型定义。
+    #[test]
+    fn export_window_event_types() {
+        let export_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../src-frontend/src/generated");
+
+        std::fs::create_dir_all(&export_dir).expect("创建 generated 目录失败");
+
+        FrontstageEvent::export_all_to(&export_dir).expect("导出 FrontstageEvent 失败");
+        BackstageEvent::export_all_to(&export_dir).expect("导出 BackstageEvent 失败");
+        HintPosition::export_all_to(&export_dir).expect("导出 HintPosition 失败");
+
+        assert!(export_dir.join("FrontstageEvent.ts").exists(), "FrontstageEvent.ts 未生成");
+        assert!(export_dir.join("BackstageEvent.ts").exists(), "BackstageEvent.ts 未生成");
+
+        println!("✅ 窗口事件 TypeScript 绑定已导出到: {:?}", export_dir);
+    }
 }

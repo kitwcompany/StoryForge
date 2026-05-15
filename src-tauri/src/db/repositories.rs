@@ -145,6 +145,37 @@ impl StoryRepository {
         let count = tx.execute("DELETE FROM stories WHERE id = ?1", [id])?;
 
         tx.commit()?;
+
+        // v5.7 不变量断言: 删除 story 后，所有关联表不应存在孤儿数据
+        // 仅在 debug 构建时检查，用于在开发和测试阶段快速发现级联删除遗漏
+        #[cfg(debug_assertions)]
+        {
+            let check_conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+            let orphan_tables = [
+                ("chapters", "story_id"),
+                ("characters", "story_id"),
+                ("scenes", "story_id"),
+                ("kg_entities", "story_id"),
+                ("kg_relations", "story_id"),
+                ("character_relationships", "story_id"),
+                ("scene_annotations", "story_id"),
+            ];
+            for (table, col) in orphan_tables {
+                let orphan_count: i64 = check_conn
+                    .query_row(
+                        &format!("SELECT COUNT(*) FROM {} WHERE {} = ?1", table, col),
+                        [id],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                debug_assert_eq!(
+                    orphan_count, 0,
+                    "StoryRepository::delete orphan invariant violated: {} rows remain in {} after story {} deletion",
+                    orphan_count, table, id
+                );
+            }
+        }
+
         Ok(count)
     }
 }

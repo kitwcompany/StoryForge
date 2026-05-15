@@ -1048,4 +1048,73 @@ impl GenreProfileRepository {
 
         Ok(profile)
     }
+
+    pub fn get_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<GenreProfile>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| {
+            rusqlite::Error::InvalidParameterName(e.to_string())
+        })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, anti_patterns_json, reference_tables_json, is_builtin, created_at FROM genre_profiles WHERE id = ?1 LIMIT 1"
+        )?;
+
+        let profile = stmt.query_row([id], |row| {
+            let created_str: String = row.get(9)?;
+            Ok(GenreProfile {
+                id: row.get(0)?,
+                genre_name: row.get(1)?,
+                canonical_name: row.get(2)?,
+                aliases_json: row.get(3)?,
+                core_tone: row.get(4)?,
+                pacing_strategy: row.get(5)?,
+                anti_patterns_json: row.get(6)?,
+                reference_tables_json: row.get(7)?,
+                is_builtin: row.get::<_, i32>(8)? != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(profile)
+    }
+
+    pub fn update(
+        &self,
+        id: &str,
+        genre_name: &str,
+        canonical_name: &str,
+        aliases_json: Option<&str>,
+        core_tone: Option<&str>,
+        pacing_strategy: Option<&str>,
+        anti_patterns_json: Option<&str>,
+        reference_tables_json: Option<&str>,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| {
+            rusqlite::Error::InvalidParameterName(e.to_string())
+        })?;
+
+        conn.execute(
+            "UPDATE genre_profiles SET genre_name = ?2, canonical_name = ?3, aliases_json = ?4, core_tone = ?5, pacing_strategy = ?6, anti_patterns_json = ?7, reference_tables_json = ?8 WHERE id = ?1",
+            params![
+                id, genre_name, canonical_name, aliases_json, core_tone,
+                pacing_strategy, anti_patterns_json, reference_tables_json
+            ],
+        )
+    }
+
+    pub fn delete(
+        &self,
+        id: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| {
+            rusqlite::Error::InvalidParameterName(e.to_string())
+        })?;
+
+        conn.execute(
+            "DELETE FROM genre_profiles WHERE id = ?1",
+            [id],
+        )
+    }
 }

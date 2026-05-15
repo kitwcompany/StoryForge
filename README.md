@@ -8,7 +8,7 @@
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v6.0.0 最新更新（2026-05-15）**：Story System 合同驱动体系 + 三层记忆编排器 + 追读力评估系统 + 37 体裁模板库 + Anti-AI 五维审查 — 全面重构小说创作的"写前-写中-写后"质量管控闭环。
+> **v6.0.0 最新更新（2026-05-15）**：Story System 合同驱动体系 + 三层记忆编排器 + 追读力评估系统 + 37 体裁模板库 + Anti-AI 五维审查 + 幕前窥视面板 + 角色悬浮卡片 + 导出出版前体检 — 全面重构小说创作的"写前-写中-写后"质量管控闭环。
 >
 > **Story System 合同驱动体系**：引入 `MASTER_SETTING` / `CHAPTER` / `REVIEW` 四级合同架构，写前真源（story_contracts）与写后真源（chapter_commits）分离，CHAPTER_COMMIT 提交链驱动 5 个 Projection Writer（State/Index/Summary/Memory/Vector）自动更新 read-model，实现"合同即法律、设定即物理、发明需识别"的防幻觉三定律。
 >
@@ -36,7 +36,7 @@
 >
 > **维度三：系统整洁度与数据一致性（4项）** — `delete_story` / `delete_character` 加固显式级联清理（事务内清理 `story_metadata`/`foreshadowing_tracker`/`user_preferences`/`ai_operations`/`scene_characters`/`scene_character_actions`/`character_relationships`/`character_states` 等 14+ 关联表），消除外键约束未覆盖的幽灵数据；Settings.tsx 隐藏未实现的"图像生成" Tab，消除死胡同功能；`tauri.conf.json` 窗口配置验证与 `frontstage`/`backstage` label 对齐。
 >
-> **回归测试**：`cargo check` 零错误，`cargo test` 226/226 通过（11 项 bug condition 测试因修复完成而标记为 ignore），`npm run build` 通过。
+> **回归测试**：`cargo check` 零错误，`cargo test` ~225/225 通过，`npm run build` 通过。
 >
 > **v5.6.3 更新**：IPC 参数一致性全面修复 + Bootstrap 序列化修复 — 幕后界面功能不可用的根本原因修复。**Bootstrap 进度卡死** — LLM 返回 JSON 省略 `age`/`sequence_number` 等字段导致 serde 反序列化失败，Pipeline 中断在前端显示永久 "塑造角色 (3/6)"。修复：给 `CharacterElement`/`SceneElement` 所有可能被 LLM 省略的字段添加 `#[serde(default)]`；`BootstrapProgressEvent` 新增 `status` 字段（`InProgress`/`Completed`/`Failed`），前端失败状态可见。**IPC 参数名全面审计** — 系统审计 `tauri.ts` 全部 40+ 命令与后端签名，修复 7 处 camelCase↔snake_case 不匹配（`smart_execute`/`get_input_hint`/`record_feedback`/`call_mcp_tool`/`check_auto_write_quota`/`check_auto_revise_quota`/`save_settings`）。**后端命令参数补全** — `run_creation_workflow` mode 映射增加 `"human_draft_ai_polish"`，`update_story` 补充 `genre`，`create_character`/`update_character` 补充 `personality`/`goals`/`appearance`/`gender`/`age` 扩展字段。幕后界面全部功能现已恢复正常。
 >
@@ -92,11 +92,14 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **内联 `/` 指令输入框** - 编辑器内输入 `/` 触发浮动输入框，可直接输入任意指令（如"续写"、"润色"、"写一篇武侠小说吧"）。回车发送，Esc 取消，再按 `/` 输出字符。用户输入经过**意图引擎**解析，模型自主决定调用续写、润色、技能、MCP 搜索或结构调整。
 - **右边缘萤火暗示** - 创作建议从编辑区右边缘淡入（0.8s）→ 停留 → 淡出（1.2s），不打扰写作流
 - **空态诗意引导** - 编辑器无内容时居中显示"开始写下第一句话，文思将随你而行"
-- **精简侧边栏 Dock** - 3 按钮：修（修订模式）/ 批（生成古典评点）/ 幕（进入幕后）
+- **精简侧边栏 Dock** - 4 按钮：修（修订模式）/ 批（生成古典评点）/ 幕（进入幕后）/ 窥（幕前窥视面板）
 - **修订模式与变更追踪** - 32px 单行横幅，变更列表可滚动折叠，支持逐条接受/拒绝
 - **古典评点生成** - AI 模拟金圣叹风格生成朱红色段落评点（`LXGW WenKai` 字体、左边框、`※` 前缀），内联插入于段落之间
 - **禅模式** - `F11` 快捷键进入绝对纯净全屏，隐藏顶栏/侧边栏/所有萤火提示
 - **右键上下文菜单** - 修订模式、生成古典评点、全选、复制、剪切、粘贴
+- **角色悬浮卡片** - 幕前编辑器中鼠标悬停角色名 600ms，自动显示微型浮卡（状态标签、外貌摘要、上次出场章节），点击直达幕后角色详情
+- **幕前窥视面板** - 点击 Dock「窥」按钮，右侧滑出 320px 只读面板，实时展示当前故事角色列表与开放伏笔（含逾期警告），零打断快速查阅
+- **Ingest 健康指示器** - 顶栏右侧显示 🧠 图标：最近 Ingest 成功/失败状态一目了然，点击展开最近 3 条 Ingest 记录
 - **后台设置同步** - 写作风格、字体设置在后台统一管理
 
 ![幕前界面预览](docs/images/frontstage-preview.png)
@@ -115,7 +118,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **版本控制** - 场景历史自动快照，行级 diff 对比，随时回溯
 - **技能系统** - AI 技能插件工坊，支持导入/启用/禁用/执行
 - **MCP 外部服务器** - 连接外部 MCP 服务器，扩展工具生态
-- **数据导出** - 支持 PDF、EPUB、Markdown 等多种格式
+- **数据导出** - 支持 PDF、EPUB、Markdown 等多种格式，导出前可选 Anti-AI 体检
 - **模型映射与路由** - 为不同 Agent 独立配置 LLM 模型
 - **意图引擎** - 聊天栏自动解析用户意图并调度对应 Agent 执行
 - **创作方法论引擎** - 雪花法 / 场景节拍 / 英雄之旅 / 人物深度，自动注入创作约束
@@ -123,6 +126,9 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **自适应学习系统** - 记录用户反馈、挖掘偏好、动态调节生成参数
 - **创作工作流引擎** - 7 阶段全自动工作流（构思→大纲→场景→写作→审阅→迭代→入库）
 - **创世引擎** (v5.0.0) - 输入一句话，自动生成完整小说世界：大纲、角色、场景、伏笔，并在幕后自动创建卡片
+- **体裁模板库** (v6.0.0) - 37 内置网文体裁模板，支持自定义编辑与外部化配置
+- **数据统计** (v6.0.0) - Settings 页面「数据统计」标签，显示最近 30 天各功能使用次数
+- **Projection 健康检查** (v6.0.0) - StorySystem 页面每行提交后查看 5 个 Writer 的投影状态
 - **多账号 OAuth 登录** (v4.5.0) - 支持 Google / GitHub 登录，可选登录、本地优先，微信/QQ 预留框架
 - **云端主站** (v4.5.0) - Linux 服务端（Actix-web + PostgreSQL + Docker），落地页 / Web 登录 / 用户后台
 
@@ -136,7 +142,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 故事管理 | - | ✅ 完整功能 |
 | 场景管理 | ✅ 快速切换 / 版本历史 | ✅ 详细编辑 / 故事线拖拽 |
 | AI 续写 | ✅ 流式生成 / 自动续写 | ✅ 参数调节 / 方法论约束 |
-| 角色查看 | ✅ 卡片式预览 | ✅ 完整编辑 / 关系图谱 / StyleDNA |
+| 角色查看 | ✅ 悬浮卡片 / 窥视面板 | ✅ 完整编辑 / 关系图谱 / StyleDNA |
 | 知识图谱 | - | ✅ 可视化 / 编辑 / 归档 |
 | 技能执行 | ✅ 快捷执行 | ✅ 技能工坊管理 |
 | 文本批注 | - | ✅ 场景级批注 |
@@ -144,6 +150,10 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | StyleDNA | - | ✅ 风格选择 / 相似度分析 |
 | 工作流引擎 | - | ✅ 一键全自动创作 |
 | 自适应学习 | - | ✅ 反馈记录 / 偏好挖掘 |
+| Ingest 健康 | ✅ 顶栏状态图标 | ✅ 作业记录 / Projection 健康检查 |
+| 伏笔追踪 | ✅ 窥视面板逾期警告 | ✅ 伏笔看板全生命周期管理 |
+| 体裁模板 | - | ✅ 37 内置模板 / 自定义编辑 |
+| Anti-AI 审查 | - | ✅ 导出前体检 + StorySystem 卡片 |
 
 **快捷键对照**：
 - `Ctrl+Enter` / `Cmd+Enter` - 触发 AI 续写（active 模式下）
@@ -286,7 +296,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 创作工作流引擎 | ✅ 完成 | 100% |
 | 拆书功能 | ✅ 完成 | 100% |
 | 任务系统 | ✅ 完成 | 100% |
-| 测试覆盖 | ✅ 完成 | 226 tests |
+| 测试覆盖 | ✅ 完成 | ~225 tests |
 | 创世引擎 | ✅ 完成 | 100% |
 | Story System 合同驱动 | ✅ 完成 | 100% |
 | 三层记忆编排器 | ✅ 完成 | 100% |
@@ -311,6 +321,9 @@ v2-rust/
 │   │   │   │   ├── EditorContextMenu.tsx # 右键上下文菜单
 │   │   │   │   ├── AiSuggestionBubble.tsx # AI 氛围提示
 │   │   │   │   ├── CharacterCardPopup.tsx # 角色卡片弹窗
+│   │   │   │   ├── CharacterPeekCard.tsx    # 角色悬浮卡片 (v6.0.0)
+│   │   │   │   ├── PeekDrawer.tsx           # 幕前窥视面板 (v6.0.0)
+│   │   │   │   ├── IngestHealthIndicator.tsx # Ingest 健康指示器 (v6.0.0)
 │   │   │   │   └── ChapterOutline.tsx
 │   │   │   └── styles/frontstage.css
 │   │   ├── pages/               # 幕后页面
@@ -400,6 +413,8 @@ v2-rust/
 │   │   │   └── mod.rs
 │   │   ├── anti_ai/             # Anti-AI 五维审查 (v6.0.0)
 │   │   │   └── mod.rs
+│   │   ├── telemetry/           # 功能使用度量 (v6.0.0)
+│   │   │   └── mod.rs
 │   │   ├── llm/                 # LLM 适配器
 │   │   │   ├── adapter.rs
 │   │   │   ├── openai.rs
@@ -413,7 +428,11 @@ v2-rust/
 │   └── tauri.conf.json
 │
 ├── templates/                   # 模板库
-│   └── genres/                  # 37 个体裁模板 (v6.0.0)
+│   ├── genres/                  # 37 个体裁模板源码 (v6.0.0)
+│   └── genres.json              # 体裁模板外部化配置 (v6.0.0)
+├── scripts/                     # 工具脚本
+│   ├── verify-ipc-manifest.py   # IPC 命令注册表一致性检查 (v6.0.0)
+│   └── migrate-genres-to-json.py # 体裁模板迁移脚本 (v6.0.0)
 │
 ├── docs/                        # 文档
 ├── README.md
@@ -638,6 +657,36 @@ v2-rust/
 | 情感维度 | ✅ | 标签化检测（"愤怒地"）+ 展示 vs 告知 |
 | 对话维度 | ✅ | 说明性对话检测 + 标签单调性 |
 | 综合评分 | ✅ | 0-100 分 + 改进建议 + 标记段落 |
+| 导出前体检 | ✅ | ExportDialog 新增"出版前体检"可选步骤，审查通过后才导出 |
+| StorySystem 卡片 | ✅ | Anti-AI 从 Tab 降级为可展开卡片，降低日常干扰 |
+
+### 13. 可靠性与可观测性 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Ingest 作业追踪 | ✅ | `ingest_jobs` 表（Migration 55），记录 pending/running/completed/failed 状态 |
+| Ingest 健康指示器 | ✅ | 幕前顶栏 🧠 图标，显示最近 Ingest 成功/失败，点击展开最近 3 条记录 |
+| Projection 健康检查 | ✅ | `check_projection_health` 解析 `projection_status_json`，显示 5 个 Writer 各自状态 |
+| 功能使用度量 | ✅ | `feature_usage_logs` 表（Migration 56），本地 SQLite 记录各功能使用次数 |
+| 数据统计面板 | ✅ | Settings 页面「数据统计」标签，30 天柱状图 |
+| IPC 一致性检查 | ✅ | `scripts/verify-ipc-manifest.py` 自动检测前端调用与后端注册差异 |
+
+### 14. 类型安全基座 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| ts-rs 类型导出 | ✅ | Rust `SyncEvent` / `FrontstageEvent` / `BackstageEvent` 添加 `#[derive(TS)]` |
+| 前端穷尽检查 | ✅ | `useSyncStore.ts` switch-case 使用 `assertUnreachable(type: never)` 穷尽匹配 |
+| 字段命名一致 | ✅ | 消除 `camelCase + snake_case fallback` 代码，生成类型保证一致性 |
+
+### 15. UX 微优化 v6.0.0 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 角色悬浮卡片 | ✅ | RichTextEditor 中 hover 角色名 600ms 显示微型浮卡（状态/外貌/上次出场） |
+| 幕前窥视面板 | ✅ | Dock 第 4 按钮「窥」，右侧 320px 只读 drawer，角色列表 + 开放伏笔 |
+| 体裁模板外部化 | ✅ | 37 个模板从 Markdown 迁移到 `templates/genres.json`，支持用户自定义 |
+| 导出出版前体检 | ✅ | ExportDialog 4 步流程：格式选择 → 健康检查 → 审查中 → 结果展示 |
 
 ---
 
@@ -680,10 +729,29 @@ v2-rust/
 - **情感维度**：标签化检测（"愤怒地"、"悲伤地说"）+ 展示 vs 告知判断
 - **对话维度**：说明性对话检测（ exposition_ratio ）+ 标签单调性（"说道"重复）
 - **输出**：综合评分 + 各维度评分 + 改进建议 + 标记段落列表
+- **导出前体检**：ExportDialog 新增 4 步导出流程，可选运行 Anti-AI 审查后再导出
+- **StorySystem 卡片化**：Anti-AI 从顶部 Tab 降级为可展开卡片，降低日常干扰，保留功能入口
+
+**类型安全基座**
+- **ts-rs 自动生成 TypeScript 绑定**：Rust `SyncEvent` / `FrontstageEvent` / `BackstageEvent` 添加 `#[derive(TS)]`，编译时自动生成类型
+- **前端穷尽匹配**：`useSyncStore.ts` 重构为 typed discriminated union，`default` case 使用 `assertUnreachable(type: never)` 实现穷尽检查
+- **IPC 一致性检查**：`scripts/verify-ipc-manifest.py` 自动比对后端 `generate_handler![]` 与前端的 `loggedInvoke` 调用，防止命令注册遗漏
+
+**可靠性与可观测性**
+- **Ingest 作业追踪**（Migration 55）：`ingest_jobs` 表记录每次 Ingest 的 pending/running/completed/failed 状态，失败原因持久化
+- **Ingest 健康指示器**：幕前顶栏新增 🧠 状态图标，最近 Ingest 成功/失败一目了然，点击浮层展示最近 3 条记录
+- **Projection 健康检查**：`check_projection_health` 解析 `chapter_commits.projection_status_json`，显示 5 个 Writer 各自成功/失败状态
+- **功能使用度量**（Migration 56）：`feature_usage_logs` 表本地记录各功能使用次数，Settings 页面「数据统计」标签展示 30 天柱状图
+- **技术债务清理**：删除 `src-tauri/src/tests/bug_condition_v57.rs` 中 11 个已修复的 `#[ignore]` 测试，将核心场景转化为生产代码中的 `debug_assert!` 和 `// EVENT_REQUIRED` 注释标记
+
+**UX 微优化**
+- **角色悬浮卡片**：RichTextEditor 中鼠标 hover 角色名 600ms 后显示 140px 微型浮卡，展示状态标签、外貌摘要、上次出场章节
+- **幕前窥视面板**：Dock 新增第 4 按钮「窥」（Eye 图标），右侧滑出 320px 只读 drawer，展示角色列表与开放伏笔（含逾期警告），点击条目直达幕后
+- **体裁模板外部化**：37 个 Markdown 模板迁移到 `templates/genres.json`，启动时优先读取 `{app_data_dir}/templates/genres.json`，支持用户自定义和删除非内置体裁
 
 **编译与测试**
-- `cargo check`：零错误（121 warnings）
-- `cargo test`：226/226 全部通过
+- `cargo check`：零错误（~121 warnings）
+- `cargo test`：~225/225 通过（11 项历史 bug condition 测试已删除，0 ignored）
 - `npm run build`：通过
 - 版本号统一：Cargo.toml / package.json / tauri.conf.json → 6.0.0
 
@@ -1040,6 +1108,14 @@ cd src-tauri && cargo tauri build
 - [x] **追读力评估系统** - Hook/Coolpoint/Micropayoff/Debt 四维度 + 综合评分与趋势图
 - [x] **37 体裁模板库** - 内置 37 个网文体裁模板，含核心基调/节奏策略/反模式/参考数据/典型结构
 - [x] **Anti-AI 五维审查** - 词汇/语法/叙事/情感/对话五维度审查，输出综合评分与改进建议
+- [x] **类型安全基座** - ts-rs 自动生成 SyncEvent TypeScript 绑定 + 前端穷尽匹配 + IPC 一致性检查脚本
+- [x] **Ingest 作业追踪** - `ingest_jobs` 表记录 Ingest 全流程状态，幕前顶栏健康指示器
+- [x] **Projection 健康检查** - 解析 `projection_status_json`，逐 Writer 展示投影成功/失败状态
+- [x] **功能使用度量** - `feature_usage_logs` 本地记录，Settings 页面 30 天统计柱状图
+- [x] **角色悬浮卡片** - 编辑器 hover 角色名显示微型浮卡（状态/外貌/上次出场）
+- [x] **幕前窥视面板** - Dock 第 4 按钮，右侧 320px 只读 drawer，角色列表 + 开放伏笔
+- [x] **体裁模板外部化** - 37 模板从 Markdown 迁移到 JSON，支持用户自定义编辑
+- [x] **导出出版前体检** - ExportDialog 4 步流程，可选 Anti-AI 审查后再导出
 
 ### 短期计划 (v6.1.x)
 - [ ] 云端同步

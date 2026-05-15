@@ -146,11 +146,13 @@ pub async fn update_scene(
                 if content.len() > 50 {
                     let content_for_vector = content.clone();
                     let app_handle_for_sync = app_handle_clone.clone();
-                    let llm_service = LlmService::new(app_handle_clone);
+                    let llm_service = LlmService::new(app_handle_clone.clone());
 
                     // v5.6.2 修复: 将 ingest 放在独立作用域中，避免 Box<dyn Error> 跨越 await 导致 Send 失败
                     let ingest_result = {
-                        let pipeline = IngestPipeline::new(llm_service);
+                        let pipeline = IngestPipeline::new(llm_service)
+                            .with_pool(pool_clone.clone())
+                            .with_app_handle(app_handle_clone.clone());
                         let ingest_content = IngestContent {
                             text: content,
                             source: format!("scene:{}", scene_id_clone),
@@ -510,6 +512,8 @@ pub async fn import_studio(
 }
 
 // ==================== 知识图谱命令 ====================
+// EVENT_REQUIRED: 所有 KG 变更命令在成功执行后必须发射 sync-event，
+// 确保前后台知识图谱视图自动刷新。新增/修改命令时请在 code review 中确认。
 
 #[command(rename_all = "snake_case")]
 pub async fn create_entity(
@@ -522,6 +526,7 @@ pub async fn create_entity(
 ) -> Result<Entity, String> {
     log::info!("[commands_v3] {} called: story_id={}, name={}, entity_type={}", "create_entity", story_id, name, entity_type);
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    // EVENT_REQUIRED
     let result = repo.create_entity(&story_id, &name, &entity_type, &attributes, None)
         .map_err(|e| {
             log::error!("[commands_v3] {} failed: {}", "create_entity", e);
@@ -573,6 +578,7 @@ pub async fn update_entity(
         existing.embedding
     };
 
+    // EVENT_REQUIRED
     let result = repo.update_entity(&entity_id, Some(new_name), Some(new_attrs), embedding)
         .map_err(|e| e.to_string())?;
 
@@ -608,6 +614,7 @@ pub async fn create_relation(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<Relation, String> {
+    // EVENT_REQUIRED
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     let result = repo.create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
         .map_err(|e| e.to_string())?;
@@ -622,6 +629,16 @@ pub async fn get_entity_relations(
 ) -> Result<Vec<Relation>, String> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     repo.get_relations_by_entity(&entity_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn get_ingest_jobs(
+    story_id: String,
+    limit: i32,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::memory::ingest::IngestJob>, String> {
+    crate::memory::ingest::IngestPipeline::get_recent_jobs(&story_id, limit, pool.inner())
         .map_err(|e| e.to_string())
 }
 
@@ -1341,7 +1358,9 @@ pub async fn create_story_with_wizard(
     );
     
     let llm_service = LlmService::new(app_handle.clone());
-    let pipeline = IngestPipeline::new(llm_service);
+    let pipeline = IngestPipeline::new(llm_service)
+        .with_pool(pool.inner().clone())
+        .with_app_handle(app_handle.clone());
     let ingest_content = IngestContent {
         text: ingest_text,
         source: format!("novel_creation_wizard:{}" , story_id),
@@ -2946,4 +2965,85 @@ pub fn get_character_scenes(
         "character_name": sc.character_name,
         "created_at": sc.created_at,
     })).collect())
+}
+
+// ==================== Character Quick View (v6.0.1) ====================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CharacterQuickView {
+    pub id: String,
+    pub name: String,
+    pub appearance_summary: String,
+    pub status_tags: Vec<String>,
+    pub last_seen_chapter: i32,
+}
+
+#[command(rename_all = "snake_case")]
+pub fn get_character_by_name(
+    story_id: String,
+    name: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<CharacterQuickView>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+
+    // 1. Find character by name in story
+    let character: Option<(String, String, Option<String>, Option<String>)> = conn.query_row(
+        "SELECT id, name, appearance, personality FROM characters WHERE story_id = ?1 AND name = ?2",
+        [&story_id, &name],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?))
+    ).ok();
+
+    let (char_id, char_name, appearance, personality) = match character {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+
+    // 2. Truncate appearance to 60 chars
+    let appearance_text = appearance.unwrap_or_default();
+    let has_more = appearance_text.chars().count() > 60;
+    let appearance_summary = appearance_text
+        .chars()
+        .take(60)
+        .collect::<String>()
+        + if has_more { "..." } else { "" };
+
+    // 3. Build status tags from personality keywords
+    let mut status_tags = Vec::new();
+    if let Some(ref p) = personality {
+        let keywords = ["冷静", "冲动", "善良", "邪恶", "勇敢", "懦弱", "聪明", "愚蠢", "忠诚", "背叛", "温柔", "残暴", "乐观", "悲观"];
+        for kw in &keywords {
+            if p.contains(kw) {
+                status_tags.push(kw.to_string());
+            }
+        }
+    }
+
+    // 4. Find last seen scene (using sequence_number as proxy for chapter)
+    let last_seen_chapter: i32 = conn.query_row(
+        "SELECT MAX(s.sequence_number) FROM scene_characters sc
+         JOIN scenes s ON sc.scene_id = s.id
+         WHERE sc.character_id = ?1",
+        [&char_id],
+        |row| row.get(0)
+    ).unwrap_or(1);
+
+    Ok(Some(CharacterQuickView {
+        id: char_id,
+        name: char_name,
+        appearance_summary,
+        status_tags,
+        last_seen_chapter: last_seen_chapter.max(1),
+    }))
+}
+
+// ==================== Story System: Projection Health Check ====================
+
+#[command(rename_all = "snake_case")]
+pub fn check_projection_health(
+    story_id: String,
+    chapter_number: i32,
+    pool: State<'_, DbPool>,
+) -> Result<crate::story_system::ProjectionHealthReport, String> {
+    let engine = crate::story_system::StorySystemEngine::new(pool.inner().clone());
+    engine.check_projection_health(&story_id, chapter_number)
 }

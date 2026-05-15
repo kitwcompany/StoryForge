@@ -3,15 +3,17 @@
 //! 所有数据变更操作完成后发射这些事件，前后台窗口监听并自动刷新对应数据。
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// 同步事件类型
-/// 
+///
 /// 命名规范:
 /// - `[Resource]Created`: 资源创建（前台/后台需要添加新条目）
 /// - `[Resource]Updated`: 资源更新（前台/后台需要刷新现有条目）
 /// - `[Resource]Deleted`: 资源删除（前台/后台需要移除条目）
 /// - `[Resource]Selected`: 资源选择（前台/后台需要切换当前焦点）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "../src-frontend/src/generated/")]
 #[serde(rename_all = "camelCase", tag = "type", content = "payload")]
 pub enum SyncEvent {
     // === Story 事件 ===
@@ -162,5 +164,39 @@ impl SyncEvent {
             SyncEvent::IngestionCompleted { story_id, .. } => Some(story_id),
             SyncEvent::DataRefresh { story_id, .. } => story_id.as_ref(),
         }
+    }
+}
+
+// =============================================================================
+// Phase 1.1: TypeScript 绑定导出测试
+// =============================================================================
+
+#[cfg(test)]
+mod ts_export_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// 将 SyncEvent 导出为 TypeScript 类型定义。
+    /// 运行 `cargo test ts_export_tests -- --nocapture` 即可更新前端绑定文件。
+    #[test]
+    fn export_sync_event_types() {
+        let export_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../src-frontend/src/generated");
+
+        // 确保目标目录存在
+        std::fs::create_dir_all(&export_dir).expect("创建 generated 目录失败");
+
+        // 导出 SyncEvent（serde tag/content 模式会自动生成 discriminated union）
+        SyncEvent::export_all_to(&export_dir).expect("导出 SyncEvent 失败");
+
+        // 验证文件已生成
+        let expected_path = export_dir.join("SyncEvent.ts");
+        assert!(
+            expected_path.exists(),
+            "SyncEvent.ts 未生成到 {:?}",
+            expected_path
+        );
+
+        println!("✅ TypeScript 绑定已导出到: {:?}", export_dir);
     }
 }

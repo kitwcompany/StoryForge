@@ -6,22 +6,25 @@ import {
   getContractTree, getRuntimeContract, getChapterCommits,
   evaluateReadingPower, getReadingPowerTrend, getChaseDebts,
   buildMemoryPack, getMemoryItems, antiAiReview,
-  getGenreProfiles,
+  getGenreProfiles, checkProjectionHealth, saveGenreProfile, deleteGenreProfile,
+  logFeatureUsage,
 } from '@/services/tauri';
 import type {
   ContractTree, RuntimeContract, ChapterCommit,
   ReadingPowerEvaluation, ChaseDebt, MemoryPack, MemoryItem,
   AntiAiReview, GenreProfile,
 } from '@/services/tauri';
+import type { ProjectionHealthReport } from '@/types/v3';
 import {
   FileText, TrendingUp, Brain, ShieldAlert, BookOpen,
-  ChevronRight, Loader2, Zap,
+  ChevronRight, Loader2, Zap, Activity, CheckCircle, AlertTriangle,
+  Layers, Edit, Copy, Trash2, Plus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export function StorySystem() {
   const currentStory = useAppStore((s) => s.currentStory);
-  const [activeTab, setActiveTab] = useState<'contracts' | 'commits' | 'reading' | 'memory' | 'anti-ai'>('contracts');
+  const [activeTab, setActiveTab] = useState<'contracts' | 'commits' | 'reading' | 'memory' | 'anti-ai' | 'genres'>('contracts');
   const [isLoading, setIsLoading] = useState(false);
 
   // Contracts
@@ -44,8 +47,15 @@ export function StorySystem() {
   const [reviewResult, setReviewResult] = useState<AntiAiReview | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
 
+  // Projection Health
+  const [healthReports, setHealthReports] = useState<Record<number, ProjectionHealthReport>>({});
+  const [checkingHealth, setCheckingHealth] = useState<Set<number>>(new Set());
+
   // Genre profiles
   const [genres, setGenres] = useState<GenreProfile[]>([]);
+  const [editingGenre, setEditingGenre] = useState<GenreProfile | null>(null);
+  const [showGenreForm, setShowGenreForm] = useState(false);
+  const [showAntiAiCard, setShowAntiAiCard] = useState(false);
 
   useEffect(() => {
     loadGenres();
@@ -59,6 +69,22 @@ export function StorySystem() {
       loadMemory();
     }
   }, [currentStory?.id]);
+
+  // Feature usage telemetry
+  useEffect(() => {
+    if (!currentStory?.id) return;
+    const featureMap: Record<string, string> = {
+      contracts: 'story_contract',
+      reading: 'reading_power',
+      memory: 'memory_pack',
+      'anti-ai': 'anti_ai_review',
+      genres: 'genre_template',
+    };
+    const featureId = featureMap[activeTab];
+    if (featureId) {
+      logFeatureUsage(featureId, 'opened', currentStory.id);
+    }
+  }, [activeTab, currentStory?.id]);
 
   const loadGenres = async () => {
     try {
@@ -115,6 +141,23 @@ export function StorySystem() {
     }
   };
 
+  const handleCheckHealth = async (chapterNumber: number) => {
+    if (!currentStory) return;
+    setCheckingHealth((prev) => new Set(prev).add(chapterNumber));
+    try {
+      const report = await checkProjectionHealth(currentStory.id, chapterNumber);
+      setHealthReports((prev) => ({ ...prev, [chapterNumber]: report }));
+    } catch (e) {
+      toast.error(`健康检查失败: ${e}`);
+    } finally {
+      setCheckingHealth((prev) => {
+        const next = new Set(prev);
+        next.delete(chapterNumber);
+        return next;
+      });
+    }
+  };
+
   const handleAntiAiReview = async () => {
     if (!reviewText.trim()) {
       toast.error('请输入要审查的文本');
@@ -125,6 +168,9 @@ export function StorySystem() {
       const result = await antiAiReview(reviewText, currentStory?.genre || undefined);
       setReviewResult(result);
       toast.success('审查完成');
+      if (currentStory?.id) {
+        logFeatureUsage('anti_ai_review', 'executed', currentStory.id);
+      }
     } catch (e) {
       toast.error('审查失败');
     } finally {
@@ -137,7 +183,7 @@ export function StorySystem() {
     { id: 'commits' as const, label: '提交链', icon: BookOpen },
     { id: 'reading' as const, label: '追读力', icon: TrendingUp },
     { id: 'memory' as const, label: '记忆', icon: Brain },
-    { id: 'anti-ai' as const, label: 'Anti-AI', icon: ShieldAlert },
+    { id: 'genres' as const, label: '体裁', icon: Layers },
   ];
 
   if (!currentStory) {
@@ -234,15 +280,66 @@ export function StorySystem() {
               <p className="text-gray-500 text-sm">暂无提交记录</p>
             ) : (
               <div className="space-y-2">
-                {commits.map((commit) => (
-                  <div key={commit.id} className="p-3 bg-cinema-800 rounded-lg flex items-center justify-between">
-                    <div>
-                      <p className="text-white text-sm font-medium">第{commit.chapter_number}章</p>
-                      <p className="text-gray-500 text-xs">状态: {commit.status}</p>
+                {commits.map((commit) => {
+                  const report = healthReports[commit.chapter_number];
+                  const isChecking = checkingHealth.has(commit.chapter_number);
+                  return (
+                    <div key={commit.id} className="p-3 bg-cinema-800 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-white text-sm font-medium">第{commit.chapter_number}章</p>
+                          <p className="text-gray-500 text-xs">状态: {commit.status}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {report && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${report.overall_healthy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {report.overall_healthy ? '健康' : '异常'}
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleCheckHealth(commit.chapter_number)}
+                            disabled={isChecking}
+                          >
+                            {isChecking ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Activity className="w-3 h-3" />
+                            )}
+                            <span className="ml-1 text-xs">健康检查</span>
+                          </Button>
+                        </div>
+                      </div>
+                      {report && (
+                        <div className="mt-2 grid grid-cols-5 gap-2">
+                          {report.writers.map((w: { name: string; status: string }) => (
+                            <div
+                              key={w.name}
+                              className={`text-[10px] px-1.5 py-0.5 rounded text-center ${
+                                w.status === 'success' || w.status.startsWith('skipped')
+                                  ? 'bg-green-500/10 text-green-400'
+                                  : w.status === 'pending'
+                                    ? 'bg-yellow-500/10 text-yellow-400'
+                                    : 'bg-red-500/10 text-red-400'
+                              }`}
+                              title={w.status}
+                            >
+                              <span className="capitalize">{w.name}</span>
+                              {w.status === 'success' || w.status.startsWith('skipped') ? (
+                                <CheckCircle className="w-3 h-3 mx-auto mt-0.5" />
+                              ) : w.status === 'pending' ? (
+                                <Loader2 className="w-3 h-3 mx-auto mt-0.5 animate-spin" />
+                              ) : (
+                                <AlertTriangle className="w-3 h-3 mx-auto mt-0.5" />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -330,99 +427,294 @@ export function StorySystem() {
         </Card>
       )}
 
-      {/* Anti-AI Tab */}
-      {activeTab === 'anti-ai' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-red-400" />
-                Anti-AI 审查
-              </h3>
-              <textarea
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-                placeholder="粘贴要审查的文本..."
-                className="w-full h-48 bg-cinema-800 border border-cinema-700 rounded-lg p-3 text-white text-sm resize-none focus:outline-none focus:border-cinema-gold"
-              />
-              <div className="flex justify-end mt-3">
-                <Button
-                  onClick={handleAntiAiReview}
-                  disabled={isReviewing}
-                  className="flex items-center gap-2"
-                >
-                  {isReviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                  开始审查
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="text-lg font-semibold text-white mb-4">审查结果</h3>
-              {!reviewResult ? (
-                <p className="text-gray-500 text-sm">输入文本并点击审查</p>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <div className="text-3xl font-bold"
-                      style={{
-                        color: reviewResult.overall_score > 0.7 ? '#4ade80' : reviewResult.overall_score > 0.4 ? '#fbbf24' : '#f87171'
-                      }}
-                    >
-                      {(reviewResult.overall_score * 100).toFixed(0)}
+      {/* Genres Tab */}
+      {activeTab === 'genres' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Layers className="w-5 h-5 text-cinema-gold" />
+              体裁模板
+            </h3>
+            <Button size="sm" onClick={() => { setEditingGenre(null); setShowGenreForm(true); }}>
+              <Plus className="w-3 h-3 mr-1" />
+              新建
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {genres.map((g) => (
+              <Card key={g.id} className="relative">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-white font-medium">{g.genre_name}</p>
+                      <p className="text-gray-500 text-xs">{g.canonical_name}</p>
+                      {g.is_builtin && (
+                        <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">内置</span>
+                      )}
                     </div>
-                    <div className="text-gray-400 text-sm">综合评分</div>
-                  </div>
-
-                  <div className="space-y-2">
-                    {reviewResult.dimensions.map((dim) => (
-                      <div key={dim.name} className="flex items-center gap-3">
-                        <span className="text-gray-400 text-sm w-12">{dim.name}</span>
-                        <div className="flex-1 h-4 bg-cinema-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${dim.score * 100}%`,
-                              backgroundColor: dim.score > 0.7 ? '#4ade80' : dim.score > 0.4 ? '#fbbf24' : '#f87171',
-                            }}
-                          />
-                        </div>
-                        <span className="text-white text-xs w-8">{(dim.score * 100).toFixed(0)}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {reviewResult.issues.length > 0 && (
-                    <div className="mt-4">
-                      <h4 className="text-white text-sm font-medium mb-2">发现的问题</h4>
-                      <div className="space-y-2">
-                        {reviewResult.issues.slice(0, 5).map((issue, idx) => (
-                          <div key={idx} className="p-2 bg-cinema-800 rounded text-sm">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`text-xs px-1.5 py-0.5 rounded ${
-                                issue.severity === 'high' ? 'bg-red-900/50 text-red-300' :
-                                issue.severity === 'medium' ? 'bg-yellow-900/50 text-yellow-300' :
-                                'bg-blue-900/50 text-blue-300'
-                              }`}>
-                                {issue.severity}
-                              </span>
-                              <span className="text-gray-300">{issue.dimension}</span>
-                            </div>
-                            <p className="text-gray-400">{issue.description}</p>
-                            <p className="text-cinema-gold text-xs mt-1">建议: {issue.suggestion}</p>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => { setEditingGenre(g); setShowGenreForm(true); }}
+                        title="编辑"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                      {!g.is_builtin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            if (!window.confirm('确认删除此体裁模板？')) return;
+                            try {
+                              await deleteGenreProfile(String(g.id));
+                              toast.success('已删除');
+                              loadGenres();
+                            } catch (e) {
+                              toast.error('删除失败');
+                            }
+                          }}
+                          title="删除"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-400" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setEditingGenre({ ...g, id: 0, genre_name: g.genre_name + ' (副本)', is_builtin: false } as any);
+                          setShowGenreForm(true);
+                        }}
+                        title="复制为新模板"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
                     </div>
+                  </div>
+                  {g.core_tone && (
+                    <p className="text-gray-400 text-xs mt-2 line-clamp-2">{g.core_tone}</p>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {showGenreForm && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-cinema-900 border border-cinema-700 rounded-lg p-6 w-full max-w-lg">
+                <h3 className="text-white font-semibold mb-4">
+                  {editingGenre?.id ? '编辑体裁' : '新建体裁'}
+                </h3>
+                <GenreForm
+                  initial={editingGenre}
+                  onSave={async (data) => {
+                    try {
+                      await saveGenreProfile(data as any);
+                      toast.success('保存成功');
+                      setShowGenreForm(false);
+                      loadGenres();
+                    } catch (e) {
+                      toast.error('保存失败');
+                    }
+                  }}
+                  onCancel={() => setShowGenreForm(false)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Anti-AI 可展开卡片 */}
+      <div className="mt-8">
+        <button
+          onClick={() => {
+            const next = !showAntiAiCard;
+            setShowAntiAiCard(next);
+            if (next && currentStory?.id) {
+              logFeatureUsage('anti_ai_review', 'opened', currentStory.id);
+            }
+          }}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+        >
+          <ShieldAlert className="w-4 h-4" />
+          <span>Anti-AI 审查</span>
+          <span className="text-xs text-gray-600 ml-1">{showAntiAiCard ? '收起' : '展开'}</span>
+        </button>
+        {showAntiAiCard && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-3">
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5 text-red-400" />
+                  Anti-AI 审查
+                </h3>
+                <textarea
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  placeholder="粘贴要审查的文本..."
+                  className="w-full h-48 bg-cinema-800 border border-cinema-700 rounded-lg p-3 text-white text-sm resize-none focus:outline-none focus:border-cinema-gold"
+                />
+                <div className="flex justify-end mt-3">
+                  <Button
+                    onClick={handleAntiAiReview}
+                    disabled={isReviewing}
+                    className="flex items-center gap-2"
+                  >
+                    {isReviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    开始审查
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-lg font-semibold text-white mb-4">审查结果</h3>
+                {!reviewResult ? (
+                  <p className="text-gray-500 text-sm">输入文本并点击审查</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className="text-3xl font-bold"
+                        style={{
+                          color: reviewResult.overall_score > 0.7 ? '#4ade80' : reviewResult.overall_score > 0.4 ? '#fbbf24' : '#f87171'
+                        }}
+                      >
+                        {(reviewResult.overall_score * 100).toFixed(0)}
+                      </div>
+                      <div className="text-gray-400 text-sm">综合评分</div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {reviewResult.dimensions.map((dim) => (
+                        <div key={dim.name} className="flex items-center gap-3">
+                          <span className="text-gray-400 text-sm w-12">{dim.name}</span>
+                          <div className="flex-1 h-4 bg-cinema-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${dim.score * 100}%`,
+                                backgroundColor: dim.score > 0.7 ? '#4ade80' : dim.score > 0.4 ? '#fbbf24' : '#f87171',
+                              }}
+                            />
+                          </div>
+                          <span className="text-white text-xs w-8">{(dim.score * 100).toFixed(0)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {reviewResult.issues.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="text-white text-sm font-medium mb-2">发现的问题</h4>
+                        <div className="space-y-2">
+                          {reviewResult.issues.slice(0, 5).map((issue, idx) => (
+                            <div key={idx} className="p-2 bg-cinema-800 rounded text-sm">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                  issue.severity === 'high' ? 'bg-red-900/50 text-red-300' :
+                                  issue.severity === 'medium' ? 'bg-yellow-900/50 text-yellow-300' :
+                                  'bg-blue-900/50 text-blue-300'
+                                }`}>
+                                  {issue.severity}
+                                </span>
+                                <span className="text-gray-300">{issue.dimension}</span>
+                              </div>
+                              <p className="text-gray-400">{issue.description}</p>
+                              <p className="text-cinema-gold text-xs mt-1">建议: {issue.suggestion}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== Genre Form Component ====================
+
+interface GenreFormProps {
+  initial: Partial<GenreProfile> | null;
+  onSave: (data: Partial<GenreProfile>) => void;
+  onCancel: () => void;
+}
+
+function GenreForm({ initial, onSave, onCancel }: GenreFormProps) {
+  const [form, setForm] = useState({
+    id: initial?.id ? String(initial.id) : undefined,
+    genre_name: initial?.genre_name || '',
+    canonical_name: initial?.canonical_name || '',
+    core_tone: initial?.core_tone || '',
+    pacing_strategy: initial?.pacing_strategy || '',
+    anti_patterns_json: initial?.anti_patterns
+      ? JSON.stringify(initial.anti_patterns)
+      : '[]',
+    reference_tables_json: initial?.reference_tables
+      ? JSON.stringify(initial.reference_tables)
+      : '',
+  });
+
+  const handleChange = (field: string, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="text-gray-400 text-xs">体裁名称</label>
+        <input
+          className="w-full bg-cinema-800 border border-cinema-700 rounded px-3 py-1.5 text-white text-sm mt-1"
+          value={form.genre_name}
+          onChange={(e) => handleChange('genre_name', e.target.value)}
+          placeholder="如：修仙"
+        />
+      </div>
+      <div>
+        <label className="text-gray-400 text-xs">英文名</label>
+        <input
+          className="w-full bg-cinema-800 border border-cinema-700 rounded px-3 py-1.5 text-white text-sm mt-1"
+          value={form.canonical_name}
+          onChange={(e) => handleChange('canonical_name', e.target.value)}
+          placeholder="如：Cultivation"
+        />
+      </div>
+      <div>
+        <label className="text-gray-400 text-xs">核心基调</label>
+        <textarea
+          className="w-full h-20 bg-cinema-800 border border-cinema-700 rounded px-3 py-1.5 text-white text-sm mt-1 resize-none"
+          value={form.core_tone}
+          onChange={(e) => handleChange('core_tone', e.target.value)}
+          placeholder="描述该体裁的核心特征..."
+        />
+      </div>
+      <div>
+        <label className="text-gray-400 text-xs">节奏策略</label>
+        <textarea
+          className="w-full h-20 bg-cinema-800 border border-cinema-700 rounded px-3 py-1.5 text-white text-sm mt-1 resize-none"
+          value={form.pacing_strategy}
+          onChange={(e) => handleChange('pacing_strategy', e.target.value)}
+          placeholder="描述该体裁的节奏策略..."
+        />
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <Button size="sm" variant="ghost" onClick={onCancel}>取消</Button>
+        <Button
+          size="sm"
+          onClick={() => onSave(form as any)}
+          disabled={!form.genre_name || !form.canonical_name}
+        >
+          保存
+        </Button>
+      </div>
     </div>
   );
 }

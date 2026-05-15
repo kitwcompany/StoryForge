@@ -2409,6 +2409,68 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 56: 创建 ingest_jobs 表 — Ingest 作业追踪 (v6.0.1)
+    let ingest_jobs_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ingest_jobs'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if ingest_jobs_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE ingest_jobs (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ingest_jobs_story ON ingest_jobs(story_id, created_at)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ingest_jobs_status ON ingest_jobs(story_id, status)",
+            [],
+        )?;
+    }
+
+    // Migration 57: 创建 feature_usage_logs 表 — 功能使用度量 (v6.0.1)
+    let feature_usage_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='feature_usage_logs'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if feature_usage_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE feature_usage_logs (
+                id TEXT PRIMARY KEY,
+                feature_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                story_id TEXT,
+                metadata TEXT,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_feature_usage_feature ON feature_usage_logs(feature_id, created_at)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_feature_usage_story ON feature_usage_logs(story_id, created_at)",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 

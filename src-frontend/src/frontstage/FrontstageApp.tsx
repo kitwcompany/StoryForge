@@ -24,6 +24,9 @@ import ColorThemeDot from './components/ColorThemeDot';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
+import { IngestHealthIndicator } from './components/IngestHealthIndicator';
+import { PeekDrawer } from './components/PeekDrawer';
+import { usePayoffLedger } from '@/hooks/useForeshadowings';
 import toast from 'react-hot-toast';
 import { createLogger } from '@/utils/logger';
 
@@ -155,6 +158,10 @@ const FrontstageApp: React.FC = () => {
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
+
+  // 窥视面板状态
+  const [showPeekDrawer, setShowPeekDrawer] = useState(false);
+  const { data: payoffLedger = [] } = usePayoffLedger(currentStory?.id || null);
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
   // 统一实时状态同步中心：幕前监听后台数据变更，自动刷新本地状态
   // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
@@ -1539,6 +1546,7 @@ const FrontstageApp: React.FC = () => {
 
         {!isZenMode && (
           <div className="frontstage-header-right">
+            <IngestHealthIndicator storyId={currentStory?.id || null} />
             <ColorThemeDot isZenMode={isZenMode} />
             <button
               className={`wensi-mode-toggle wensi-${wensiMode}`}
@@ -1583,6 +1591,15 @@ const FrontstageApp: React.FC = () => {
                 title="生成古典评点"
               >
                 <span className="text-xs font-serif">批</span>
+              </button>
+
+              <button
+                className={cn('sidebar-dock-btn', showPeekDrawer && 'active')}
+                onClick={() => setShowPeekDrawer(prev => !prev)}
+                disabled={!currentStory}
+                title="窥视面板"
+              >
+                <BookOpen className="w-4 h-4" />
               </button>
 
               <div className="flex-1 min-h-0" />
@@ -1884,6 +1901,18 @@ const FrontstageApp: React.FC = () => {
           退出禅模式 (F11)
         </button>
       )}
+
+      {/* 窥视面板 */}
+      <PeekDrawer
+        isOpen={showPeekDrawer}
+        onClose={() => setShowPeekDrawer(false)}
+        characters={characters}
+        foreshadowings={payoffLedger}
+        onNavigateToBackstage={(target) => {
+          setShowPeekDrawer(false);
+          openBackstage();
+        }}
+      />
     </div>
   );
 };

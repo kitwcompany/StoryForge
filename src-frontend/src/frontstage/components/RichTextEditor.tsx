@@ -25,6 +25,9 @@ import {
 import { cn } from '@/utils/cn';
 import type { Character } from '@/types/index';
 import { CharacterCardPopup } from './CharacterCardPopup';
+import { CharacterPeekCard } from './CharacterPeekCard';
+import { getCharacterByName } from '@/services/tauri';
+import type { CharacterQuickView } from '@/services/tauri';
 import {
   loadEditorConfig,
   type EditorConfig
@@ -172,6 +175,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
     const [showPopup, setShowPopup] = useState(false);
     const [popupAnchor, setPopupAnchor] = useState<HTMLElement | null>(null);
+
+    // 角色 hover peek 状态
+    const [peekCharacter, setPeekCharacter] = useState<CharacterQuickView | null>(null);
+    const [peekPosition, setPeekPosition] = useState({ x: 0, y: 0 });
+    const [showPeek, setShowPeek] = useState(false);
+    const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const currentHoverNameRef = useRef<string | null>(null);
 
     // 同步状态到 ref，避免 useEditor 闭包问题
     const showSlashInputRef = useRef(showSlashInput);
@@ -442,8 +452,68 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       };
 
       (editorElement as HTMLElement).addEventListener('click', handleClick);
-      return () => (editorElement as HTMLElement).removeEventListener('click', handleClick);
-    }, [editor, characters]);
+
+      // Hover peek: 检测鼠标悬停在角色名上 600ms 后显示微型卡片
+      const handleMouseOver = async (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (!target || target.closest('.character-peek-card')) return;
+
+        const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+        if (!range) return;
+
+        const node = range.startContainer;
+        const offset = range.startOffset;
+        const word = extractWordAtPoint(node, offset);
+        if (!word) return;
+
+        const matched = characters.find(c => c.name === word);
+        if (!matched) return;
+
+        if (currentHoverNameRef.current === matched.name) return;
+        currentHoverNameRef.current = matched.name;
+
+        // 清除之前的 timer
+        if (peekTimerRef.current) {
+          clearTimeout(peekTimerRef.current);
+        }
+
+        peekTimerRef.current = setTimeout(async () => {
+          if (currentHoverNameRef.current !== matched.name) return;
+          if (!storyId) return;
+
+          try {
+            const data = await getCharacterByName(storyId, matched.name);
+            if (data && currentHoverNameRef.current === matched.name) {
+              setPeekCharacter(data);
+              setPeekPosition({ x: e.clientX, y: e.clientY });
+              setShowPeek(true);
+            }
+          } catch (err) {
+            // silent fail
+          }
+        }, 600);
+      };
+
+      const handleMouseOut = (e: MouseEvent) => {
+        const related = e.relatedTarget as HTMLElement;
+        if (related && related.closest('.character-peek-card')) return;
+        currentHoverNameRef.current = null;
+        if (peekTimerRef.current) {
+          clearTimeout(peekTimerRef.current);
+          peekTimerRef.current = null;
+        }
+        setShowPeek(false);
+      };
+
+      (editorElement as HTMLElement).addEventListener('mouseover', handleMouseOver);
+      (editorElement as HTMLElement).addEventListener('mouseout', handleMouseOut);
+
+      return () => {
+        (editorElement as HTMLElement).removeEventListener('click', handleClick);
+        (editorElement as HTMLElement).removeEventListener('mouseover', handleMouseOver);
+        (editorElement as HTMLElement).removeEventListener('mouseout', handleMouseOut);
+      };
+    }, [editor, characters, storyId]);
 
     // ===== 内联修改建议处理 =====
     useEffect(() => {
@@ -938,6 +1008,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           visible={showPopup}
           onClose={() => setShowPopup(false)}
           anchorEl={popupAnchor}
+        />
+
+        {/* 角色 hover 微型卡片 */}
+        <CharacterPeekCard
+          character={peekCharacter}
+          position={peekPosition}
+          visible={showPeek}
         />
       </div>
     );

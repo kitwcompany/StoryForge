@@ -356,3 +356,79 @@ impl ChapterCommitService {
         Ok(())
     }
 }
+
+// ==================== 投影健康检查 ====================
+
+/// 单个 projection writer 的健康状态
+#[derive(Debug, Clone, Serialize)]
+pub struct WriterHealth {
+    pub name: String,
+    pub status: String, // "success" | "skipped" | "error: ..." | "pending" | "unknown"
+}
+
+/// 投影一致性健康报告
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectionHealthReport {
+    pub story_id: String,
+    pub chapter_number: i32,
+    pub commit_id: String,
+    pub overall_healthy: bool,
+    pub writers: Vec<WriterHealth>,
+}
+
+impl StorySystemEngine {
+    /// 检查指定章节的投影一致性健康状态
+    pub fn check_projection_health(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<ProjectionHealthReport, String> {
+        let repo = ChapterCommitRepository::new(self.pool.clone());
+
+        // 查询该 story 的所有 commits，找到匹配 chapter_number 的最新一条
+        let commits = repo.get_by_story(story_id)
+            .map_err(|e| format!("查询 commit 失败: {}", e))?;
+
+        let commit = commits.into_iter()
+            .find(|c| c.chapter_number == chapter_number)
+            .ok_or_else(|| format!("章节 {} 无提交记录", chapter_number))?;
+
+        let projection_status_json = commit.projection_status_json
+            .unwrap_or_else(|| r#"{"state":"unknown","index":"unknown","summary":"unknown","memory":"unknown","vector":"unknown"}"#.to_string());
+
+        let status: serde_json::Value = serde_json::from_str(&projection_status_json)
+            .unwrap_or_else(|_| serde_json::json!({
+                "state": "unknown",
+                "index": "unknown",
+                "summary": "unknown",
+                "memory": "unknown",
+                "vector": "unknown",
+            }));
+
+        let writer_names = ["state", "index", "summary", "memory", "vector"];
+        let mut writers = Vec::new();
+        let mut overall_healthy = true;
+
+        for name in &writer_names {
+            let status_str = status.get(*name)
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let is_ok = status_str == "success" || status_str == "skipped" || status_str == "skipped: no_store";
+            if !is_ok {
+                overall_healthy = false;
+            }
+            writers.push(WriterHealth {
+                name: name.to_string(),
+                status: status_str.to_string(),
+            });
+        }
+
+        Ok(ProjectionHealthReport {
+            story_id: story_id.to_string(),
+            chapter_number,
+            commit_id: commit.id,
+            overall_healthy,
+            writers,
+        })
+    }
+}

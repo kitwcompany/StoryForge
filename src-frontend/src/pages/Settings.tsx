@@ -16,12 +16,13 @@
 
 import { useState, useEffect } from 'react';
 import { 
-  Settings2, Key, Globe, Database, 
+  Settings2, Key, Globe, Database,
   Plus, Trash2, Edit2, Download, Upload,
   Check, X, Bot, Sparkles, Image, MessageSquare,
   RefreshCw, Star, BookOpen, Zap, Compass, PenTool,
   User, Shield, Link2, Eye, EyeOff,
-  GitBranch, GitCommit, ArrowRight, Loader2
+  GitBranch, GitCommit, ArrowRight, Loader2,
+  BarChart3,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -41,8 +42,9 @@ import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
 import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi, getModelApiKey } from '@/services/settings';
+import { getFeatureUsageStats, logFeatureUsage } from '@/services/tauri';
 
-type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'methodology' | 'workflows' | 'general' | 'account';
+type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'methodology' | 'workflows' | 'general' | 'account' | 'stats';
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
@@ -64,7 +66,14 @@ export function Settings() {
   const setActiveModelMutation = useSetActiveModel();
   
   const isLoading = settingsLoading || modelsLoading;
-  
+
+  // Feature usage telemetry
+  useEffect(() => {
+    if (activeTab === 'stats') {
+      logFeatureUsage('feature_stats', 'opened');
+    }
+  }, [activeTab]);
+
   // 模型连接状态
   const [connectionStatus, setConnectionStatus] = useState<Record<string, { loading: boolean; success?: boolean; latency?: number; error?: string }>>({});
 
@@ -183,14 +192,20 @@ export function Settings() {
           icon={<GitBranch className="w-4 h-4" />}
           label="工作流"
         />
-        <TabButton 
-          active={activeTab === 'general'} 
+        <TabButton
+          active={activeTab === 'general'}
           onClick={() => setActiveTab('general')}
           icon={<Settings2 className="w-4 h-4" />}
           label="通用设置"
         />
-        <TabButton 
-          active={activeTab === 'account'} 
+        <TabButton
+          active={activeTab === 'stats'}
+          onClick={() => setActiveTab('stats')}
+          icon={<BarChart3 className="w-4 h-4" />}
+          label="数据统计"
+        />
+        <TabButton
+          active={activeTab === 'account'}
           onClick={() => setActiveTab('account')}
           icon={<User className="w-4 h-4" />}
           label="账号与登录"
@@ -258,13 +273,14 @@ export function Settings() {
           {activeTab === 'methodology' && <MethodologySettings />}
           {activeTab === 'workflows' && <WorkflowSettings />}
           {activeTab === 'general' && <GeneralSettings />}
+          {activeTab === 'stats' && <StatsSettings />}
           {activeTab === 'account' && <AccountSettings />}
         </>
       )}
-      
+
       {/* 添加/编辑模态框 */}
       {(showAddModal || editingModel) && (
-        <ModelModal 
+        <ModelModal
           type={activeTab as ModelType}
           model={editingModel}
           onClose={() => {
@@ -277,8 +293,87 @@ export function Settings() {
   );
 }
 
+// ==================== StatsSettings (v6.0.1) ====================
+
+function StatsSettings() {
+  const [stats, setStats] = useState<Array<{ feature_id: string; action: string; count: number }>>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadStats = async () => {
+    setLoading(true);
+    try {
+      const data = await getFeatureUsageStats(30);
+      setStats(data);
+    } catch (e) {
+      toast.error('加载统计数据失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  const features = [
+    { id: 'story_contract', name: '合同驱动' },
+    { id: 'memory_pack', name: '记忆编排' },
+    { id: 'reading_power', name: '追读力' },
+    { id: 'anti_ai_review', name: 'Anti-AI 审查' },
+    { id: 'genre_template', name: '体裁模板' },
+  ];
+
+  const getCount = (featureId: string, action?: string) => {
+    return stats
+      .filter((s) => s.feature_id === featureId && (action ? s.action === action : true))
+      .reduce((sum, s) => sum + s.count, 0);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-white">功能使用统计（最近 30 天）</h3>
+        <Button size="sm" onClick={loadStats} disabled={loading}>
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          <span className="ml-1">刷新</span>
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {features.map((f) => {
+          const opened = getCount(f.id, 'opened');
+          const executed = getCount(f.id, 'executed');
+          return (
+            <Card key={f.id}>
+              <CardContent className="p-4">
+                <p className="text-white font-medium">{f.name}</p>
+                <div className="mt-3 space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">打开次数</span>
+                    <span className="text-white">{opened}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">执行次数</span>
+                    <span className="text-white">{executed}</span>
+                  </div>
+                  <div className="w-full h-2 bg-cinema-800 rounded-full mt-2 overflow-hidden">
+                    <div
+                      className="h-full bg-cinema-gold rounded-full transition-all"
+                      style={{ width: `${Math.min((opened + executed) * 5, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // 标签按钮组件
-function TabButton({ active, onClick, icon, label }: { 
+function TabButton({ active, onClick, icon, label }: {
   active: boolean; 
   onClick: () => void; 
   icon: React.ReactNode;

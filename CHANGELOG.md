@@ -115,9 +115,27 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `rusqlite 0.39` 兼容：`row.get::<_, i32>()` 显式类型注解
 - Anti-AI 审查中中文引号使用 Unicode 转义（`\u{201C}` / `\u{201D}` / `\u{2018}` / `\u{2019}`）避免空字符字面量编译错误
 
+**类型安全基座**
+- ts-rs 集成：`SyncEvent` / `FrontstageEvent` / `BackstageEvent` 添加 `#[derive(TS)]`
+- 前端穷尽匹配：`useSyncStore.ts` 重构为 typed discriminated union，`assertUnreachable(type: never)`
+- IPC 一致性检查：`scripts/verify-ipc-manifest.py` 自动比对前后端命令注册
+
+**可靠性与可观测性**
+- Ingest 作业追踪（Migration 55）：`ingest_jobs` 表记录 pending/running/completed/failed
+- Ingest 健康指示器：幕前顶栏 🧠 图标，点击展示最近 3 条记录
+- Projection 健康检查：`check_projection_health` 解析 `projection_status_json`
+- 功能使用度量（Migration 56）：`feature_usage_logs` 表 + Settings「数据统计」标签
+- 技术债务清理：删除 `bug_condition_v57.rs` 中 11 个已修复的 `#[ignore]` 测试
+
+**UX 微优化**
+- 角色悬浮卡片：RichTextEditor hover 角色名 600ms 显示微型浮卡
+- 幕前窥视面板：Dock 第 4 按钮，右侧 320px 只读 drawer
+- 体裁模板外部化：`templates/genres.json` 支持用户自定义
+- 导出出版前体检：ExportDialog 4 步流程，可选 Anti-AI 审查
+
 ### 编译状态
-- `cargo check` ✅ 零错误（121 warnings）
-- `cargo test` ✅ 226/226 通过
+- `cargo check` ✅ 零错误（~121 warnings）
+- `cargo test` ✅ ~225/225 全部通过（0 ignored，历史 bug condition 测试已删除）
 - `npm run build` ✅ 通过
 - 版本号统一：Cargo.toml / package.json / tauri.conf.json → 6.0.0
 
@@ -168,7 +186,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 编译状态
 - `cargo check` ✅ 零错误（121 warnings）
-- `cargo test` ✅ 226/226 通过
+- `cargo test` ✅ ~225/225 全部通过
 - `npm run build` ✅ 通过
 - GitHub Actions ✅ rust-check / frontend-check / e2e-check 全部通过；tauri-build 三平台修复验证中
 
@@ -220,7 +238,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 编译状态
 - `cargo check` ✅ 零错误（109 warnings）
-- `cargo test` ✅ 226/226 通过（11 项 bug condition 测试因修复完成标记为 ignore）
+- `cargo test` ✅ ~225/225 全部通过（0 ignored，历史 bug condition 测试已删除）
 - `npm run build` ✅ 通过
 
 ---

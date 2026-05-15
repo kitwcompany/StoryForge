@@ -557,8 +557,10 @@ pub async fn auto_write(
         let app_for_ingest = app_handle_clone.clone();
         let pool_for_ingest = app_handle_clone.state::<DbPool>().inner().clone();
         tokio::spawn(async move {
-            let llm_service = crate::llm::LlmService::new(app_for_ingest);
-            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
+            let llm_service = crate::llm::LlmService::new(app_for_ingest.clone());
+            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+                .with_pool(pool_for_ingest.clone())
+                .with_app_handle(app_for_ingest);
             let ingest_content = crate::memory::ingest::IngestContent {
                 text: accumulated_for_ingest,
                 source: format!("auto_write:{}", chapter_id_for_ingest),

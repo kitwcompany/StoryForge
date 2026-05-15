@@ -1,11 +1,87 @@
-# StoryForge (草苔) v5.3.0 项目完成状态
+# StoryForge (草苔) v6.0.0 项目完成状态
 
-> 最后更新: 2026-05-02（v5.3.0 + 叙事元素模型重构）
+> 最后更新: 2026-05-15（v6.0.0 + Story System + 记忆编排 + 追读力 + 体裁模板 + Anti-AI + 类型安全 + 可观测性 + UX 微优化）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v6.0.0 全面重构：质量管控闭环 + 类型安全 + 可观测性 + UX 微优化（2026-05-15）
+
+#### Story System 合同驱动体系
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| MASTER_SETTING 合同 | ✅ | 故事级全局设定合同 |
+| Volume 合同 | ✅ | 卷级设定合同 |
+| Chapter 合同 | ✅ | 章节级设定与预期合同 |
+| Review 合同 | ✅ | 审阅与修订合同 |
+| CHAPTER_COMMIT 提交链 | ✅ | 写后真源分离，驱动 5 个 Projection Writer |
+| StateProjectionWriter | ✅ | 解析 state_deltas 写入语义记忆 |
+| IndexProjectionWriter | ✅ | 解析 entity_deltas 写入实体记忆 |
+| SummaryProjectionWriter | ✅ | 自动生成章节摘要并持久化 |
+| MemoryProjectionWriter | ✅ | 解析 accepted_events 写入事件记忆 |
+| VectorProjectionWriter | ✅ | 章节摘要 embedding 写入 LanceDB |
+| ContractTree 查询 | ✅ | 按故事/卷/章节层级查询合同树 |
+| RuntimeContract 计算 | ✅ | 动态合并上层合同生成运行时合同 |
+
+#### 三层记忆编排器
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Working Memory | ✅ | 最近 5 章 + 活跃角色 + 开放伏笔 |
+| Episodic Memory | ✅ | state_changes + relationships 时间线 |
+| Semantic Memory | ✅ | 长期事实，按优先级和源章节窗口过滤 |
+| MemoryPack 组装 | ✅ | 按任务类型（write/plan/review）动态分配预算 |
+| 冲突检测与警告 | ✅ | 记忆项间矛盾检测 |
+
+#### 追读力评估系统
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Hook 检测 | ✅ | 悬念/冲突/转折三类钩子识别 |
+| Coolpoint 追踪 | ✅ | 打脸/收获/揭秘爽点计数 |
+| Micropayoff 微兑现 | ✅ | 章节内小承诺兑现检测 |
+| Debt 债务追踪 | ✅ | 含利息与覆盖合同 |
+| 综合评分 | ✅ | 0-100 追读力评分与趋势图 |
+
+#### 37 体裁模板库
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 内置 37 模板 | ✅ | 玄幻/仙侠/都市/历史/科幻/悬疑/言情/武侠/无限流/系统流等 |
+| 模板五要素 | ✅ | 核心基调、节奏策略、反模式、参考数据、典型结构 |
+| 前端体裁选择 | ✅ | StorySystem 页面支持按体裁过滤和查看 |
+| 模板外部化 | ✅ | genres.json 支持用户自定义编辑 |
+
+#### Anti-AI 五维审查
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 词汇/语法/叙事/情感/对话 | ✅ | 五维度评分与改进建议 |
+| 导出前体检 | ✅ | ExportDialog 4 步流程，可选审查后再导出 |
+| StorySystem 卡片 | ✅ | 从 Tab 降级为可展开卡片 |
+
+#### 类型安全基座
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| ts-rs 类型导出 | ✅ | SyncEvent / FrontstageEvent / BackstageEvent 自动生成 TS 绑定 |
+| 前端穷尽匹配 | ✅ | useSyncStore 使用 assertUnreachable 穷尽检查 |
+| IPC 一致性脚本 | ✅ | verify-ipc-manifest.py 自动检测命令注册差异 |
+
+#### 可靠性与可观测性
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Ingest 作业追踪 | ✅ | ingest_jobs 表（Migration 55） |
+| Ingest 健康指示器 | ✅ | 幕前顶栏 🧠 状态图标 |
+| Projection 健康检查 | ✅ | check_projection_health 逐 Writer 展示状态 |
+| 功能使用度量 | ✅ | feature_usage_logs 表（Migration 56）+ Settings 统计面板 |
+| 技术债务清理 | ✅ | 删除 11 个已修复的 #[ignore] 测试 |
+
+#### UX 微优化
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 角色悬浮卡片 | ✅ | RichTextEditor hover 角色名显示微型浮卡 |
+| 幕前窥视面板 | ✅ | Dock 第 4 按钮，右侧 320px 只读 drawer |
+| 导出出版前体检 | ✅ | ExportDialog 新增健康检查步骤 |
+
+---
 
 ### v5.3.0 叙事元素模型重构（2026-05-02）
 
@@ -459,66 +535,49 @@
 
 ## 🎯 待完善功能
 
-### v3.5.x 计划
+### v6.1.x 短期计划
 
 #### P1 - 重要功能
-1. **前端 UI 接入新方法引擎**
-   - 位置: `src-frontend/src/pages/`
-   - 状态: 🔄 进行中
-   - 说明: 幕后界面新增方法论选择面板、StyleDNA 配置、工作流启动器
-
-2. **性能优化**
+1. **云端同步**
    - 位置: 全局
    - 状态: ⏳ 待开始
-   - 说明: 大数据量场景下的渲染与查询性能优化
+   - 说明: 多设备间故事数据同步
 
-3. **导出模板自定义**
-   - 位置: `src-frontend/src/components/ExportDialog.tsx`
+2. **协作写作增强**
+   - 位置: `src-tauri/src/collab/`
    - 状态: ⏳ 待开始
-   - 说明: 支持用户自定义 PDF/EPUB 导出模板
+   - 说明: 多人实时编辑 OT 完整实现
 
-4. **创建向导自动 Ingest**
-   - 位置: `src-tauri/src/commands_v3.rs`
-   - 状态: ✅ 已完成
-   - 说明: 小说创建完成后自动触发记忆摄取，实体与关系保存到知识图谱
+3. **插件市场**
+   - 位置: 全局
+   - 状态: ⏳ 待开始
+   - 说明: 技能/模板/主题的在线分享与安装
 
 #### P2 - 增强功能
-4. **Ingest 管线性能优化**
-   - 状态: ✅ 已完成
-   - 说明: `IngestBatch::process` 改为 `join_all` 并发执行
+4. **WebAssembly 前端**
+   - 状态: ⏳ 待开始
+   - 说明: 核心逻辑 Rust → WASM，提升前端性能
 
-5. **查询缓存机制**
-   - 状态: ✅ 已完成
-   - 说明: `LanceVectorStore` 新增 100 条容量的 LRU 查询结果缓存
+5. **自研小模型**
+   - 状态: ⏳ 待开始
+   - 说明: 针对小说创作场景微调的小型 LLM
 
-6. **实体嵌入持久化**
-   - 位置: `src-tauri/src/db/repositories_v3.rs`
-   - 状态: ✅ 已完成
-   - 说明: `kg_entities.embedding` BLOB 序列化/反序列化已修复，Ingest 生成的嵌入向量可持久化存储
+6. **移动端适配**
+   - 状态: ⏳ 待开始
+   - 说明: 平板/手机端幕前界面适配
 
-7. **更多冲突类型**
-   - 状态: ✅ 已完成
-   - 说明: `ConflictType` 从 7 种扩展为 11 种，新增人与时间/道德/身份/群体冲突
-
-8. **Agent 上下文增强**
-   - 状态: ✅ 已完成
-   - 说明: `build_agent_context` 接入真实数据库，自动注入故事信息、角色列表、前场景摘要
-
-9. **记忆压缩**
-   - 状态: ✅ 已完成
-   - 说明: `MemoryCompressorAgent` 后端命令 + `SceneEditor` 前端集成，支持场景内容一键压缩摘要
-
-10. **语义搜索优化**
-    - 状态: ✅ 已完成
-    - 说明: `vector_records` 新增 FTS5 全文索引，提供 `text_search_vectors` 和 `hybrid_search_vectors`（RRF 融合）
-
-11. **修订模式与变更追踪**
-    - 状态: ✅ 已完成
-    - 说明: 完整实现变更追踪（Track Changes）、评论线程（Comment Threads）、版本差异集成
-
-12. **评论批注系统**
-    - 状态: ✅ 已完成
-    - 说明: `comment_threads` / `comment_messages` 表 + TipTap `commentAnchor` + 右侧评论面板
+### 已完成（历史归档）
+- ✅ 前端 UI 接入新方法引擎（v3.5.x）
+- ✅ 导出模板自定义（v6.0.0 ExportDialog 已支持模板选择）
+- ✅ Ingest 管线性能优化（join_all 并发）
+- ✅ 查询缓存机制（LRU 100 条）
+- ✅ 实体嵌入持久化（BLOB 修复）
+- ✅ 更多冲突类型（11 种）
+- ✅ Agent 上下文增强（真实数据库接入）
+- ✅ 记忆压缩（MemoryCompressorAgent）
+- ✅ 语义搜索优化（FTS5 + RRF 融合）
+- ✅ 修订模式与变更追踪
+- ✅ 评论批注系统
 
 ---
 

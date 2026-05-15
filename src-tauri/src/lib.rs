@@ -40,6 +40,7 @@ mod automation;
 mod story_system;
 mod reading_power;
 mod anti_ai;
+mod telemetry;
 
 #[cfg(test)]
 mod test_utils;
@@ -185,6 +186,68 @@ pub fn run() {
                 match template_repo.seed_builtin_templates() {
                     Ok(_) => log::info!("[ExportTemplates] Built-in templates seeded successfully"),
                     Err(e) => log::warn!("[ExportTemplates] Failed to seed built-in templates: {}", e),
+                }
+            }
+
+            // v6.0.1: Seed built-in genre profiles from external JSON
+            {
+                let templates_dir = app_dir.join("templates");
+                let user_genres_path = templates_dir.join("genres.json");
+                let default_genres_json = include_str!("../../templates/genres.json");
+
+                if !user_genres_path.exists() {
+                    let _ = std::fs::create_dir_all(&templates_dir);
+                    if let Err(e) = std::fs::write(&user_genres_path, default_genres_json) {
+                        log::warn!("[GenreProfiles] Failed to copy default genres.json to app dir: {}", e);
+                    } else {
+                        log::info!("[GenreProfiles] Copied default genres.json to {:?}", user_genres_path);
+                    }
+                }
+
+                if let (Some(pool), Ok(json_str)) = (get_pool(), std::fs::read_to_string(&user_genres_path)) {
+                    match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        Ok(genres_data) => {
+                            if let Some(profiles) = genres_data.get("profiles").and_then(|p| p.as_array()) {
+                                let repo = db::GenreProfileRepository::new(pool);
+                                for profile in profiles {
+                                    let genre_name = profile.get("genre_name").and_then(|v| v.as_str()).unwrap_or("");
+                                    let canonical_name = profile.get("canonical_name").and_then(|v| v.as_str()).unwrap_or("");
+                                    if genre_name.is_empty() || canonical_name.is_empty() {
+                                        continue;
+                                    }
+                                    // 仅当不存在时才插入，避免覆盖用户自定义修改
+                                    match repo.get_by_name(genre_name) {
+                                        Ok(None) => {
+                                            let aliases_json = profile.get("aliases").map(|v| v.to_string());
+                                            let core_tone = profile.get("core_tone").and_then(|v| v.as_str());
+                                            let pacing_strategy = profile.get("pacing_strategy").and_then(|v| v.as_str());
+                                            let anti_patterns_json = profile.get("anti_patterns").map(|v| v.to_string());
+                                            let reference_tables_json = profile.get("reference_tables").and_then(|v| v.as_str());
+                                            let _ = repo.create(
+                                                genre_name,
+                                                canonical_name,
+                                                aliases_json.as_deref(),
+                                                core_tone,
+                                                pacing_strategy,
+                                                anti_patterns_json.as_deref(),
+                                                reference_tables_json,
+                                            );
+                                        }
+                                        Ok(Some(_)) => {
+                                            // 已存在，跳过
+                                        }
+                                        Err(e) => {
+                                            log::warn!("[GenreProfiles] Failed to check existing genre '{}': {}", genre_name, e);
+                                        }
+                                    }
+                                }
+                                log::info!("[GenreProfiles] Seeded {} built-in genre profiles", profiles.len());
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("[GenreProfiles] Failed to parse genres.json: {}", e);
+                        }
+                    }
                 }
             }
 
@@ -532,6 +595,7 @@ pub fn run() {
             commands_v3::get_story_entities,
             commands_v3::create_relation,
             commands_v3::get_entity_relations,
+            commands_v3::get_ingest_jobs,
             commands_v3::get_story_graph,
             commands_v3::get_retention_report,
             commands_v3::archive_forgotten_entities,
@@ -668,6 +732,8 @@ pub fn run() {
             commands_v3::remove_scene_character,
             commands_v3::set_scene_characters,
             commands_v3::get_character_scenes,
+            commands_v3::get_character_by_name,
+            commands_v3::check_projection_health,
             // Generic Workflow commands (v5.2.0)
             register_workflow,
             create_workflow_instance,
@@ -701,8 +767,12 @@ pub fn run() {
             // Genre Profile commands (v6.0.0)
             get_genre_profiles,
             get_genre_profile,
+            save_genre_profile,
+            delete_genre_profile,
             // Anti-AI Review command (v6.0.0)
             anti_ai_review,
+            get_feature_usage_stats,
+            log_frontend_feature_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -1086,7 +1156,9 @@ async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
     }
 
     let llm_service = crate::llm::LlmService::new(app.clone());
-    let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
+    let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+        .with_pool(pool.clone())
+        .with_app_handle(app.clone());
     let ingest_content = crate::memory::ingest::IngestContent {
         text: content_text.clone(),
         source: format!("chapter:{}:{}", story_id, chapter_id),
@@ -3080,6 +3152,62 @@ fn get_genre_profile(genre_name: String) -> Result<Option<crate::db::GenreProfil
     repo.get_by_name(&genre_name).map_err(|e| e.to_string())
 }
 
+#[tauri::command(rename_all = "snake_case")]
+fn save_genre_profile(
+    id: Option<String>,
+    genre_name: String,
+    canonical_name: String,
+    aliases_json: Option<String>,
+    core_tone: Option<String>,
+    pacing_strategy: Option<String>,
+    anti_patterns_json: Option<String>,
+    reference_tables_json: Option<String>,
+) -> Result<crate::db::GenreProfile, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::GenreProfileRepository::new(pool);
+
+    if let Some(existing_id) = id {
+        // 更新现有记录
+        repo.update(
+            &existing_id,
+            &genre_name,
+            &canonical_name,
+            aliases_json.as_deref(),
+            core_tone.as_deref(),
+            pacing_strategy.as_deref(),
+            anti_patterns_json.as_deref(),
+            reference_tables_json.as_deref(),
+        ).map_err(|e| e.to_string())?;
+        repo.get_by_id(&existing_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "更新后未找到记录".to_string())
+    } else {
+        // 创建新记录（is_builtin = 0）
+        repo.create(
+            &genre_name,
+            &canonical_name,
+            aliases_json.as_deref(),
+            core_tone.as_deref(),
+            pacing_strategy.as_deref(),
+            anti_patterns_json.as_deref(),
+            reference_tables_json.as_deref(),
+        ).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn delete_genre_profile(id: String) -> Result<usize, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let repo = crate::db::GenreProfileRepository::new(pool);
+    // 只允许删除非内置体裁
+    if let Ok(Some(profile)) = repo.get_by_id(&id) {
+        if profile.is_builtin {
+            return Err("内置体裁不可删除".to_string());
+        }
+    }
+    repo.delete(&id).map_err(|e| e.to_string())
+}
+
 // ==================== v6.0.0: Anti-AI Review Command ====================
 
 #[tauri::command(rename_all = "snake_case")]
@@ -3089,4 +3217,26 @@ fn anti_ai_review(
 ) -> Result<anti_ai::AntiAiReview, String> {
     let reviewer = anti_ai::AntiAiReviewer::new();
     Ok(reviewer.review(&text, genre.as_deref()))
+}
+
+// ==================== v6.0.1: Telemetry Commands ====================
+
+#[tauri::command(rename_all = "snake_case")]
+fn get_feature_usage_stats(
+    days: i32,
+) -> Result<Vec<crate::telemetry::FeatureUsageStat>, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    crate::telemetry::get_feature_usage_stats(&pool, days)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn log_frontend_feature_usage(
+    feature_id: String,
+    action: String,
+    story_id: Option<String>,
+) {
+    if let Some(pool) = get_pool() {
+        crate::telemetry::log_feature_usage(&pool, &feature_id, &action, story_id.as_deref(), None);
+    }
 }

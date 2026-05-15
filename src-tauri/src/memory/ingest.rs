@@ -6,15 +6,32 @@
 
 use crate::llm::LlmService;
 use crate::db::models_v3::{Entity, EntityType, Relation, RelationType};
+use crate::db::DbPool;
 use crate::embeddings::{embed_entity, EntityEmbeddingRequest};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use chrono::Local;
 use std::collections::HashMap;
+use tauri::Emitter;
+
+/// Ingest作业记录
+#[derive(Debug, Clone, Serialize)]
+pub struct IngestJob {
+    pub id: String,
+    pub story_id: String,
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
 
 /// Ingest管道
 pub struct IngestPipeline {
     llm_service: LlmService,
+    pool: Option<DbPool>,
+    app_handle: Option<tauri::AppHandle>,
 }
 
 /// 待Ingest的内容
@@ -127,27 +144,135 @@ pub struct EventProfile {
 
 impl IngestPipeline {
     pub fn new(llm_service: LlmService) -> Self {
-        Self { llm_service }
+        Self { llm_service, pool: None, app_handle: None }
     }
 
-    /// 执行两步思维链Ingest
+    pub fn with_pool(mut self, pool: DbPool) -> Self {
+        self.pool = Some(pool);
+        self
+    }
+
+    pub fn with_app_handle(mut self, app_handle: tauri::AppHandle) -> Self {
+        self.app_handle = Some(app_handle);
+        self
+    }
+
+    /// 执行两步思维链Ingest，自动追踪作业状态
     pub async fn ingest(&self, content: &IngestContent) -> Result<IngestResult, Box<dyn std::error::Error>> {
+        let job_id = uuid::Uuid::new_v4().to_string();
+        let resource_type = content.scene_id.as_ref()
+            .map(|_| "scene".to_string())
+            .unwrap_or_else(|| "chapter".to_string());
+
+        // 插入 pending 记录
+        if let Err(e) = self.create_job(&job_id, &content.story_id, &resource_type, content.scene_id.as_deref()) {
+            log::warn!("[IngestPipeline] Failed to create job record: {}", e);
+        }
+
+        let result = self.run_ingest(content).await;
+
+        match &result {
+            Ok(_) => {
+                if let Err(e) = self.complete_job(&job_id) {
+                    log::warn!("[IngestPipeline] Failed to complete job record: {}", e);
+                }
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+                if let Err(e) = self.fail_job(&job_id, &error_msg) {
+                    log::warn!("[IngestPipeline] Failed to fail job record: {}", e);
+                }
+            }
+        }
+
+        result
+    }
+
+    async fn run_ingest(&self, content: &IngestContent) -> Result<IngestResult, Box<dyn std::error::Error>> {
         // Step 1: 分析阶段
         let analysis = self.analyze_content(content).await?;
-        
+
         // Step 2: 生成阶段
         let knowledge = self.generate_knowledge(&analysis).await?;
-        
+
         // 转换为数据库模型
         let entities = self.convert_entities(&knowledge.entities, content);
         let relations = self.convert_relations(&knowledge.relations, content);
-        
+
         Ok(IngestResult {
             analysis,
             knowledge,
             entities,
             relations,
         })
+    }
+
+    fn create_job(&self, job_id: &str, story_id: &str, resource_type: &str, resource_id: Option<&str>) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else { return Ok(()); };
+        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO ingest_jobs (id, story_id, resource_type, resource_id, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![job_id, story_id, resource_type, resource_id, "pending", now],
+        )?;
+        self.emit_job_updated(story_id);
+        Ok(())
+    }
+
+    fn complete_job(&self, job_id: &str) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else { return Ok(()); };
+        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE ingest_jobs SET status = ?1, completed_at = ?2 WHERE id = ?3",
+            rusqlite::params!["completed", now, job_id],
+        )?;
+        if let Ok(story_id) = conn.query_row("SELECT story_id FROM ingest_jobs WHERE id = ?1", [job_id], |row| row.get::<_, String>(0)) {
+            self.emit_job_updated(&story_id);
+        }
+        Ok(())
+    }
+
+    fn fail_job(&self, job_id: &str, error_message: &str) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else { return Ok(()); };
+        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE ingest_jobs SET status = ?1, error_message = ?2, completed_at = ?3 WHERE id = ?4",
+            rusqlite::params!["failed", error_message, now, job_id],
+        )?;
+        if let Ok(story_id) = conn.query_row("SELECT story_id FROM ingest_jobs WHERE id = ?1", [job_id], |row| row.get::<_, String>(0)) {
+            self.emit_job_updated(&story_id);
+        }
+        Ok(())
+    }
+
+    fn emit_job_updated(&self, story_id: &str) {
+        if let Some(app) = &self.app_handle {
+            let _ = app.emit("ingest-job-updated", serde_json::json!({ "story_id": story_id }));
+        }
+    }
+
+    /// 查询最近 N 条 ingest 作业
+    pub fn get_recent_jobs(story_id: &str, limit: i32, pool: &DbPool) -> Result<Vec<IngestJob>, rusqlite::Error> {
+        let conn = pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, resource_type, resource_id, status, error_message, created_at, completed_at
+             FROM ingest_jobs WHERE story_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(rusqlite::params![story_id, limit], |row| {
+            Ok(IngestJob {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                resource_type: row.get(2)?,
+                resource_id: row.get(3)?,
+                status: row.get(4)?,
+                error_message: row.get(5)?,
+                created_at: row.get(6)?,
+                completed_at: row.get(7)?,
+            })
+        })?;
+        rows.collect()
     }
 
     /// Step 1: 使用LLM分析内容

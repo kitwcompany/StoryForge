@@ -1,6 +1,6 @@
-# StoryForge (草苔) v5.6.4 架构文档
+# StoryForge (草苔) v6.0.0 架构文档
 
-> 本文档反映 v5.6.4 最新架构状态
+> 本文档反映 v6.0.0 最新架构状态
 
 ## 架构理念
 
@@ -435,6 +435,156 @@ pub enum PriorityLevel {
 
 ---
 
+### 🏛️ Story System 合同驱动体系 (v6.0.0)
+
+**四级合同架构**
+```
+┌─────────────────────────────────────────┐
+│           Story System                  │
+├─────────────────────────────────────────┤
+│                                         │
+│  MASTER_SETTING (故事级全局设定)          │
+│  └─ Volume (卷级设定)                    │
+│     └─ Chapter (章节级设定与预期)         │
+│        └─ Review (审阅与修订合同)         │
+│                                         │
+│  CHAPTER_COMMIT (写后真源)               │
+│  ├─ state_deltas_json                   │
+│  ├─ entity_deltas_json                  │
+│  ├─ accepted_events_json                │
+│  └─ projection_status_json              │
+│                                         │
+│  5 Projection Writers                   │
+│  ├─ StateProjectionWriter               │
+│  ├─ IndexProjectionWriter               │
+│  ├─ SummaryProjectionWriter             │
+│  ├─ MemoryProjectionWriter              │
+│  └─ VectorProjectionWriter              │
+│                                         │
+│  ContractTree / RuntimeContract         │
+│  └─ 动态合并上层合同 → 运行时约束         │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**防幻觉三定律**
+1. 合同即法律 — 所有生成内容受合同约束
+2. 设定即物理 — 世界观设定如物理定律般不可违背
+3. 发明需识别 — 新实体必须被明确识别并记录
+
+---
+
+### 🧠 三层记忆编排器 (v6.0.0)
+
+**MemoryOrchestrator 架构**
+```
+┌─────────────────────────────────────────┐
+│      MemoryOrchestrator                 │
+├─────────────────────────────────────────┤
+│                                         │
+│  Working Memory (50% budget for write)  │
+│  ├─ 最近 5 章正文摘要                    │
+│  ├─ 活跃角色（出场 > 3 次）               │
+│  └─ 开放伏笔（未回收）                    │
+│                                         │
+│  Episodic Memory (30% budget)           │
+│  ├─ state_changes 时间线                 │
+│  └─ relationships 演变                   │
+│                                         │
+│  Semantic Memory (20% budget)           │
+│  ├─ 长期事实（按优先级过滤）              │
+│  │   Critical > High > Medium > Low     │
+│  └─ 源章节窗口过滤（最近 30 章）          │
+│                                         │
+│  MemoryPack 组装                        │
+│  └─ 按任务类型分配预算权重               │
+│      write: 50/30/20                    │
+│      plan:  20/30/50                    │
+│      review: 30/40/30                   │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+---
+
+### 📈 追读力评估系统 (v6.0.0)
+
+**ReadingPowerEvaluator 五维评估**
+```rust
+pub struct ReadingPowerEvaluation {
+    pub overall_score: f32,        // 0-100
+    pub hook_count: i32,           // 悬念/冲突/转折
+    pub coolpoint_count: i32,      // 打脸/收获/揭秘
+    pub micropayoff_count: i32,    // 小承诺兑现
+    pub debt_count: i32,           // 未兑现承诺
+    pub trend: Vec<f32>,           // 最近 N 章趋势
+}
+```
+
+**DebtManager 债务追踪**
+- 创建债务 → 逾期计息（每日 5%）→ 覆盖合同跳过 → 兑现销账
+
+---
+
+### 📚 体裁模板库 (v6.0.0)
+
+**GenreProfile 外部化**
+- 启动时优先读取 `{app_data_dir}/templates/genres.json`
+- 内置 37 个网文体裁模板，支持自定义编辑
+- 模板五要素：核心基调、节奏策略、反模式清单、参考数据表、典型结构
+
+---
+
+### 🔍 Anti-AI 五维审查 (v6.0.0)
+
+**AntiAiReviewer 架构**
+- 词汇维度：Cliché 检测 + 重复用词
+- 语法维度：句式多样性 + 被动语态
+- 叙事维度：段落均匀度 + 感官密度
+- 情感维度：标签化检测 + 展示 vs 告知
+- 对话维度：说明性对话 + 标签单调性
+- 输出：overall_score + issues + suggestions + flagged_passages
+
+---
+
+### 📊 可观测性系统 (v6.0.0)
+
+**Ingest 作业追踪**
+- `ingest_jobs` 表：pending → running → completed/failed
+- `ingest-job-updated` Tauri 事件推送状态变更
+- 幕前顶栏 🧠 图标实时显示最近 Ingest 健康状态
+
+**功能使用度量**
+- `feature_usage_logs` 表：feature_id / action / story_id / metadata
+- `telemetry/mod.rs`：本地 SQLite 记录，零网络传输
+- Settings 页面「数据统计」标签：30 天柱状图
+
+**Projection 健康检查**
+- 解析 `chapter_commits.projection_status_json`
+- 逐 Writer 展示成功/失败状态与错误原因
+
+---
+
+### 🔒 类型安全基座 (v6.0.0)
+
+**ts-rs 自动生成**
+- Rust `SyncEvent` / `FrontstageEvent` / `BackstageEvent` 添加 `#[derive(TS)]`
+- 编译时生成 TypeScript 绑定到 `src-frontend/src/generated/`
+
+**前端穷尽匹配**
+```typescript
+function assertUnreachable(x: never): never {
+  throw new Error(`Unhandled case: ${x}`);
+}
+// default case 中使用，新增 variant 时编译失败
+```
+
+**IPC 一致性检查**
+- `scripts/verify-ipc-manifest.py` 解析 `generate_handler![]` 与前端 `loggedInvoke`
+- 前端调用未注册命令时报 ERROR
+
+---
+
 ## 目录结构
 
 ```
@@ -450,6 +600,9 @@ v2-rust/
 │   │   │   ├── components/
 │   │   │   │   ├── ReaderWriter.tsx
 │   │   │   │   ├── RichTextEditor.tsx
+│   │   │   │   ├── CharacterPeekCard.tsx     # 🆕 角色悬浮卡片 (v6.0.0)
+│   │   │   │   ├── PeekDrawer.tsx            # 🆕 幕前窥视面板 (v6.0.0)
+│   │   │   │   ├── IngestHealthIndicator.tsx # 🆕 Ingest 健康指示器 (v6.0.0)
 │   │   │   │   └── ...
 │   │   │   └── styles/
 │   │   │
@@ -502,7 +655,21 @@ v2-rust/
 │   │   │   ├── query.rs         # 查询检索管线
 │   │   │   ├── multi_agent.rs   # 多助手会话
 │   │   │   ├── hybrid_search.rs # 🆕 混合搜索 (Phase 1.3)
-│   │   │   └── retention.rs     # 🆕 记忆保留 (Phase 1.4)
+│   │   │   ├── retention.rs     # 🆕 记忆保留 (Phase 1.4)
+│   │   │   └── orchestrator.rs  # 🆕 三层记忆编排器 (v6.0.0)
+│   │   │
+│   │   ├── story_system/        # 🆕 Story System 合同驱动 (v6.0.0)
+│   │   │   ├── mod.rs
+│   │   │   └── projection_writers.rs
+│   │   │
+│   │   ├── reading_power/       # 🆕 追读力评估系统 (v6.0.0)
+│   │   │   └── mod.rs
+│   │   │
+│   │   ├── anti_ai/             # 🆕 Anti-AI 五维审查 (v6.0.0)
+│   │   │   └── mod.rs
+│   │   │
+│   │   ├── telemetry/           # 🆕 功能使用度量 (v6.0.0)
+│   │   │   └── mod.rs
 │   │   │
 │   │   ├── versions/            # 🆕 版本管理 (Phase 3.x)
 │   │   │   ├── mod.rs
@@ -549,6 +716,21 @@ v2-rust/
 → KnowledgeGraph::save_entities()
 → KnowledgeGraph::save_relations()
 → VectorStore::store()
+→ ingest_jobs 表更新状态 (completed/failed)
+→ 发射 ingest-job-updated 事件
+→ 幕前顶栏 🧠 图标更新
+```
+
+### CHAPTER_COMMIT 投影流程 (v6.0.0)
+```
+章节保存 → ChapterCommitService::init_commit()
+→ ChapterCommitService::apply_commit()
+→ StateProjectionWriter     → memory_items (category="state")
+→ IndexProjectionWriter     → memory_items (category="entity")
+→ SummaryProjectionWriter   → story_summaries
+→ MemoryProjectionWriter    → memory_items (category="event")
+→ VectorProjectionWriter    → LanceDB VectorRecord
+→ projection_status_json 记录各 Writer 状态
 ```
 
 ---
