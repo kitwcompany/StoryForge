@@ -254,9 +254,19 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            // v5.3.1: Bootstrap 初稿跳过 AgentOrchestrator 闭环，直接调用 raw 生成，防止超时
-            let result = service.execute_writer_raw(task).await
-                .map_err(|e| PipelineError::LlmError(e))?;
+            // W2-B2: Bootstrap 初稿走 Orchestrator Fast 模式（单轮生成，跳过 Inspector）
+            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                service,
+                ctx.app_handle.clone(),
+            );
+            let result = match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Fast).await {
+                Ok(workflow_result) => crate::agents::AgentResult {
+                    content: workflow_result.final_content,
+                    score: Some(workflow_result.final_score),
+                    suggestions: vec![],
+                },
+                Err(e) => return Err(PipelineError::LlmError(e)),
+            };
 
             // 保存到 Chapter
             let chapter_repo = ChapterRepository::new(ctx.pool.clone());

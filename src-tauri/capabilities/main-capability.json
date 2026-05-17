@@ -21,7 +21,6 @@
     "fs:allow-app-read",
     "fs:allow-app-write",
     "fs:allow-app-read-recursive",
-    "fs:allow-app-write-recursive",
     "fs:allow-resource-read",
     "fs:allow-resource-write",
     "dialog:default",
@@ -31,9 +30,6 @@
     "dialog:allow-message",
     "shell:default",
     "shell:allow-open",
-    "http:default",
-    "http:allow-fetch",
-    "http:allow-fetch-send",
-    "http:allow-fetch-read-body"
+    "http:default"
   ]
 }

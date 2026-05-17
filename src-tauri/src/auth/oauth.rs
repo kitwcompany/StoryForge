@@ -4,6 +4,7 @@
 //! Google: https://developers.google.com/identity/protocols/oauth2/native-app
 //! GitHub: https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps
 
+use crate::error::AppError;
 use super::OAuthProvider;
 use oauth2::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
@@ -43,7 +44,7 @@ pub fn start_oauth_flow(
     provider: OAuthProvider,
     client_id: &str,
     client_secret: Option<&str>,
-) -> Result<(String, String, u16), String> {
+) -> Result<(String, String, u16), AppError> {
     let (auth_url, token_url, _revoke_url) = get_provider_urls(provider);
 
     // 构建 OAuth client（oauth2 v5 类型状态模式）
@@ -95,7 +96,7 @@ pub async fn handle_oauth_callback(
     code: &str,
     client_id: &str,
     client_secret: Option<&str>,
-) -> Result<OAuthUserProfile, String> {
+) -> Result<OAuthUserProfile, AppError> {
     // 查找并移除state
     let oauth_state = {
         let mut store = OAUTH_STATE_STORE.lock().unwrap();
@@ -140,7 +141,7 @@ pub async fn handle_oauth_callback(
     let profile = match provider {
         OAuthProvider::Google => fetch_google_user_info(&access_token).await?,
         OAuthProvider::Github => fetch_github_user_info(&access_token).await?,
-        _ => return Err(format!("Provider {:?} not yet implemented", provider)),
+        _ => return Err(AppError::internal(format!("Provider {:?} not yet implemented", provider))),
     };
 
     Ok(OAuthUserProfile {
@@ -182,7 +183,7 @@ fn get_provider_urls(provider: OAuthProvider) -> (AuthUrl, TokenUrl, Option<oaut
 }
 
 /// 获取Google用户信息
-async fn fetch_google_user_info(access_token: &str) -> Result<OAuthUserProfile, String> {
+async fn fetch_google_user_info(access_token: &str) -> Result<OAuthUserProfile, AppError> {
     let client = reqwest::Client::new();
     let response = client
         .get("https://www.googleapis.com/oauth2/v2/userinfo")
@@ -193,10 +194,10 @@ async fn fetch_google_user_info(access_token: &str) -> Result<OAuthUserProfile, 
 
     if !response.status().is_success() {
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("Google API error: {}", text));
+        return Err(AppError::internal(format!("Google API error: {}", text)));
     }
 
-    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let data: serde_json::Value = response.json().await.map_err(AppError::from)?;
 
     Ok(OAuthUserProfile {
         provider: "google".to_string(),
@@ -211,7 +212,7 @@ async fn fetch_google_user_info(access_token: &str) -> Result<OAuthUserProfile, 
 }
 
 /// 获取GitHub用户信息
-async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserProfile, String> {
+async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserProfile, AppError> {
     let client = reqwest::Client::new();
 
     // 获取用户基本信息
@@ -225,10 +226,10 @@ async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserProfile, 
 
     if !response.status().is_success() {
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("GitHub API error: {}", text));
+        return Err(AppError::internal(format!("GitHub API error: {}", text)));
     }
 
-    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let data: serde_json::Value = response.json().await.map_err(AppError::from)?;
 
     let user_id = data["id"].as_i64().map(|id| id.to_string()).unwrap_or_default();
     let name = data["name"].as_str().or_else(|| data["login"].as_str()).map(|s| s.to_string());
@@ -254,7 +255,7 @@ async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserProfile, 
     })
 }
 
-async fn fetch_github_email(access_token: &str) -> Result<String, String> {
+async fn fetch_github_email(access_token: &str) -> Result<String, AppError> {
     let client = reqwest::Client::new();
     let response = client
         .get("https://api.github.com/user/emails")
@@ -262,9 +263,9 @@ async fn fetch_github_email(access_token: &str) -> Result<String, String> {
         .header("User-Agent", "StoryForge/4.5.0")
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
-    let emails: Vec<serde_json::Value> = response.json().await.map_err(|e| e.to_string())?;
+    let emails: Vec<serde_json::Value> = response.json().await.map_err(AppError::from)?;
 
     // 找到primary邮箱
     for email_entry in &emails {
@@ -282,15 +283,15 @@ async fn fetch_github_email(access_token: &str) -> Result<String, String> {
         }
     }
 
-    Err("No email found".to_string())
+    Err(AppError::internal("No email found"))
 }
 
 /// 查找可用端口
-fn find_available_port() -> Result<u16, String> {
+fn find_available_port() -> Result<u16, AppError> {
     for port in 8765..=9000 {
         if std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
             return Ok(port);
         }
     }
-    Err("No available port found".to_string())
+    Err(AppError::internal("No available port found"))
 }

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import type { WorldBuilding, WorldRule, Culture, WritingStyle, WritingStyleUpdate } from '@/types';
 
 const WORLD_BUILDING_KEY = 'world_building';
@@ -12,7 +12,7 @@ export function useWorldBuilding(storyId: string | null) {
     queryKey: [WORLD_BUILDING_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<WorldBuilding | null>('get_world_building', { story_id: storyId });
+      return loggedInvoke<WorldBuilding | null>('get_world_building', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -23,7 +23,7 @@ export function useCreateWorldBuilding() {
   
   return useMutation({
     mutationFn: async (params: { storyId: string; concept: string }) => {
-      return invoke<WorldBuilding>('create_world_building', {
+      return loggedInvoke<WorldBuilding>('create_world_building', {
         story_id: params.storyId,
         concept: params.concept,
       });
@@ -46,7 +46,7 @@ export function useUpdateWorldBuilding() {
       history?: string;
       cultures?: Culture[];
     }) => {
-      return invoke<number>('update_world_building', {
+      return loggedInvoke<number>('update_world_building', {
         id: params.id,
         concept: params.concept,
         rules: params.rules,
@@ -65,7 +65,7 @@ export function useDeleteWorldBuilding() {
 
   return useMutation({
     mutationFn: async (params: { id: string; storyId: string }) => {
-      return invoke<number>('delete_world_building', { id: params.id });
+      return loggedInvoke<number>('delete_world_building', { id: params.id });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [WORLD_BUILDING_KEY, variables.storyId] });
@@ -80,7 +80,7 @@ export function useWritingStyle(storyId: string | null) {
     queryKey: [WRITING_STYLE_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<WritingStyle | null>('get_writing_style', { story_id: storyId });
+      return loggedInvoke<WritingStyle | null>('get_writing_style', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -91,7 +91,7 @@ export function useCreateWritingStyle() {
   
   return useMutation({
     mutationFn: async (storyId: string) => {
-      return invoke<WritingStyle>('create_writing_style', { story_id: storyId });
+      return loggedInvoke<WritingStyle>('create_writing_style', { story_id: storyId });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [WRITING_STYLE_KEY, variables] });
@@ -108,7 +108,7 @@ export function useUpdateWritingStyle() {
       storyId: string;
       updates: WritingStyleUpdate;
     }) => {
-      return invoke<number>('update_writing_style', {
+      return loggedInvoke<number>('update_writing_style', {
         id: params.id,
         updates: params.updates,
       });

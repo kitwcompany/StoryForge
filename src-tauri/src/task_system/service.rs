@@ -9,6 +9,7 @@ use super::models::*;
 use super::repository::TaskRepository;
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -93,9 +94,9 @@ impl<R: Runtime> TaskService<R> {
 
     // ==================== CRUD ====================
 
-    pub fn create_task(&self, req: CreateTaskRequest) -> Result<Task, String> {
+    pub fn create_task(&self, req: CreateTaskRequest) -> Result<Task, AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let task = repo.create(&req).map_err(|e| e.to_string())?;
+        let task = repo.create(&req).map_err(AppError::from)?;
 
         // 如果启用了且不是一次性任务，注册到调度器
         if task.enabled && task.schedule_type != ScheduleType::Once {
@@ -126,14 +127,14 @@ impl<R: Runtime> TaskService<R> {
         Ok(task)
     }
 
-    pub fn update_task(&self, id: &str, req: UpdateTaskRequest) -> Result<Task, String> {
+    pub fn update_task(&self, id: &str, req: UpdateTaskRequest) -> Result<Task, AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let old_task = repo.get_by_id(id).map_err(|e| e.to_string())?
+        let old_task = repo.get_by_id(id).map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
         let was_scheduled = old_task.enabled && old_task.schedule_type != ScheduleType::Once;
 
-        let task = repo.update(id, &req).map_err(|e| e.to_string())?;
+        let task = repo.update(id, &req).map_err(AppError::from)?;
 
         let is_scheduled = task.enabled && task.schedule_type != ScheduleType::Once;
 
@@ -150,39 +151,39 @@ impl<R: Runtime> TaskService<R> {
         Ok(task)
     }
 
-    pub fn delete_task(&self, id: &str) -> Result<(), String> {
+    pub fn delete_task(&self, id: &str) -> Result<(), AppError> {
         self.scheduler.unregister(id);
         let repo = TaskRepository::new(self.pool.clone());
-        repo.delete(id).map_err(|e| e.to_string())?;
+        repo.delete(id).map_err(AppError::from)?;
         Ok(())
     }
 
-    pub fn list_tasks(&self, status_filter: Option<String>) -> Result<Vec<Task>, String> {
+    pub fn list_tasks(&self, status_filter: Option<String>) -> Result<Vec<Task>, AppError> {
         let repo = TaskRepository::new(self.pool.clone());
         let filter = status_filter.as_deref();
-        repo.list(filter, None).map_err(|e| e.to_string())
+        repo.list(filter, None).map_err(AppError::from)
     }
 
-    pub fn get_task(&self, id: &str) -> Result<Option<Task>, String> {
+    pub fn get_task(&self, id: &str) -> Result<Option<Task>, AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        repo.get_by_id(id).map_err(|e| e.to_string())
+        repo.get_by_id(id).map_err(AppError::from)
     }
 
-    pub fn get_task_logs(&self, task_id: &str) -> Result<Vec<TaskLog>, String> {
+    pub fn get_task_logs(&self, task_id: &str) -> Result<Vec<TaskLog>, AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        repo.list_logs(task_id).map_err(|e| e.to_string())
+        repo.list_logs(task_id).map_err(AppError::from)
     }
 
     // ==================== Execution ====================
 
     /// 手动触发任务执行
-    pub fn trigger_task(&self, id: &str) -> Result<(), String> {
+    pub fn trigger_task(&self, id: &str) -> Result<(), AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let task = repo.get_by_id(id).map_err(|e| e.to_string())?
+        let task = repo.get_by_id(id).map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
         if task.status == TaskStatus::Running {
-            return Err("Task is already running".to_string());
+            return Err(AppError::internal("Task is already running"));
         }
 
         let task_id = id.to_string();
@@ -200,19 +201,19 @@ impl<R: Runtime> TaskService<R> {
     }
 
     /// 取消任务
-    pub fn cancel_task(&self, id: &str) -> Result<(), String> {
+    pub fn cancel_task(&self, id: &str) -> Result<(), AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let task = repo.get_by_id(id).map_err(|e| e.to_string())?
+        let task = repo.get_by_id(id).map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
         if task.status != TaskStatus::Running {
-            return Err("Task is not running".to_string());
+            return Err(AppError::internal("Task is not running"));
         }
 
         repo.update_status(id, &TaskStatus::Cancelled, None, None, Some("用户手动取消".to_string()))
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
-        repo.create_log(id, "warn", "任务被用户手动取消").map_err(|e| e.to_string())?;
+        repo.create_log(id, "warn", "任务被用户手动取消").map_err(AppError::from)?;
 
         let event = TaskStatusChangedEvent {
             task_id: id.to_string(),

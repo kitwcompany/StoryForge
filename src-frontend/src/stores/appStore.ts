@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Story, Character, Chapter, Skill, ViewType, User } from '@/types/index';
+import type { EditorConfig } from '@/components/EditorSettings';
 
 interface AppState {
   // Navigation
@@ -44,6 +45,16 @@ interface AppState {
   // Error
   error: string | null;
   setError: (error: string | null) => void;
+
+  // W2-F2: 跨组件 UI 状态（替代 DOM CustomEvent）
+  isLoginModalOpen: boolean;
+  setLoginModalOpen: (open: boolean) => void;
+  /** 导航高亮目标故事 ID（backstage-navigate-to-story 替代） */
+  navigateHighlightStoryId: string | null;
+  setNavigateHighlightStoryId: (id: string | null) => void;
+  /** 编辑器配置（editor-config-changed 替代） */
+  editorConfig: EditorConfig | null;
+  setEditorConfig: (config: EditorConfig | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -109,8 +120,16 @@ export const useAppStore = create<AppState>((set) => ({
   // Loading
   isLoading: false,
   setIsLoading: (loading) => set({ isLoading: loading }),
-  
+
   // Error
   error: null,
   setError: (error) => set({ error }),
+
+  // W2-F2: 跨组件 UI 状态（替代 DOM CustomEvent）
+  isLoginModalOpen: false,
+  setLoginModalOpen: (open) => set({ isLoginModalOpen: open }),
+  navigateHighlightStoryId: null,
+  setNavigateHighlightStoryId: (id) => set({ navigateHighlightStoryId: id }),
+  editorConfig: null,
+  setEditorConfig: (config) => set({ editorConfig: config }),
 }));

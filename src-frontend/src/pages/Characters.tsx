@@ -46,17 +46,7 @@ export function Characters() {
   const [activeTab, setActiveTab] = useState<CharacterTab>('info');
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
-  // v5.0.0 修复：监听数据刷新事件
-  useEffect(() => {
-    const handleRefresh = () => {
-      if (currentStory?.id) {
-        queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
-        queryClient.invalidateQueries({ queryKey: ['character-relationships', currentStory.id] });
-      }
-    };
-    window.addEventListener('backstage-data-refreshed', handleRefresh);
-    return () => window.removeEventListener('backstage-data-refreshed', handleRefresh);
-  }, [currentStory?.id, queryClient]);
+  // W2-F2: backstage-data-refreshed 已废弃，数据刷新由 useSyncStore 统一处理
 
   const createCharacter = useCreateCharacter();
   const deleteCharacter = useDeleteCharacter();

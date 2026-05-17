@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
 export interface AiOperation {
@@ -23,7 +23,7 @@ export function useAiOperations(storyId: string | undefined) {
     queryKey: ['ai-operations', storyId],
     queryFn: async () => {
       if (!storyId) return [];
-      return invoke<AiOperation[]>('list_ai_operations', { story_id: storyId });
+      return loggedInvoke<AiOperation[]>('list_ai_operations', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -32,7 +32,7 @@ export function useAiOperations(storyId: string | undefined) {
 export function useRollbackOperation() {
   return useMutation({
     mutationFn: async (operationId: string) => {
-      return invoke<void>('rollback_ai_operation', { operation_id: operationId });
+      return loggedInvoke<void>('rollback_ai_operation', { operation_id: operationId });
     },
     onSuccess: () => {
       toast.success('已回滚到操作前的状态');

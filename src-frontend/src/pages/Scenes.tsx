@@ -20,17 +20,7 @@ export function Scenes() {
   const queryClient = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
 
-  // v5.0.0 修复：监听数据刷新事件
-  useEffect(() => {
-    const handleRefresh = () => {
-      if (currentStory?.id) {
-        queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
-        queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
-      }
-    };
-    window.addEventListener('backstage-data-refreshed', handleRefresh);
-    return () => window.removeEventListener('backstage-data-refreshed', handleRefresh);
-  }, [currentStory?.id, queryClient]);
+  // W2-F2: backstage-data-refreshed 已废弃，数据刷新由 useSyncStore 统一处理
   const [isEditing, setIsEditing] = useState(false);
   const [previewTab, setPreviewTab] = useState<'content' | 'versions'>('content');
   const [compareVersions, setCompareVersions] = useState<[SceneVersion, SceneVersion] | null>(null);

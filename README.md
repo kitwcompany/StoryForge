@@ -10,6 +10,8 @@
 >
 > **v7.0.0 最新更新（2026-05-15）**：AI 三审 Pipeline 系统（修稿 → 审稿 → 定稿 → 后处理）+ 角色动态状态面板（LLM 驱动实时更新）+ 用量统计看板 + 幕前 `/` 指令打通 Pipeline + Stories 场景进度看板 — 从"能创作"到"高质量创作"的完整质量管控闭环。
 >
+> **架构优化（2026-05-17）**：`ChapterCommitService` 防抖聚合提交（30秒空闲延迟）取代旧版独立 `auto_ingest_chapter` 管线，消除重复索引；导出聚合：空章节内容自动按场景序号聚合填充，确保 Markdown/HTML/PlainText 导出完整；`Settings.tsx` / `SceneEditor.tsx` 大型组件提取重构为原子化子组件；`StoryTimeline.tsx` 新增 `execution_stage` 彩色徽章（plan/outline/draft/review/final），场景进度一目了然。
+>
 > **AI 三审 Pipeline 系统**：引入 `Rewrite → Refine → Review → Finalize` 四级创作管线，每章正文经过 AI 修稿（语言润色）、AI 审稿（多维评分与问题标注）、定稿（通过后处理步骤自动更新知识库、章节笔记、角色动态状态卡、风格分析），实现"每章必审、每稿必改、定稿即入库"的工业化创作流程。
 >
 > **角色动态状态面板**：每个角色新增 6 项动态状态字段（当前位置、实力等级、身体状态、心理状态、关键物品、近期事件），定稿时由 LLM 自动解析章节内容并更新角色状态，前台 `Characters.tsx` 集成可折叠状态面板，支持实时查看与手动修正。
@@ -36,7 +38,7 @@
 >
 > **CI 三平台修复**：移除 `.cargo/config.toml` UTF-8 BOM（修复 Windows/Ubuntu 构建失败）；macOS 目标从 `x86_64` 改为 `aarch64-apple-darwin`（适配 GitHub Apple Silicon runner，修复 LanceDB AVX512 链接错误）。
 >
-> **维度一：幕前幕后自动关联补全（4项）** — `auto_ingest_chapter` / `update_scene` 自动触发知识图谱同步事件（`ingestionCompleted` + `dataRefresh(knowledgeGraph)`），Ingest 完成后 KG 可视化自动刷新；`commands_v3.rs` KG CRUD 命令（`create_entity`/`update_entity`/`create_relation`/`delete_relation`/`delete_entity`）统一发射 `dataRefresh(knowledgeGraph)`，消除直接更新路径绕过 StateSync 的问题；前端 `useSyncStore` 补全 `characterRelationshipsUpdated` / `payoffLedgerUpdated` / `ingestionCompleted` case，特定事件独立响应。
+> **维度一：幕前幕后自动关联补全（4项）** — `ChapterCommitService::auto_commit` 防抖聚合提交（30秒空闲延迟）自动驱动知识图谱同步与向量索引更新，取代旧版 `auto_ingest_chapter` 独立摄取管线，消除重复索引工作；`update_scene` 自动触发 `dataRefresh(knowledgeGraph)`，Ingest 完成后 KG 可视化自动刷新；`commands_v3.rs` KG CRUD 命令统一发射 `dataRefresh(knowledgeGraph)`，消除直接更新路径绕过 StateSync 的问题；前端 `useSyncStore` 补全 `characterRelationshipsUpdated` / `payoffLedgerUpdated` / `ingestionCompleted` case，特定事件独立响应。
 >
 > **维度二：后台自动化闭环补全（5项）** — Automation Service 集成到全部核心 CRUD 命令（`create_story` 触发 `StoryCreated`、`create_character` 触发 `CharacterCreated`、`update_chapter`/`update_scene` 触发 `ChapterContentUpdated`），后台自动化对所有核心数据变更事件响应；`PlanTemplateLibrary` 从纯内存存储升级为 SQLite 持久化（Migration 46 `plan_templates` 表），重启后学习成果保持，避免重复 LLM 调用浪费配额；能力进化引擎新增周期触发机制（每记录 5 条执行自动检查阈值并触发进化），不再仅依赖启动时一次性执行；`WorkflowEngine` 恢复实例后自动重新入队 `WorkflowScheduler`，应用重启后中断的工作流实例自动恢复调度；补齐缺失的 `story_metadata` / `scene_characters` / `scene_character_actions` 表定义（Migration 43-45），修复 automation service 运行时表缺失错误。
 >
@@ -350,17 +352,22 @@ v2-rust/
 │   │   ├── components/          # 共享组件
 │   │   │   ├── StoryTimeline.tsx    # 故事线视图
 │   │   │   ├── SceneEditor.tsx      # 场景编辑器
+│   │   │   ├── scene-editor/        # 场景编辑器子组件
+│   │   │   │   ├── SceneAuditPanel.tsx    # 场景审校面板
+│   │   │   │   └── SceneAnnotationPanel.tsx # 场景批注面板
 │   │   │   ├── VersionTimeline.tsx  # 版本历史
 │   │   │   ├── DiffViewer.tsx       # 版本对比
 │   │   │   ├── VectorSearch.tsx     # 向量搜索
 │   │   │   ├── NovelCreationWizard.tsx # 创建向导
-│   │   │   └── ExportDialog.tsx
+│   │   │   ├── ExportDialog.tsx
+│   │   │   └── pipeline/            # Pipeline 相关组件
 │   │   └── hooks/               # 自定义 Hooks
 │   │       ├── useScenes.ts
 │   │       ├── useIntent.ts         # 意图解析
 │   │       ├── useChangeTracking.ts # 修订追踪
-│   │       ├── useTextAnnotations.ts # 文本批注
-│   │       ├── useCommentThreads.ts  # 评论线程
+│   │       ├── useSceneAnnotations.ts # 场景批注
+│   │       ├── usePipeline.ts        # Pipeline 状态
+│   │       ├── useWorkflows.ts       # 工作流管理
 │   │       ├── useSceneVersions.ts   # 版本管理
 │   │       ├── useMcpTools.ts        # MCP 工具
 │   │       ├── useVectorSearch.ts    # 向量搜索
@@ -431,6 +438,37 @@ v2-rust/
 │   │   │   ├── openai.rs
 │   │   │   ├── anthropic.rs
 │   │   │   └── ollama.rs
+│   │   ├── pipeline/            # AI 三审 Pipeline (v7.0.0)
+│   │   │   ├── mod.rs
+│   │   │   ├── refine.rs
+│   │   │   ├── review.rs
+│   │   │   ├── finalize.rs
+│   │   │   └── post_process.rs
+│   │   ├── book_deconstruction/ # 拆书系统
+│   │   │   ├── mod.rs
+│   │   │   ├── analyzer.rs
+│   │   │   └── service.rs
+│   │   ├── auth/                # OAuth 认证
+│   │   │   ├── mod.rs
+│   │   │   ├── oauth.rs
+│   │   │   └── commands.rs
+│   │   ├── planner/             # 计划生成与模板学习
+│   │   │   ├── mod.rs
+│   │   │   ├── executor.rs
+│   │   │   └── template_learning.rs
+│   │   ├── capabilities/        # 能力自描述与进化
+│   │   │   ├── mod.rs
+│   │   │   └── evolution.rs
+│   │   ├── narrative/           # 叙事元素模型（创世/拆书）
+│   │   │   ├── mod.rs
+│   │   │   ├── genesis.rs
+│   │   │   └── analysis.rs
+│   │   ├── canonical_state/     # 规范状态系统
+│   │   │   └── mod.rs
+│   │   ├── audit/               # 代码审计模块
+│   │   │   └── mod.rs
+│   │   ├── task_system/         # 任务调度系统
+│   │   │   └── mod.rs
 │   │   ├── collab/              # 协作编辑
 │   │   │   └── websocket.rs
 │   │   └── config/              # 配置管理
@@ -577,15 +615,14 @@ v2-rust/
 | 意图引擎 | ✅ | 11 种意图解析 + Agent 调度 |
 | 真实 SSE 流式 | ✅ | OpenAI / Anthropic / Ollama 全适配 |
 
-### 5. 协作与批注系统 (100% ✅)
+### 5. 批注与修订系统 (100% ✅)
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
 | 修订模式 | ✅ | trackInsert / trackDelete，逐条接受/拒绝 |
-| 文本内联批注 | ✅ | note/todo/warning/idea，高亮锚定 |
-| 评论线程 | ✅ | 多轮回复、解决/重开、删除 |
-| 场景批注 | ✅ | 场景级批注/待办/警告 |
-| WebSocket 协作 | ✅ | 协作编辑服务端 |
+| 场景批注 | ✅ | 场景级 note/todo/warning/idea 批注 |
+| 古典评点 | ✅ | AI 模拟金圣叹风格生成朱红色段落评点 |
+| WebSocket 协作 | ✅ | 协作编辑服务端（基础设施就绪） |
 
 ### 6. 工作室配置与扩展 (100% ✅)
 
@@ -763,6 +800,12 @@ v2-rust/
 - **单故事统计**：按故事维度聚合 LLM 调用与 token 消耗
 - **最近调用明细**：最近 20 条调用记录表（模型/功能/token/耗时/状态/时间）
 - **独立页面**：幕后 Sidebar「用量统计」入口，`UsageStats.tsx` 完整实现
+
+**架构优化（2026-05-17）**
+- **`ChapterCommitService::auto_commit` 防抖聚合提交**：取代旧版独立 `auto_ingest_chapter` 摄取管线（5 分钟冷却），改为 30 秒空闲延迟后自动聚合提交，驱动 `VectorProjectionWriter` / `MemoryProjectionWriter`，消除重复索引工作
+- **导出聚合完整性**：`export_story` 导出前自动检查章节内容，空章节按关联场景的 `sequence_number` 排序聚合填充，确保 Markdown/HTML/PlainText 导出完整无缺
+- **大型组件提取重构**：`Settings.tsx` 提取 8 个原子化子组件（`ModelCard`/`ModelList`/`ModelModal`/`StatsSettings`/`MethodologySettings`/`WorkflowSettings`/`GeneralSettings`/`AccountSettings`）；`SceneEditor.tsx` 提取 `SceneAuditPanel` 和 `SceneAnnotationPanel` 到 `scene-editor/` 子目录
+- **`StoryTimeline.tsx` 场景进度徽章**：场景卡片新增 `execution_stage` 状态徽标（plan/outline/draft/review/final），叙事阶段（铺垫/上升/高潮/收尾）与执行阶段双轨可视化
 
 **编译与测试**
 - `cargo check`：零错误
@@ -1161,7 +1204,7 @@ cd src-tauri && cargo tauri build
 - [x] **知识图谱可视化** - ReactFlow 交互图谱
 - [x] **意图引擎** - Agent 调度
 - [x] **修订模式** - 变更追踪
-- [x] **文本批注 / 评论线程** - 内联协作
+- [x] **场景批注** - 场景级 note/todo/warning/idea
 - [x] **MCP 外部服务器** - 工具扩展
 - [x] **技能工坊** - 导入/执行/管理
 - [x] **创作方法论引擎** - 雪花法/节拍表/英雄之旅/人物深度

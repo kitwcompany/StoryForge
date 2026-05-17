@@ -7,6 +7,7 @@
 //! - 自动清理超过 7 天的日志文件
 
 use std::fs;
+use crate::error::AppError;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -236,7 +237,7 @@ fn cleanup_old_logs(log_dir: &Path) {
 
 /// 获取日志目录路径（供前端展示或导出）
 #[tauri::command]
-pub fn get_log_directory(app_handle: tauri::AppHandle) -> Result<String, String> {
+pub fn get_log_directory(app_handle: tauri::AppHandle) -> Result<String, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -250,7 +251,7 @@ pub fn get_log_directory(app_handle: tauri::AppHandle) -> Result<String, String>
 pub fn get_recent_logs(
     app_handle: tauri::AppHandle,
     lines: Option<usize>,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -280,7 +281,7 @@ pub fn get_recent_logs(
     }
 
     let (path, _) = latest.ok_or("No log files found")?;
-    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let content = fs::read_to_string(&path).map_err(AppError::from)?;
 
     let lines = lines.unwrap_or(200);
     let collected: Vec<&str> = content.lines().collect();

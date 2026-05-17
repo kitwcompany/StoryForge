@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use crate::error::AppError;
 use super::*;
 use serde_yaml;
 
@@ -15,16 +16,16 @@ impl SkillLoader {
     /// Load skill from directory
     pub fn load_from_directory(&self,
         dir: &Path,
-    ) -> Result<Skill, String> {
+    ) -> Result<Skill, AppError> {
         let manifest_path = dir.join("skill.yaml");
         if !manifest_path.exists() {
-            return Err("skill.yaml not found".to_string());
+            return Err(AppError::internal("skill.yaml not found"));
         }
         
         let manifest_content = fs::read_to_string(&manifest_path)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         let manifest: SkillManifest = serde_yaml::from_str(&manifest_content)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         
         // Determine runtime type
         let runtime = self.load_runtime(&manifest, dir)?;
@@ -41,8 +42,8 @@ impl SkillLoader {
     /// Load skill from single file
     pub fn load_from_file(&self,
         file: &Path,
-    ) -> Result<Skill, String> {
-        let content = fs::read_to_string(file).map_err(|e| e.to_string())?;
+    ) -> Result<Skill, AppError> {
+        let content = fs::read_to_string(file).map_err(AppError::from)?;
         
         // Try YAML first
         if let Ok(manifest) = serde_yaml::from_str::<SkillManifest>(&content) {
@@ -68,19 +69,19 @@ impl SkillLoader {
             });
         }
         
-        Err("Failed to parse skill file".to_string())
+        Err(AppError::internal("Failed to parse skill file"))
     }
     
     /// Download and load skill from URL
     pub async fn download_and_load(
         &self,
         url: &str,
-    ) -> Result<Skill, String> {
+    ) -> Result<Skill, AppError> {
         let response = reqwest::get(url).await
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         
         let content = response.text().await
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         
         // Try to parse as manifest
         if let Ok(manifest) = serde_yaml::from_str::<SkillManifest>(&content) {
@@ -95,7 +96,7 @@ impl SkillLoader {
             });
         }
         
-        Err("Failed to download skill".to_string())
+        Err(AppError::internal("Failed to download skill"))
     }
     
     /// Save skill to directory
@@ -103,13 +104,13 @@ impl SkillLoader {
         &self,
         skill: &Skill,
         dir: &Path,
-    ) -> Result<(), String> {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    ) -> Result<(), AppError> {
+        fs::create_dir_all(dir).map_err(AppError::from)?;
         
         let manifest_path = dir.join("skill.yaml");
         let yaml = serde_yaml::to_string(&skill.manifest)
-            .map_err(|e| e.to_string())?;
-        fs::write(manifest_path, yaml).map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
+        fs::write(manifest_path, yaml).map_err(AppError::from)?;
         
         Ok(())
     }
@@ -118,7 +119,7 @@ impl SkillLoader {
         &self,
         manifest: &SkillManifest,
         dir: &Path,
-    ) -> Result<SkillRuntime, String> {
+    ) -> Result<SkillRuntime, AppError> {
         match manifest.entry_point.as_str() {
             ep if ep.ends_with(".prompt") => {
                 self.load_prompt_runtime(dir, ep)
@@ -126,7 +127,7 @@ impl SkillLoader {
             ep if ep.ends_with(".json") || ep == "mcp" => {
                 self.load_mcp_runtime(dir, ep)
             }
-            _ => Err("Unknown skill type".to_string()),
+            _ => Err(AppError::internal("Unknown skill type")),
         }
     }
     
@@ -134,10 +135,10 @@ impl SkillLoader {
         &self,
         dir: &Path,
         entry: &str,
-    ) -> Result<SkillRuntime, String> {
+    ) -> Result<SkillRuntime, AppError> {
         let prompt_path = dir.join(entry);
         let content = fs::read_to_string(prompt_path)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         
         // Parse prompt file: system prompt + user template
         let parts: Vec<&str> = content.split("---").collect();
@@ -154,13 +155,13 @@ impl SkillLoader {
         &self,
         dir: &Path,
         entry: &str,
-    ) -> Result<SkillRuntime, String> {
+    ) -> Result<SkillRuntime, AppError> {
         let mcp_path = dir.join(entry);
         let content = fs::read_to_string(mcp_path)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         
         let config: McpServerConfig = serde_json::from_str(&content)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         
         Ok(SkillRuntime::Mcp(McpRuntime {
             server_config: config,
@@ -170,7 +171,7 @@ impl SkillLoader {
     fn infer_runtime_from_manifest(
         &self,
         manifest: &SkillManifest,
-    ) -> Result<SkillRuntime, String> {
+    ) -> Result<SkillRuntime, AppError> {
         match manifest.entry_point.as_str() {
             ep if ep.ends_with(".prompt") => {
                 Ok(SkillRuntime::Prompt(PromptRuntime {

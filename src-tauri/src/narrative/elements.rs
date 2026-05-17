@@ -47,6 +47,27 @@ pub enum ElementSource {
     Imported,       // 从外部导入
 }
 
+/// 元素状态 — 区分活跃创作元素与参考材料 (W3-B3)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ElementStatus {
+    #[default]
+    Active,         // 当前故事正在使用的活跃元素
+    Reference,      // 从拆书/参考材料导入，尚未激活
+    Archived,       // 已归档，不再使用
+}
+
+impl std::fmt::Display for ElementStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ElementStatus::Active => "active",
+            ElementStatus::Reference => "reference",
+            ElementStatus::Archived => "archived",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 impl std::fmt::Display for ElementSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -85,6 +106,8 @@ pub struct CharacterElement {
     pub source: ElementSource,
     #[serde(default)]
     pub source_ref_id: Option<String>, // 关联外部ID（如拆书的book_id）
+    #[serde(default)]
+    pub status: ElementStatus,         // active / reference / archived (W3-B3)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +148,8 @@ pub struct SceneElement {
     pub source: ElementSource,
     #[serde(default)]
     pub source_ref_id: Option<String>,
+    #[serde(default)]
+    pub status: ElementStatus,
 }
 
 // ==================== 统一世界观模型 ====================
@@ -149,6 +174,8 @@ pub struct WorldBuildingElement {
     pub source: ElementSource,
     #[serde(default)]
     pub source_ref_id: Option<String>,
+    #[serde(default)]
+    pub status: ElementStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,6 +424,7 @@ mod tests {
                 importance_score: 9.0,
                 source: ElementSource::Generated,
                 source_ref_id: None,
+                status: ElementStatus::Active,
             });
         assert!(bundle.story_meta.is_some());
         assert_eq!(bundle.characters.len(), 1);

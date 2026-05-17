@@ -528,6 +528,96 @@ impl VectorStore for DbVectorStore {
             });
         }
 
+        // 3. 搜索 narrative_characters（active + reference 双状态）
+        let mut stmt = conn.prepare(
+            "SELECT id, name, personality, background, goals, status
+             FROM narrative_characters
+             WHERE story_id = ?1 AND (name LIKE ?2 OR personality LIKE ?2 OR background LIKE ?2 OR goals LIKE ?2)
+             LIMIT ?3"
+        )?;
+        let char_rows = stmt.query_map(params![story_id, &like_pattern, limit as i32], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let personality: String = row.get(2)?;
+            let background: String = row.get(3)?;
+            let goals: String = row.get(4)?;
+            let status: String = row.get(5)?;
+            Ok((id, name, personality, background, goals, status))
+        })?;
+        for row in char_rows {
+            let (id, name, personality, background, goals, status) = row?;
+            let content = format!(
+                "角色: {}\n性格: {}\n背景: {}\n目标: {}",
+                name, personality, background, goals
+            );
+            results.push(SearchResult {
+                id: format!("nchar_{}", id),
+                content: content.chars().take(300).collect::<String>(),
+                score: if status == "active" { 0.85 } else { 0.75 },
+                source_type: SourceType::Entity,
+                metadata: serde_json::json!({"type": "narrative_character", "name": name, "status": status}),
+            });
+        }
+
+        // 4. 搜索 narrative_scenes（active + reference 双状态）
+        let mut stmt = conn.prepare(
+            "SELECT id, title, summary, content, status
+             FROM narrative_scenes
+             WHERE story_id = ?1 AND (title LIKE ?2 OR summary LIKE ?2 OR content LIKE ?2)
+             LIMIT ?3"
+        )?;
+        let scene_rows = stmt.query_map(params![story_id, &like_pattern, limit as i32], |row| {
+            let id: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let summary: String = row.get(2)?;
+            let content: Option<String> = row.get(3)?;
+            let status: String = row.get(4)?;
+            Ok((id, title, summary, content, status))
+        })?;
+        for row in scene_rows {
+            let (id, title, summary, content, status) = row?;
+            let text = content.unwrap_or(summary);
+            let display = format!("场景: {}\n{}", title, text);
+            results.push(SearchResult {
+                id: format!("nscene_{}", id),
+                content: display.chars().take(300).collect::<String>(),
+                score: if status == "active" { 0.82 } else { 0.72 },
+                source_type: SourceType::Scene,
+                metadata: serde_json::json!({"type": "narrative_scene", "title": title, "status": status}),
+            });
+        }
+
+        // 5. 搜索 narrative_world_buildings（active + reference 双状态）
+        let mut stmt = conn.prepare(
+            "SELECT id, concept, rules, history, power_system, status
+             FROM narrative_world_buildings
+             WHERE story_id = ?1 AND (concept LIKE ?2 OR rules LIKE ?2 OR history LIKE ?2 OR power_system LIKE ?2)
+             LIMIT ?3"
+        )?;
+        let wb_rows = stmt.query_map(params![story_id, &like_pattern, limit as i32], |row| {
+            let id: String = row.get(0)?;
+            let concept: String = row.get(1)?;
+            let rules: String = row.get(2)?;
+            let history: String = row.get(3)?;
+            let power_system: String = row.get(4)?;
+            let status: String = row.get(5)?;
+            Ok((id, concept, rules, history, power_system, status))
+        })?;
+        for row in wb_rows {
+            let (id, concept, rules, history, power_system, status) = row?;
+            let content = format!(
+                "世界观: {}\n规则: {}\n历史: {}\n力量体系: {}",
+                concept, rules, history, power_system
+            );
+            results.push(SearchResult {
+                id: format!("nwb_{}", id),
+                content: content.chars().take(300).collect::<String>(),
+                score: if status == "active" { 0.88 } else { 0.78 },
+                source_type: SourceType::Memory,
+                metadata: serde_json::json!({"type": "narrative_world_building", "status": status}),
+            });
+        }
+
         // 去重并截断
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         results.dedup_by(|a, b| a.id == b.id);

@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use super::settings::*;
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{command, AppHandle, Manager};
@@ -93,13 +94,13 @@ pub struct PrivacySettings {
 
 /// 获取应用设置
 #[command]
-pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
+pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     
     let mut models: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
     
@@ -114,6 +115,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
             "name": p.name,
             "description": p.description,
             "provider": p.provider,
+            "model_source": p.model_source,
             "model": p.model,
             "type": if is_multimodal { "multimodal" } else { "chat" },
             "temperature": p.temperature,
@@ -144,6 +146,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
                 "name": p.name,
                 "description": p.description,
                 "provider": p.provider,
+                "model_source": super::settings::ModelSource::Platform, // Embedding models are always platform-provided in current setup
                 "model": p.model,
                 "type": "embedding",
                 "dimensions": p.dimensions,
@@ -196,13 +199,13 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
 
 /// 保存设置
 #[command]
-pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result<(), String> {
+pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let mut config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     
     // 保存活跃配置
     if let Some(chat_id) = settings.active_models.get("chat") {
@@ -229,12 +232,12 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     // 保存写作策略
     config.writing_strategy = settings.writing_strategy;
     
-    config.save(&app_dir).map_err(|e| e.to_string())
+    config.save(&app_dir).map_err(AppError::from)
 }
 
 /// 导出设置
 #[command]
-pub fn export_settings(app_handle: AppHandle) -> Result<AppSettingsExport, String> {
+pub fn export_settings(app_handle: AppHandle) -> Result<AppSettingsExport, AppError> {
     let _app_dir = app_handle
         .path()
         .app_data_dir()
@@ -251,7 +254,7 @@ pub fn export_settings(app_handle: AppHandle) -> Result<AppSettingsExport, Strin
 
 /// 导入设置
 #[command]
-pub fn import_settings(data: AppSettingsExport, app_handle: AppHandle) -> Result<(), String> {
+pub fn import_settings(data: AppSettingsExport, app_handle: AppHandle) -> Result<(), AppError> {
     // 验证版本兼容性
     let current_version = env!("CARGO_PKG_VERSION");
     let import_version = &data.version;
@@ -261,10 +264,10 @@ pub fn import_settings(data: AppSettingsExport, app_handle: AppHandle) -> Result
     let import_major = import_version.split('.').next().unwrap_or("0");
     
     if current_major != import_major {
-        return Err(format!(
+        return Err(AppError::internal(format!(
             "版本不兼容: 当前版本 {}，导入版本 {}",
             current_version, import_version
-        ));
+        )));
     }
     
     save_settings(data.settings, app_handle)?;
@@ -273,7 +276,7 @@ pub fn import_settings(data: AppSettingsExport, app_handle: AppHandle) -> Result
 
 /// 获取所有模型
 #[command]
-pub fn get_models(app_handle: AppHandle) -> Result<Vec<serde_json::Value>, String> {
+pub fn get_models(app_handle: AppHandle) -> Result<Vec<serde_json::Value>, AppError> {
     let settings = get_settings(app_handle)?;
     let mut all_models: Vec<serde_json::Value> = vec![];
     
@@ -291,13 +294,13 @@ pub fn get_models(app_handle: AppHandle) -> Result<Vec<serde_json::Value>, Strin
 
 /// 创建模型配置
 #[command]
-pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let mut app_config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let mut app_config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     
     let model_id = config.id.clone().unwrap_or_else(|| format!("model-{}", uuid::Uuid::new_v4()));
     let model_name = config.name.clone();
@@ -330,6 +333,11 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 _ => LlmProvider::OpenAI,
             };
             
+            let model_source = match config.provider.as_str() {
+                "ollama" | "local" => ModelSource::Local,
+                _ => ModelSource::Platform,
+            };
+
             let profile = LlmProfile {
                 id: model_id.clone(),
                 name: config.name,
@@ -343,9 +351,10 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 timeout_seconds: 120,
                 is_default: config.is_default.unwrap_or(false),
                 capabilities,
+                model_source,
             };
-            
-            app_config.add_llm_profile(profile).map_err(|e| e.to_string())?;
+
+            app_config.add_llm_profile(profile).map_err(AppError::from)?;
         }
         ModelType::Embedding => {
             let provider = match config.provider.as_str() {
@@ -369,7 +378,7 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 is_default: config.is_default.unwrap_or(false),
             };
             
-            app_config.add_embedding_profile(profile).map_err(|e| e.to_string())?;
+            app_config.add_embedding_profile(profile).map_err(AppError::from)?;
         }
         ModelType::Multimodal => {
             let provider = match config.provider.as_str() {
@@ -401,6 +410,11 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 capabilities.push(ModelCapability::Vision);
             }
             
+            let model_source = match config.provider.as_str() {
+                "ollama" | "local" => ModelSource::Local,
+                _ => ModelSource::Platform,
+            };
+
             let profile = LlmProfile {
                 id: model_id.clone(),
                 name: config.name,
@@ -414,17 +428,18 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 timeout_seconds: 120,
                 is_default: config.is_default.unwrap_or(false),
                 capabilities,
+                model_source,
             };
             
-            app_config.add_llm_profile(profile).map_err(|e| e.to_string())?;
+            app_config.add_llm_profile(profile).map_err(AppError::from)?;
         }
         ModelType::Image => {
             // TODO: 实现图像生成模型
-            return Err("图像生成模型暂未实现".to_string());
+            return Err(AppError::internal("图像生成模型暂未实现"));
         }
     }
     
-    app_config.save(&app_dir).map_err(|e| e.to_string())?;
+    app_config.save(&app_dir).map_err(AppError::from)?;
     
     Ok(serde_json::json!({
         "id": model_id,
@@ -435,19 +450,19 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
 
 /// 更新模型配置（直接修改，避免 delete+create 导致数据丢失）
 #[command]
-pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle) -> Result<(), String> {
+pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    let mut app_config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let mut app_config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     // 确定模型当前在哪个集合中
     let in_llm = app_config.llm_profiles.contains_key(&id);
     let in_embedding = app_config.embedding_profiles.contains_key(&id);
 
     if !in_llm && !in_embedding {
-        return Err(format!("Model '{}' not found", id));
+        return Err(AppError::internal(format!("Model '{}' not found", id)));
     }
 
     match config.model_type {
@@ -552,22 +567,22 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
             }
         }
         ModelType::Image => {
-            return Err("图像生成模型暂未实现".to_string());
+            return Err(AppError::internal("图像生成模型暂未实现"));
         }
     }
 
-    app_config.save(&app_dir).map_err(|e| e.to_string())?;
+    app_config.save(&app_dir).map_err(AppError::from)?;
     Ok(())
 }
 
 /// 获取模型真实 API Key（编辑时明文显示用，不随列表批量暴露）
 #[command]
-pub fn get_model_api_key(model_id: String, app_handle: AppHandle) -> Result<Option<String>, String> {
+pub fn get_model_api_key(model_id: String, app_handle: AppHandle) -> Result<Option<String>, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     if let Some(p) = config.llm_profiles.get(&model_id) {
         return Ok(if p.api_key.is_empty() { None } else { Some(p.api_key.clone()) });
@@ -576,52 +591,52 @@ pub fn get_model_api_key(model_id: String, app_handle: AppHandle) -> Result<Opti
         return Ok(if p.api_key.is_empty() { None } else { Some(p.api_key.clone()) });
     }
 
-    Err(format!("Model '{}' not found", model_id))
+    Err(AppError::internal(format!("Model '{}' not found", model_id)))
 }
 
 /// 删除模型配置
 #[command]
-pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), String> {
+pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let mut config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     
     // 尝试删除LLM配置
     if config.llm_profiles.contains_key(&id) {
-        config.remove_llm_profile(&id).map_err(|e| e.to_string())?;
+        config.remove_llm_profile(&id).map_err(AppError::from)?;
     }
     // 尝试删除Embedding配置
     else if config.embedding_profiles.contains_key(&id) {
-        config.remove_embedding_profile(&id).map_err(|e| e.to_string())?;
+        config.remove_embedding_profile(&id).map_err(AppError::from)?;
     }
     else {
-        return Err(format!("Model '{}' not found", id));
+        return Err(AppError::internal(format!("Model '{}' not found", id)));
     }
     
-    config.save(&app_dir).map_err(|e| e.to_string())
+    config.save(&app_dir).map_err(AppError::from)
 }
 
 /// 设置活跃模型
 #[command]
-pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHandle) -> Result<(), String> {
+pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHandle) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let mut config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     
     match model_type.as_str() {
-        "chat" => config.set_active_llm_profile(&model_id).map_err(|e| e.to_string())?,
-        "multimodal" => config.set_active_llm_profile(&model_id).map_err(|e| e.to_string())?,
-        "embedding" => config.set_active_embedding_profile(&model_id).map_err(|e| e.to_string())?,
-        _ => return Err(format!("Unknown model type: {}", model_type)),
+        "chat" => config.set_active_llm_profile(&model_id).map_err(AppError::from)?,
+        "multimodal" => config.set_active_llm_profile(&model_id).map_err(AppError::from)?,
+        "embedding" => config.set_active_embedding_profile(&model_id).map_err(AppError::from)?,
+        _ => return Err(AppError::internal(format!("Unknown model type: {}", model_type))),
     }
     
-    config.save(&app_dir).map_err(|e| e.to_string())?;
+    config.save(&app_dir).map_err(AppError::from)?;
     
     // 通知幕前窗口刷新模型状态
     let _ = crate::window::WindowManager::send_to_frontstage(
@@ -634,38 +649,38 @@ pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHan
 
 /// 获取Agent模型映射
 #[command]
-pub fn get_agent_mappings(app_handle: AppHandle) -> Result<Vec<AgentMapping>, String> {
+pub fn get_agent_mappings(app_handle: AppHandle) -> Result<Vec<AgentMapping>, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     Ok(config.agent_mappings.values().cloned().collect())
 }
 
 /// 更新Agent模型映射
 #[command]
-pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Result<(), String> {
+pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Result<(), AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     
-    let mut config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let mut config = AppConfig::load(&app_dir).map_err(AppError::from)?;
     config.agent_mappings.insert(mapping.agent_id.clone(), mapping);
-    config.save(&app_dir).map_err(|e| e.to_string())?;
+    config.save(&app_dir).map_err(AppError::from)?;
     Ok(())
 }
 
 /// 测试模型连接
 #[command]
-pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     // 在 LLM profiles 和 embedding profiles 中查找真实配置
     let mut found_profile: Option<(String, Option<String>)> = None;
@@ -697,7 +712,7 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     let api_key_ref = api_key.as_deref();
 
@@ -767,15 +782,15 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
 
 /// 从 API 地址获取可用模型列表
 #[command]
-pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<Vec<String>, String> {
+pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<Vec<String>, AppError> {
     if base_url.is_empty() {
-        return Err("API Base 地址不能为空".to_string());
+        return Err(AppError::internal("API Base 地址不能为空"));
     }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     let urls = if base_url.ends_with("/v1") {
         vec![format!("{}/models", base_url)]
@@ -812,5 +827,5 @@ pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<V
         }
     }
 
-    Err("无法从该 API 地址获取模型列表，请检查地址和密钥是否正确".to_string())
+    Err(AppError::internal("无法从该 API 地址获取模型列表，请检查地址和密钥是否正确"))
 }

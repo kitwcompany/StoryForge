@@ -1,6 +1,7 @@
 use super::types::*;
 use super::{PipelineOrchestrator, PostProcessRunWithSteps};
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::llm::LlmService;
 use tauri::{command, AppHandle, State};
 
@@ -12,7 +13,7 @@ pub async fn run_refine(
     user_prompt: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<RefineResult, String> {
+) -> Result<RefineResult, AppError> {
     let config = PipelineConfig::default();
     let llm_service = LlmService::new(app_handle);
     let callbacks = super::types::SilentCallbacks;
@@ -25,7 +26,7 @@ pub async fn run_refine(
         pool.inner(),
         &llm_service,
         &callbacks,
-    ).await.map_err(|e| e.to_string())
+    ).await.map_err(|e| AppError::internal(e.to_string()))
 }
 
 /// 执行 AI 审稿
@@ -36,7 +37,7 @@ pub async fn run_review(
     review_focus: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<ReviewResult, String> {
+) -> Result<ReviewResult, AppError> {
     let config = PipelineConfig::default();
     let llm_service = LlmService::new(app_handle);
     let callbacks = super::types::SilentCallbacks;
@@ -49,7 +50,7 @@ pub async fn run_review(
         pool.inner(),
         &llm_service,
         &callbacks,
-    ).await.map_err(|e| e.to_string())
+    ).await.map_err(|e| AppError::internal(e.to_string()))
 }
 
 /// 执行定稿与后处理
@@ -61,7 +62,7 @@ pub async fn run_finalize(
     chapter_title: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<PipelineResult, String> {
+) -> Result<PipelineResult, AppError> {
     let config = PipelineConfig::default();
     let callbacks = super::types::SilentCallbacks;
     let chapter_info = ChapterInfo { chapter_number, title: chapter_title };
@@ -74,7 +75,7 @@ pub async fn run_finalize(
         pool.inner(),
         &app_handle,
         &callbacks,
-    ).await.map_err(|e| e.to_string())?;
+    ).await.map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(PipelineResult {
         draft_id: draft_id.clone(),
@@ -95,13 +96,12 @@ pub async fn repair_finalize(
     chapter_number: i32,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<PipelineResult, String> {
+) -> Result<PipelineResult, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
 
     // 获取已定稿的草稿
-    let draft = orchestrator.get_finalized_draft(&story_id, chapter_number)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "未找到已定稿的草稿".to_string())?;
+    let draft = orchestrator.get_finalized_draft(&story_id, chapter_number)?
+        .ok_or_else(|| AppError::internal("未找到已定稿的草稿"))?;
 
     let config = PipelineConfig::default();
     let callbacks = super::types::SilentCallbacks;
@@ -115,7 +115,7 @@ pub async fn repair_finalize(
         pool.inner(),
         &app_handle,
         &callbacks,
-    ).await.map_err(|e| e.to_string())?;
+    ).await.map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(PipelineResult {
         draft_id: draft.id.clone(),
@@ -134,9 +134,9 @@ pub async fn repair_finalize(
 pub async fn get_post_process_status(
     run_id: String,
     pool: State<'_, DbPool>,
-) -> Result<Option<PostProcessRunWithSteps>, String> {
+) -> Result<Option<PostProcessRunWithSteps>, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
-    orchestrator.get_post_process_status(&run_id).map_err(|e| e.to_string())
+    orchestrator.get_post_process_status(&run_id)
 }
 
 /// 获取管线编排器状态 — 指定章节当前活跃草稿
@@ -145,9 +145,9 @@ pub async fn get_pipeline_active_draft(
     story_id: String,
     chapter_number: i32,
     pool: State<'_, DbPool>,
-) -> Result<Option<crate::db::Draft>, String> {
+) -> Result<Option<crate::db::Draft>, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
-    orchestrator.get_active_draft(&story_id, chapter_number).map_err(|e| e.to_string())
+    orchestrator.get_active_draft(&story_id, chapter_number)
 }
 
 /// 合并修稿（用户接受修稿结果）
@@ -155,9 +155,9 @@ pub async fn get_pipeline_active_draft(
 pub async fn merge_revision(
     revision_id: String,
     pool: State<'_, DbPool>,
-) -> Result<usize, String> {
+) -> Result<usize, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
-    orchestrator.merge_revision(&revision_id).map_err(|e| e.to_string())
+    orchestrator.merge_revision(&revision_id)
 }
 
 /// 获取草稿的修稿历史
@@ -165,9 +165,9 @@ pub async fn merge_revision(
 pub async fn get_draft_revision_history(
     draft_id: String,
     pool: State<'_, DbPool>,
-) -> Result<Vec<crate::db::Revision>, String> {
+) -> Result<Vec<crate::db::Revision>, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
-    orchestrator.get_draft_revision_history(&draft_id).map_err(|e| e.to_string())
+    orchestrator.get_draft_revision_history(&draft_id)
 }
 
 /// 获取草稿的审稿历史
@@ -175,7 +175,7 @@ pub async fn get_draft_revision_history(
 pub async fn get_draft_review_history(
     draft_id: String,
     pool: State<'_, DbPool>,
-) -> Result<Vec<crate::db::PipelineReview>, String> {
+) -> Result<Vec<crate::db::PipelineReview>, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
-    orchestrator.get_draft_review_history(&draft_id).map_err(|e| e.to_string())
+    orchestrator.get_draft_review_history(&draft_id)
 }

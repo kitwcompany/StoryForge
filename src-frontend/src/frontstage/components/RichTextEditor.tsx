@@ -23,6 +23,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useAppStore } from '@/stores/appStore';
 import type { Character } from '@/types/index';
 import { CharacterCardPopup } from './CharacterCardPopup';
 import { CharacterPeekCard } from './CharacterPeekCard';
@@ -40,7 +41,7 @@ import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
 const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
-import { generateParagraphCommentaries, writerAgentExecute, formatText } from '@/services/tauri';
+import { generateParagraphCommentaries, smartExecute, formatText } from '@/services/tauri';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 import { EditorContextMenu } from './EditorContextMenu';
@@ -287,21 +288,39 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       },
     });
 
-    // 监听配置变化
+    // W2-F2: 监听配置变化（替代 editor-config-changed DOM CustomEvent）
+    const storeEditorConfig = useAppStore((state) => state.editorConfig);
+    useEffect(() => {
+      if (storeEditorConfig) {
+        setEditorConfig(storeEditorConfig);
+      }
+    }, [storeEditorConfig]);
+
+    // 跨窗口同步：监听 localStorage 变化
     useEffect(() => {
       const handleStorageChange = () => {
         setEditorConfig(loadEditorConfig());
       };
-      const handleConfigChange = (e: CustomEvent<EditorConfig>) => {
-        setEditorConfig(e.detail);
-      };
       window.addEventListener('storage', handleStorageChange);
-      window.addEventListener('editor-config-changed', handleConfigChange as EventListener);
       return () => {
         window.removeEventListener('storage', handleStorageChange);
-        window.removeEventListener('editor-config-changed', handleConfigChange as EventListener);
       };
     }, []);
+
+    // W4-F6: E2E 性能基准支持 — 暴露 editor 实例供 benchmark 测试使用
+    useEffect(() => {
+      if (!editor) return;
+      const handleExpose = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        if (customEvent.detail?.callback) {
+          customEvent.detail.callback(editor);
+        }
+      };
+      window.addEventListener('__expose_editor_for_benchmark__', handleExpose);
+      return () => {
+        window.removeEventListener('__expose_editor_for_benchmark__', handleExpose);
+      };
+    }, [editor]);
 
     // 编辑器区域右键菜单
     useEffect(() => {
@@ -337,8 +356,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     }, [editor]);
 
     // 同步外部内容变化
+    // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
     useEffect(() => {
-      if (editor && content !== editor.getHTML()) {
+      if (editor && content !== editor.getHTML() && !editor.isFocused) {
         editor.commands.setContent(content);
       }
     }, [content, editor]);
@@ -523,15 +543,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       const generateInlineSuggestion = async () => {
         setIsAiThinking(true);
         try {
-          const result = await writerAgentExecute({
-            story_id: storyId || '',
-            chapter_number: chapterNumber,
+          // W3-F3: Inline Suggestion 统一走 smart_execute（Orchestrator Full 模式）
+          const result = await smartExecute({
+            user_input: inlineSuggestion.instruction,
             current_content: editor.getHTML() || '',
             selected_text: inlineSuggestion.targetText,
-            instruction: inlineSuggestion.instruction,
           });
 
-          if (result.content) {
+          if (result.final_content) {
             const paragraphs: { pos: number; nodeSize: number }[] = [];
             editor.state.doc.descendants((node, pos) => {
               if (node.type.name === 'paragraph') {
@@ -553,7 +572,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 targetParagraphIndex: targetIndex,
                 storyId: storyId || '',
               },
-              result.content
+              result.final_content
             );
           }
         } catch (err) {
@@ -597,18 +616,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       if (!text) return;
       setShowSlashInput(false);
       setSlashInputText('');
-      // 仅保留需要打开面板的高级命令，其余全部交给模型驱动编排
+      // W3-F3: 仅保留需要打开面板的高级命令，其余 AI 生成统一走 smart_execute
       if (text === '自动续写') {
         onSlashCommand?.('auto_write');
       } else if (text === '审校') {
         onSlashCommand?.('auto_revise');
-      } else if (text === 'AI修稿' || text === '修稿') {
-        onSlashCommand?.('pipeline_refine');
-      } else if (text === 'AI审稿' || text === '审稿') {
-        onSlashCommand?.('pipeline_review');
-      } else if (text === '定稿') {
-        onSlashCommand?.('pipeline_finalize');
       } else {
+        // AI修稿 / AI审稿 / 定稿 / 其他指令 统一由后端意图识别路由
         onSmartGeneration?.(text);
       }
     }, [slashInputText, onSmartGeneration, onSlashCommand]);

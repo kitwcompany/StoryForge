@@ -13,18 +13,7 @@ import { useEffect } from 'react';
 const CHARACTERS_KEY = 'characters';
 
 export function useCharacters(storyId: string | null) {
-  const queryClient = useQueryClient();
-  
-  useEffect(() => {
-    const handleRefresh = () => {
-      if (storyId) {
-        queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY, storyId] });
-      }
-    };
-    window.addEventListener('characters-refreshed', handleRefresh);
-    return () => window.removeEventListener('characters-refreshed', handleRefresh);
-  }, [storyId, queryClient]);
-  
+  // W2-F2: characters-refreshed DOM CustomEvent 已废弃，数据刷新由 useSyncStore 统一处理
   return useQuery<Character[]>({
     queryKey: [CHARACTERS_KEY, storyId],
     queryFn: () => storyId ? getStoryCharacters(storyId) : Promise.resolve([]),

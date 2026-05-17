@@ -4,6 +4,106 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+// W4-B3: SQLite-backed config storage
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+
+/// 启动级配置 —— 保留在 config.json 中
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BootstrapConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_path: Option<String>,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
+impl Default for BootstrapConfig {
+    fn default() -> Self {
+        Self {
+            db_path: None,
+            log_level: default_log_level(),
+        }
+    }
+}
+
+impl BootstrapConfig {
+    pub fn load(config_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let path = config_dir.join("config.json");
+        if path.exists() {
+            let content = fs::read_to_string(&path)?;
+            // 尝试解析为 BootstrapConfig；如果失败（旧格式完整 AppConfig），返回默认
+            match serde_json::from_str::<BootstrapConfig>(&content) {
+                Ok(cfg) => Ok(cfg),
+                Err(e) => {
+                    log::info!("[BootstrapConfig] config.json is in legacy format ({}), using defaults", e);
+                    Ok(BootstrapConfig::default())
+                }
+            }
+        } else {
+            Ok(BootstrapConfig::default())
+        }
+    }
+
+    pub fn save(&self, config_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        fs::create_dir_all(config_dir)?;
+        let path = config_dir.join("config.json");
+        let content = serde_json::to_string_pretty(self)?;
+        fs::write(&path, content)?;
+        Ok(())
+    }
+}
+
+/// W4-B8: 从环境变量读取默认 API base URL，避免硬编码内网地址
+fn env_or_default(var: &str, default: &str) -> String {
+    std::env::var(var).unwrap_or_else(|_| default.to_string())
+}
+
+// ============================================================================
+// Secure API Key Storage (cross-platform keychain)
+// ============================================================================
+
+pub mod secure_storage {
+    use keyring::Entry;
+
+    const SERVICE_NAME: &str = "storyforge";
+
+    /// Store an API key in the OS keychain
+    pub fn store_api_key(profile_id: &str, api_key: &str) -> Result<(), String> {
+        if api_key.is_empty() {
+            return Ok(());
+        }
+        let entry = Entry::new(SERVICE_NAME, profile_id)
+            .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
+        entry.set_password(api_key)
+            .map_err(|e| format!("Failed to store API key: {}", e))?;
+        Ok(())
+    }
+
+    /// Retrieve an API key from the OS keychain
+    pub fn get_api_key(profile_id: &str) -> Result<Option<String>, String> {
+        let entry = Entry::new(SERVICE_NAME, profile_id)
+            .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
+        match entry.get_password() {
+            Ok(key) => Ok(Some(key)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(format!("Failed to retrieve API key: {}", e)),
+        }
+    }
+
+    /// Delete an API key from the OS keychain
+    pub fn delete_api_key(profile_id: &str) -> Result<(), String> {
+        let entry = Entry::new(SERVICE_NAME, profile_id)
+            .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
+        entry.delete_credential()
+            .map_err(|e| format!("Failed to delete API key: {}", e))?;
+        Ok(())
+    }
+}
+
 /// Agent 模型映射
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMapping {
@@ -103,6 +203,9 @@ pub struct LlmProfile {
     pub name: String,
     pub description: Option<String>,
     pub provider: LlmProvider,
+    /// 模型来源 — 决定配额和用量统计策略
+    #[serde(default)]
+    pub model_source: ModelSource,
     pub model: String,
     pub api_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,6 +217,24 @@ pub struct LlmProfile {
     pub is_default: bool,
     #[serde(default)]
     pub capabilities: Vec<ModelCapability>,
+}
+
+/// 模型来源 — 决定配额和用量统计策略
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelSource {
+    /// 平台提供的模型（用量统计 + 配额检查）
+    Platform,
+    /// 本地模型（Ollama 等，无平台配额）
+    Local,
+    /// 用户自购的 API key（无平台配额）
+    UserOwned,
+}
+
+impl Default for ModelSource {
+    fn default() -> Self {
+        ModelSource::Platform
+    }
 }
 
 /// 支持的LLM提供商
@@ -206,9 +327,10 @@ impl Default for AppConfig {
             name: "Qwen 3.5 语言模型".to_string(),
             description: Some("本地语言模型，用于文本生成和对话".to_string()),
             provider: LlmProvider::Custom,
+            model_source: ModelSource::Local,
             model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
             api_key: "".to_string(),
-            api_base: Some("http://10.62.239.13:17098/v1".to_string()),
+            api_base: Some(env_or_default("STORYFORGE_LLM_API_BASE", "http://localhost:11434/v1")),
             max_tokens: 8192,
             temperature: 0.8,
             timeout_seconds: 120,
@@ -227,9 +349,10 @@ impl Default for AppConfig {
             name: "Gemma 4 多模态".to_string(),
             description: Some("本地多模态模型，支持图文理解".to_string()),
             provider: LlmProvider::Custom,
+            model_source: ModelSource::Local,
             model: "Gemma-4-31B-it-Q6_K".to_string(),
             api_key: "".to_string(),
-            api_base: Some("http://10.62.239.13:17099/v1".to_string()),
+            api_base: Some(env_or_default("STORYFORGE_VISION_API_BASE", "http://localhost:11435/v1")),
             max_tokens: 8192,
             temperature: 0.7,
             timeout_seconds: 120,
@@ -249,8 +372,8 @@ impl Default for AppConfig {
             description: Some("文本嵌入模型，用于语义搜索和向量化".to_string()),
             provider: EmbeddingProvider::Custom,
             model: "bge-m3".to_string(),
-            api_key: "76e0e2bc84c45374999a1d5e66962544c09cc00ae42ad25cd6a2a07a9d7fe330".to_string(),
-            api_base: Some("http://10.62.239.13:8089".to_string()),
+            api_key: std::env::var("STORYFORGE_EMBEDDING_API_KEY").unwrap_or_default(),
+            api_base: Some(env_or_default("STORYFORGE_EMBEDDING_API_BASE", "http://localhost:11436/v1")),
             dimensions: 1024,
             max_input_tokens: 8192,
             is_default: true,
@@ -304,7 +427,7 @@ impl Default for AppConfig {
                 provider: "custom".to_string(),
                 api_key: "".to_string(),
                 model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
-                api_base: Some("http://10.62.239.13:17098/v1".to_string()),
+                api_base: Some(env_or_default("STORYFORGE_LLM_API_BASE", "http://localhost:11434/v1")),
                 max_tokens: 8192,
                 temperature: 0.8,
             },
@@ -323,21 +446,191 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    pub fn load(config_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path = config_dir.join("config.json");
-        let mut config = if config_path.exists() {
-            let content = fs::read_to_string(config_path)?;
-            let mut config: AppConfig = serde_json::from_str(&content)?;
+    /// 打开配置数据库（内部 helper）
+    fn open_config_db(config_dir: &Path) -> Result<Pool<SqliteConnectionManager>, Box<dyn std::error::Error>> {
+        let db_path = config_dir.join("cinema_ai.db");
+        let manager = SqliteConnectionManager::file(&db_path)
+            .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
+        let pool = Pool::builder().max_size(1).build(manager)?;
+        Ok(pool)
+    }
 
-            // 迁移旧配置到新格式
-            if config.llm_profiles.is_empty() {
-                config.migrate_legacy_config();
+    /// 确保 app_settings 表存在
+    fn ensure_app_settings_table(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// 从 SQLite 加载配置（W4-B3）
+    fn load_from_db(config_dir: &Path) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        let pool = match Self::open_config_db(config_dir) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("[AppConfig] Cannot open DB: {}, falling back to config.json", e);
+                return Ok(None);
             }
-
-            config
-        } else {
-            AppConfig::default()
         };
+        let conn = pool.get()?;
+        Self::ensure_app_settings_table(&conn)?;
+
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = 'app_config'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        match value {
+            Some(json) => {
+                let config: AppConfig = serde_json::from_str(&json)?;
+                log::info!("[AppConfig] Loaded from SQLite");
+                Ok(Some(config))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// 保存完整配置到 SQLite（W4-B3）
+    fn save_to_db(&self, config_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let pool = Self::open_config_db(config_dir)?;
+        let conn = pool.get()?;
+        Self::ensure_app_settings_table(&conn)?;
+
+        // 序列化前 strip API keys（它们由 keychain 管理）
+        let mut temp = self.clone();
+        for profile in temp.llm_profiles.values_mut() {
+            profile.api_key.clear();
+        }
+        for profile in temp.embedding_profiles.values_mut() {
+            profile.api_key.clear();
+        }
+        temp.llm.api_key.clear();
+
+        let json = serde_json::to_string(&temp)?;
+        let now = chrono::Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["app_config", json, now],
+        )?;
+        log::info!("[AppConfig] Saved to SQLite");
+        Ok(())
+    }
+
+    pub fn load(config_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        // W4-B3: 优先从 SQLite 加载；如不存在则从 config.json 回退并自动迁移
+        let mut config = match Self::load_from_db(config_dir)? {
+            Some(cfg) => cfg,
+            None => {
+                let config_path = config_dir.join("config.json");
+                let mut config = if config_path.exists() {
+                    let content = fs::read_to_string(&config_path)?;
+                    // 尝试解析完整 AppConfig；若失败（可能是新的 BootstrapConfig），使用默认
+                    match serde_json::from_str::<AppConfig>(&content) {
+                        Ok(mut cfg) => {
+                            if cfg.llm_profiles.is_empty() {
+                                cfg.migrate_legacy_config();
+                            }
+                            cfg
+                        }
+                        Err(e) => {
+                            log::info!("[AppConfig] config.json is not legacy AppConfig ({}), using defaults", e);
+                            AppConfig::default()
+                        }
+                    }
+                } else {
+                    AppConfig::default()
+                };
+                // 首次迁移到 SQLite
+                if let Err(e) = config.save_to_db(config_dir) {
+                    log::warn!("[AppConfig] Auto-migration to SQLite failed: {}", e);
+                }
+                config
+            }
+        };
+
+        // ================================================================
+        // Migrate API keys from config.json to OS keychain (W1-B5)
+        // ================================================================
+        let mut keys_migrated = false;
+
+        // Migrate LLM profile API keys
+        for (id, profile) in config.llm_profiles.iter_mut() {
+            if !profile.api_key.is_empty() {
+                match secure_storage::store_api_key(id, &profile.api_key) {
+                    Ok(()) => {
+                        log::info!("[SecureStorage] Migrated API key for profile '{}' to OS keychain", id);
+                        profile.api_key.clear();
+                        keys_migrated = true;
+                    }
+                    Err(e) => {
+                        log::warn!("[SecureStorage] Failed to migrate API key for profile '{}': {}", id, e);
+                    }
+                }
+            }
+        }
+
+        // Migrate embedding profile API keys
+        for (id, profile) in config.embedding_profiles.iter_mut() {
+            if !profile.api_key.is_empty() {
+                match secure_storage::store_api_key(id, &profile.api_key) {
+                    Ok(()) => {
+                        log::info!("[SecureStorage] Migrated API key for embedding profile '{}' to OS keychain", id);
+                        profile.api_key.clear();
+                        keys_migrated = true;
+                    }
+                    Err(e) => {
+                        log::warn!("[SecureStorage] Failed to migrate API key for embedding profile '{}': {}", id, e);
+                    }
+                }
+            }
+        }
+
+        // Migrate legacy LLM config API key
+        if !config.llm.api_key.is_empty() {
+            match secure_storage::store_api_key("legacy_llm", &config.llm.api_key) {
+                Ok(()) => {
+                    log::info!("[SecureStorage] Migrated legacy LLM API key to OS keychain");
+                    config.llm.api_key.clear();
+                    keys_migrated = true;
+                }
+                Err(e) => {
+                    log::warn!("[SecureStorage] Failed to migrate legacy LLM API key: {}", e);
+                }
+            }
+        }
+
+        // Restore API keys from keychain into memory for runtime use
+        for (id, profile) in config.llm_profiles.iter_mut() {
+            match secure_storage::get_api_key(id) {
+                Ok(Some(key)) => profile.api_key = key,
+                Ok(None) => {}
+                Err(e) => log::warn!("[SecureStorage] Failed to load API key for profile '{}': {}", id, e),
+            }
+        }
+        for (id, profile) in config.embedding_profiles.iter_mut() {
+            match secure_storage::get_api_key(id) {
+                Ok(Some(key)) => profile.api_key = key,
+                Ok(None) => {}
+                Err(e) => log::warn!("[SecureStorage] Failed to load API key for embedding profile '{}': {}", id, e),
+            }
+        }
+        match secure_storage::get_api_key("legacy_llm") {
+            Ok(Some(key)) => config.llm.api_key = key,
+            Ok(None) => {}
+            Err(e) => log::warn!("[SecureStorage] Failed to load legacy LLM API key: {}", e),
+        }
+
+        if keys_migrated {
+            let _ = config.save(config_dir);
+        }
 
         // 自动补充真实本地模型（如果缺失）
         let mut needs_save = false;
@@ -349,9 +642,10 @@ impl AppConfig {
                 name: "Qwen 3.5 语言模型".to_string(),
                 description: Some("本地语言模型，用于文本生成和对话".to_string()),
                 provider: LlmProvider::Custom,
+                model_source: ModelSource::Local,
                 model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
                 api_key: "".to_string(),
-                api_base: Some("http://10.62.239.13:17098/v1".to_string()),
+                api_base: Some(env_or_default("STORYFORGE_LLM_API_BASE", "http://localhost:11434/v1")),
                 max_tokens: 8192,
                 temperature: 0.8,
                 timeout_seconds: 120,
@@ -376,9 +670,10 @@ impl AppConfig {
                 name: "Gemma 4 多模态".to_string(),
                 description: Some("本地多模态模型，支持图文理解".to_string()),
                 provider: LlmProvider::Custom,
+                model_source: ModelSource::Local,
                 model: "Gemma-4-31B-it-Q6_K".to_string(),
                 api_key: "".to_string(),
-                api_base: Some("http://10.62.239.13:17099/v1".to_string()),
+                api_base: Some(env_or_default("STORYFORGE_VISION_API_BASE", "http://localhost:11435/v1")),
                 max_tokens: 8192,
                 temperature: 0.7,
                 timeout_seconds: 120,
@@ -401,8 +696,8 @@ impl AppConfig {
                 description: Some("文本嵌入模型，用于语义搜索和向量化".to_string()),
                 provider: EmbeddingProvider::Custom,
                 model: "bge-m3".to_string(),
-                api_key: "76e0e2bc84c45374999a1d5e66962544c09cc00ae42ad25cd6a2a07a9d7fe330".to_string(),
-                api_base: Some("http://10.62.239.13:8089".to_string()),
+                api_key: std::env::var("STORYFORGE_EMBEDDING_API_KEY").unwrap_or_default(),
+                api_base: Some(env_or_default("STORYFORGE_EMBEDDING_API_BASE", "http://localhost:11436/v1")),
                 dimensions: 1024,
                 max_input_tokens: 8192,
                 is_default: config.embedding_profiles.values().all(|p| !p.is_default),
@@ -415,17 +710,41 @@ impl AppConfig {
         }
 
         if needs_save {
-            config.save(config_dir)?;
+            let _ = config.save(config_dir);
         }
 
         Ok(config)
     }
 
     pub fn save(&self, config_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        fs::create_dir_all(config_dir)?;
-        let config_path = config_dir.join("config.json");
-        let content = serde_json::to_string_pretty(self)?;
-        fs::write(config_path, content)?;
+        // 1. Persist all API keys to OS keychain first
+        for (id, profile) in &self.llm_profiles {
+            if !profile.api_key.is_empty() {
+                if let Err(e) = secure_storage::store_api_key(id, &profile.api_key) {
+                    log::warn!("[SecureStorage] Failed to store API key for profile '{}': {}", id, e);
+                }
+            }
+        }
+        for (id, profile) in &self.embedding_profiles {
+            if !profile.api_key.is_empty() {
+                if let Err(e) = secure_storage::store_api_key(id, &profile.api_key) {
+                    log::warn!("[SecureStorage] Failed to store API key for embedding profile '{}': {}", id, e);
+                }
+            }
+        }
+        if !self.llm.api_key.is_empty() {
+            if let Err(e) = secure_storage::store_api_key("legacy_llm", &self.llm.api_key) {
+                log::warn!("[SecureStorage] Failed to store legacy LLM API key: {}", e);
+            }
+        }
+
+        // 2. W4-B3: Save user-level config to SQLite
+        self.save_to_db(config_dir)?;
+
+        // 3. W4-B3: config.json 只保留启动级配置
+        let bootstrap = BootstrapConfig::default();
+        bootstrap.save(config_dir)?;
+
         Ok(())
     }
 
@@ -540,15 +859,22 @@ impl AppConfig {
 
     /// 迁移旧版配置
     fn migrate_legacy_config(&mut self) {
+        let provider = match self.llm.provider.as_str() {
+            "anthropic" => LlmProvider::Anthropic,
+            "ollama" => LlmProvider::Ollama,
+            _ => LlmProvider::OpenAI,
+        };
+        let model_source = if provider == LlmProvider::Ollama {
+            ModelSource::Local
+        } else {
+            ModelSource::UserOwned
+        };
         let legacy_profile = LlmProfile {
             id: "legacy".to_string(),
             name: "Legacy Config".to_string(),
             description: Some("从旧版本迁移的配置".to_string()),
-            provider: match self.llm.provider.as_str() {
-                "anthropic" => LlmProvider::Anthropic,
-                "ollama" => LlmProvider::Ollama,
-                _ => LlmProvider::OpenAI,
-            },
+            provider,
+            model_source,
             model: self.llm.model.clone(),
             api_key: self.llm.api_key.clone(),
             api_base: self.llm.api_base.clone(),

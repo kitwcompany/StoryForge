@@ -4,7 +4,7 @@
 //! 替代旧的 IntentParser + IntentExecutor 分类标签方式。
 //! 核心设计：LLM 自由理解用户意图，自主选择能力组合，无预设分类。
 
-use crate::capabilities::build_default_registry;
+use crate::capabilities::get_capability_registry;
 use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -77,6 +77,8 @@ pub struct PlanContext {
     pub foreshadowing_status: Vec<String>,
     pub style_dna_info: Option<String>,
     pub mcp_tools_available: Vec<String>,
+    // W3-F3: 支持选中文本（Inline Suggestion 统一路径）
+    pub selected_text: Option<String>,
 }
 
 /// 计划生成器
@@ -107,8 +109,7 @@ impl PlanGenerator {
     /// 根据用户输入和系统状态生成执行计划
     pub async fn generate_plan(&self, context: &PlanContext) -> Result<ExecutionPlan, String> {
         self.emit_progress("context", "正在分析故事上下文...");
-        let registry = build_default_registry();
-        let registry_context = registry.to_llm_context();
+        let registry_context = get_capability_registry().to_llm_context();
 
         // Sanitize inputs to prevent prompt injection / format breakage
         fn sanitize_for_prompt(s: &str) -> String {
@@ -339,19 +340,21 @@ Rules:
         self.emit_progress("validating", "正在验证执行计划...");
 
         // 验证计划：确保所有 capability_id 在注册表中存在
-        let registry = build_default_registry();
-        plan.steps.retain(|step| {
-            if registry.get_by_id(&step.capability_id).is_none() {
-                log::warn!(
-                    "[PlanGenerator] Removing step '{}' with unknown capability '{}'",
-                    step.step_id,
-                    step.capability_id
-                );
-                false
-            } else {
-                true
-            }
-        });
+        {
+            let registry = get_capability_registry();
+            plan.steps.retain(|step| {
+                if registry.get_by_id(&step.capability_id).is_none() {
+                    log::warn!(
+                        "[PlanGenerator] Removing step '{}' with unknown capability '{}'",
+                        step.step_id,
+                        step.capability_id
+                    );
+                    false
+                } else {
+                    true
+                }
+            });
+        }
 
         // 防线 2：强制修正 — 如果用户输入明确是写作请求但 LLM 选择了 outline_planner，强制替换为 writer
         if !plan.steps.is_empty() && plan.steps[0].capability_id == "outline_planner" {
@@ -454,6 +457,7 @@ mod tests {
             total_word_count: 0,
             latest_chapter_word_count: 0,
             story_progress: "just_started".to_string(),
+            selected_text: None,
             world_building_summary: None,
             character_list: vec![],
             foreshadowing_status: vec![],

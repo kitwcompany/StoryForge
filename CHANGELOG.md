@@ -82,6 +82,40 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v7.0.1] - 架构优化：聚合提交 + 导出完整性 + 组件提取（2026-05-17）
+
+### 🏗️ 后端架构优化
+
+#### ChapterCommitService 防抖聚合提交
+- **`lib.rs`** — 移除独立的 `auto_ingest_chapter` 函数、`INGEST_COOLDOWN`、`hash_content`，消除与 Projection Writer 的重复索引工作
+- **`CHAPTER_COMMIT_DEBOUNCE`** — 新增全局防抖状态，`CHAPTER_COMMIT_DEBOUNCE_SECONDS = 30`
+- **`ChapterCommitService::auto_commit()`** — 取代 `auto_ingest_chapter`，30 秒空闲延迟后自动聚合提交，驱动 `VectorProjectionWriter` / `MemoryProjectionWriter`
+- `update_chapter` / `create_chapter` 命令统一调用 `auto_commit` 而非独立摄取
+
+#### 导出聚合完整性
+- **`export/mod.rs`** — `export_to_file` 新增 `scenes` 参数
+- **`export_story`（`lib.rs`）** — 导出前自动检查章节内容，空章节按关联场景的 `sequence_number` 排序聚合填充，确保 Markdown/HTML/PlainText 导出完整无缺
+- `generate_json` 导出 schema 扩展为包含 `scenes` 数组，支持全数据便携导出
+
+### 🖥️ 前端架构优化
+
+#### 大型组件提取重构
+- **`Settings.tsx`** — 提取 8 个原子化子组件到 `src/pages/settings/`：`ModelCard`、`ModelList`、`ModelModal`、`StatsSettings`、`MethodologySettings`、`WorkflowSettings`、`GeneralSettings`、`AccountSettings`
+- **`SceneEditor.tsx`** — 提取 `SceneAuditPanel` 和 `SceneAnnotationPanel` 到 `src/components/scene-editor/` 子目录，消除重复渲染与关注点混杂
+- 清理未使用导入：`Image`、`createLogger`、`Clock`、`Eye`、`FileText`、`CharacterConflict`、`AuditReport`
+- 移除 `SceneEditor.tsx` 中未使用的 `handleStageChange` 函数
+
+#### StoryTimeline 场景进度可视化
+- **`StoryTimeline.tsx`** — 场景卡片新增 `execution_stage` 彩色徽章（plan/outline/draft/review/final），与叙事阶段（铺垫/上升/高潮/收尾）双轨可视化
+- 新增辅助函数 `getExecutionStageLabel()` / `getExecutionStageColor()`
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `cargo test` ✅ ~225/225 全部通过
+- `npm run build` ✅ 通过
+
+---
+
 ## [v6.0.0] - Story System 合同驱动 + 三层记忆编排 + 追读力评估 + 37 体裁模板 + Anti-AI 审查（2026-05-15）
 
 ### 🏗️ 架构级新体系：Story System 合同驱动

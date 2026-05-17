@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import type { ChangeTrack } from '@/types/v3';
 
 const PENDING_CHANGES_KEY = 'pendingChanges';
@@ -12,10 +12,10 @@ export function usePendingChanges(
     queryKey: [PENDING_CHANGES_KEY, sceneId, chapterId],
     queryFn: () => {
       if (sceneId) {
-        return invoke<ChangeTrack[]>('get_pending_changes', { scene_id: sceneId });
+        return loggedInvoke<ChangeTrack[]>('get_pending_changes', { scene_id: sceneId });
       }
       if (chapterId) {
-        return invoke<ChangeTrack[]>('get_pending_changes', { chapter_id: chapterId });
+        return loggedInvoke<ChangeTrack[]>('get_pending_changes', { chapter_id: chapterId });
       }
       return Promise.resolve([]);
     },
@@ -28,7 +28,7 @@ export function useVersionChangeTracks(versionId: string | undefined) {
     queryKey: ['versionChangeTracks', versionId],
     queryFn: () => {
       if (!versionId) return Promise.resolve([]);
-      return invoke<ChangeTrack[]>('get_version_change_tracks', { version_id: versionId });
+      return loggedInvoke<ChangeTrack[]>('get_version_change_tracks', { version_id: versionId });
     },
     enabled: !!versionId,
   });
@@ -47,7 +47,7 @@ export function useTrackChange() {
     authorId?: string;
   }>({
     mutationFn: ({ sceneId, chapterId, changeType, fromPos, toPos, content, authorId }) =>
-      invoke<ChangeTrack>('track_change', {
+      loggedInvoke<ChangeTrack>('track_change', {
         scene_id: sceneId ?? null,
         chapter_id: chapterId ?? null,
         change_type: changeType,
@@ -66,7 +66,7 @@ export function useAcceptChange() {
   const queryClient = useQueryClient();
 
   return useMutation<number, Error, { changeId: string; sceneId?: string; chapterId?: string }>({
-    mutationFn: ({ changeId }) => invoke<number>('accept_change', { change_id: changeId }),
+    mutationFn: ({ changeId }) => loggedInvoke<number>('accept_change', { change_id: changeId }),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
     },
@@ -77,7 +77,7 @@ export function useRejectChange() {
   const queryClient = useQueryClient();
 
   return useMutation<number, Error, { changeId: string; sceneId?: string; chapterId?: string }>({
-    mutationFn: ({ changeId }) => invoke<number>('reject_change', { change_id: changeId }),
+    mutationFn: ({ changeId }) => loggedInvoke<number>('reject_change', { change_id: changeId }),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
     },
@@ -90,9 +90,9 @@ export function useAcceptAllChanges() {
   return useMutation<number, Error, { sceneId?: string; chapterId?: string }>({
     mutationFn: ({ sceneId, chapterId }) => {
       if (sceneId) {
-        return invoke<number>('accept_all_changes', { scene_id: sceneId });
+        return loggedInvoke<number>('accept_all_changes', { scene_id: sceneId });
       }
-      return invoke<number>('accept_all_changes', { chapter_id: chapterId });
+      return loggedInvoke<number>('accept_all_changes', { chapter_id: chapterId });
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });
@@ -106,9 +106,9 @@ export function useRejectAllChanges() {
   return useMutation<number, Error, { sceneId?: string; chapterId?: string }>({
     mutationFn: ({ sceneId, chapterId }) => {
       if (sceneId) {
-        return invoke<number>('reject_all_changes', { scene_id: sceneId });
+        return loggedInvoke<number>('reject_all_changes', { scene_id: sceneId });
       }
-      return invoke<number>('reject_all_changes', { chapter_id: chapterId });
+      return loggedInvoke<number>('reject_all_changes', { chapter_id: chapterId });
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [PENDING_CHANGES_KEY, vars.sceneId, vars.chapterId] });

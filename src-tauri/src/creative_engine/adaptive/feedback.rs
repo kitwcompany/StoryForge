@@ -4,6 +4,7 @@
 //! 这是自适应学习的数据来源。
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::repositories_v3::UserFeedbackRepository;
 
 /// 反馈事件
@@ -69,7 +70,7 @@ impl FeedbackRecorder {
     }
 
     /// 记录一条反馈
-    pub fn record(&self, event: FeedbackEvent) -> Result<(), String> {
+    pub fn record(&self, event: FeedbackEvent) -> Result<(), AppError> {
         let repo = UserFeedbackRepository::new(self.pool.clone());
         repo.create(
             &event.story_id,
@@ -93,7 +94,7 @@ impl FeedbackRecorder {
         story_id: &str,
         original_text: &str,
         agent_type: Option<&str>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         self.record(FeedbackEvent {
             story_id: story_id.to_string(),
             scene_id: None,
@@ -114,7 +115,7 @@ impl FeedbackRecorder {
         story_id: &str,
         original_text: &str,
         agent_type: Option<&str>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         self.record(FeedbackEvent {
             story_id: story_id.to_string(),
             scene_id: None,
@@ -136,7 +137,7 @@ impl FeedbackRecorder {
         original_text: &str,
         final_text: &str,
         agent_type: Option<&str>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         self.record(FeedbackEvent {
             story_id: story_id.to_string(),
             scene_id: None,
@@ -152,9 +153,9 @@ impl FeedbackRecorder {
     }
 
     /// 获取故事的反馈统计
-    pub fn get_stats(&self, story_id: &str) -> Result<FeedbackStats, String> {
+    pub fn get_stats(&self, story_id: &str) -> Result<FeedbackStats, AppError> {
         let repo = UserFeedbackRepository::new(self.pool.clone());
-        let db_stats = repo.get_stats(story_id).map_err(|e| e.to_string())?;
+        let db_stats = repo.get_stats(story_id).map_err(AppError::from)?;
         Ok(FeedbackStats {
             accept: db_stats.accept,
             reject: db_stats.reject,
@@ -163,9 +164,9 @@ impl FeedbackRecorder {
     }
 
     /// 获取最近 N 天的反馈
-    pub fn get_recent(&self, story_id: &str, days: i64) -> Result<Vec<FeedbackEvent>, String> {
+    pub fn get_recent(&self, story_id: &str, days: i64) -> Result<Vec<FeedbackEvent>, AppError> {
         let repo = UserFeedbackRepository::new(self.pool.clone());
-        let logs = repo.get_recent(story_id, days).map_err(|e| e.to_string())?;
+        let logs = repo.get_recent(story_id, days).map_err(AppError::from)?;
         Ok(logs.into_iter().map(|l| FeedbackEvent {
             story_id: l.story_id,
             scene_id: l.scene_id,

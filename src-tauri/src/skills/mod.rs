@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use serde::{Deserialize, Serialize};
+use crate::error::AppError;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -245,18 +246,18 @@ impl SkillManager {
         }
     }
     
-    pub fn import_skill(&mut self, skill_path: &Path) -> Result<Skill, String> {
+    pub fn import_skill(&mut self, skill_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_directory(skill_path)?;
         let dest_dir = self.skills_dir.join(&skill.manifest.id);
         if dest_dir.exists() {
-            fs::remove_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+            fs::remove_dir_all(&dest_dir).map_err(AppError::from)?;
         }
-        Self::copy_dir_all(skill_path, &dest_dir).map_err(|e| e.to_string())?;
+        Self::copy_dir_all(skill_path, &dest_dir).map_err(AppError::from)?;
         self.registry.lock().unwrap().register(skill.clone());
         Ok(skill)
     }
     
-    pub fn import_skill_file(&mut self, file_path: &Path) -> Result<Skill, String> {
+    pub fn import_skill_file(&mut self, file_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_file(file_path)?;
         self.registry.lock().unwrap().register(skill.clone());
         Ok(skill)
@@ -274,7 +275,7 @@ impl SkillManager {
         self.registry.lock().unwrap().get(skill_id)
     }
     
-    pub fn update_skill(&self, skill_id: &str, manifest: SkillManifest) -> Result<(), String> {
+    pub fn update_skill(&self, skill_id: &str, manifest: SkillManifest) -> Result<(), AppError> {
         let skill = self.registry.lock().unwrap().get(skill_id)
             .ok_or_else(|| "Skill not found".to_string())?;
         
@@ -301,19 +302,19 @@ impl SkillManager {
         Ok(())
     }
     
-    pub fn enable_skill(&self, skill_id: &str) -> Result<(), String> {
-        self.registry.lock().unwrap().enable(skill_id)
+    pub fn enable_skill(&self, skill_id: &str) -> Result<(), AppError> {
+        Ok(self.registry.lock().unwrap().enable(skill_id)?)
     }
     
-    pub fn disable_skill(&self, skill_id: &str) -> Result<(), String> {
-        self.registry.lock().unwrap().disable(skill_id)
+    pub fn disable_skill(&self, skill_id: &str) -> Result<(), AppError> {
+        Ok(self.registry.lock().unwrap().disable(skill_id)?)
     }
     
-    pub fn uninstall_skill(&self, skill_id: &str) -> Result<(), String> {
+    pub fn uninstall_skill(&self, skill_id: &str) -> Result<(), AppError> {
         self.registry.lock().unwrap().unregister(skill_id)?;
         let skill_dir = self.skills_dir.join(skill_id);
         if skill_dir.exists() {
-            fs::remove_dir_all(&skill_dir).map_err(|e| e.to_string())?;
+            fs::remove_dir_all(&skill_dir).map_err(AppError::from)?;
         }
         Ok(())
     }
@@ -323,7 +324,7 @@ impl SkillManager {
         skill_id: &str,
         context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
-    ) -> Result<SkillResult, String> {
+    ) -> Result<SkillResult, AppError> {
         self.executor.execute(skill_id, context, params).await
     }
     

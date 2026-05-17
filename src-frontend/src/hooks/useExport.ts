@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
 export type ExportFormat = 'markdown' | 'pdf' | 'epub' | 'html' | 'txt' | 'json';
@@ -49,7 +49,7 @@ const FILE_EXTENSIONS: Record<ExportFormat, string> = {
 };
 
 async function exportStory(options: ExportOptions): Promise<ExportResult> {
-  return invoke<ExportResult>('export_story', { options });
+  return loggedInvoke<ExportResult>('export_story', { options });
 }
 
 export function useExport() {
@@ -98,7 +98,7 @@ export function useExportTemplates(formatFilter?: string) {
   return useQuery({
     queryKey: ['export-templates', formatFilter],
     queryFn: async () => {
-      return invoke<ExportTemplate[]>('list_export_templates', { format_filter: formatFilter });
+      return loggedInvoke<ExportTemplate[]>('list_export_templates', { format_filter: formatFilter });
     },
   });
 }
@@ -106,7 +106,7 @@ export function useExportTemplates(formatFilter?: string) {
 export function useSaveExportTemplate() {
   return useMutation({
     mutationFn: async (template: { name: string; description?: string; format: string; template_content: string }) => {
-      return invoke<ExportTemplate>('save_export_template', template);
+      return loggedInvoke<ExportTemplate>('save_export_template', template);
     },
     onSuccess: () => {
       toast.success('模板保存成功');
@@ -120,7 +120,7 @@ export function useSaveExportTemplate() {
 export function useDeleteExportTemplate() {
   return useMutation({
     mutationFn: async (id: string) => {
-      return invoke<void>('delete_export_template', { id });
+      return loggedInvoke<void>('delete_export_template', { id });
     },
     onSuccess: () => {
       toast.success('模板已删除');

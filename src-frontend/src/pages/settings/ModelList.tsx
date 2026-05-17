@@ -1,0 +1,67 @@
+import { Plus, Database } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import type { ModelType, ModelConfig } from '@/types/llm';
+import { ModelCard } from './ModelCard';
+
+export function ModelList({
+  type,
+  models,
+  activeModelId,
+  connectionStatus,
+  onAdd,
+  onEdit,
+  onSetActive,
+}: {
+  type: ModelType;
+  models: ModelConfig[];
+  activeModelId?: string;
+  connectionStatus: Record<string, { loading: boolean; success?: boolean; latency?: number; error?: string }>;
+  onAdd: () => void;
+  onEdit: (model: ModelConfig) => void;
+  onSetActive: (modelId: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-white">
+          {type === 'chat' && '聊天模型配置'}
+          {type === 'embedding' && '嵌入模型配置'}
+          {type === 'multimodal' && '多模态模型配置'}
+          {type === 'image' && '图像生成模型配置'}
+        </h2>
+        <Button variant="primary" onClick={onAdd}>
+          <Plus className="w-4 h-4 mr-2" />
+          添加模型
+        </Button>
+      </div>
+
+      {models.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <Database className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-white mb-2">暂无模型配置</h3>
+            <p className="text-gray-500 mb-4">点击上方按钮添加第一个模型配置</p>
+            <Button variant="primary" onClick={onAdd}>
+              <Plus className="w-4 h-4 mr-2" />
+              添加模型
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {models.map(model => (
+            <ModelCard
+              key={model.id}
+              model={model}
+              isActive={model.id === activeModelId}
+              connectionStatus={connectionStatus[model.id]}
+              onEdit={() => onEdit(model)}
+              onSetActive={() => onSetActive(model.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

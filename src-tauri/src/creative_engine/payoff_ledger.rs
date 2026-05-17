@@ -4,6 +4,7 @@
 //! 回收时机推荐等高级功能。
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 
 /// 伏笔作用域类型
@@ -127,7 +128,7 @@ impl PayoffLedger {
     }
 
     /// 获取故事的完整伏笔账本
-    pub fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, String> {
+    pub fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, AppError> {
         let conn = self
             .pool
             .get()
@@ -197,7 +198,7 @@ impl PayoffLedger {
                 "SELECT id, sequence_number FROM scenes WHERE id IN ({})",
                 placeholders
             );
-            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
             let params: Vec<&dyn rusqlite::ToSql> =
                 scene_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
             let sequences = stmt
@@ -206,9 +207,9 @@ impl PayoffLedger {
                     let seq: i32 = row.get(1)?;
                     Ok((sid, seq))
                 })
-                .map_err(|e| e.to_string())?
+                .map_err(AppError::from)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
             for (sid, seq) in sequences {
                 scene_sequence_map.insert(sid, seq);
             }
@@ -287,7 +288,7 @@ impl PayoffLedger {
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<PayoffLedgerItem>, String> {
+    ) -> Result<Vec<PayoffLedgerItem>, AppError> {
         let ledger = self.get_ledger(story_id)?;
 
         let mut overdue_items = Vec::new();
@@ -328,7 +329,7 @@ impl PayoffLedger {
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<PayoffRecommendation>, String> {
+    ) -> Result<Vec<PayoffRecommendation>, AppError> {
         let ledger = self.get_ledger(story_id)?;
 
         // 估算故事总场景数（用于判断 narrative_phase）
@@ -462,7 +463,7 @@ impl PayoffLedger {
         risk_signals: Option<Vec<String>>,
         scope_type: Option<ScopeType>,
         ledger_key: Option<String>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         let conn = self
             .pool
             .get()
@@ -481,7 +482,7 @@ impl PayoffLedger {
             ).map_err(|e| format!("更新账本字段失败: {}", e))?;
         }
         if let Some(ref rs) = risk_signals {
-            let json = serde_json::to_string(rs).map_err(|e| e.to_string())?;
+            let json = serde_json::to_string(rs).map_err(AppError::from)?;
             conn.execute(
                 "UPDATE foreshadowing_tracker SET risk_signals = ?1 WHERE id = ?2",
                 rusqlite::params![json, foreshadowing_id],

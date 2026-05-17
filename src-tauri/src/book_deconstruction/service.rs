@@ -8,6 +8,7 @@ use super::models::*;
 use super::parser::parse_book;
 use super::repository::*;
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::{CreateCharacterRequest, CreateStoryRequest, StoryRepository};
 use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository};
 use crate::llm::LlmService;
@@ -228,11 +229,11 @@ impl BookDeconstructionService {
 
     // ==================== 查询操作 ====================
 
-    pub fn get_status(&self, book_id: &str) -> Result<AnalysisStatusResponse, String> {
+    pub fn get_status(&self, book_id: &str) -> Result<AnalysisStatusResponse, AppError> {
         let repo = ReferenceBookRepository::new(self.pool.clone());
         let book = repo
             .get_by_id(book_id)
-            .map_err(|e| e.to_string())?
+            .map_err(AppError::from)?
             .ok_or_else(|| "Book not found".to_string())?;
 
         Ok(AnalysisStatusResponse {
@@ -247,18 +248,18 @@ impl BookDeconstructionService {
         })
     }
 
-    pub fn get_analysis(&self, book_id: &str) -> Result<BookAnalysisResult, String> {
+    pub fn get_analysis(&self, book_id: &str) -> Result<BookAnalysisResult, AppError> {
         let book_repo = ReferenceBookRepository::new(self.pool.clone());
         let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
         let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
 
         let book = book_repo
             .get_by_id(book_id)
-            .map_err(|e| e.to_string())?
+            .map_err(AppError::from)?
             .ok_or_else(|| "Book not found".to_string())?;
 
-        let characters = char_repo.get_by_book(book_id).map_err(|e| e.to_string())?;
-        let scenes = scene_repo.get_by_book(book_id).map_err(|e| e.to_string())?;
+        let characters = char_repo.get_by_book(book_id).map_err(AppError::from)?;
+        let scenes = scene_repo.get_by_book(book_id).map_err(AppError::from)?;
 
         Ok(BookAnalysisResult {
             book,
@@ -267,22 +268,22 @@ impl BookDeconstructionService {
         })
     }
 
-    pub fn list_books(&self) -> Result<Vec<ReferenceBookSummary>, String> {
+    pub fn list_books(&self) -> Result<Vec<ReferenceBookSummary>, AppError> {
         let repo = ReferenceBookRepository::new(self.pool.clone());
-        repo.list_all().map_err(|e| e.to_string())
+        repo.list_all().map_err(AppError::from)
     }
 
     // ==================== 删除 ====================
 
-    pub fn delete_book(&self, book_id: &str) -> Result<(), String> {
+    pub fn delete_book(&self, book_id: &str) -> Result<(), AppError> {
         // 删除数据库记录
         let book_repo = ReferenceBookRepository::new(self.pool.clone());
         let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
         let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
 
-        char_repo.delete_by_book(book_id).map_err(|e| e.to_string())?;
-        scene_repo.delete_by_book(book_id).map_err(|e| e.to_string())?;
-        book_repo.delete(book_id).map_err(|e| e.to_string())?;
+        char_repo.delete_by_book(book_id).map_err(AppError::from)?;
+        scene_repo.delete_by_book(book_id).map_err(AppError::from)?;
+        book_repo.delete(book_id).map_err(AppError::from)?;
 
         // 删除文件
         let app_dir = self
@@ -303,11 +304,11 @@ impl BookDeconstructionService {
     }
 
     /// 取消拆书分析
-    pub fn cancel_analysis(&self, book_id: &str) -> Result<(), String> {
+    pub fn cancel_analysis(&self, book_id: &str) -> Result<(), AppError> {
         let book_repo = ReferenceBookRepository::new(self.pool.clone());
         let book = book_repo
             .get_by_id(book_id)
-            .map_err(|e| e.to_string())?
+            .map_err(AppError::from)?
             .ok_or_else(|| "Book not found".to_string())?;
 
         // 如果有关联的任务，取消任务
@@ -321,14 +322,14 @@ impl BookDeconstructionService {
         // 更新 book 状态为已取消
         book_repo
             .update_status(book_id, AnalysisStatus::Cancelled, book.analysis_progress)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         Ok(())
     }
 
     // ==================== 一键转故事 ====================
 
-    pub async fn convert_to_story(&self, book_id: &str) -> Result<String, String> {
+    pub async fn convert_to_story(&self, book_id: &str) -> Result<String, AppError> {
         log::info!("[BookDeconstruction] Converting book {} to story", book_id);
         let analysis = self.get_analysis(book_id)?;
         let pool = self.pool.clone();
@@ -342,7 +343,7 @@ impl BookDeconstructionService {
                 genre: analysis.book.genre.clone(),
                 style_dna_id: None,
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
         let story_id = story.id;
         log::info!("[BookDeconstruction] Convert step {}: created {}", "story", story_id);
 
@@ -351,7 +352,7 @@ impl BookDeconstructionService {
             let wb_repo = WorldBuildingRepository::new(pool.clone());
             wb_repo
                 .create(&story_id, world_setting)
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
             log::info!("[BookDeconstruction] Convert step {}: created {}", "world_building", story_id);
         }
 
@@ -375,7 +376,7 @@ impl BookDeconstructionService {
                     gender: None,
                     age: None,
                 })
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
         }
         log::info!("[BookDeconstruction] Convert step {}: created {}", "characters", analysis.characters.len());
 
@@ -388,7 +389,7 @@ impl BookDeconstructionService {
                     scene.sequence_number,
                     scene.title.as_deref(),
                 )
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
             // 保存 summary 为 content
             if scene.summary.is_some() {
                 use crate::db::repositories_v3::SceneUpdate;

@@ -11,9 +11,10 @@
 //! 3. 发明需识别 — 新实体必须入库
 
 use crate::db::{DbPool, StoryContractRepository, ChapterCommitRepository};
-use crate::vector::lancedb_store::LanceVectorStore;
+use crate::vector::lancedb_store::{LanceVectorStore, VectorRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Instant;
 
 pub mod contract_builder;
 pub mod preflight;
@@ -261,7 +262,42 @@ impl ChapterCommitService {
             .map_err(|e| format!("初始化 commit 失败: {}", e))
     }
 
+    /// 自动 commit（update_chapter 30s debounce 后触发）
+    ///
+    /// 简化入口：自动 init_commit + apply_commit，使用空占位符填充尚未实现的
+    /// review/fulfillment 字段（W3-B4/B5 落地后替换为真实数据）。
+    pub async fn auto_commit(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_number: i32,
+        content: Option<&str>,
+        app_handle: Option<tauri::AppHandle>,
+        vector_store: Option<&LanceVectorStore>,
+    ) -> Result<(), String> {
+        let commit = self.init_commit(story_id, scene_id, chapter_number)?;
+        let summary = content.unwrap_or("").chars().take(1000).collect::<String>();
+
+        self.apply_commit(
+            &commit.id,
+            "{}",
+            "{}",
+            "{}",
+            "{}",
+            "{}",
+            "{}",
+            &summary,
+            "",
+            content,
+            app_handle,
+            vector_store,
+        ).await
+    }
+
     /// 提交 accepted commit（异步，含投影写入）
+    ///
+    /// W2-B6: 已吸收 auto_ingest 功能。若提供 `chapter_content`，
+    /// 自动执行知识图谱提取和完整内容向量索引。
     pub async fn apply_commit(
         &self,
         commit_id: &str,
@@ -273,6 +309,8 @@ impl ChapterCommitService {
         entity_deltas_json: &str,
         summary_text: &str,
         dominant_strand: &str,
+        chapter_content: Option<&str>,
+        app_handle: Option<tauri::AppHandle>,
         vector_store: Option<&LanceVectorStore>,
     ) -> Result<(), String> {
         let repo = ChapterCommitRepository::new(self.pool.clone());
@@ -308,7 +346,7 @@ impl ChapterCommitService {
             "summary_text": summary_text,
         }).to_string();
 
-        // 执行同步 projection writers
+        // W2-B7: 执行同步 projection writers（带性能测量）
         let writers = projection_writers::get_projection_writers(self.pool.clone());
         let mut projection_status = serde_json::json!({
             "state": "pending",
@@ -316,10 +354,13 @@ impl ChapterCommitService {
             "summary": "pending",
             "memory": "pending",
             "vector": "pending",
+            "kg": "pending",
         });
 
+        let sync_start = Instant::now();
         for writer in writers {
             let name = writer.name();
+            let w_start = Instant::now();
             match writer.apply(&story_id, chapter_number, &commit_json) {
                 Ok(true) => {
                     projection_status[name] = serde_json::json!("success");
@@ -331,22 +372,71 @@ impl ChapterCommitService {
                     projection_status[name] = serde_json::json!(format!("error: {}", e));
                 }
             }
+            log::info!("[ProjectionWriter] {} sync completed in {}ms", name, w_start.elapsed().as_millis());
         }
+        let sync_elapsed = sync_start.elapsed().as_millis();
+        log::info!("[ProjectionWriter] All sync writers completed in {}ms", sync_elapsed);
 
-        // 执行向量投影（异步）
-        if let Some(store) = vector_store {
-            match projection_writers::apply_vector_projection(
-                store, &story_id, chapter_number, summary_text
-            ).await {
-                Ok(_) => {
-                    projection_status["vector"] = serde_json::json!("success");
+        // W2-B7: 向量投影 + 知识图谱提取并行执行（两者都是异步且独立）
+        let async_start = Instant::now();
+        let vector_future = async {
+            if let Some(store) = vector_store {
+                let text = chapter_content.unwrap_or(summary_text);
+                let vector_text = if text.is_empty() {
+                    format!("第{}章", chapter_number)
+                } else {
+                    format!("第{}章: {}", chapter_number, text.chars().take(500).collect::<String>())
+                };
+                match crate::embeddings::embedding::embed_text_async(vector_text.clone()).await {
+                    Ok(embedding) => {
+                        let record = VectorRecord {
+                            id: format!("{}_ch{}", story_id, chapter_number),
+                            story_id: story_id.clone(),
+                            chapter_id: String::new(),
+                            chapter_number,
+                            text: vector_text,
+                            record_type: "chapter".to_string(),
+                            embedding,
+                        };
+                        match store.add_record(record).await {
+                            Ok(_) => "success".to_string(),
+                            Err(e) => format!("error: {}", e),
+                        }
+                    }
+                    Err(e) => format!("embedding_error: {}", e),
                 }
-                Err(e) => {
-                    projection_status["vector"] = serde_json::json!(format!("error: {}", e));
-                }
+            } else {
+                "skipped: no_store".to_string()
             }
-        } else {
-            projection_status["vector"] = serde_json::json!("skipped: no_store");
+        };
+
+        let kg_future = async {
+            if let (Some(content), Some(app)) = (chapter_content, app_handle) {
+                if content.len() >= 20 {
+                    match self.run_kg_ingest(&story_id, chapter_number, content, &app).await {
+                        Ok(true) => "success".to_string(),
+                        Ok(false) => "skipped".to_string(),
+                        Err(e) => format!("error: {}", e),
+                    }
+                } else {
+                    "skipped: content_too_short".to_string()
+                }
+            } else {
+                "skipped: no_content_or_app".to_string()
+            }
+        };
+
+        let (vector_status, kg_status) = futures::future::join(vector_future, kg_future).await;
+        projection_status["vector"] = serde_json::json!(vector_status);
+        projection_status["kg"] = serde_json::json!(kg_status);
+
+        let async_elapsed = async_start.elapsed().as_millis();
+        log::info!("[ProjectionWriter] Async projections (vector + kg) completed in {}ms", async_elapsed);
+
+        let total_elapsed = sync_start.elapsed().as_millis();
+        log::info!("[ProjectionWriter] Total apply_commit completed in {}ms", total_elapsed);
+        if total_elapsed > 2000 {
+            log::warn!("[ProjectionWriter] Total time {}ms exceeds 2s threshold. Consider further parallelizing sync writers.", total_elapsed);
         }
 
         // 更新投影状态
@@ -354,6 +444,47 @@ impl ChapterCommitService {
             .map_err(|e| format!("更新投影状态失败: {}", e))?;
 
         Ok(())
+    }
+
+    /// 运行知识图谱提取（原 auto_ingest 的 IngestPipeline 逻辑）
+    async fn run_kg_ingest(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+        content: &str,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<bool, String> {
+        let llm_service = crate::llm::LlmService::new(app_handle.clone());
+        let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+            .with_pool(self.pool.clone())
+            .with_app_handle(app_handle.clone());
+        let ingest_content = crate::memory::ingest::IngestContent {
+            text: content.to_string(),
+            source: format!("chapter:{}:{}", story_id, chapter_number),
+            story_id: story_id.to_string(),
+            scene_id: None,
+        };
+
+        match pipeline.ingest(&ingest_content).await {
+            Ok(result) => {
+                let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(self.pool.clone());
+                let entity_count = result.entities.len();
+                let relation_count = result.relations.len();
+                match kg_repo.save_entities_batch(&result.entities) {
+                    Ok(saved) => log::info!("[ChapterCommitService] Saved {}/{} entities for story {}", saved, entity_count, story_id),
+                    Err(e) => log::warn!("[ChapterCommitService] Failed to save entities: {}", e),
+                }
+                match kg_repo.save_relations_batch(&result.relations) {
+                    Ok(saved) => log::info!("[ChapterCommitService] Saved {}/{} relations for story {}", saved, relation_count, story_id),
+                    Err(e) => log::warn!("[ChapterCommitService] Failed to save relations: {}", e),
+                }
+                Ok(true)
+            }
+            Err(e) => {
+                log::warn!("[ChapterCommitService] IngestPipeline failed for story {}: {}", story_id, e);
+                Err(e.to_string())
+            }
+        }
     }
 }
 

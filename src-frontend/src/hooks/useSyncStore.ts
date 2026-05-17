@@ -92,146 +92,146 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           // === Story ===
           case 'storyCreated': {
             queryClient.invalidateQueries({ queryKey: KEYS.stories });
-            optionsRef.current.onStoryCreated?.(payload.storyId, payload.title);
+            optionsRef.current.onStoryCreated?.(payload.story_id, payload.title ?? undefined);
             break;
           }
           case 'storyUpdated': {
             queryClient.invalidateQueries({ queryKey: KEYS.stories });
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            optionsRef.current.onStoryUpdated?.(payload.storyId, payload.title);
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            optionsRef.current.onStoryUpdated?.(payload.story_id, payload.title ?? undefined);
             break;
           }
           case 'storyDeleted': {
             queryClient.invalidateQueries({ queryKey: KEYS.stories });
-            queryClient.removeQueries({ queryKey: KEYS.scenes(payload.storyId) });
-            queryClient.removeQueries({ queryKey: KEYS.characters(payload.storyId) });
-            queryClient.removeQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            optionsRef.current.onStoryDeleted?.(payload.storyId);
+            queryClient.removeQueries({ queryKey: KEYS.scenes(payload.story_id) });
+            queryClient.removeQueries({ queryKey: KEYS.characters(payload.story_id) });
+            queryClient.removeQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            optionsRef.current.onStoryDeleted?.(payload.story_id);
             break;
           }
           case 'storySelected': {
             // v5.6.2 修复: 故事切换时自动刷新关联数据缓存，避免时序依赖
-            queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(payload.storyId) });
-            optionsRef.current.onStorySelected?.(payload.storyId, payload.title);
+            queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(payload.story_id) });
+            optionsRef.current.onStorySelected?.(payload.story_id, payload.title ?? undefined);
             break;
           }
 
           // === Character ===
           case 'characterCreated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.storyId) });
-            optionsRef.current.onCharacterCreated?.(payload.storyId, payload.characterId, payload.name);
+            queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.story_id) });
+            optionsRef.current.onCharacterCreated?.(payload.story_id, payload.character_id, payload.name);
             break;
           }
           case 'characterUpdated': {
-            if (payload.storyId) {
-              queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.storyId) });
+            if (payload.story_id) {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.story_id) });
             } else {
               queryClient.invalidateQueries({ queryKey: KEYS.characters() });
             }
-            optionsRef.current.onCharacterUpdated?.(payload.characterId, payload.name);
+            optionsRef.current.onCharacterUpdated?.(payload.character_id, payload.name ?? undefined);
             break;
           }
           case 'characterDeleted': {
-            if (payload.storyId) {
-              queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.storyId) });
+            if (payload.story_id) {
+              queryClient.invalidateQueries({ queryKey: KEYS.characters(payload.story_id) });
             } else {
               queryClient.invalidateQueries({ queryKey: KEYS.characters() });
             }
-            optionsRef.current.onCharacterDeleted?.(payload.characterId);
+            optionsRef.current.onCharacterDeleted?.(payload.character_id);
             break;
           }
 
           // === Scene ===
           case 'sceneCreated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
             // v5.6.1 修复: Scene 创建会关联/创建 Chapter，同步刷新 chapters 缓存
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            optionsRef.current.onSceneCreated?.(payload.storyId, payload.sceneId, payload.title);
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            optionsRef.current.onSceneCreated?.(payload.story_id, payload.scene_id, payload.title ?? undefined);
             break;
           }
           case 'sceneUpdated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
             // P1-8 修复: Scene 更新会同步到关联 Chapter，刷新 chapters 缓存
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.sceneDetail(payload.sceneId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.sceneDetail(payload.scene_id) });
             // P1-15 修复: 失效 useSceneWithChapter 的缓存
-            queryClient.invalidateQueries({ queryKey: ['scenes', 'chapter', payload.sceneId] });
-            optionsRef.current.onSceneUpdated?.(payload.storyId, payload.sceneId, payload.title);
+            queryClient.invalidateQueries({ queryKey: ['scenes', 'chapter', payload.scene_id] });
+            optionsRef.current.onSceneUpdated?.(payload.story_id, payload.scene_id, payload.title ?? undefined);
             break;
           }
           case 'sceneDeleted': {
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
             // v5.6.1 修复: Scene 删除会清理 chapters.scene_id，同步刷新 chapters 缓存
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            queryClient.removeQueries({ queryKey: KEYS.sceneDetail(payload.sceneId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            queryClient.removeQueries({ queryKey: KEYS.sceneDetail(payload.scene_id) });
             // P1-15 修复: 移除 useSceneWithChapter 的缓存
-            queryClient.removeQueries({ queryKey: ['scenes', 'chapter', payload.sceneId] });
-            optionsRef.current.onSceneDeleted?.(payload.storyId, payload.sceneId);
+            queryClient.removeQueries({ queryKey: ['scenes', 'chapter', payload.scene_id] });
+            optionsRef.current.onSceneDeleted?.(payload.story_id, payload.scene_id);
             break;
           }
           case 'sceneSelected': {
-            optionsRef.current.onSceneSelected?.(payload.storyId, payload.sceneId, payload.title);
+            optionsRef.current.onSceneSelected?.(payload.story_id, payload.scene_id, payload.title ?? undefined);
             break;
           }
 
           // === Chapter ===
           case 'chapterCreated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            optionsRef.current.onChapterCreated?.(payload.storyId, payload.chapterId, payload.title);
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            optionsRef.current.onChapterCreated?.(payload.story_id, payload.chapter_id, payload.title ?? undefined);
             break;
           }
           case 'chapterUpdated': {
             queryClient.invalidateQueries({ queryKey: KEYS.chapters() });
-            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.storyId) });
-            queryClient.invalidateQueries({ queryKey: KEYS.chapterDetail(payload.chapterId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapterDetail(payload.chapter_id) });
             // v5.2.0: chapter 更新会同步到关联 scene，刷新 scenes 缓存
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
-            optionsRef.current.onChapterUpdated?.(payload.chapterId, payload.title);
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
+            optionsRef.current.onChapterUpdated?.(payload.chapter_id, payload.title ?? undefined);
             break;
           }
           case 'chapterDeleted': {
             queryClient.invalidateQueries({ queryKey: KEYS.chapters() });
-            queryClient.removeQueries({ queryKey: KEYS.chapterDetail(payload.chapterId) });
+            queryClient.removeQueries({ queryKey: KEYS.chapterDetail(payload.chapter_id) });
             // P1-9 修复: Chapter 删除会清理 scenes.chapter_id，刷新 scenes 缓存
-            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.storyId) });
-            optionsRef.current.onChapterDeleted?.(payload.chapterId);
+            queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
+            optionsRef.current.onChapterDeleted?.(payload.chapter_id);
             break;
           }
 
           // === World Building ===
           case 'worldBuildingUpdated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.storyId) });
-            optionsRef.current.onWorldBuildingUpdated?.(payload.storyId);
+            queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
+            optionsRef.current.onWorldBuildingUpdated?.(payload.story_id);
             break;
           }
 
           // === v5.6.4 修复: 补全独立同步事件响应 ===
           case 'characterRelationshipsUpdated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(payload.storyId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(payload.story_id) });
             break;
           }
           case 'payoffLedgerUpdated': {
-            queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(payload.storyId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(payload.story_id) });
             break;
           }
           case 'ingestionCompleted': {
-            queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.storyId) });
+            queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.story_id) });
             break;
           }
 
           // === Data Refresh ===
           case 'dataRefresh': {
-            const resourceType = payload.resourceType;
-            const storyId = payload.storyId;
+            const resourceType = payload.resource_type;
+            const storyId = payload.story_id ?? undefined;
             switch (resourceType) {
               case 'stories':
                 queryClient.invalidateQueries({ queryKey: KEYS.stories });

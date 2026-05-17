@@ -4,6 +4,7 @@ pub mod websocket;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::db::DbPool;
+use crate::error::AppError;
 use rusqlite::params;
 
 #[allow(unused_imports)]
@@ -65,7 +66,7 @@ impl CollabManager {
         &self,
         story_id: String,
         chapter_id: Option<String>,
-    ) -> Result<CollabSession, String> {
+    ) -> Result<CollabSession, AppError> {
         let session = CollabSession {
             id: uuid::Uuid::new_v4().to_string(),
             story_id: story_id.clone(),
@@ -74,7 +75,7 @@ impl CollabManager {
             created_at: Utc::now(),
         };
 
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        let conn = self.pool.get().map_err(AppError::from)?;
         conn.execute(
             "INSERT INTO collab_sessions (id, story_id, chapter_id, created_at)
              VALUES (?1, ?2, ?3, ?4)",
@@ -84,17 +85,17 @@ impl CollabManager {
                 &chapter_id,
                 session.created_at.to_rfc3339(),
             ],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
 
         Ok(session)
     }
 
-    pub fn get_session(&self, session_id: &str) -> Result<Option<CollabSession>, String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    pub fn get_session(&self, session_id: &str) -> Result<Option<CollabSession>, AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, chapter_id, created_at
              FROM collab_sessions WHERE id = ?1"
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
 
         let session_result = stmt.query_row([session_id], |row| {
             let created_at_str: String = row.get(3)?;
@@ -112,14 +113,14 @@ impl CollabManager {
         let mut session = match session_result {
             Ok(s) => s,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(AppError::from(e)),
         };
 
         // Load participants
         let mut part_stmt = conn.prepare(
             "SELECT user_id, user_name, cursor_line, cursor_column, joined_at
              FROM collab_participants WHERE session_id = ?1"
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
 
         let participants = part_stmt.query_map([session_id], |row| {
             let line: Option<i32> = row.get(2)?;
@@ -137,9 +138,9 @@ impl CollabManager {
                     .unwrap_or_else(|_| Utc::now()),
             })
         })
-        .map_err(|e| e.to_string())?
+        .map_err(AppError::from)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
         session.participants = participants;
         Ok(Some(session))
@@ -150,8 +151,8 @@ impl CollabManager {
         session_id: &str,
         user_id: String,
         user_name: String,
-    ) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    ) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         conn.execute(
             "INSERT OR REPLACE INTO collab_participants
              (id, session_id, user_id, user_name, cursor_line, cursor_column, joined_at)
@@ -165,7 +166,7 @@ impl CollabManager {
                 Option::<i32>::None,
                 Utc::now().to_rfc3339(),
             ],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         Ok(())
     }
 
@@ -173,12 +174,12 @@ impl CollabManager {
         &self,
         session_id: &str,
         user_id: &str,
-    ) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    ) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         conn.execute(
             "DELETE FROM collab_participants WHERE session_id = ?1 AND user_id = ?2",
             [session_id, user_id],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         Ok(())
     }
 
@@ -187,23 +188,23 @@ impl CollabManager {
         session_id: &str,
         user_id: &str,
         position: CursorPosition,
-    ) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    ) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         conn.execute(
             "UPDATE collab_participants
              SET cursor_line = ?1, cursor_column = ?2
              WHERE session_id = ?3 AND user_id = ?4",
             params![position.line, position.column, session_id, user_id],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         Ok(())
     }
 
-    pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    pub fn delete_session(&self, session_id: &str) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         conn.execute(
             "DELETE FROM collab_sessions WHERE id = ?1",
             [session_id],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         Ok(())
     }
 }

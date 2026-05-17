@@ -4,7 +4,7 @@
  * 与后端通信管理应用设置
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import type { 
   AppSettings, 
@@ -22,6 +22,7 @@ const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
     name: 'Qwen 3.5 语言模型',
     description: '本地语言模型，用于文本生成和对话',
     provider: 'custom',
+    model_source: 'local',
     model: 'Qwen3.5-27B-Uncensored-Q4_K_M',
     api_key: '',
     api_base: 'http://10.62.239.13:17098/v1',
@@ -38,6 +39,7 @@ const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
     name: 'Gemma 4 多模态',
     description: '本地多模态模型，支持图文理解',
     provider: 'custom',
+    model_source: 'local',
     model: 'Gemma-4-31B-it-Q6_K',
     api_key: '',
     api_base: 'http://10.62.239.13:17099/v1',
@@ -56,6 +58,7 @@ const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
     name: 'BGE-M3 Embedding',
     description: '文本嵌入模型，用于语义搜索和向量化',
     provider: 'custom',
+    model_source: 'local',
     model: 'bge-m3',
     api_key: '',
     api_base: 'http://10.62.239.13:8089',
@@ -109,7 +112,7 @@ const BROWSER_FALLBACK_SETTINGS: AppSettings = {
 
 export async function getSettings(): Promise<AppSettings> {
   try {
-    return await invoke<AppSettings>('get_settings');
+    return await loggedInvoke<AppSettings>('get_settings');
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {
@@ -121,23 +124,23 @@ export async function getSettings(): Promise<AppSettings> {
 
 // 保存设置
 export async function saveSettings(settings: Partial<AppSettings>): Promise<void> {
-  return invoke('save_settings', { settings });
+  await loggedInvoke<void>('save_settings', { settings });
 }
 
 // 导出设置
 export async function exportSettings(): Promise<SettingsExport> {
-  return invoke<SettingsExport>('export_settings');
+  return loggedInvoke<SettingsExport>('export_settings');
 }
 
 // 导入设置
 export async function importSettings(data: SettingsExport): Promise<void> {
-  return invoke('import_settings', { data });
+  await loggedInvoke<void>('import_settings', { data });
 }
 
 // 获取所有模型配置
 export async function getModels(): Promise<ModelConfig[]> {
   try {
-    return await invoke<ModelConfig[]>('get_models');
+    return await loggedInvoke<ModelConfig[]>('get_models');
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {
@@ -150,32 +153,32 @@ export async function getModels(): Promise<ModelConfig[]> {
 
 // 创建模型配置
 export async function createModel(config: Omit<ModelConfig, 'id'>): Promise<ModelConfig> {
-  return invoke<ModelConfig>('create_model', { config });
+  return loggedInvoke<ModelConfig>('create_model', { config });
 }
 
 // 更新模型配置
 export async function updateModel(id: string, config: Partial<ModelConfig>): Promise<void> {
-  return invoke('update_model', { id, config });
+  await loggedInvoke<void>('update_model', { id, config });
 }
 
 // 删除模型配置
 export async function deleteModel(id: string): Promise<void> {
-  return invoke('delete_model', { id });
+  await loggedInvoke<void>('delete_model', { id });
 }
 
 // 设置激活的模型
 export async function setActiveModel(type: ModelConfig['type'], modelId: string): Promise<void> {
-  return invoke('set_active_model', { modelType: type, modelId });
+  await loggedInvoke<void>('set_active_model', { modelType: type, modelId });
 }
 
 // 获取Agent模型映射
 export async function getAgentMappings(): Promise<AgentModelMapping[]> {
-  return invoke<AgentModelMapping[]>('get_agent_mappings');
+  return loggedInvoke<AgentModelMapping[]>('get_agent_mappings');
 }
 
 // 更新Agent模型映射
 export async function updateAgentMapping(mapping: AgentModelMapping): Promise<void> {
-  return invoke('update_agent_mapping', { mapping });
+  await loggedInvoke<void>('update_agent_mapping', { mapping });
 }
 
 // 浏览器环境下简单的连接探测
@@ -221,7 +224,7 @@ async function browserTestModelConnection(modelId: string): Promise<{ success: b
 // 测试模型连接
 export async function testModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
   try {
-    return await invoke('test_model_connection', { modelId });
+    return await loggedInvoke<{ success: boolean; latency: number; error?: string }>('test_model_connection', { modelId });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {
@@ -233,13 +236,13 @@ export async function testModelConnection(modelId: string): Promise<{ success: b
 
 // 获取模型真实 API Key（编辑时明文显示用）
 export async function getModelApiKey(modelId: string): Promise<string | null> {
-  return invoke<string | null>('get_model_api_key', { modelId });
+  return loggedInvoke<string | null>('get_model_api_key', { modelId });
 }
 
 // 从 API 地址获取可用模型列表
 export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Promise<string[]> {
   try {
-    return await invoke<string[]>('fetch_models', { baseUrl, apiKey });
+    return await loggedInvoke<string[]>('fetch_models', { baseUrl, apiKey });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {

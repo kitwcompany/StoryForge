@@ -1,6 +1,6 @@
 # StoryForge (草苔) v7.0.0 项目完成状态
 
-> 最后更新: 2026-05-15（v7.0.0 + AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级）
+> 最后更新: 2026-05-17（v7.0.1 + ChapterCommitService 防抖聚合提交 + 导出聚合完整性 + 大型组件提取重构）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -47,6 +47,35 @@
 | 最近调用记录 | ✅ | 最近 20 条明细表 |
 | `get_llm_call_stats` | ✅ | IPC 命令 |
 | `get_recent_llm_calls` | ✅ | IPC 命令 |
+
+---
+
+### v7.0.1 架构优化：聚合提交 + 导出完整性 + 组件提取（2026-05-17）
+
+#### ChapterCommitService 防抖聚合提交
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `CHAPTER_COMMIT_DEBOUNCE` | ✅ | 全局防抖状态，30 秒空闲延迟 |
+| `auto_ingest_chapter` 移除 | ✅ | 消除与 Projection Writer 的重复索引 |
+| `ChapterCommitService::auto_commit` | ✅ | 取代独立摄取，驱动 Vector/Memory ProjectionWriter |
+| `update_chapter`/`create_chapter` 接入 | ✅ | 统一调用 `auto_commit` |
+
+#### 导出聚合完整性
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 空章节场景聚合 | ✅ | 按 `sequence_number` 排序填充 |
+| Markdown 导出完整 | ✅ | 空章节自动聚合场景内容 |
+| HTML 导出完整 | ✅ | 同上 |
+| PlainText 导出完整 | ✅ | 同上 |
+| JSON 导出含 scenes | ✅ | 全数据便携导出 |
+
+#### 前端组件提取重构
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `Settings.tsx` 拆分 | ✅ | 8 个子组件提取到 `pages/settings/` |
+| `SceneEditor.tsx` 拆分 | ✅ | `SceneAuditPanel` + `SceneAnnotationPanel` 提取到 `scene-editor/` |
+| `StoryTimeline.tsx` 徽章 | ✅ | `execution_stage` 彩色徽章 + 叙事阶段双轨可视化 |
+| 未使用导入清理 | ✅ | `Image`/`createLogger`/`Clock`/`Eye`/`FileText` 等 |
 
 ---
 

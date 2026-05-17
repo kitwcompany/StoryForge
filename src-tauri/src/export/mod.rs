@@ -47,6 +47,7 @@ impl StoryExporter {
         story: &crate::db::Story,
         chapters: &[crate::db::Chapter],
         characters: &[crate::db::Character],
+        scenes: &[crate::db::Scene],
         config: &ExportConfig,
         output_path: &Path,
         template_content: Option<&str>,
@@ -90,7 +91,7 @@ impl StoryExporter {
                 Ok(())
             }
             ExportFormat::Json => {
-                let content = generate_json(story, chapters, characters, config)?;
+                let content = generate_json(story, chapters, characters, scenes, config)?;
                 fs::write(output_path, content)?;
                 Ok(())
             }
@@ -467,6 +468,7 @@ fn generate_json(
     story: &crate::db::Story,
     chapters: &[crate::db::Chapter],
     characters: &[crate::db::Character],
+    scenes: &[crate::db::Scene],
     config: &ExportConfig,
 ) -> Result<String, serde_json::Error> {
     #[derive(serde::Serialize)]
@@ -475,6 +477,7 @@ fn generate_json(
         story: crate::db::Story,
         characters: Vec<crate::db::Character>,
         chapters: Vec<crate::db::Chapter>,
+        scenes: Vec<crate::db::Scene>,
         export_config: ExportConfig,
     }
 
@@ -482,6 +485,7 @@ fn generate_json(
         story: story.clone(),
         characters: characters.to_vec(),
         chapters: chapters.to_vec(),
+        scenes: scenes.to_vec(),
         export_config: config.clone(),
     };
 

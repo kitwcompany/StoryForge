@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createLogger } from '@/utils/logger';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 
 const updaterLogger = createLogger('hooks:useUpdater');
 
@@ -42,7 +42,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
 
   // 获取当前版本
   useEffect(() => {
-    invoke<string>('get_current_version')
+    loggedInvoke<string>('get_current_version')
       .then(setCurrentVersion)
       .catch((err) => updaterLogger.error('Failed to get current version', { error: err }));
   }, []);
@@ -53,7 +53,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
     setError(null);
 
     try {
-      const result = await invoke<CheckUpdateResult>('check_update');
+      const result = await loggedInvoke<CheckUpdateResult>('check_update');
       
       setHasUpdate(result.has_update);
       setLatestVersion(result.latest_version);
@@ -79,7 +79,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
     setError(null);
 
     try {
-      await invoke('install_update');
+      await loggedInvoke<unknown>('install_update');
       // 如果安装成功，应用会重启，这里不会执行到
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);

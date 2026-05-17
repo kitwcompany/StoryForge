@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod error;
+use crate::error::AppError;
 mod db;
 mod config;
 mod llm;
@@ -53,7 +55,7 @@ mod tests;
 
 use tauri::{Manager, AppHandle, Emitter};
 
-use db::{DbPool, init_db, StoryRepository, CharacterRepository, ChapterRepository, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest};
+use db::{DbPool, init_db, StoryRepository, CharacterRepository, ChapterRepository, SceneRepository, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest};
 use config::AppConfig;
 use skills::{SkillManager, SkillCategory, SkillInfo};
 use mcp::{McpClient, McpServerConfig};
@@ -74,10 +76,10 @@ static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
 pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
 
-/// 自动 Ingest 冷却状态：chapter_id -> (content_hash, last_ingest_time)
-/// 防止频繁保存导致重复 LLM 调用
-static INGEST_COOLDOWN: Lazy<Mutex<HashMap<String, (u64, Instant)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-const INGEST_COOLDOWN_SECONDS: u64 = 300; // 5 分钟冷却期
+/// Chapter commit debounce: chapter_id -> last_scheduled_time
+/// W4-B9: 防止频繁保存导致重复 commit
+static CHAPTER_COMMIT_DEBOUNCE: Lazy<Mutex<HashMap<String, Instant>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+const CHAPTER_COMMIT_DEBOUNCE_SECONDS: u64 = 30; // 30 秒 debounce
 
 /// 记录 AI 操作历史
 fn record_ai_operation(req: db::CreateAiOperationRequest) {
@@ -861,7 +863,7 @@ async fn chat_completion(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     let mut request = client
         .post(format!("{}/chat/completions", base_url))
@@ -884,14 +886,14 @@ async fn chat_completion(
         "stream": false,
     });
 
-    let response = request.json(&body).send().await.map_err(|e| e.to_string())?;
+    let response = request.json(&body).send().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
     let status = response.status();
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
         return Err(format!("HTTP {}: {}", status, text));
     }
 
-    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let data: serde_json::Value = response.json().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
     Ok(data)
 }
 
@@ -901,7 +903,7 @@ async fn check_model_status(app_handle: AppHandle) -> Result<String, String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    let config = config::AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = config::AppConfig::load(&app_dir).map_err(|e| crate::error::AppError::from(e).to_string())?;
     let active_profile_id = config.active_llm_profile.as_deref()
         .or(config.llm_profiles.values().find(|p| p.is_default).map(|p| p.id.as_str()))
         .or(config.llm_profiles.keys().next().map(|s| s.as_str()))
@@ -929,7 +931,7 @@ async fn check_model_status(app_handle: AppHandle) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     let api_key_ref = if api_key.is_empty() { None } else { Some(api_key.as_str()) };
 
@@ -974,19 +976,19 @@ async fn check_model_status(app_handle: AppHandle) -> Result<String, String> {
 #[tauri::command(rename_all = "snake_case")]
 fn get_state() -> Result<DashboardState, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
-    let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| e.to_string())?;
+    let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| crate::error::AppError::from(e).to_string())?;
     let chars_count: usize = stories.iter().map(|s| CharacterRepository::new(pool.clone()).get_by_story(&s.id).map(|c| c.len()).unwrap_or(0)).sum();
     Ok(DashboardState { current_story: stories.first().cloned(), stories_count: stories.len(), characters_count: chars_count, chapters_count: 0 })
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn list_stories() -> Result<Vec<db::Story>, String> {
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).get_all().map_err(|e| e.to_string())
+    StoryRepository::new(get_pool().ok_or("DB not initialized")?).get_all().map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn create_story(title: String, description: Option<String>, genre: Option<String>, app: AppHandle, automation_service: tauri::State<crate::automation::service::AutomationService>) -> Result<db::Story, String> {
-    let story = StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre, style_dna_id: None }).map_err(|e| e.to_string())?;
+    let story = StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre, style_dna_id: None }).map_err(|e| crate::error::AppError::from(e).to_string())?;
     let _ = crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
     let automation_service_clone = automation_service.inner().clone();
     let story_id_clone = story.id.clone();
@@ -1014,21 +1016,21 @@ fn update_story(
     app: AppHandle,
 ) -> Result<(), String> {
     let req = db::UpdateStoryRequest { title: title.clone(), description: description.clone(), genre, tone, pacing, style_dna_id, methodology_id, methodology_step };
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| e.to_string())?;
+    StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| crate::error::AppError::from(e).to_string())?;
     let _ = crate::state_sync::StateSync::emit_story_updated(&app, &id, title.as_deref());
     Ok(())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn delete_story(id: String, app: AppHandle) -> Result<(), String> {
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| e.to_string())?;
+    StoryRepository::new(get_pool().ok_or("DB not initialized")?).delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
     let _ = crate::state_sync::StateSync::emit_story_deleted(&app, &id);
     Ok(())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn get_story_characters(story_id: String) -> Result<Vec<db::Character>, String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_story(&story_id).map_err(|e| e.to_string())
+    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1039,7 +1041,7 @@ fn create_character(
     app: AppHandle,
     automation_service: tauri::State<crate::automation::service::AutomationService>
 ) -> Result<db::Character, String> {
-    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age }).map_err(|e| e.to_string())?;
+    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age }).map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     // OnCharacterCreate hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -1082,7 +1084,7 @@ fn update_character(
     let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
     // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.update(&id, name.clone(), background, personality, goals, appearance, gender, age).map_err(|e| e.to_string())?;
+    repo.update(&id, name.clone(), background, personality, goals, appearance, gender, age).map_err(|e| crate::error::AppError::from(e).to_string())?;
     if let Some(story_id) = story_id_opt {
         let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name.as_deref(), &story_id);
     }
@@ -1094,7 +1096,7 @@ fn delete_character(id: String, app: AppHandle) -> Result<(), String> {
     let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
     // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.delete(&id).map_err(|e| e.to_string())?;
+    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
     if let Some(story_id) = story_id_opt {
         let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
     }
@@ -1103,12 +1105,12 @@ fn delete_character(id: String, app: AppHandle) -> Result<(), String> {
 
 #[tauri::command(rename_all = "snake_case")]
 fn get_story_chapters(story_id: String) -> Result<Vec<db::Chapter>, String> {
-    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_story(&story_id).map_err(|e| e.to_string())
+    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
-    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_id(&id).map_err(|e| e.to_string())
+    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_id(&id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1116,7 +1118,7 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
     let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
     // 先查询 story_id，确保同步事件携带正确的 story_id（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(|e| e.to_string());
+    let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(|e| crate::error::AppError::from(e).to_string());
     if result.is_ok() {
         let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
         if let Some(ref story_id) = story_id_opt {
@@ -1136,12 +1138,46 @@ fn update_chapter(id: String, title: Option<String>, outline: Option<String>, co
                 }
             });
         }
-        // v5.1.1: 保存后自动触发 IngestPipeline，更新知识图谱
+        // W4-B9: 保存后自动触发 chapter commit（30s debounce），替代独立的 auto_ingest
+        // apply_commit 已吸收 vector + kg ingest 功能，避免重复工作
         if let Some(pool) = get_pool() {
             let chapter_id = id.clone();
             let app_handle = app.clone();
+            let scheduled_time = Instant::now();
+            {
+                let mut debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
+                debounce.insert(chapter_id.clone(), scheduled_time);
+                // 清理超过 24 小时的过期条目，防止内存泄漏
+                const MAX_DEBOUNCE_AGE_HOURS: u64 = 24;
+                debounce.retain(|_, last_time| {
+                    Instant::now().duration_since(*last_time) < Duration::from_secs(MAX_DEBOUNCE_AGE_HOURS * 3600)
+                });
+            }
             tauri::async_runtime::spawn(async move {
-                auto_ingest_chapter(pool, app_handle, chapter_id).await;
+                tokio::time::sleep(Duration::from_secs(CHAPTER_COMMIT_DEBOUNCE_SECONDS)).await;
+                let should_commit = {
+                    let debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
+                    debounce.get(&chapter_id).map(|t| *t == scheduled_time).unwrap_or(false)
+                };
+                if should_commit {
+                    let repo = db::ChapterRepository::new(pool.clone());
+                    if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
+                        let service = story_system::ChapterCommitService::new(pool);
+                        let store = VECTOR_STORE.get();
+                        if let Err(e) = service.auto_commit(
+                            &chapter.story_id,
+                            chapter.scene_id.as_deref(),
+                            chapter.chapter_number,
+                            chapter.content.as_deref(),
+                            Some(app_handle),
+                            store,
+                        ).await {
+                            log::warn!("[update_chapter] auto_commit failed for chapter {}: {}", chapter_id, e);
+                        }
+                    }
+                } else {
+                    log::info!("[update_chapter] auto_commit skipped for chapter {} (debounced)", chapter_id);
+                }
             });
         }
     }
@@ -1153,148 +1189,11 @@ fn delete_chapter(id: String, app: AppHandle) -> Result<(), String> {
     let repo = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
     // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.delete(&id).map_err(|e| e.to_string())?;
+    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
     if let Some(story_id) = story_id_opt {
         let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
     }
     Ok(())
-}
-
-/// 计算字符串的简单哈希（用于内容去重）
-fn hash_content(content: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// 章节保存后自动触发 IngestPipeline，将内容分析并更新知识图谱
-/// 内置 5 分钟冷却期 + 内容哈希去重，防止频繁保存导致重复 LLM 调用
-async fn auto_ingest_chapter(pool: DbPool, app: AppHandle, chapter_id: String) {
-    let repo = db::ChapterRepository::new(pool.clone());
-    let chapter = match repo.get_by_id(&chapter_id).ok().flatten() {
-        Some(c) => c,
-        None => {
-            log::warn!("[auto_ingest] Chapter {} not found, skipping ingest", chapter_id);
-            return;
-        }
-    };
-    let story_id = chapter.story_id.clone();
-    let content_text = chapter.content.clone().unwrap_or_default();
-    if content_text.len() < 20 {
-        log::info!("[auto_ingest] Chapter {} content too short ({} chars), skipping ingest", chapter_id, content_text.len());
-        return;
-    }
-
-    // 冷却期检查：内容未变化或 5 分钟内已 Ingest，则跳过
-    {
-        let mut cooldown = INGEST_COOLDOWN.lock().unwrap();
-        let content_hash = hash_content(&content_text);
-        let now = Instant::now();
-        let should_skip = cooldown.get(&chapter_id).map(|(last_hash, last_time)| {
-            let same_content = *last_hash == content_hash;
-            let within_cooldown = now.duration_since(*last_time) < Duration::from_secs(INGEST_COOLDOWN_SECONDS);
-            same_content || within_cooldown
-        }).unwrap_or(false);
-
-        if should_skip {
-            log::info!("[auto_ingest] Chapter {} skipped (cooldown or unchanged content)", chapter_id);
-            return;
-        }
-
-        // 记录本次 Ingest 的 hash 和时间
-        cooldown.insert(chapter_id.clone(), (content_hash, now));
-        
-        // P1-11 修复: 清理超过 24 小时的过期条目，防止内存泄漏
-        const MAX_COOLDOWN_AGE_HOURS: u64 = 24;
-        cooldown.retain(|_, (_, last_time)| {
-            now.duration_since(*last_time) < std::time::Duration::from_secs(MAX_COOLDOWN_AGE_HOURS * 3600)
-        });
-    }
-
-    let llm_service = crate::llm::LlmService::new(app.clone());
-    let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
-        .with_pool(pool.clone())
-        .with_app_handle(app.clone());
-    let ingest_content = crate::memory::ingest::IngestContent {
-        text: content_text.clone(),
-        source: format!("chapter:{}:{}", story_id, chapter_id),
-        story_id: story_id.clone(),
-        scene_id: chapter.scene_id.clone(),
-    };
-
-    let ingest_success = match pipeline.ingest(&ingest_content).await {
-        Ok(result) => {
-            let kg_repo = db::repositories_v3::KnowledgeGraphRepository::new(pool.clone());
-            let entity_count = result.entities.len();
-            let relation_count = result.relations.len();
-            match kg_repo.save_entities_batch(&result.entities) {
-                Ok(saved) => log::info!("[auto_ingest] Saved {}/{} entities for chapter {}", saved, entity_count, chapter_id),
-                Err(e) => {
-                    log::warn!("[auto_ingest] Failed to save entities: {}", e);
-                    let _ = app.emit("ingestion-failed", serde_json::json!({
-                        "chapter_id": chapter_id, "story_id": story_id, "error": format!("保存实体失败: {}", e)
-                    }));
-                }
-            }
-            match kg_repo.save_relations_batch(&result.relations) {
-                Ok(saved) => log::info!("[auto_ingest] Saved {}/{} relations for chapter {}", saved, relation_count, chapter_id),
-                Err(e) => {
-                    log::warn!("[auto_ingest] Failed to save relations: {}", e);
-                    let _ = app.emit("ingestion-failed", serde_json::json!({
-                        "chapter_id": chapter_id, "story_id": story_id, "error": format!("保存关系失败: {}", e)
-                    }));
-                }
-            }
-            true
-        }
-        Err(e) => {
-            log::warn!("[auto_ingest] IngestPipeline failed for chapter {}: {}", chapter_id, e);
-            let _ = app.emit("ingestion-failed", serde_json::json!({
-                "chapter_id": chapter_id, "story_id": story_id, "error": e.to_string()
-            }));
-            false
-        }
-    };
-
-    // 向量存储索引：章节内容写入 LanceDB，支持语义搜索
-    if ingest_success {
-        if let Some(store) = VECTOR_STORE.get() {
-            match embeddings::embed_text_async(content_text.clone()).await {
-                Ok(embedding) => {
-                    let record = vector::VectorRecord {
-                        id: format!("chapter:{}", chapter_id),
-                        story_id: story_id.clone(),
-                        chapter_id: chapter_id.clone(),
-                        chapter_number: chapter.chapter_number,
-                        text: content_text.clone(),
-                        record_type: "chapter".to_string(),
-                        embedding,
-                    };
-                    match store.add_record(record).await {
-                        Ok(_) => log::info!("[auto_ingest] Indexed chapter {} to vector store", chapter_id),
-                        Err(e) => log::warn!("[auto_ingest] Failed to index chapter {} to vector store: {}", chapter_id, e),
-                    }
-                }
-                Err(e) => {
-                    log::warn!("[auto_ingest] Failed to generate embedding for chapter {}: {}", chapter_id, e);
-                }
-            }
-        } else {
-            // P0-7 修复: 向量存储尚未初始化时，将 chapter_id 加入队列，初始化后自动处理
-            // P2-19 修复: 同时持久化到文件，防止应用崩溃后丢失
-            log::warn!("[auto_ingest] Vector store not initialized, queuing chapter {} for later indexing", chapter_id);
-            if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
-                if !pending.contains(&chapter_id) {
-                    pending.push(chapter_id.clone());
-                }
-            }
-            save_pending_vector_indexes();
-        }
-    }
-
-    // v5.6.4 修复: Ingest 完成后发射同步事件，确保幕后知识图谱页面自动刷新
-    let _ = crate::state_sync::StateSync::emit_ingestion_completed(&app, &story_id, "chapter");
-    let _ = crate::state_sync::StateSync::emit_data_refresh(&app, Some(&story_id), "knowledgeGraph");
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1318,7 +1217,7 @@ fn create_chapter(
     }
 
     let req = CreateChapterRequest { story_id: story_id.clone(), chapter_number, title: title.clone(), outline, content };
-    let chapter = repo.create(req).map_err(|e| e.to_string())?;
+    let chapter = repo.create(req).map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     // AfterChapterSave hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -1355,25 +1254,41 @@ fn create_chapter(
         }
     });
 
-    // v5.1.1: 新建章节后自动触发 IngestPipeline（无论 AfterChapterSave hook 是否执行）
+    // W4-B9: 新建章节后自动触发 chapter commit（无需 debounce，首次创建只执行一次）
+    // apply_commit 已吸收 vector + kg ingest 功能，避免重复工作
     if let Some(pool) = get_pool() {
         let chapter_id = chapter.id.clone();
         let app_handle = app.clone();
+        let story_id = chapter.story_id.clone();
+        let scene_id = chapter.scene_id.clone();
+        let chapter_number = chapter.chapter_number;
+        let content = chapter.content.clone();
         tauri::async_runtime::spawn(async move {
-            auto_ingest_chapter(pool, app_handle, chapter_id).await;
+            let service = story_system::ChapterCommitService::new(pool);
+            let store = VECTOR_STORE.get();
+            if let Err(e) = service.auto_commit(
+                &story_id,
+                scene_id.as_deref(),
+                chapter_number,
+                content.as_deref(),
+                Some(app_handle),
+                store,
+            ).await {
+                log::warn!("[create_chapter] auto_commit failed for chapter {}: {}", chapter_id, e);
+            }
         });
     }
     Ok(chapter)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn get_skills() -> Result<Vec<SkillInfo>, String> {
-    let skills = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.get_all_skills();
+fn get_skills() -> Result<Vec<SkillInfo>, AppError> {
+    let skills = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.get_all_skills();
     Ok(skills.into_iter().map(SkillInfo::from).collect())
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn get_skills_by_category(category: String) -> Result<Vec<SkillInfo>, String> {
+fn get_skills_by_category(category: String) -> Result<Vec<SkillInfo>, AppError> {
     let cat = match category.as_str() {
         "writing" => SkillCategory::Writing, "analysis" => SkillCategory::Analysis,
         "character" => SkillCategory::Character, "world_building" => SkillCategory::WorldBuilding,
@@ -1381,40 +1296,40 @@ fn get_skills_by_category(category: String) -> Result<Vec<SkillInfo>, String> {
         "export" => SkillCategory::Export, "integration" => SkillCategory::Integration,
         _ => SkillCategory::Custom,
     };
-    let skills = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.get_skills_by_category(cat);
+    let skills = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.get_skills_by_category(cat);
     Ok(skills.into_iter().map(SkillInfo::from).collect())
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn import_skill(path: String) -> Result<SkillInfo, String> {
-    let skill = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.import_skill(std::path::Path::new(&path))?;
+fn import_skill(path: String) -> Result<SkillInfo, AppError> {
+    let skill = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.import_skill(std::path::Path::new(&path))?;
     Ok(SkillInfo::from(skill))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn enable_skill(skill_id: String) -> Result<(), String> {
-    SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.enable_skill(&skill_id)
+fn enable_skill(skill_id: String) -> Result<(), AppError> {
+    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.enable_skill(&skill_id)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn disable_skill(skill_id: String) -> Result<(), String> {
-    SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.disable_skill(&skill_id)
+fn disable_skill(skill_id: String) -> Result<(), AppError> {
+    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.disable_skill(&skill_id)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn uninstall_skill(skill_id: String) -> Result<(), String> {
-    SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.uninstall_skill(&skill_id)
+fn uninstall_skill(skill_id: String) -> Result<(), AppError> {
+    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.uninstall_skill(&skill_id)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn get_skill(skill_id: String) -> Result<SkillInfo, String> {
-    let skill = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.get_skill(&skill_id);
-    skill.map(SkillInfo::from).ok_or_else(|| "Skill not found".to_string())
+fn get_skill(skill_id: String) -> Result<SkillInfo, AppError> {
+    let skill = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.get_skill(&skill_id);
+    skill.map(SkillInfo::from).ok_or_else(|| AppError::not_found("Skill", &skill_id))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn update_skill(skill_id: String, manifest: skills::SkillManifest) -> Result<(), String> {
-    SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.update_skill(&skill_id, manifest)
+fn update_skill(skill_id: String, manifest: skills::SkillManifest) -> Result<(), AppError> {
+    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.update_skill(&skill_id, manifest)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1422,7 +1337,7 @@ async fn execute_skill(
     skill_id: String,
     params: HashMap<String, serde_json::Value>,
     app_handle: AppHandle,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     let mut params = params;
     let story_id = params.remove("story_id").and_then(|v| v.as_str().map(|s| s.to_string()));
 
@@ -1463,19 +1378,21 @@ async fn execute_skill(
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
+            warnings: vec![],
+            memory_pack: None,
         }
     };
 
     // Execute skill
     let manager = {
-        let guard = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
+        let guard = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?;
         guard.clone()
     };
     
     let result = manager.execute_skill(&skill_id, &context, params).await?;
     
     if !result.success {
-        return Err(result.error.unwrap_or("Skill execution failed".to_string()));
+        return Err(AppError::internal(result.error.unwrap_or("Skill execution failed".to_string())));
     }
     
     // If LLM was already called (PromptRuntime with llm_service), return content directly
@@ -1494,7 +1411,7 @@ async fn execute_skill(
     let user_prompt = result.data.get("user_prompt").and_then(|v| v.as_str()).unwrap_or("");
     
     if system_prompt.is_empty() && user_prompt.is_empty() {
-        return Err("Skill did not produce a valid prompt".to_string());
+        return Err(AppError::internal("Skill did not produce a valid prompt"));
     }
 
     let llm_service = crate::llm::LlmService::new(app_handle);
@@ -1517,7 +1434,7 @@ async fn execute_skill(
 
 /// 使用 text_formatter skill 对文本进行智能排版
 #[tauri::command(rename_all = "snake_case")]
-async fn format_text(content: String, app: AppHandle) -> Result<String, String> {
+async fn format_text(content: String, app: AppHandle) -> Result<String, AppError> {
     let result = execute_skill(
         "builtin.text_formatter".to_string(),
         {
@@ -1531,7 +1448,7 @@ async fn format_text(content: String, app: AppHandle) -> Result<String, String> 
     result.get("content")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| "LLM returned empty content".to_string())
+        .ok_or_else(|| AppError::internal("LLM returned empty content"))
 }
 
 use tokio::sync::Mutex as TokioMutex;
@@ -1540,10 +1457,21 @@ static MCP_CONNECTIONS: Lazy<TokioMutex<HashMap<String, mcp::McpClient>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
 
 #[tauri::command(rename_all = "snake_case")]
-async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<mcp::McpTool>, String> {
+async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<mcp::McpTool>, AppError> {
     let mut client = McpClient::new(config.clone());
-    client.connect().await.map_err(|e| e.to_string())?;
+    client.connect().await.map_err(AppError::from)?;
     let tools = client.get_tools().clone();
+
+    // W4-B2: 动态注册到 CapabilityRegistry
+    {
+        let mut registry = crate::capabilities::get_capability_registry();
+        for tool in &tools {
+            let cap = crate::capabilities::Capability::from_mcp_tool(&config.id, tool);
+            registry.register(cap);
+        }
+        log::info!("[CapabilityRegistry] Registered {} MCP tools from server {}", tools.len(), config.id);
+    }
+
     let mut connections = MCP_CONNECTIONS.lock().await;
     connections.insert(config.id.clone(), client);
     log::info!("[MCP] Connected to server {} ({}), {} tools available", config.name, config.id, tools.len());
@@ -1551,25 +1479,38 @@ async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<mcp::McpTool>
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn call_mcp_tool(server_id: String, tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+async fn call_mcp_tool(server_id: String, tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, AppError> {
     let mut connections = MCP_CONNECTIONS.lock().await;
     let client = connections.get_mut(&server_id)
-        .ok_or_else(|| format!("MCP server {} not connected", server_id))?;
-    client.call_tool(&tool_name, arguments).await.map_err(|e| e.to_string())
+        .ok_or_else(|| AppError::internal(format!("MCP server {} not connected", server_id)))?;
+    client.call_tool(&tool_name, arguments).await.map_err(AppError::from)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn disconnect_mcp_server(server_id: String) -> Result<(), String> {
-    let mut connections = MCP_CONNECTIONS.lock().await;
-    if let Some(mut client) = connections.remove(&server_id) {
-        client.disconnect().await;
-        log::info!("[MCP] Disconnected from server {}", server_id);
+async fn disconnect_mcp_server(server_id: String) -> Result<(), AppError> {
+    {
+        let mut connections = MCP_CONNECTIONS.lock().await;
+        if let Some(mut client) = connections.remove(&server_id) {
+            client.disconnect().await;
+            log::info!("[MCP] Disconnected from server {}", server_id);
+        }
     }
+
+    // W4-B2: 从 CapabilityRegistry 注销该服务器的所有能力
+    {
+        let mut registry = crate::capabilities::get_capability_registry();
+        let prefix = format!("mcp.{server_id}.");
+        let removed = registry.unregister_by_prefix(&prefix);
+        if removed > 0 {
+            log::info!("[CapabilityRegistry] Unregistered {} MCP capabilities from server {}", removed, server_id);
+        }
+    }
+
     Ok(())
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, String> {
+async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, AppError> {
     let connections = MCP_CONNECTIONS.lock().await;
     let result: Vec<serde_json::Value> = connections.iter()
         .map(|(id, client)| {
@@ -1658,11 +1599,11 @@ async fn search_similar(story_id: String, query: String, top_k: Option<usize>) -
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
     
     // v5.4.0: 使用 embed_text_async 避免阻塞异步运行时
-    let query_embedding = embed_text_async(query.clone()).await.map_err(|e| e.to_string())?;
+    let query_embedding = embed_text_async(query.clone()).await.map_err(|e| crate::error::AppError::from(e).to_string())?;
     
     store.search(&story_id, query_embedding, top_k.unwrap_or(5))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1670,7 +1611,7 @@ async fn text_search_vectors(story_id: String, query: String, top_k: Option<usiz
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
     store.text_search(&story_id, &query, top_k.unwrap_or(5))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1678,11 +1619,11 @@ async fn hybrid_search_vectors(story_id: String, query: String, top_k: Option<us
     use embeddings::embed_text_async;
     
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
-    let query_embedding = embed_text_async(query.clone()).await.map_err(|e| e.to_string())?;
+    let query_embedding = embed_text_async(query.clone()).await.map_err(|e| crate::error::AppError::from(e).to_string())?;
     
     store.hybrid_search(&story_id, &query, query_embedding, top_k.unwrap_or(5))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1696,14 +1637,14 @@ async fn embed_chapter(chapter_id: String, content: String) -> Result<(), String
     let pool = get_pool().ok_or("Database not initialized")?;
     let chapter = db::ChapterRepository::new(pool)
         .get_by_id(&chapter_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
     let (story_id, chapter_number) = match chapter {
         Some(c) => (c.story_id, c.chapter_number),
         None => (String::new(), 0),
     };
 
     // v5.4.0: 使用 embed_text_async 避免阻塞异步运行时
-    let embedding = embed_text_async(content.clone()).await.map_err(|e| e.to_string())?;
+    let embedding = embed_text_async(content.clone()).await.map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     let record = VectorRecord {
         id: format!("{}", uuid::Uuid::new_v4()),
@@ -1715,7 +1656,7 @@ async fn embed_chapter(chapter_id: String, content: String) -> Result<(), String
         embedding,
     };
 
-    store.add_record(record).await.map_err(|e| e.to_string())
+    store.add_record(record).await.map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 // Intent Parser Command
@@ -2129,6 +2070,7 @@ async fn smart_execute(
             foreshadowing_status: foreshadowing_status.clone(),
             style_dna_info: style_dna_info.clone(),
             mcp_tools_available: mcp_tools_available.clone(),
+            selected_text: None,
         }).await;
         return Ok(result);
     }
@@ -2161,6 +2103,7 @@ async fn smart_execute(
         foreshadowing_status,
         style_dna_info,
         mcp_tools_available,
+        selected_text: None,
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）
@@ -2268,7 +2211,7 @@ struct LearningPoint {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn record_feedback(request: RecordFeedbackRequest) -> Result<Vec<LearningPoint>, String> {
+async fn record_feedback(request: RecordFeedbackRequest) -> Result<Vec<LearningPoint>, AppError> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let recorder = creative_engine::adaptive::FeedbackRecorder::new(pool.clone());
     let result = match request.feedback_type.as_str() {
@@ -2280,7 +2223,7 @@ async fn record_feedback(request: RecordFeedbackRequest) -> Result<Vec<LearningP
             request.final_text.as_deref().unwrap_or(""),
             request.agent_type.as_deref(),
         ),
-        _ => Err("Unknown feedback type".to_string()),
+        _ => Err(AppError::validation_failed("Unknown feedback type", None::<String>)),
     };
     
     if result.is_err() {
@@ -2465,10 +2408,10 @@ async fn execute_mcp_tool(tool_name: String, arguments: serde_json::Value) -> Re
     };
 
     let server = mcp::McpServer::new(config);
-    server.start().await.map_err(|e| e.to_string())?;
+    server.start().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     let result = server.execute_tool(&tool_name, arguments).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     Ok(result)
 }
@@ -2488,16 +2431,38 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
 
     let story = StoryRepository::new(pool.clone())
         .get_by_id(&options.story_id)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
         .ok_or("Story not found")?;
 
-    let chapters = ChapterRepository::new(pool.clone())
+    let mut chapters = ChapterRepository::new(pool.clone())
         .get_by_story(&options.story_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     let characters = CharacterRepository::new(pool.clone())
         .get_by_story(&options.story_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+
+    let scenes = SceneRepository::new(pool.clone())
+        .get_by_story(&options.story_id)
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+
+    // W4-B10: 导出聚合完整性修复 - 对 content 为空的 chapter，自动从关联 scenes 聚合内容
+    for chapter in &mut chapters {
+        if chapter.content.as_ref().map(|c| c.trim().is_empty()).unwrap_or(true) {
+            let mut chapter_scenes: Vec<&crate::db::Scene> = scenes.iter()
+                .filter(|s| s.chapter_id.as_deref() == Some(&chapter.id))
+                .collect();
+            chapter_scenes.sort_by_key(|s| s.sequence_number);
+            let aggregated = chapter_scenes.iter()
+                .filter_map(|s| s.content.as_deref())
+                .filter(|c| !c.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if !aggregated.is_empty() {
+                chapter.content = Some(aggregated);
+            }
+        }
+    }
 
     let format = match options.format.as_str() {
         "markdown" => ExportFormat::Markdown,
@@ -2526,7 +2491,7 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
         .join("exports");
 
-    std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&export_dir).map_err(|e| crate::error::AppError::from(e).to_string())?;
     let output_path = export_dir.join(&filename);
 
     let config = ExportConfig {
@@ -2540,15 +2505,15 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
     let template_content = if let Some(ref template_id) = options.template_id {
         let template_repo = db::ExportTemplateRepository::new(pool.clone());
         template_repo.get_by_id(template_id)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| crate::error::AppError::from(e).to_string())?
             .map(|t| t.template_content)
     } else {
         None
     };
 
     let exporter = StoryExporter::new();
-    exporter.export_to_file(&story, &chapters, &characters, &config, &output_path, template_content.as_deref())
-        .map_err(|e| e.to_string())?;
+    exporter.export_to_file(&story, &chapters, &characters, &scenes, &config, &output_path, template_content.as_deref())
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     Ok(ExportResult {
         file_path: output_path.to_string_lossy().to_string(),
@@ -2561,7 +2526,7 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
 async fn list_export_templates(format_filter: Option<String>) -> Result<Vec<db::ExportTemplate>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = db::ExportTemplateRepository::new(pool);
-    let templates = repo.get_all().map_err(|e| e.to_string())?;
+    let templates = repo.get_all().map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     if let Some(filter) = format_filter {
         let filtered: Vec<_> = templates.into_iter()
@@ -2583,14 +2548,14 @@ async fn save_export_template(name: String, description: Option<String>, format:
         format,
         template_content,
     };
-    repo.create(req).map_err(|e| e.to_string())
+    repo.create(req).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn delete_export_template(id: String) -> Result<(), String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = db::ExportTemplateRepository::new(pool);
-    repo.delete(&id).map_err(|e| e.to_string())?;
+    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
     Ok(())
 }
 
@@ -2598,7 +2563,7 @@ async fn delete_export_template(id: String) -> Result<(), String> {
 async fn list_ai_operations(story_id: String) -> Result<Vec<db::AiOperation>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = db::AiOperationRepository::new(pool);
-    repo.get_by_story(&story_id).map_err(|e| e.to_string())
+    repo.get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -2608,7 +2573,7 @@ async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Result<(
     let chapter_repo = ChapterRepository::new(pool.clone());
 
     let operation = op_repo.get_by_id(&operation_id)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
         .ok_or("Operation not found")?;
 
     // Only support rollback for chapter content operations that have previous_content
@@ -2620,11 +2585,11 @@ async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Result<(
 
     // Restore previous content
     chapter_repo.update(&chapter_id, None, None, Some(prev_content), None)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     // Mark operation as rolled back
     op_repo.update_status(&operation_id, "rolled_back")
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
 
     // Emit sync event
     let _ = app.emit("sync-event", serde_json::json!({
@@ -2640,28 +2605,28 @@ async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Result<(
 
 /// 通知 backstage 内容已变更
 #[tauri::command(rename_all = "snake_case")]
-fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), String> {
+fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), crate::error::AppError> {
     let event = window::BackstageEvent::ContentChanged { text, chapter_id };
     window::WindowManager::send_to_backstage(&app, event)
 }
 
 /// 通知 backstage 请求生成内容
 #[tauri::command(rename_all = "snake_case")]
-fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), String> {
+fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), crate::error::AppError> {
     let event = window::BackstageEvent::GenerationRequested { chapter_id, context };
     window::WindowManager::send_to_backstage(&app, event)
 }
 
 /// 通知 frontstage 内容已变更
 #[tauri::command(rename_all = "snake_case")]
-fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), String> {
+fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), crate::error::AppError> {
     let event = window::FrontstageEvent::ContentUpdate { text, chapter_id };
     window::WindowManager::send_to_frontstage(&app, event)
 }
 
 /// 通知 frontstage 数据已刷新（幕后创建/修改了故事、章节等）
 #[tauri::command(rename_all = "snake_case")]
-fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), String> {
+fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), crate::error::AppError> {
     let event = window::FrontstageEvent::DataRefresh { entity };
     window::WindowManager::send_to_frontstage(&app, event)
 }
@@ -2670,8 +2635,8 @@ fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), 
 #[tauri::command(rename_all = "snake_case")]
 fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String> {
     let window = if let Some(window) = app.get_webview_window("backstage") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
+        window.show().map_err(|e| crate::error::AppError::from(e).to_string())?;
+        window.set_focus().map_err(|e| crate::error::AppError::from(e).to_string())?;
         window
     } else {
         // 窗口可能被关闭，重新创建
@@ -2684,9 +2649,9 @@ fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String
         .inner_size(1200.0, 800.0)
         .center()
         .build()
-        .map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        window.show().map_err(|e| crate::error::AppError::from(e).to_string())?;
+        window.set_focus().map_err(|e| crate::error::AppError::from(e).to_string())?;
         window
     };
 
@@ -2786,7 +2751,7 @@ fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String
 
 /// 获取故事的规范状态快照
 #[tauri::command(rename_all = "snake_case")]
-async fn get_canonical_state(story_id: String) -> Result<canonical_state::CanonicalStateSnapshot, String> {
+async fn get_canonical_state(story_id: String) -> Result<canonical_state::CanonicalStateSnapshot, AppError> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let manager = canonical_state::CanonicalStateManager::new(pool);
     manager.get_snapshot(&story_id).await
@@ -2870,7 +2835,7 @@ fn register_workflow(
     workflow: workflow::Workflow,
     engine: tauri::State<'_, std::sync::Arc<workflow::WorkflowEngine>>,
 ) -> Result<(), String> {
-    engine.register_workflow(workflow).map_err(|e| e.to_string())
+    engine.register_workflow(workflow).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 /// 创建工作流实例
@@ -2882,7 +2847,7 @@ fn create_workflow_instance(
     engine: tauri::State<'_, std::sync::Arc<workflow::WorkflowEngine>>,
 ) -> Result<workflow::WorkflowInstance, String> {
     engine.create_instance(&workflow_id, &story_id, initial_context)
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 /// 启动工作流实例（加入执行队列并异步执行）
@@ -2894,7 +2859,7 @@ async fn start_workflow_instance(
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     // Mark instance as started
-    engine.start_instance(&instance_id).map_err(|e| e.to_string())?;
+    engine.start_instance(&instance_id).map_err(|e| crate::error::AppError::from(e).to_string())?;
     
     // Clone needed data for the spawned task
     let scheduler_clone = std::sync::Arc::clone(&scheduler);
@@ -2941,7 +2906,7 @@ fn list_workflows(
 fn reload_workflows(
     loader: tauri::State<'_, workflow::WorkflowLoader>,
 ) -> Result<usize, String> {
-    loader.reload_all().map_err(|e| e.to_string())
+    loader.reload_all().map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 // ===== 模型驱动的智能编排命令 =====
@@ -2967,7 +2932,7 @@ async fn analyze_story_structure(
     let report = tokio::task::spawn_blocking(move || analyzer.analyze())
         .await
         .map_err(|e| format!("分析任务执行失败: {}", e))?
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::error::AppError::from(e).to_string())?;
     
     // 发射完成事件
     let _ = app_handle.emit("analysis-completed", serde_json::json!({
@@ -3086,6 +3051,7 @@ async fn apply_chapter_commit(
     entity_deltas_json: String,
     summary_text: String,
     dominant_strand: String,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let service = story_system::ChapterCommitService::new(pool);
@@ -3094,7 +3060,7 @@ async fn apply_chapter_commit(
         &commit_id, &outline_snapshot_json, &review_result_json,
         &fulfillment_result_json, &accepted_events_json, &state_deltas_json,
         &entity_deltas_json, &summary_text, &dominant_strand,
-        store
+        None, Some(app_handle), store
     ).await
 }
 
@@ -3102,7 +3068,7 @@ async fn apply_chapter_commit(
 fn get_chapter_commits(story_id: String) -> Result<Vec<crate::db::ChapterCommit>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = crate::db::ChapterCommitRepository::new(pool);
-    repo.get_by_story(&story_id).map_err(|e| e.to_string())
+    repo.get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 // ==================== v6.0.0: Memory Commands ====================
@@ -3124,7 +3090,7 @@ fn build_memory_pack(
 fn get_memory_items(story_id: String) -> Result<Vec<crate::db::MemoryItem>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = crate::db::MemoryItemRepository::new(pool);
-    repo.get_active_by_story(&story_id).map_err(|e| e.to_string())
+    repo.get_active_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -3141,7 +3107,7 @@ fn create_memory_item(
     let repo = crate::db::MemoryItemRepository::new(pool);
     repo.create(&story_id, &category, subject.as_deref(), field.as_deref(),
         value.as_deref(), source_chapter, confidence
-    ).map_err(|e| e.to_string())
+    ).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 // ==================== v6.0.0: Reading Power Commands ====================
@@ -3170,7 +3136,7 @@ fn get_reading_power_trend(
 fn get_chase_debts(story_id: String) -> Result<Vec<crate::db::ChaseDebt>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = crate::db::ChaseDebtRepository::new(pool);
-    repo.get_active_by_story(&story_id).map_err(|e| e.to_string())
+    repo.get_active_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -3198,14 +3164,14 @@ fn create_override_contract(
 fn get_genre_profiles() -> Result<Vec<crate::db::GenreProfile>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = crate::db::GenreProfileRepository::new(pool);
-    repo.get_all().map_err(|e| e.to_string())
+    repo.get_all().map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 fn get_genre_profile(genre_name: String) -> Result<Option<crate::db::GenreProfile>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     let repo = crate::db::GenreProfileRepository::new(pool);
-    repo.get_by_name(&genre_name).map_err(|e| e.to_string())
+    repo.get_by_name(&genre_name).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -3233,9 +3199,9 @@ fn save_genre_profile(
             pacing_strategy.as_deref(),
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
-        ).map_err(|e| e.to_string())?;
+        ).map_err(|e| crate::error::AppError::from(e).to_string())?;
         repo.get_by_id(&existing_id)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| crate::error::AppError::from(e).to_string())?
             .ok_or_else(|| "更新后未找到记录".to_string())
     } else {
         // 创建新记录（is_builtin = 0）
@@ -3247,7 +3213,7 @@ fn save_genre_profile(
             pacing_strategy.as_deref(),
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
-        ).map_err(|e| e.to_string())
+        ).map_err(|e| crate::error::AppError::from(e).to_string())
     }
 }
 
@@ -3261,7 +3227,7 @@ fn delete_genre_profile(id: String) -> Result<usize, String> {
             return Err("内置体裁不可删除".to_string());
         }
     }
-    repo.delete(&id).map_err(|e| e.to_string())
+    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 // ==================== v6.0.0: Anti-AI Review Command ====================
@@ -3283,7 +3249,7 @@ fn get_feature_usage_stats(
 ) -> Result<Vec<crate::telemetry::FeatureUsageStat>, String> {
     let pool = get_pool().ok_or("Database not initialized")?;
     crate::telemetry::get_feature_usage_stats(&pool, days)
-        .map_err(|e| e.to_string())
+        .map_err(|e| crate::error::AppError::from(e).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

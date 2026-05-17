@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import type { CommentThread, CommentMessage, CommentThreadWithMessages } from '@/types/v3';
 
 const COMMENT_THREADS_KEY = 'commentThreads';
@@ -12,10 +12,10 @@ export function useCommentThreads(
     queryKey: [COMMENT_THREADS_KEY, sceneId, chapterId],
     queryFn: () => {
       if (sceneId) {
-        return invoke<CommentThreadWithMessages[]>('get_comment_threads', { scene_id: sceneId });
+        return loggedInvoke<CommentThreadWithMessages[]>('get_comment_threads', { scene_id: sceneId });
       }
       if (chapterId) {
-        return invoke<CommentThreadWithMessages[]>('get_comment_threads', { chapter_id: chapterId });
+        return loggedInvoke<CommentThreadWithMessages[]>('get_comment_threads', { chapter_id: chapterId });
       }
       return Promise.resolve([]);
     },
@@ -36,7 +36,7 @@ export function useCreateCommentThread() {
     selectedText?: string;
   }>({
     mutationFn: ({ versionId, anchorType, sceneId, chapterId, fromPos, toPos, selectedText }) =>
-      invoke<CommentThread>('create_comment_thread', {
+      loggedInvoke<CommentThread>('create_comment_thread', {
         version_id: versionId ?? null,
         anchor_type: anchorType,
         scene_id: sceneId ?? null,
@@ -62,7 +62,7 @@ export function useAddCommentMessage() {
     chapterId?: string;
   }>({
     mutationFn: ({ threadId, content, authorId }) =>
-      invoke<CommentMessage>('add_comment_message', {
+      loggedInvoke<CommentMessage>('add_comment_message', {
         thread_id: threadId,
         content,
         author_id: authorId,
@@ -81,7 +81,7 @@ export function useResolveCommentThread() {
     sceneId?: string;
     chapterId?: string;
   }>({
-    mutationFn: ({ threadId }) => invoke<number>('resolve_comment_thread', { thread_id: threadId }),
+    mutationFn: ({ threadId }) => loggedInvoke<number>('resolve_comment_thread', { thread_id: threadId }),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [COMMENT_THREADS_KEY, vars.sceneId, vars.chapterId] });
     },
@@ -96,7 +96,7 @@ export function useReopenCommentThread() {
     sceneId?: string;
     chapterId?: string;
   }>({
-    mutationFn: ({ threadId }) => invoke<number>('reopen_comment_thread', { thread_id: threadId }),
+    mutationFn: ({ threadId }) => loggedInvoke<number>('reopen_comment_thread', { thread_id: threadId }),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [COMMENT_THREADS_KEY, vars.sceneId, vars.chapterId] });
     },
@@ -111,7 +111,7 @@ export function useDeleteCommentThread() {
     sceneId?: string;
     chapterId?: string;
   }>({
-    mutationFn: ({ threadId }) => invoke<number>('delete_comment_thread', { thread_id: threadId }),
+    mutationFn: ({ threadId }) => loggedInvoke<number>('delete_comment_thread', { thread_id: threadId }),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: [COMMENT_THREADS_KEY, vars.sceneId, vars.chapterId] });
     },

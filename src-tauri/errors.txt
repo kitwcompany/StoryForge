@@ -1,0 +1,428 @@
+warning: F:\mywork\CINEMA-AI\v2-rust\src-tauri\Cargo.toml: unused manifest key: env
+help: env is a valid .cargo/config.toml key
+    Checking storyforge v7.0.0 (F:\mywork\CINEMA-AI\v2-rust\src-tauri)
+warning: unused imports: `MEMORY_PRIORITY`, `MemoryBudget`, `MemoryEntry`, `MemoryItemDto`, `MemoryStats`, and `MemoryWarning`
+  --> src-tauri\src\memory\mod.rs:24:37
+   |
+24 |     MemoryOrchestrator, MemoryPack, MemoryEntry, MemoryItemDto,
+   |                                     ^^^^^^^^^^^  ^^^^^^^^^^^^^
+25 |     MemoryWarning, MemoryStats, MemoryBudget, MEMORY_PRIORITY,
+   |     ^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `PostProcessRepository`
+ --> src-tauri\src\pipeline\post_process.rs:2:25
+  |
+2 | use crate::db::{DbPool, PostProcessRepository, BlueprintRepository, CharacterRepository, CharacterState};
+  |                         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `types::*`
+ --> src-tauri\src\pipeline\mod.rs:9:9
+  |
+9 | pub use types::*;
+  |         ^^^^^^^^
+
+warning: unused import: `run_post_process`
+  --> src-tauri\src\pipeline\mod.rs:13:46
+   |
+13 | pub use post_process::{build_finalize_steps, run_post_process, run_post_process_step};
+   |                                              ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PostProcessStatus`, `PostProcessStep`, and `StepStatus`
+  --> src-tauri\src\pipeline\mod.rs:15:140
+   |
+15 | ...ReviewRepository, PostProcessRepository, PostProcessStatus, PostProcessStep, StepStatus};
+   |                                             ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused import: `crate::llm::LlmService`
+  --> src-tauri\src\pipeline\mod.rs:17:5
+   |
+17 | use crate::llm::LlmService;
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `tauri::AppHandle`
+  --> src-tauri\src\pipeline\mod.rs:18:5
+   |
+18 | use tauri::AppHandle;
+   |     ^^^^^^^^^^^^^^^^
+
+warning: unused import: `SearchResult`
+ --> src-tauri\src\knowledge_base\mod.rs:3:53
+  |
+3 | use crate::vector::{LanceVectorStore, VectorRecord, SearchResult};
+  |                                                     ^^^^^^^^^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> src-tauri\src\knowledge_base\mod.rs:5:5
+  |
+5 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+warning: unused import: `service::AutomationService`
+ --> src-tauri\src\automation\mod.rs:6:9
+  |
+6 | pub use service::AutomationService;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AutomationTrigger`, `TriggerCondition`, and `TriggerEvent`
+ --> src-tauri\src\automation\mod.rs:7:20
+  |
+7 | pub use triggers::{AutomationTrigger, TriggerEvent, TriggerCondition};
+  |                    ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AutomationHandler` and `HandlerAction`
+ --> src-tauri\src\automation\mod.rs:8:20
+  |
+8 | pub use handlers::{AutomationHandler, HandlerAction};
+  |                    ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused imports: `Deserialize` and `Serialize`
+ --> src-tauri\src\story_system\contract_builder.rs:5:13
+  |
+5 | use serde::{Deserialize, Serialize};
+  |             ^^^^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `ContractType`
+ --> src-tauri\src\story_system\preflight.rs:5:32
+  |
+5 | use super::{StorySystemEngine, ContractType};
+  |                                ^^^^^^^^^^^^
+
+warning: unused import: `Serialize`
+  --> src-tauri\src\story_system\projection_writers.rs:14:26
+   |
+14 | use serde::{Deserialize, Serialize};
+   |                          ^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\agents\context_optimizer.rs:814:13
+    |
+814 |         let mut issues: Vec<String> = Vec::new();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+error[E0308]: mismatched types
+   --> src-tauri\src\planner\executor.rs:612:47
+    |
+612 |             return Err(result.error.unwrap_or(AppError::internal("Skill execution failed")));
+    |                                     --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `AppError`
+    |                                     |
+    |                                     arguments to this method are incorrect
+    |
+help: the return type of this call is `AppError` due to the type of the argument passed
+   --> src-tauri\src\planner\executor.rs:612:24
+    |
+612 |             return Err(result.error.unwrap_or(AppError::internal("Skill execution failed")));
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^--------------------------------------------^
+    |                                               |
+    |                                               this argument influences the return type of `unwrap_or`
+note: method defined here
+   --> /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\core\src\option.rs:1038:17
+help: try using a conversion method
+    |
+612 |             return Err(result.error.unwrap_or(AppError::internal("Skill execution failed").to_string()));
+    |                                                                                           ++++++++++++
+
+error[E0308]: mismatched types
+   --> src-tauri\src\planner\executor.rs:612:24
+    |
+612 |             return Err(result.error.unwrap_or(AppError::internal("Skill execution failed")));
+    |                    --- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `AppError`, found `String`
+    |                    |
+    |                    arguments to this enum variant are incorrect
+    |
+help: the type constructed contains `std::string::String` due to the type of the argument passed
+   --> src-tauri\src\planner\executor.rs:612:20
+    |
+612 |             return Err(result.error.unwrap_or(AppError::internal("Skill execution failed")));
+    |                    ^^^^--------------------------------------------------------------------^
+    |                        |
+    |                        this argument influences the type of `Err`
+note: tuple variant defined here
+   --> /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\core\src\result.rs:566:4
+help: try wrapping the expression in a variant of `AppError`
+    |
+612 |             return Err(error::AppError::DbLocked { message: result.error.unwrap_or(AppError::internal("Skill execution failed")) });
+    |                        ++++++++++++++++++++++++++++++++++++                                                                      +
+612 |             return Err(error::AppError::NetworkOffline { message: result.error.unwrap_or(AppError::internal("Skill execution failed")) });
+    |                        ++++++++++++++++++++++++++++++++++++++++++                                                                      +
+612 |             return Err(error::AppError::Cancellation { message: result.error.unwrap_or(AppError::internal("Skill execution failed")) });
+    |                        ++++++++++++++++++++++++++++++++++++++++                                                                      +
+612 |             return Err(error::AppError::Internal { message: result.error.unwrap_or(AppError::internal("Skill execution failed")) });
+    |                        ++++++++++++++++++++++++++++++++++++                                                                      +
+
+error[E0308]: mismatched types
+  --> src-tauri\src\audit\commands.rs:16:5
+   |
+16 |     service.audit_scene(&scene_id, &audit_type, Some(&app_handle)).await
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<AuditReport, String>`, found `Result<AuditReport, AppError>`
+   |
+   = note: expected enum `Result<_, std::string::String>`
+              found enum `Result<_, AppError>`
+
+error[E0308]: mismatched types
+    --> src-tauri\src\lib.rs:1482:20
+     |
+1482 |         return Err(result.error.unwrap_or("Skill execution failed".to_string()));
+     |                --- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `AppError`, found `String`
+     |                |
+     |                arguments to this enum variant are incorrect
+     |
+help: the type constructed contains `std::string::String` due to the type of the argument passed
+    --> src-tauri\src\lib.rs:1482:16
+     |
+1482 |         return Err(result.error.unwrap_or("Skill execution failed".to_string()));
+     |                ^^^^------------------------------------------------------------^
+     |                    |
+     |                    this argument influences the type of `Err`
+note: tuple variant defined here
+    --> /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\core\src\result.rs:566:4
+help: try wrapping the expression in a variant of `AppError`
+     |
+1482 |         return Err(error::AppError::DbLocked { message: result.error.unwrap_or("Skill execution failed".to_string()) });
+     |                    ++++++++++++++++++++++++++++++++++++                                                              +
+1482 |         return Err(error::AppError::NetworkOffline { message: result.error.unwrap_or("Skill execution failed".to_string()) });
+     |                    ++++++++++++++++++++++++++++++++++++++++++                                                              +
+1482 |         return Err(error::AppError::Cancellation { message: result.error.unwrap_or("Skill execution failed".to_string()) });
+     |                    ++++++++++++++++++++++++++++++++++++++++                                                              +
+1482 |         return Err(error::AppError::Internal { message: result.error.unwrap_or("Skill execution failed".to_string()) });
+     |                    ++++++++++++++++++++++++++++++++++++                                                              +
+
+error[E0308]: mismatched types
+    --> src-tauri\src\lib.rs:1501:20
+     |
+1501 |         return Err("Skill did not produce a valid prompt".to_string());
+     |                --- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `AppError`, found `String`
+     |                |
+     |                arguments to this enum variant are incorrect
+     |
+help: the type constructed contains `std::string::String` due to the type of the argument passed
+    --> src-tauri\src\lib.rs:1501:16
+     |
+1501 |         return Err("Skill did not produce a valid prompt".to_string());
+     |                ^^^^--------------------------------------------------^
+     |                    |
+     |                    this argument influences the type of `Err`
+note: tuple variant defined here
+    --> /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\core\src\result.rs:566:4
+help: try wrapping the expression in a variant of `AppError`
+     |
+1501 |         return Err(error::AppError::DbLocked { message: "Skill did not produce a valid prompt".to_string() });
+     |                    ++++++++++++++++++++++++++++++++++++                                                    +
+1501 |         return Err(error::AppError::NetworkOffline { message: "Skill did not produce a valid prompt".to_string() });
+     |                    ++++++++++++++++++++++++++++++++++++++++++                                                    +
+1501 |         return Err(error::AppError::Cancellation { message: "Skill did not produce a valid prompt".to_string() });
+     |                    ++++++++++++++++++++++++++++++++++++++++                                                    +
+1501 |         return Err(error::AppError::Internal { message: "Skill did not produce a valid prompt".to_string() });
+     |                    ++++++++++++++++++++++++++++++++++++                                                    +
+
+error[E0277]: `?` couldn't convert the error to `std::string::String`
+    --> src-tauri\src\lib.rs:1533:12
+     |
+1525 |       let result = execute_skill(
+     |  __________________-
+1526 | |         "builtin.text_formatter".to_string(),
+1527 | |         {
+1528 | |             let mut p = HashMap::new();
+...    |
+1532 | |         app,
+1533 | |     ).await?;
+     | |           -^ the trait `std::convert::From<AppError>` is not implemented for `std::string::String`
+     | |___________|
+     |             this can't be annotated with `?` because it has type `Result<_, AppError>`
+     |
+note: `AppError` needs to implement `Into<std::string::String>`
+    --> src-tauri\src\error.rs:13:1
+     |
+  13 | pub enum AppError {
+     | ^^^^^^^^^^^^^^^^^
+     = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+     = help: the following other types implement trait `std::convert::From<T>`:
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+               `std::string::String` implements `std::convert::From<&mut str>`
+               `std::string::String` implements `std::convert::From<&std::string::String>`
+               `std::string::String` implements `std::convert::From<&str>`
+               `std::string::String` implements `std::convert::From<AssetKey>`
+             and 22 others
+
+error[E0308]: mismatched types
+  --> src-tauri\src\creative_engine\payoff_ledger.rs:37:22
+   |
+37 |             _ => Err(AppError::internal(format!("Unknown scope type: {}", s))),
+   |                  --- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `AppError`
+   |                  |
+   |                  arguments to this enum variant are incorrect
+   |
+help: the type constructed contains `AppError` due to the type of the argument passed
+  --> src-tauri\src\creative_engine\payoff_ledger.rs:37:18
+   |
+37 |             _ => Err(AppError::internal(format!("Unknown scope type: {}", s))),
+   |                  ^^^^--------------------------------------------------------^
+   |                      |
+   |                      this argument influences the type of `Err`
+note: tuple variant defined here
+  --> /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\core\src\result.rs:566:4
+help: try using a conversion method
+   |
+37 |             _ => Err(AppError::internal(format!("Unknown scope type: {}", s)).to_string()),
+   |                                                                              ++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `std::string::String`
+   --> src-tauri\src\canonical_state\manager.rs:311:48
+    |
+311 |         let items = ledger.get_ledger(story_id)?;
+    |                            --------------------^ the trait `std::convert::From<AppError>` is not implemented for `std::string::String`
+    |                            |
+    |                            this can't be annotated with `?` because it has type `Result<_, AppError>`
+    |
+note: `AppError` needs to implement `Into<std::string::String>`
+   --> src-tauri\src\error.rs:13:1
+    |
+ 13 | pub enum AppError {
+    | ^^^^^^^^^^^^^^^^^
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `std::convert::From<T>`:
+              `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+              `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+              `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+              `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+              `std::string::String` implements `std::convert::From<&mut str>`
+              `std::string::String` implements `std::convert::From<&std::string::String>`
+              `std::string::String` implements `std::convert::From<&str>`
+              `std::string::String` implements `std::convert::From<AssetKey>`
+            and 22 others
+
+error[E0277]: `?` couldn't convert the error to `std::string::String`
+    --> src-tauri\src\lib.rs:1373:89
+     |
+1372 | fn get_skills() -> Result<Vec<SkillInfo>, String> {
+     |                    ------------------------------ expected `std::string::String` because of this
+1373 |     let skills = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppErro...
+     |                                      ---------------------------------------------------^ the trait `std::convert::From<AppError>` is not implemented for `std::string::String`
+     |                                      |
+     |                                      this can't be annotated with `?` because it has type `Result<_, AppError>`
+     |
+note: `AppError` needs to implement `Into<std::string::String>`
+    --> src-tauri\src\error.rs:13:1
+     |
+  13 | pub enum AppError {
+     | ^^^^^^^^^^^^^^^^^
+     = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+     = help: the following other types implement trait `std::convert::From<T>`:
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+               `std::string::String` implements `std::convert::From<&mut str>`
+               `std::string::String` implements `std::convert::From<&std::string::String>`
+               `std::string::String` implements `std::convert::From<&str>`
+               `std::string::String` implements `std::convert::From<AssetKey>`
+             and 22 others
+
+error[E0277]: `?` couldn't convert the error to `std::string::String`
+    --> src-tauri\src\lib.rs:1386:89
+     |
+1378 | ...kills_by_category(category: String) -> Result<Vec<SkillInfo>, String> {
+     |                                           ------------------------------ expected `std::string::String` because of this
+...
+1386 | ...skills = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::fr...
+     |                                 ---------------------------------------------------^ the trait `std::convert::From<AppError>` is not implemented for `std::string::String`
+     |                                 |
+     |                                 this can't be annotated with `?` because it has type `Result<_, AppError>`
+     |
+note: `AppError` needs to implement `Into<std::string::String>`
+    --> src-tauri\src\error.rs:13:1
+     |
+  13 | pub enum AppError {
+     | ^^^^^^^^^^^^^^^^^
+     = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+     = help: the following other types implement trait `std::convert::From<T>`:
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_domain::CookieDomain>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+               `std::string::String` implements `std::convert::From<&cookie_store::cookie_path::CookiePath>`
+               `std::string::String` implements `std::convert::From<&mut str>`
+               `std::string::String` implements `std::convert::From<&std::string::String>`
+               `std::string::String` implements `std::convert::From<&str>`
+               `std::string::String` implements `std::convert::From<AssetKey>`
+             and 22 others
+
+warning: unused variable: `base`
+   --> src-tauri\src\creative_engine\style\evolution.rs:105:9
+    |
+105 |         base: &StyleDNA,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_base`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `story_id`
+   --> src-tauri\src\story_system\projection_writers.rs:291:9
+    |
+291 |         story_id: &str,
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_story_id`
+
+warning: unused variable: `embedding`
+   --> src-tauri\src\story_system\projection_writers.rs:310:13
+    |
+310 |         let embedding = match crate::embeddings::embedding::embed_text(&text) {
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_embedding`
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\anti_ai\mod.rs:155:13
+    |
+155 |         let mut flagged = Vec::new();
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\anti_ai\mod.rs:237:13
+    |
+237 |         let mut flagged = Vec::new();
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\anti_ai\mod.rs:238:13
+    |
+238 |         let mut suggestions = Vec::new();
+    |             ----^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\anti_ai\mod.rs:303:13
+    |
+303 |         let mut flagged = Vec::new();
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\anti_ai\mod.rs:441:13
+    |
+441 |         let mut flagged = Vec::new();
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src-tauri\src\anti_ai\mod.rs:442:13
+    |
+442 |         let mut suggestions = Vec::new();
+    |             ----^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+Some errors have detailed explanations: E0277, E0308.
+For more information about an error, try `rustc --explain E0277`.
+warning: `storyforge` (lib) generated 25 warnings
+error: could not compile `storyforge` (lib) due to 10 previous errors; 25 warnings emitted

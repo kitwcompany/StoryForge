@@ -28,13 +28,14 @@ impl NarrativeCharacterRepository {
         conn.execute(
             "INSERT INTO narrative_characters (
                 id, story_id, name, role_type, personality, background, goals, appearance,
-                gender, age, importance_score, source, source_ref_id, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)",
+                gender, age, importance_score, source, source_ref_id, status, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
             params![
                 character.id, character.story_id, character.name, character.role_type,
                 character.personality, character.background, character.goals, character.appearance,
                 character.gender, character.age, character.importance_score,
-                format!("{}", character.source), character.source_ref_id, now
+                format!("{}", character.source), character.source_ref_id,
+                format!("{}", character.status), now
             ],
         )?;
 
@@ -45,7 +46,7 @@ impl NarrativeCharacterRepository {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, role_type, personality, background, goals, appearance,
-                    gender, age, importance_score, source, source_ref_id
+                    gender, age, importance_score, source, source_ref_id, status
              FROM narrative_characters WHERE story_id = ?1 ORDER BY importance_score DESC"
         )?;
 
@@ -66,6 +67,7 @@ impl NarrativeCharacterRepository {
                 importance_score: row.get(10)?,
                 source: parse_source(&row.get::<_, String>(11).unwrap_or_default()),
                 source_ref_id: row.get(12)?,
+                status: parse_status(&row.get::<_, String>(13).unwrap_or_default()),
                 relationships: Vec::new(),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
@@ -117,13 +119,14 @@ impl NarrativeSceneRepository {
             "INSERT INTO narrative_scenes (
                 id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
                 conflict_type, characters_present, setting_location, setting_time, content,
-                source, source_ref_id, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
+                source, source_ref_id, status, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)",
             params![
                 scene.id, scene.story_id, scene.sequence_number, scene.title, scene.summary,
                 scene.dramatic_goal, scene.external_pressure, scene.conflict_type, chars_present_json,
                 scene.setting_location, scene.setting_time, scene.content,
-                format!("{}", scene.source), scene.source_ref_id, now
+                format!("{}", scene.source), scene.source_ref_id,
+                format!("{}", scene.status), now
             ],
         )?;
 
@@ -135,7 +138,7 @@ impl NarrativeSceneRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
                     conflict_type, characters_present, setting_location, setting_time, content,
-                    source, source_ref_id
+                    source, source_ref_id, status
              FROM narrative_scenes WHERE story_id = ?1 ORDER BY sequence_number"
         )?;
 
@@ -158,6 +161,7 @@ impl NarrativeSceneRepository {
                 content: row.get(11)?,
                 source: parse_source(&row.get::<_, String>(12).unwrap_or_default()),
                 source_ref_id: row.get(13)?,
+                status: parse_status(&row.get::<_, String>(14).unwrap_or_default()),
             })
         })?;
 
@@ -185,11 +189,12 @@ impl NarrativeWorldBuildingRepository {
         conn.execute(
             "INSERT INTO narrative_world_buildings (
                 id, story_id, concept, rules, history, key_locations, power_system,
-                source, source_ref_id, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+                source, source_ref_id, status, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
             params![
                 wb.id, wb.story_id, wb.concept, rules_json, wb.history, locations_json,
-                wb.power_system, format!("{}", wb.source), wb.source_ref_id, now
+                wb.power_system, format!("{}", wb.source), wb.source_ref_id,
+                format!("{}", wb.status), now
             ],
         )?;
 
@@ -200,7 +205,7 @@ impl NarrativeWorldBuildingRepository {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, concept, rules, history, key_locations, power_system,
-                    source, source_ref_id
+                    source, source_ref_id, status
              FROM narrative_world_buildings WHERE story_id = ?1"
         )?;
 
@@ -220,6 +225,7 @@ impl NarrativeWorldBuildingRepository {
                 power_system: row.get(6)?,
                 source: parse_source(&row.get::<_, String>(7).unwrap_or_default()),
                 source_ref_id: row.get(8)?,
+                status: parse_status(&row.get::<_, String>(9).unwrap_or_default()),
             })
         })?;
 
@@ -236,5 +242,15 @@ fn parse_source(s: &str) -> ElementSource {
         "user_created" => ElementSource::UserCreated,
         "imported" => ElementSource::Imported,
         _ => ElementSource::UserCreated,
+    }
+}
+
+fn parse_status(s: &str) -> crate::narrative::elements::ElementStatus {
+    use crate::narrative::elements::ElementStatus;
+    match s {
+        "active" => ElementStatus::Active,
+        "reference" => ElementStatus::Reference,
+        "archived" => ElementStatus::Archived,
+        _ => ElementStatus::Active,
     }
 }

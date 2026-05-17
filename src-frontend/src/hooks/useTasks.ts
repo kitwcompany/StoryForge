@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 
 export interface Task {
   id: string;
@@ -59,7 +59,7 @@ export function useTasks(statusFilter?: string) {
   return useQuery({
     queryKey: [TASKS_KEY, statusFilter],
     queryFn: async () => {
-      return invoke<Task[]>('list_tasks', { status_filter: statusFilter || null });
+      return loggedInvoke<Task[]>('list_tasks', { status_filter: statusFilter || null });
     },
     refetchInterval: 5000, // 每5秒轮询
   });
@@ -69,7 +69,7 @@ export function useCreateTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: CreateTaskInput) => {
-      return invoke<Task>('create_task', {
+      return loggedInvoke<Task>('create_task', {
         name: input.name,
         description: input.description,
         task_type: input.task_type,
@@ -91,7 +91,7 @@ export function useUpdateTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input: UpdateTaskInput }) => {
-      return invoke<Task>('update_task', {
+      return loggedInvoke<Task>('update_task', {
         id,
         name: input.name,
         description: input.description,
@@ -111,7 +111,7 @@ export function useDeleteTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      return invoke<void>('delete_task', { id });
+      return loggedInvoke<void>('delete_task', { id });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [TASKS_KEY] });
@@ -123,7 +123,7 @@ export function useTriggerTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      return invoke<void>('trigger_task', { id });
+      return loggedInvoke<void>('trigger_task', { id });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [TASKS_KEY] });
@@ -135,7 +135,7 @@ export function useCancelTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      return invoke<void>('cancel_task', { id });
+      return loggedInvoke<void>('cancel_task', { id });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [TASKS_KEY] });
@@ -148,7 +148,7 @@ export function useTaskLogs(taskId?: string) {
     queryKey: ['task_logs', taskId],
     queryFn: async () => {
       if (!taskId) return [];
-      return invoke<TaskLog[]>('get_task_logs', { task_id: taskId });
+      return loggedInvoke<TaskLog[]>('get_task_logs', { task_id: taskId });
     },
     enabled: !!taskId,
   });

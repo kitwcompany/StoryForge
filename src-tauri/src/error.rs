@@ -1,0 +1,302 @@
+//! AppError - 统一错误枚举
+//!
+//! W2-B8: 取代遍布代码库的 `Result<T, String>`，提供结构化错误信息。
+//! 前端根据 `code` 渲染不同恢复 UI。
+
+use serde::{Deserialize, Serialize};
+
+/// 应用级错误枚举
+///
+/// 每个变体对应一种可恢复或不可恢复的错误场景，携带结构化上下文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "code", content = "data")]
+pub enum AppError {
+    /// 配额不足
+    QuotaExceeded {
+        message: String,
+        quota_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        remaining: Option<i32>,
+    },
+    /// LLM 调用超时
+    LlmTimeout {
+        message: String,
+        elapsed_ms: u64,
+    },
+    /// 数据库锁定（并发写入冲突）
+    DbLocked {
+        message: String,
+    },
+    /// 上下文不可用（StoryContextBuilder 空返回等）
+    ContextUnavailable {
+        message: String,
+        context_type: String,
+    },
+    /// 输入验证失败
+    ValidationFailed {
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        field: Option<String>,
+    },
+    /// 网络离线（平台模型不可用时）
+    NetworkOffline {
+        message: String,
+    },
+    /// 操作被取消
+    Cancellation {
+        message: String,
+    },
+    /// 资源未找到
+    NotFound {
+        resource: String,
+        id: String,
+    },
+    /// 内部错误（兜底）
+    Internal {
+        message: String,
+    },
+}
+
+impl AppError {
+    /// 错误代码（前端用于路由恢复 UI）
+    pub fn code(&self) -> &'static str {
+        match self {
+            AppError::QuotaExceeded { .. } => "QUOTA_EXCEEDED",
+            AppError::LlmTimeout { .. } => "LLM_TIMEOUT",
+            AppError::DbLocked { .. } => "DB_LOCKED",
+            AppError::ContextUnavailable { .. } => "CONTEXT_UNAVAILABLE",
+            AppError::ValidationFailed { .. } => "VALIDATION_FAILED",
+            AppError::NetworkOffline { .. } => "NETWORK_OFFLINE",
+            AppError::Cancellation { .. } => "CANCELLATION",
+            AppError::NotFound { .. } => "NOT_FOUND",
+            AppError::Internal { .. } => "INTERNAL_ERROR",
+        }
+    }
+
+    /// 人类可读的错误消息
+    pub fn message(&self) -> String {
+        match self {
+            AppError::QuotaExceeded { message, .. } => message.clone(),
+            AppError::LlmTimeout { message, .. } => message.clone(),
+            AppError::DbLocked { message } => message.clone(),
+            AppError::ContextUnavailable { message, .. } => message.clone(),
+            AppError::ValidationFailed { message, .. } => message.clone(),
+            AppError::NetworkOffline { message } => message.clone(),
+            AppError::Cancellation { message } => message.clone(),
+            AppError::NotFound { resource, id } => format!("{} '{}' not found", resource, id),
+            AppError::Internal { message } => message.clone(),
+        }
+    }
+
+    /// 构造 IPC 响应对象
+    pub fn to_response(&self) -> ErrorResponse {
+        ErrorResponse {
+            code: self.code().to_string(),
+            message: self.message(),
+            data: None,
+        }
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code(), self.message())
+    }
+}
+
+impl std::error::Error for AppError {}
+
+// ==================== 兼容转换（过渡期） ====================
+
+impl From<String> for AppError {
+    fn from(msg: String) -> Self {
+        AppError::Internal { message: msg }
+    }
+}
+
+impl From<&str> for AppError {
+    fn from(msg: &str) -> Self {
+        AppError::Internal { message: msg.to_string() }
+    }
+}
+
+impl From<rusqlite::Error> for AppError {
+    fn from(err: rusqlite::Error) -> Self {
+        let msg = err.to_string();
+        if msg.contains("database is locked") {
+            AppError::DbLocked { message: msg }
+        } else {
+            AppError::Internal { message: msg }
+        }
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        AppError::Internal {
+            message: format!("JSON error: {}", err),
+        }
+    }
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::Internal {
+            message: format!("IO error: {}", err),
+        }
+    }
+}
+
+impl From<reqwest::Error> for AppError {
+    fn from(err: reqwest::Error) -> Self {
+        AppError::Internal {
+            message: format!("HTTP error: {}", err),
+        }
+    }
+}
+
+impl From<r2d2::Error> for AppError {
+    fn from(err: r2d2::Error) -> Self {
+        AppError::Internal {
+            message: format!("Connection pool error: {}", err),
+        }
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for AppError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        AppError::Internal {
+            message: format!("Error: {}", err),
+        }
+    }
+}
+
+impl From<Box<dyn std::error::Error + Send + Sync>> for AppError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        AppError::Internal {
+            message: format!("Error: {}", err),
+        }
+    }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for AppError {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        AppError::Internal {
+            message: format!("Lock poisoned: {}", err),
+        }
+    }
+}
+
+impl From<tauri::Error> for AppError {
+    fn from(err: tauri::Error) -> Self {
+        AppError::Internal {
+            message: format!("Tauri error: {}", err),
+        }
+    }
+}
+
+impl From<crate::book_deconstruction::models::ParseError> for AppError {
+    fn from(err: crate::book_deconstruction::models::ParseError) -> Self {
+        AppError::Internal {
+            message: format!("Parse error: {}", err),
+        }
+    }
+}
+
+impl From<crate::mcp::types::McpError> for AppError {
+    fn from(err: crate::mcp::types::McpError) -> Self {
+        AppError::Internal {
+            message: format!("MCP error: {}", err),
+        }
+    }
+}
+
+impl From<serde_yaml::Error> for AppError {
+    fn from(err: serde_yaml::Error) -> Self {
+        AppError::Internal {
+            message: format!("YAML error: {}", err),
+        }
+    }
+}
+
+impl From<std::time::SystemTimeError> for AppError {
+    fn from(err: std::time::SystemTimeError) -> Self {
+        AppError::Internal {
+            message: format!("System time error: {}", err),
+        }
+    }
+}
+
+// ==================== IPC 序列化格式 ====================
+
+/// 前端消费的标准错误响应
+#[derive(Debug, Clone, Serialize)]
+pub struct ErrorResponse {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+}
+
+/// 便捷构造函数
+impl AppError {
+    pub fn quota_exceeded(quota_type: impl Into<String>, message: impl Into<String>) -> Self {
+        AppError::QuotaExceeded {
+            quota_type: quota_type.into(),
+            message: message.into(),
+            remaining: None,
+        }
+    }
+
+    pub fn llm_timeout(elapsed_ms: u64) -> Self {
+        AppError::LlmTimeout {
+            message: format!("LLM call timed out after {}ms", elapsed_ms),
+            elapsed_ms,
+        }
+    }
+
+    pub fn db_locked(message: impl Into<String>) -> Self {
+        AppError::DbLocked {
+            message: message.into(),
+        }
+    }
+
+    pub fn context_unavailable(context_type: impl Into<String>, message: impl Into<String>) -> Self {
+        AppError::ContextUnavailable {
+            context_type: context_type.into(),
+            message: message.into(),
+        }
+    }
+
+    pub fn validation_failed(message: impl Into<String>, field: Option<impl Into<String>>) -> Self {
+        AppError::ValidationFailed {
+            message: message.into(),
+            field: field.map(|f| f.into()),
+        }
+    }
+
+    pub fn network_offline(message: impl Into<String>) -> Self {
+        AppError::NetworkOffline {
+            message: message.into(),
+        }
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        AppError::Cancellation {
+            message: message.into(),
+        }
+    }
+
+    pub fn not_found(resource: impl Into<String>, id: impl Into<String>) -> Self {
+        AppError::NotFound {
+            resource: resource.into(),
+            id: id.into(),
+        }
+    }
+
+    pub fn internal(message: impl Into<String>) -> Self {
+        AppError::Internal {
+            message: message.into(),
+        }
+    }
+}

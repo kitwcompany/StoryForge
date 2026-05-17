@@ -5,6 +5,7 @@
 
 import { useState } from 'react';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useAppStore } from '@/stores/appStore';
 import { LogOut, User, Settings } from 'lucide-react';
 
 export function UserMenu() {
@@ -14,7 +15,7 @@ export function UserMenu() {
   if (!isLoggedIn || !user) {
     return (
       <button
-        onClick={() => window.dispatchEvent(new CustomEvent('show-login-modal'))}
+        onClick={() => useAppStore.getState().setLoginModalOpen(true)}
         className="flex items-center gap-2 px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-md transition-colors"
       >
         <User className="w-4 h-4" />
@@ -64,7 +65,7 @@ export function UserMenu() {
             <button
               onClick={() => {
                 setIsOpen(false);
-                window.dispatchEvent(new CustomEvent('show-settings', { detail: { tab: 'account' } }));
+                // W2-F2: show-settings 为孤儿事件，无监听器，已移除
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-stone-700 hover:bg-stone-50 transition-colors"
             >

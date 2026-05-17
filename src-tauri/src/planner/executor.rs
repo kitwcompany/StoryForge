@@ -2,6 +2,7 @@
 //!
 //! All intelligence is in the plan. This executor just follows instructions.
 
+use crate::error::AppError;
 use super::{ExecutionPlan, PlanContext, PlanGenerator, PlanStep, PlanExecutorProgress};
 use crate::capabilities::{CapabilityEvolutionEngine, ExecutionRecord};
 use crate::planner::PlanTemplateLibrary;
@@ -61,7 +62,7 @@ impl PlanExecutor {
     }
 
     /// Execute a plan, checking the template library first
-    pub async fn execute_with_context(&self, context: &PlanContext) -> Result<PlanExecutionResult, String> {
+    pub async fn execute_with_context(&self, context: &PlanContext) -> Result<PlanExecutionResult, AppError> {
         // Before generating a new plan, check PlanTemplateLibrary for matching templates
         let mut plan = if let Some(template_plan) = self.find_template(&context.user_input) {
             log::info!(
@@ -333,7 +334,7 @@ impl PlanExecutor {
         }
     }
 
-    async fn execute_step(&self, step: &PlanStep, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_step(&self, step: &PlanStep, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         match step.capability_id.as_str() {
             "create_story" => self.execute_create_story(params).await,
             "create_chapter" => self.execute_create_chapter(params).await,
@@ -349,7 +350,7 @@ impl PlanExecutor {
             "query_knowledge_graph" => self.execute_query_knowledge_graph(params).await,
             skill_id if skill_id.starts_with("builtin.") => self.execute_skill(skill_id, params, plan_context).await,
             skill_id if skill_id.starts_with("mcp.") => self.execute_mcp_tool(skill_id, params).await,
-            _ => Err(format!("Unknown capability: {}", step.capability_id)),
+            _ => Err(AppError::internal(format!("Unknown capability: {}", step.capability_id))),
         }
     }
 
@@ -359,7 +360,7 @@ impl PlanExecutor {
         story_id: &str,
         current_content: Option<String>,
         selected_text: Option<String>,
-    ) -> Result<crate::agents::AgentContext, String> {
+    ) -> Result<crate::agents::AgentContext, AppError> {
         if story_id.is_empty() {
             return Ok(crate::agents::AgentContext::minimal(story_id.to_string(), String::new()));
         }
@@ -370,13 +371,13 @@ impl PlanExecutor {
         // Resolve current scene number from DB (latest scene for the story)
         let scene_number = self.get_current_scene_number(story_id).unwrap_or(None);
 
-        builder.build(story_id, scene_number, current_content, selected_text)
+        Ok(builder.build(story_id, scene_number, current_content, selected_text)?)
     }
 
-    fn get_current_scene_number(&self, story_id: &str) -> Result<Option<i32>, String> {
+    fn get_current_scene_number(&self, story_id: &str) -> Result<Option<i32>, AppError> {
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
-        let scenes = repo.get_by_story(story_id).map_err(|e| e.to_string())?;
+        let scenes = repo.get_by_story(story_id).map_err(AppError::from)?;
         Ok(scenes.iter().max_by_key(|s| s.sequence_number).map(|s| s.sequence_number))
     }
 
@@ -402,7 +403,7 @@ impl PlanExecutor {
         resolved
     }
 
-    async fn execute_create_story(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_create_story(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let title = params.get("title")
             .and_then(|v| v.as_str())
             .unwrap_or("未命名作品")
@@ -413,7 +414,7 @@ impl PlanExecutor {
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let repo = crate::db::repositories::StoryRepository::new(pool.inner().clone());
         let story = repo.create(crate::db::CreateStoryRequest { title, description, genre, style_dna_id: None })
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         // Emit event to refresh frontstage
         let _ = crate::window::WindowManager::send_to_frontstage(
@@ -428,7 +429,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_create_chapter(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_create_chapter(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).ok_or("story_id required")?.to_string();
         let chapter_number = params.get("chapter_number").and_then(|v| v.as_u64()).unwrap_or(1) as i32;
         let title = params.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -436,7 +437,7 @@ impl PlanExecutor {
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let repo = crate::db::ChapterRepository::new(pool.inner().clone());
         let chapter = repo.create(crate::db::CreateChapterRequest { story_id: story_id.clone(), chapter_number, title: title.clone(), outline: None, content: None })
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         Ok(serde_json::json!({
             "chapter_id": chapter.id,
@@ -447,7 +448,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_create_character(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_create_character(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).ok_or("story_id required")?.to_string();
         let name = params.get("name").and_then(|v| v.as_str()).ok_or("name required")?.to_string();
         let background = params.get("background").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -455,7 +456,7 @@ impl PlanExecutor {
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let repo = crate::db::repositories::CharacterRepository::new(pool.inner().clone());
         let character = repo.create(crate::db::CreateCharacterRequest { story_id, name, background, personality: None, goals: None, appearance: None, gender: None, age: None })
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         Ok(serde_json::json!({
             "character_id": character.id,
@@ -464,14 +465,15 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_writer(&self, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_writer(&self, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let instruction = params.get("instruction").and_then(|v| v.as_str()).unwrap_or("Continue the story").to_string();
         let current_content = params.get("current_content").and_then(|v| v.as_str()).map(|s| s.to_string())
             .or_else(|| plan_context.current_content_preview.clone());
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
-        let context = self.build_agent_context(&story_id, current_content, None)?;
+        let selected_text = plan_context.selected_text.clone();
+        let context = self.build_agent_context(&story_id, current_content, selected_text)?;
 
         // Phase 5: 将 PlanContext 中的结构信息注入到 AgentTask 参数
         let mut enriched_params = params.clone();
@@ -502,7 +504,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_inspector(&self, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_inspector(&self, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let draft = params.get("draft").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let current_content = params.get("current_content").and_then(|v| v.as_str()).map(|s| s.to_string())
@@ -527,7 +529,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_outline_planner(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_outline_planner(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let premise = params.get("premise").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -549,7 +551,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_style_mimic(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_style_mimic(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -571,7 +573,7 @@ impl PlanExecutor {
         Ok(serde_json::json!({"content": result.content}))
     }
 
-    async fn execute_plot_analyzer(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_plot_analyzer(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -594,20 +596,20 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_skill(&self, skill_id: &str, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
+    async fn execute_skill(&self, skill_id: &str, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let mut params = params.clone();
         params.insert("story_id".to_string(), serde_json::Value::String(story_id.clone()));
 
         let manager = crate::SKILL_MANAGER.get().ok_or("Skill manager not initialized")?;
-        let skill_manager = manager.lock().map_err(|e| e.to_string())?.clone();
+        let skill_manager = manager.lock().map_err(AppError::from)?.clone();
 
         let agent_context = self.build_agent_context(&story_id, None, None)?;
 
         let result = skill_manager.execute_skill(skill_id, &agent_context, params).await?;
 
         if !result.success {
-            return Err(result.error.unwrap_or_else(|| "Skill execution failed".to_string()));
+            return Err(AppError::internal(result.error.unwrap_or("Skill execution failed".to_string())));
         }
 
         Ok(result.data)
@@ -615,7 +617,7 @@ impl PlanExecutor {
 
     // ==================== 设定修改执行器 ====================
 
-    async fn execute_update_character(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_update_character(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let character_id = params.get("character_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -627,7 +629,7 @@ impl PlanExecutor {
         let character = if let Ok(Some(c)) = char_repo.get_by_id(&character_id) {
             c
         } else {
-            let all = char_repo.get_by_story(&story_id).map_err(|e| e.to_string())?;
+            let all = char_repo.get_by_story(&story_id).map_err(AppError::from)?;
             all.into_iter().find(|c| c.name == character_id)
                 .ok_or_else(|| format!("Character '{}' not found", character_id))?
         };
@@ -678,7 +680,7 @@ impl PlanExecutor {
         let new_goals = updates.get("goals").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
 
         char_repo.update(&character.id, new_name.map(|s| s.to_string()), new_background.map(|s| s.to_string()), new_personality.map(|s| s.to_string()), new_goals.map(|s| s.to_string()), None, None, None)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         Ok(serde_json::json!({
             "character_id": character.id,
@@ -687,14 +689,14 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_update_world_building(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_update_world_building(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let wb_repo = crate::db::repositories_v3::WorldBuildingRepository::new(pool.inner().clone());
 
-        let wb = wb_repo.get_by_story(&story_id).map_err(|e| e.to_string())?
+        let wb = wb_repo.get_by_story(&story_id).map_err(AppError::from)?
             .ok_or_else(|| "World building not found for this story".to_string())?;
 
         // 使用LLM解析修改意图
@@ -772,7 +774,7 @@ impl PlanExecutor {
         };
 
         wb_repo.update(&wb.id, new_concept, Some(&all_rules), new_history.as_deref(), None)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         Ok(serde_json::json!({
             "world_building_id": wb.id,
@@ -780,7 +782,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_update_scene(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_update_scene(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let scene_id = params.get("scene_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -792,12 +794,12 @@ impl PlanExecutor {
         let scene = if let Ok(Some(s)) = scene_repo.get_by_id(&scene_id) {
             s
         } else {
-            let all = scene_repo.get_by_story(&story_id).map_err(|e| e.to_string())?;
+            let all = scene_repo.get_by_story(&story_id).map_err(AppError::from)?;
             if let Ok(seq) = scene_id.parse::<i32>() {
                 all.into_iter().find(|s| s.sequence_number == seq)
                     .ok_or_else(|| format!("Scene '{}' not found", scene_id))?
             } else {
-                return Err(format!("Scene '{}' not found", scene_id));
+                return Err(AppError::internal(format!("Scene '{}' not found", scene_id)));
             }
         };
 
@@ -858,7 +860,7 @@ impl PlanExecutor {
             scene_update.execution_stage = Some("needs_rewrite".to_string());
         }
 
-        scene_repo.update(&scene.id, &scene_update).map_err(|e| e.to_string())?;
+        scene_repo.update(&scene.id, &scene_update).map_err(AppError::from)?;
 
         Ok(serde_json::json!({
             "scene_id": scene.id,
@@ -866,7 +868,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_query_knowledge_graph(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_query_knowledge_graph(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -874,7 +876,7 @@ impl PlanExecutor {
         let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool.inner().clone());
 
         // 简化查询：获取所有实体，由LLM筛选
-        let entities = kg_repo.get_entities_by_story(&story_id).map_err(|e| e.to_string())?;
+        let entities = kg_repo.get_entities_by_story(&story_id).map_err(AppError::from)?;
 
         let relevant: Vec<serde_json::Value> = entities.into_iter()
             .filter(|e| {
@@ -897,11 +899,11 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_mcp_tool(&self, capability_id: &str, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_mcp_tool(&self, capability_id: &str, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, AppError> {
         // capability_id格式: "mcp.{server_id}.{tool_name}"
         let parts: Vec<&str> = capability_id.splitn(3, '.').collect();
         if parts.len() != 3 {
-            return Err(format!("Invalid MCP capability ID: {}", capability_id));
+            return Err(AppError::internal(format!("Invalid MCP capability ID: {}", capability_id)));
         }
         let server_id = parts[1];
         let tool_name = parts[2];
@@ -910,10 +912,10 @@ impl PlanExecutor {
 
         let mut connections = crate::MCP_CONNECTIONS.lock().await;
         let client = connections.get_mut(server_id)
-            .ok_or_else(|| format!("MCP server {} not connected", server_id))?;
+            .ok_or_else(|| AppError::internal(format!("MCP server {} not connected", server_id)))?;
 
         let result = client.call_tool(tool_name, arguments).await
-            .map_err(|e| format!("MCP tool call failed: {}", e))?;
+            .map_err(|e| AppError::internal(format!("MCP tool call failed: {}", e)))?;
 
         Ok(result)
     }

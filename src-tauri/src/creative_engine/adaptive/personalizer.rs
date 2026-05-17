@@ -4,6 +4,7 @@
 //! 注入到 Writer 的提示词中，实现"越写越懂"。
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::repositories_v3::UserPreferenceRepository;
 use super::generator::{AdaptiveGenerator, GenerationStrategy};
 
@@ -18,12 +19,12 @@ impl PromptPersonalizer {
     }
 
     /// 为故事构建个性化提示词扩展
-    pub fn build_prompt_extension(&self, story_id: &str) -> Result<String, String> {
+    pub fn build_prompt_extension(&self, story_id: &str) -> Result<String, AppError> {
         let mut parts = Vec::new();
 
         // 1. 获取用户偏好
         let pref_repo = UserPreferenceRepository::new(self.pool.clone());
-        let prefs = pref_repo.get_by_story(story_id).map_err(|e| e.to_string())?;
+        let prefs = pref_repo.get_by_story(story_id).map_err(AppError::from)?;
 
         // 2. 过滤高置信度偏好
         let high_confidence: Vec<_> = prefs.into_iter()
@@ -150,9 +151,9 @@ impl PromptPersonalizer {
     }
 
     /// 获取简短的状态摘要（用于调试/监控）
-    pub fn get_preference_summary(&self, story_id: &str) -> Result<String, String> {
+    pub fn get_preference_summary(&self, story_id: &str) -> Result<String, AppError> {
         let pref_repo = UserPreferenceRepository::new(self.pool.clone());
-        let prefs = pref_repo.get_by_story(story_id).map_err(|e| e.to_string())?;
+        let prefs = pref_repo.get_by_story(story_id).map_err(AppError::from)?;
 
         let total = prefs.len();
         let high_conf = prefs.iter().filter(|p| p.confidence >= 0.6).count();

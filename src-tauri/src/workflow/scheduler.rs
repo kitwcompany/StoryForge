@@ -328,21 +328,26 @@ impl WorkflowScheduler {
                     .and_then(|v| v.as_str())
                     .unwrap_or("Continue writing the story")
                     .to_string();
-                
+
                 // Try to get previous content from upstream nodes
                 let previous_content = instance.context.variables.values()
                     .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
                     .last()
                     .unwrap_or("")
                     .to_string();
-                
+
                 let input = if previous_content.is_empty() {
                     instruction
                 } else {
                     format!("{instruction}\n\nPrevious content:\n{previous_content}")
                 };
-                
+
+                // W2-B3: Workflow 节点嵌套 Orchestrator，禁止直接调用 Writer Agent
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
+                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                    agent_service,
+                    app_handle.clone(),
+                );
                 let context = crate::agents::AgentContext::minimal(story_id, String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -352,11 +357,13 @@ impl WorkflowScheduler {
                     parameters: HashMap::new(),
                     tier: None,
                 };
-                
-                match agent_service.execute_task(task).await {
-                    Ok(result) => Ok(serde_json::json!({
-                        "content": result.content,
-                        "score": result.score,
+
+                match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
+                    Ok(workflow_result) => Ok(serde_json::json!({
+                        "content": workflow_result.final_content,
+                        "score": workflow_result.final_score,
+                        "was_rewritten": workflow_result.was_rewritten,
+                        "rewrite_count": workflow_result.rewrite_count,
                     })),
                     Err(e) => Err(format!("Writer execution failed: {}", e)),
                 }

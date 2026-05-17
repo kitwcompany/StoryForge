@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { useScenes } from './useScenes';
 import { useForeshadowings } from './useForeshadowings';
 import { useChapters } from './useChapters';
@@ -79,7 +79,7 @@ export function useExecutionState(storyId: string | null): {
     queryKey: ['canonical_state', storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<{
+      return loggedInvoke<{
         narrative_phase: string;
         story_context: { overdue_payoffs: unknown[] };
       }>('get_canonical_state', { story_id: storyId });

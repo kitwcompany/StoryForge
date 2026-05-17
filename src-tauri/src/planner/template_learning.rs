@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use super::ExecutionPlan;
 use crate::db::DbPool;
+use crate::error::AppError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanTemplate {
@@ -31,11 +32,11 @@ impl PlanTemplateLibrary {
     }
 
     /// 从数据库加载所有模板
-    fn load_from_db(&mut self) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    fn load_from_db(&mut self) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         let mut stmt = conn.prepare(
             "SELECT id, trigger_patterns, plan_json, success_count, failure_count FROM plan_templates"
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
             let patterns_json: String = row.get(1)?;
@@ -55,7 +56,7 @@ impl PlanTemplateLibrary {
                 success_count: success_count as u32,
                 failure_count: failure_count as u32,
             })
-        }).map_err(|e| e.to_string())?;
+        }).map_err(AppError::from)?;
 
         for row in rows {
             if let Ok(template) = row {
@@ -93,10 +94,10 @@ impl PlanTemplateLibrary {
         }
     }
 
-    fn save_to_db(&self, template: &PlanTemplate) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
-        let patterns_json = serde_json::to_string(&template.trigger_patterns).map_err(|e| e.to_string())?;
-        let plan_json = serde_json::to_string(&template.plan).map_err(|e| e.to_string())?;
+    fn save_to_db(&self, template: &PlanTemplate) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
+        let patterns_json = serde_json::to_string(&template.trigger_patterns).map_err(AppError::from)?;
+        let plan_json = serde_json::to_string(&template.plan).map_err(AppError::from)?;
         let created_at = chrono::Local::now().to_rfc3339();
         conn.execute(
             "INSERT INTO plan_templates (id, trigger_patterns, plan_json, success_count, failure_count, created_at)
@@ -109,7 +110,7 @@ impl PlanTemplateLibrary {
                 &(template.failure_count as i64).to_string(),
                 &created_at,
             ],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         Ok(())
     }
 }

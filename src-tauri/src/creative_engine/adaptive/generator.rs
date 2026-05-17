@@ -6,6 +6,7 @@
 //! - 生成内容类型偏好注入
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::repositories_v3::UserPreferenceRepository;
 
 /// 生成策略
@@ -60,7 +61,7 @@ impl AdaptiveGenerator {
     /// 为故事构建生成策略
     /// 
     /// `base_temperature`: 用户模型配置中的 temperature，作为策略基础值
-    pub fn build_strategy(&self, story_id: &str, base_temperature: Option<f32>) -> Result<GenerationStrategy, String> {
+    pub fn build_strategy(&self, story_id: &str, base_temperature: Option<f32>) -> Result<GenerationStrategy, AppError> {
         self.build_strategy_with_context(story_id, base_temperature, None, None)
     }
 
@@ -74,7 +75,7 @@ impl AdaptiveGenerator {
         base_temperature: Option<f32>,
         story_progress: Option<&str>,
         scene_stage: Option<&str>,
-    ) -> Result<GenerationStrategy, String> {
+    ) -> Result<GenerationStrategy, AppError> {
         let mut strategy = GenerationStrategy::default();
         // 优先使用用户在 Settings 中设置的 temperature 作为基础值
         if let Some(base) = base_temperature {
@@ -82,7 +83,7 @@ impl AdaptiveGenerator {
         }
 
         let pref_repo = UserPreferenceRepository::new(self.pool.clone());
-        let prefs = pref_repo.get_by_story(story_id).map_err(|e| e.to_string())?;
+        let prefs = pref_repo.get_by_story(story_id).map_err(AppError::from)?;
 
         for pref in &prefs {
             if pref.confidence < 0.6 {

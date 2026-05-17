@@ -2,17 +2,18 @@
 
 use super::{oauth, session, AuthConfig, OAuthProvider};
 use crate::db::{DbPool, UserRepository};
+use crate::error::AppError;
 use tauri::{AppHandle, Manager, State};
 
 /// 获取当前认证配置（前端用，不含密钥）
 #[tauri::command]
-pub fn get_auth_config(app_handle: AppHandle) -> Result<AuthConfig, String> {
+pub fn get_auth_config(app_handle: AppHandle) -> Result<AuthConfig, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
-    let config = crate::config::AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     // 检查各provider是否配置了client_id
     let google_enabled = config
@@ -56,17 +57,17 @@ pub fn get_auth_config(app_handle: AppHandle) -> Result<AuthConfig, String> {
 pub fn oauth_start(
     provider: String,
     app_handle: AppHandle,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     let provider = provider
         .parse::<OAuthProvider>()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     let app_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
-    let config = crate::config::AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     let client_config = config
         .auth_clients
@@ -94,17 +95,17 @@ pub async fn oauth_callback(
     code: String,
     state: String,
     app_handle: AppHandle,
-) -> Result<crate::db::UserInfo, String> {
+) -> Result<crate::db::UserInfo, AppError> {
     let provider = provider
         .parse::<OAuthProvider>()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     let app_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
-    let config = crate::config::AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
 
     let client_config = config
         .auth_clients
@@ -132,7 +133,7 @@ pub async fn oauth_callback(
     // 查找或创建用户
     let user = match user_repo
         .find_by_oauth(&profile.provider, &profile.provider_account_id)
-        .map_err(|e| e.to_string())?
+        .map_err(AppError::from)?
     {
         Some(existing_user) => existing_user,
         None => {
@@ -143,7 +144,7 @@ pub async fn oauth_callback(
                     profile.display_name.clone(),
                     profile.avatar_url.clone(),
                 )
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
 
             // 创建OAuth账号关联
             user_repo
@@ -155,7 +156,7 @@ pub async fn oauth_callback(
                     profile.refresh_token,
                     profile.expires_at,
                 )
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
 
             new_user
         }
@@ -166,14 +167,14 @@ pub async fn oauth_callback(
     let expires_at = chrono::Local::now() + chrono::Duration::days(7);
     user_repo
         .create_session(&user.id, &token, expires_at)
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     Ok(user_repo.to_user_info(&user))
 }
 
 /// 获取当前登录用户
 #[tauri::command]
-pub fn get_current_user(_pool: State<'_, DbPool>) -> Result<Option<crate::db::UserInfo>, String> {
+pub fn get_current_user(_pool: State<'_, DbPool>) -> Result<Option<crate::db::UserInfo>, AppError> {
     // 桌面端简化实现：从内存/session存储中获取
     // 实际应用中可以通过前端传递token来验证
     // 这里返回None表示未实现完整的session持久化检查
@@ -182,8 +183,8 @@ pub fn get_current_user(_pool: State<'_, DbPool>) -> Result<Option<crate::db::Us
 
 /// 注销登录
 #[tauri::command]
-pub fn logout(token: String, pool: State<'_, DbPool>) -> Result<(), String> {
+pub fn logout(token: String, pool: State<'_, DbPool>) -> Result<(), AppError> {
     let user_repo = UserRepository::new(pool.inner().clone());
-    user_repo.delete_session(&token).map_err(|e| e.to_string())?;
+    user_repo.delete_session(&token).map_err(AppError::from)?;
     Ok(())
 }

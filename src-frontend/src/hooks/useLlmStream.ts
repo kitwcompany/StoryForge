@@ -7,6 +7,8 @@
 import { useState, useCallback, useRef } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { llmGenerateStream } from '@/services/tauri';
+import { getOfflineBlockReason } from '@/components/ConnectionStatus';
+import type { ModelSource } from '@/types/llm';
 
 export interface LlmStreamChunk {
   chunk: string;
@@ -39,6 +41,8 @@ export interface UseLlmStreamReturn {
     context?: string;
     max_tokens?: number;
     temperature?: number;
+    /** 模型来源，用于离线模式判断 */
+    model_source?: ModelSource;
     onChunk?: (chunk: string) => void;
     onComplete?: (result: LlmStreamComplete) => void;
     onError?: (error: LlmStreamError) => void;
@@ -76,10 +80,21 @@ export function useLlmStream(): UseLlmStreamReturn {
       context?: string;
       max_tokens?: number;
       temperature?: number;
+      model_source?: ModelSource;
       onChunk?: (chunk: string) => void;
       onComplete?: (result: LlmStreamComplete) => void;
       onError?: (error: LlmStreamError) => void;
     }) => {
+      // W1-F3: 离线模式拦截
+      const blockReason = getOfflineBlockReason(params.model_source);
+      if (blockReason) {
+        params.onError?.({
+          error: blockReason,
+          error_code: 'OFFLINE_MODE',
+        });
+        return;
+      }
+
       clearListeners();
       setText('');
       setIsStreaming(true);

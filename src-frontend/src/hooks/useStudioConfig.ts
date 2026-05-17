@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { writeFile, readFile } from '@tauri-apps/plugin-fs';
 import type { StudioConfig, StudioExportRequest, ImportOptions, Story } from '@/types';
@@ -13,7 +13,7 @@ export function useStudioConfig(storyId: string | null) {
     queryKey: [STUDIO_CONFIG_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<StudioConfig | null>('get_studio_config', { story_id: storyId });
+      return loggedInvoke<StudioConfig | null>('get_studio_config', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -24,7 +24,7 @@ export function useCreateStudioConfig() {
   
   return useMutation({
     mutationFn: async (storyId: string) => {
-      return invoke<StudioConfig>('create_studio_config', { story_id: storyId });
+      return loggedInvoke<StudioConfig>('create_studio_config', { story_id: storyId });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [STUDIO_CONFIG_KEY, variables] });
@@ -44,7 +44,7 @@ export function useUpdateStudioConfig() {
       uiConfig?: StudioConfig['ui_config'];
       agentBots?: StudioConfig['agent_bots'];
     }) => {
-      return invoke<number>('update_studio_config', {
+      return loggedInvoke<number>('update_studio_config', {
         id: params.id,
         pen_name: params.penName,
         llm_config: params.llmConfig,
@@ -63,7 +63,7 @@ export function useUpdateStudioConfig() {
 export function useExportStudio() {
   return useMutation({
     mutationFn: async (request: StudioExportRequest) => {
-      const data = await invoke<Uint8Array>('export_studio', { request });
+      const data = await loggedInvoke<Uint8Array>('export_studio', { request });
       
       // Save to file
       const filePath = await save({
@@ -103,7 +103,7 @@ export function useImportStudio() {
       const data = await readFile(filePath as string);
       
       // Import
-      const story = await invoke<Story>('import_studio', {
+      const story = await loggedInvoke<Story>('import_studio', {
         data: Array.from(data),
         options,
       });

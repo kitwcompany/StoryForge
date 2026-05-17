@@ -12,6 +12,26 @@ use crate::db::repositories_v3::StyleDnaRepository;
 use crate::creative_engine::style::{StyleChecker, StyleDNA};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// 生成模式 — 决定 Orchestrator 执行路径
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerationMode {
+    /// 快速模式：单轮 LLM，跳过 Inspector / StyleChecker
+    /// 适用于 Ghost Text、实时补全等低延迟场景
+    Fast,
+    /// 完整模式：Writer → Inspector → Writer 反馈闭环
+    /// 适用于标准写作、章节生成等高质量场景
+    Full,
+}
+
+impl GenerationMode {
+    pub fn name(&self) -> &'static str {
+        match self {
+            GenerationMode::Fast => "快速",
+            GenerationMode::Full => "完整",
+        }
+    }
+}
+
 /// 工作流配置
 #[derive(Debug, Clone)]
 pub struct WorkflowConfig {
@@ -102,14 +122,51 @@ impl AgentOrchestrator {
         let _ = self.app_handle.emit("orchestrator-step", event);
     }
 
-    /// 执行 Writer → Inspector → Writer 反馈闭环
+    /// 统一生成入口 — 根据 GenerationMode 选择执行路径
+    ///
+    /// - Fast: 单轮 Writer 生成，跳过质检，最低延迟
+    /// - Full: Writer → Inspector → Writer 完整反馈闭环
+    pub async fn generate(
+        &self,
+        task: AgentTask,
+        mode: GenerationMode,
+    ) -> Result<WorkflowResult, String> {
+        match mode {
+            GenerationMode::Fast => self.execute_fast(task).await,
+            GenerationMode::Full => self.execute_full(task).await,
+        }
+    }
+
+    /// Fast 模式：单轮 LLM 生成，跳过 Inspector / StyleChecker
+    async fn execute_fast(&self, task: AgentTask) -> Result<WorkflowResult, String> {
+        self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
+        let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
+
+        let steps = vec![WorkflowStepResult {
+            step_type: WorkflowStepType::Generation,
+            agent_type: AgentType::Writer,
+            content: writer_result.content.clone(),
+            score: writer_result.score,
+            suggestions: writer_result.suggestions.clone(),
+        }];
+
+        Ok(WorkflowResult {
+            final_content: writer_result.content,
+            final_score: writer_result.score.unwrap_or(1.0),
+            steps,
+            was_rewritten: false,
+            rewrite_count: 0,
+        })
+    }
+
+    /// Full 模式：Writer → Inspector → Writer 反馈闭环
     ///
     /// 流程：
     /// 1. Writer 生成初稿
     /// 2. Inspector 质检
     /// 3. 如果分数 < threshold，将质检反馈传给 Writer 改写
     /// 4. 重复 2-3 直到分数达标或达到最大循环次数
-    pub async fn execute_write_with_inspection(
+    pub async fn execute_full(
         &self,
         task: AgentTask,
     ) -> Result<WorkflowResult, String> {

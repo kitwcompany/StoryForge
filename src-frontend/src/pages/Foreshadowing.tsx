@@ -375,18 +375,7 @@ export function Foreshadowing() {
     importance: 5,
   });
 
-  // v5.0.0 修复：监听数据刷新事件
-  useEffect(() => {
-    const handleRefresh = () => {
-      if (currentStory?.id) {
-        queryClient.invalidateQueries({ queryKey: ['foreshadowings', currentStory.id] });
-        queryClient.invalidateQueries({ queryKey: ['payoff-ledger', currentStory.id] });
-        queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
-      }
-    };
-    window.addEventListener('backstage-data-refreshed', handleRefresh);
-    return () => window.removeEventListener('backstage-data-refreshed', handleRefresh);
-  }, [currentStory?.id, queryClient]);
+  // W2-F2: backstage-data-refreshed 已废弃，数据刷新由 useSyncStore 统一处理
 
   const { data: items = [], isLoading } = useForeshadowings(currentStory?.id || null);
   const { data: ledgerItems = [] } = usePayoffLedger(currentStory?.id || null);

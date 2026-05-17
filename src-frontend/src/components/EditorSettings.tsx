@@ -10,12 +10,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import { 
-  Type, Palette, Check, ChevronDown, 
-  Plus, Trash2, Settings2 
+import {
+  Type, Palette, Check, ChevronDown,
+  Plus, Trash2, Settings2
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { createLogger } from '@/utils/logger';
+import { useAppStore } from '@/stores/appStore';
 import { 
   WritingStyle, 
   WritingStyleId, 
@@ -83,8 +84,8 @@ export function loadEditorConfig(): EditorConfig {
 export function saveEditorConfig(config: EditorConfig) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    // 同一窗口内 dispatch 自定义事件，通知所有监听者配置已变更
-    window.dispatchEvent(new CustomEvent('editor-config-changed', { detail: config }));
+    // W2-F2: 替代 editor-config-changed DOM CustomEvent，改用 Zustand store
+    useAppStore.getState().setEditorConfig(config);
   } catch {
     editorSettingsLogger.error('Failed to save editor config');
   }

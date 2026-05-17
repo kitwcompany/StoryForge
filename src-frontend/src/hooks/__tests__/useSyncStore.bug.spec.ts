@@ -92,8 +92,8 @@ function hasInvalidationForKey(keyPrefix: string): boolean {
 }
 
 // v5.6.4: Bug condition fixed — payoffLedgerUpdated case added to useSyncStore
-describe.skip('useSyncStore bug exploration (C_1_9 frontend)', () => {
-  it('DataRefresh { resourceType: "payoffLedger" } NEVER invalidates ["payoff-ledger", ...]', async () => {
+describe('useSyncStore regression (C_1_9 frontend)', () => {
+  it('DataRefresh { resourceType: "payoffLedger" } invalidates ["payoff-ledger", ...]', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 1, maxLength: 32 }).filter((s: string) => !!s.trim()),
@@ -111,15 +111,14 @@ describe.skip('useSyncStore bug exploration (C_1_9 frontend)', () => {
           // 给事件 tick 一轮，确保 case 分支命中
           await new Promise((r) => setTimeout(r, 0));
 
-          // 断言：未修复代码中 case 'payoffLedger' 不存在
-          // → 不会 invalidate 'payoff-ledger' 前缀的 queryKey
+          // 断言：修复后 case 'payoffLedger' 存在
+          // → 会 invalidate 'payoff-ledger' 前缀的 queryKey
           const saw = hasInvalidationForKey('payoff-ledger');
 
           unmount();
 
-          // 期望 !saw == true（bug 存在）
-          // 如果 saw == true（bug 修复了），这里会 return false 让 fast-check 报错
-          return !saw;
+          // 期望 saw == true（bug 已修复）
+          return saw;
         },
       ),
       { numRuns: 8 },

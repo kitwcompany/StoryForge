@@ -115,9 +115,10 @@ def extract_frontend_commands(directory: Path) -> Tuple[Set[str], Set[Tuple[str,
     commands = set()
     locations = set()
 
-    # Match invoke<Type>('command_name') or loggedInvoke<Type>('command_name')
+    # Match invoke('command_name'), invoke<Type>('command_name'),
+    # loggedInvoke('command_name') or loggedInvoke<Type>('command_name')
     pattern = re.compile(
-        r"(?:invoke|loggedInvoke)\s*<[^>]+>\s*\(\s*['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]"
+        r"(?:invoke|loggedInvoke)\s*(?:<[^>]+>)?\s*\(\s*['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]"
     )
 
     for ext in ("*.ts", "*.tsx"):

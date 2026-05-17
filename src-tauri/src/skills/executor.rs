@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use crate::error::AppError;
 use super::*;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -20,7 +21,7 @@ impl SkillExecutor {
         skill_id: &str,
         context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
-    ) -> Result<SkillResult, String> {
+    ) -> Result<SkillResult, AppError> {
         let start = Instant::now();
         
         let skill = self.registry.lock()
@@ -29,7 +30,7 @@ impl SkillExecutor {
             .ok_or_else(|| "Skill not found".to_string())?;
         
         if !skill.is_enabled {
-            return Err("Skill is disabled".to_string());
+            return Err(AppError::internal("Skill is disabled"));
         }
         
         // Validate parameters
@@ -45,7 +46,7 @@ impl SkillExecutor {
             }
             SkillRuntime::Native(runtime) => {
                 runtime.handler.execute(context, params)
-                    .map_err(|e| e.to_string())
+                    .map_err(AppError::from)
             }
         };
         
@@ -59,7 +60,7 @@ impl SkillExecutor {
             Err(e) => Ok(SkillResult {
                 success: false,
                 data: serde_json::Value::Null,
-                error: Some(e),
+                error: Some(e.to_string()),
                 execution_time_ms,
             }),
         }
@@ -91,7 +92,7 @@ impl SkillExecutor {
                 Err(e) => results.push(SkillResult {
                     success: false,
                     data: serde_json::Value::Null,
-                    error: Some(e),
+                    error: Some(e.to_string()),
                     execution_time_ms: 0,
                 }),
             }
@@ -104,14 +105,14 @@ impl SkillExecutor {
         &self,
         manifest: &SkillManifest,
         params: &HashMap<String, serde_json::Value>,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         for param in &manifest.parameters {
             if param.required && !params.contains_key(&param.name) {
                 if param.default.is_none() {
-                    return Err(format!(
+                    return Err(AppError::internal(format!(
                         "Missing required parameter: {}",
                         param.name
-                    ));
+                    )));
                 }
             }
         }
@@ -123,7 +124,7 @@ impl SkillExecutor {
         runtime: &PromptRuntime,
         context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
-    ) -> Result<SkillResult, String> {
+    ) -> Result<SkillResult, AppError> {
         // Build user prompt from template
         let mut user_prompt = runtime.user_prompt_template.clone();
         
@@ -187,7 +188,7 @@ impl SkillExecutor {
         runtime: &McpRuntime,
         _context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
-    ) -> Result<SkillResult, String> {
+    ) -> Result<SkillResult, AppError> {
         let mcp_config = crate::mcp::types::McpServerConfig {
             id: "skill-mcp".to_string(),
             name: runtime.server_config.command.clone(),
@@ -232,12 +233,12 @@ impl SkillExecutor {
                     }
                     Err(e) => {
                         let _ = client.disconnect().await;
-                        Err(format!("MCP tool call failed: {}", e))
+                        Err(AppError::internal(format!("MCP tool call failed: {}", e)))
                     }
                 }
             }
             Err(e) => {
-                Err(format!("MCP connection failed: {}", e))
+                Err(AppError::internal(format!("MCP connection failed: {}", e)))
             }
         }
     }

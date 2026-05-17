@@ -2,6 +2,7 @@
 //!
 //! 监视应用数据目录下的 workflows/ 文件夹，自动加载、热重载工作流模板。
 
+use crate::error::AppError;
 use super::{Workflow, WorkflowEngine};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
@@ -180,8 +181,8 @@ impl WorkflowLoader {
                             };
 
                             let workflow: Result<Workflow, _> = match ext {
-                                "json" => serde_json::from_str(&content).map_err(|e| e.to_string()),
-                                "yaml" | "yml" => serde_yaml::from_str(&content).map_err(|e| e.to_string()),
+                                "json" => serde_json::from_str(&content).map_err(AppError::from),
+                                "yaml" | "yml" => serde_yaml::from_str(&content).map_err(AppError::from),
                                 _ => continue,
                             };
 

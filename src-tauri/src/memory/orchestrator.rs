@@ -8,6 +8,7 @@
 //! 预算分配：按任务类型 (write/plan/review) 分配各层条目上限
 
 use crate::db::{DbPool, MemoryItemRepository, ChapterCommitRepository};
+use crate::creative_engine::payoff_ledger::PayoffLedger;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -174,10 +175,42 @@ impl MemoryOrchestrator {
             .collect::<Vec<_>>();
 
         // 6. 提取活跃约束
-        let active_constraints: Vec<MemoryItemDto> = semantic_items.iter()
+        let mut active_constraints: Vec<MemoryItemDto> = semantic_items.iter()
             .filter(|item| item.category == "world_rule" || item.category == "open_loop")
             .cloned()
             .collect();
+
+        // W3-B10: 注入 ForeshadowingTracker 的逾期/待闭合伏笔
+        let ledger = PayoffLedger::new(self.pool.clone());
+        if let Ok(overdue) = ledger.detect_overdue(story_id, chapter_number) {
+            for item in overdue {
+                active_constraints.push(MemoryItemDto {
+                    id: item.id,
+                    category: "overdue_foreshadowing".to_string(),
+                    subject: Some(item.title),
+                    field: Some("payoff".to_string()),
+                    value: Some(format!("{} (重要度: {})", item.summary, item.importance)),
+                    source_chapter: item.first_seen_scene,
+                    confidence: item.confidence,
+                });
+            }
+        }
+        if let Ok(recommendations) = ledger.recommend_payoff_timing(story_id, chapter_number) {
+            for rec in recommendations.iter().take(5) {
+                active_constraints.push(MemoryItemDto {
+                    id: rec.foreshadowing_id.clone(),
+                    category: "recommended_payoff".to_string(),
+                    subject: Some(rec.title.clone()),
+                    field: Some("urgency".to_string()),
+                    value: Some(format!(
+                        "推荐在场景{}回收，原因: {}",
+                        rec.recommended_scene, rec.reason
+                    )),
+                    source_chapter: Some(rec.recommended_scene),
+                    confidence: (rec.importance as f32 / 10.0).clamp(0.0, 1.0),
+                });
+            }
+        }
 
         // 7. 构建警告
         let mut warnings = Vec::new();

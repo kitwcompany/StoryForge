@@ -10,6 +10,7 @@
 //! - 对话偏好：对话长度、对话标签风格
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::repositories_v3::{UserFeedbackRepository, UserPreferenceRepository};
 use super::feedback::FeedbackRecorder;
 
@@ -35,13 +36,13 @@ impl PreferenceMiner {
     }
 
     /// 挖掘故事的所有偏好
-    pub fn mine(&self, story_id: &str) -> Result<Vec<MinedPreference>, String> {
+    pub fn mine(&self, story_id: &str) -> Result<Vec<MinedPreference>, AppError> {
         let mut preferences = Vec::new();
 
         // 1. 获取反馈日志
         let feedback_repo = UserFeedbackRepository::new(self.pool.clone());
         let logs = feedback_repo.get_by_story(story_id, Some(100))
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         if logs.is_empty() {
             return Ok(preferences);

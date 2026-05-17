@@ -1,49 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Target,
   Zap,
   Users,
   MapPin,
-  Clock,
   Sparkles,
   Save,
   X,
   GitCompare,
-  Eye,
   EyeOff,
   MessageSquare,
-  Plus,
   Check,
-  RotateCcw,
-  Trash2,
-  Edit3,
   Minimize2,
   Loader2,
-  FileText,
   ClipboardList,
   PenTool,
   Search,
   Lock,
   ArrowRight,
-  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
-import type { Scene, ConflictType, CharacterConflict, SceneAnnotation } from '@/types';
-import {
-  useSceneAnnotations,
-  useCreateSceneAnnotation,
-  useUpdateSceneAnnotation,
-  useResolveSceneAnnotation,
-  useUnresolveSceneAnnotation,
-  useDeleteSceneAnnotation,
-  ANNOTATION_TYPE_LABELS,
-  ANNOTATION_TYPE_COLORS,
-} from '@/hooks/useSceneAnnotations';
+import type { Scene, ConflictType } from '@/types';
 import { getConflictTypeLabel, getConflictTypeColor } from '@/hooks/useScenes';
 import { useCompressScene } from '@/hooks/useMemoryCompression';
-import { useAuditScene, type AuditReport } from '@/hooks/useAudit';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
+import { SceneAuditPanel } from './scene-editor/SceneAuditPanel';
+import { SceneAnnotationPanel } from './scene-editor/SceneAnnotationPanel';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
@@ -93,24 +76,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
   const [formData, setFormData] = useState<Partial<Scene>>({});
   const [activeTab, setActiveTab] = useState<ExecutionStage | 'annotations'>('planning');
   const [revisionMode, setRevisionMode] = useState(false);
-  const [newAnnotationContent, setNewAnnotationContent] = useState('');
-  const [newAnnotationType, setNewAnnotationType] = useState<SceneAnnotation['annotation_type']>('note');
-  const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
-  const [editingContent, setEditingContent] = useState('');
   const [compressionResult, setCompressionResult] = useState<import('@/types').AgentResult | null>(null);
   const [showCompression, setShowCompression] = useState(false);
   const [generatingOutline, setGeneratingOutline] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState(false);
-  const [auditEnabled, setAuditEnabled] = useState(false);
-  const { data: auditReport, isLoading: auditLoading } = useAuditScene(scene?.id || null, 'light', auditEnabled);
-
-  const { data: annotations = [], isLoading: annotationsLoading } = useSceneAnnotations(scene?.id || null);
   const compressScene = useCompressScene();
-  const createAnnotation = useCreateSceneAnnotation();
-  const updateAnnotation = useUpdateSceneAnnotation();
-  const resolveAnnotation = useResolveSceneAnnotation();
-  const unresolveAnnotation = useUnresolveSceneAnnotation();
-  const deleteAnnotation = useDeleteSceneAnnotation();
 
   useEffect(() => {
     if (scene) {
@@ -130,8 +100,6 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         outline_content: scene.outline_content,
         draft_content: scene.draft_content,
       });
-      setNewAnnotationContent('');
-      setEditingAnnotationId(null);
     }
   }, [scene]);
 
@@ -150,15 +118,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
 
   const currentStage = (formData.execution_stage as ExecutionStage) || 'planning';
 
-  const handleStageChange = (stage: ExecutionStage) => {
-    setFormData((prev) => ({ ...prev, execution_stage: stage }));
-  };
-
   const handleGenerateOutline = async () => {
     if (!scene) return;
     setGeneratingOutline(true);
     try {
-      const result = await invoke<{ content: string }>('generate_scene_outline', {
+      const result = await loggedInvoke<{ content: string }>('generate_scene_outline', {
         scene_id: scene.id,
       });
       setFormData((prev) => ({
@@ -183,7 +147,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
     }
     setGeneratingDraft(true);
     try {
-      const result = await invoke<{ content: string }>('generate_scene_draft', {
+      const result = await loggedInvoke<{ content: string }>('generate_scene_draft', {
         scene_id: scene.id,
       });
       setFormData((prev) => ({
@@ -644,136 +608,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
 
         {/* Review Tab */}
         {activeTab === 'review' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                <Search className="w-4 h-4 text-cinema-gold" />
-                审校
-              </h3>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setAuditEnabled(true)}
-                disabled={auditLoading}
-              >
-                {auditLoading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Zap className="w-4 h-4 mr-1" />}
-                运行审校
-              </Button>
-            </div>
-
-            {auditLoading && (
-              <div className="p-8 bg-cinema-800/50 border border-cinema-700 rounded-lg text-center">
-                <Loader2 className="w-8 h-8 text-cinema-gold mx-auto mb-3 animate-spin" />
-                <p className="text-gray-400">正在运行 AI 审校...</p>
-                <p className="text-xs text-gray-600 mt-1">检查逻辑一致性、人物连贯性、文风质量等</p>
-              </div>
-            )}
-
-            {!auditLoading && !auditReport && (
-              <div className="p-8 bg-cinema-800/50 border border-cinema-700 rounded-lg text-center">
-                <Search className="w-12 h-12 text-cinema-700 mx-auto mb-4" />
-                <p className="text-gray-400 mb-2">点击上方按钮运行审校</p>
-                <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• 逻辑一致性</li>
-                  <li>• 人物行为连贯性</li>
-                  <li>• 世界观规则遵守情况</li>
-                  <li>• 文风质量评估</li>
-                  <li>• 伏笔回收检查</li>
-                </ul>
-              </div>
-            )}
-
-            {!auditLoading && auditReport && (
-              <div className="space-y-4">
-                {/* Overall Score */}
-                <div className="p-4 bg-cinema-800/50 border border-cinema-700 rounded-lg">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium text-white">综合评分</span>
-                    <span className={`text-lg font-bold ${
-                      auditReport.overall_score >= 0.8 ? 'text-green-400' :
-                      auditReport.overall_score >= 0.6 ? 'text-amber-400' : 'text-red-400'
-                    }`}>
-                      {(auditReport.overall_score * 100).toFixed(0)}分
-                    </span>
-                  </div>
-                  <div className="h-2 bg-cinema-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        auditReport.overall_score >= 0.8 ? 'bg-green-500' :
-                        auditReport.overall_score >= 0.6 ? 'bg-amber-500' : 'bg-red-500'
-                      }`}
-                      style={{ width: `${auditReport.overall_score * 100}%` }}
-                    />
-                  </div>
-                  {auditReport.has_blocking_issues && (
-                    <div className="mt-2 flex items-center gap-2 text-xs text-red-400">
-                      <AlertTriangle className="w-4 h-4" />
-                      <span>发现阻塞性问题，建议先修复再定稿</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Dimensions */}
-                {auditReport.dimensions.map((dim) => (
-                  <div key={dim.name} className="p-3 bg-cinema-800/30 border border-cinema-700/50 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-gray-300">{dim.name}</span>
-                      <span className={`text-sm font-medium ${
-                        dim.score >= 0.8 ? 'text-green-400' :
-                        dim.score >= 0.6 ? 'text-amber-400' : 'text-red-400'
-                      }`}>
-                        {(dim.score * 100).toFixed(0)}分
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-cinema-700 rounded-full overflow-hidden mb-2">
-                      <div
-                        className={`h-full rounded-full ${
-                          dim.score >= 0.8 ? 'bg-green-500' :
-                          dim.score >= 0.6 ? 'bg-amber-500' : 'bg-red-500'
-                        }`}
-                        style={{ width: `${dim.score * 100}%` }}
-                      />
-                    </div>
-                    {dim.issues.length > 0 && (
-                      <div className="space-y-1.5">
-                        {dim.issues.map((issue, idx) => (
-                          <div
-                            key={idx}
-                            className={`text-xs p-2 rounded ${
-                              issue.severity === 'blocking' ? 'bg-red-500/10 text-red-300 border border-red-500/20' :
-                              issue.severity === 'warning' ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20' :
-                              'bg-blue-500/10 text-blue-300 border border-blue-500/20'
-                            }`}
-                          >
-                            <div className="font-medium mb-0.5">
-                              {issue.severity === 'blocking' ? '🔴 阻塞' : issue.severity === 'warning' ? '🟡 警告' : '🔵 提示'}
-                              {' '}{issue.message}
-                            </div>
-                            {issue.suggestion && (
-                              <div className="text-gray-400 pl-5">
-                                建议：{issue.suggestion}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-between">
-              <Button variant="secondary" size="sm" onClick={() => setActiveTab('drafting')}>
-                返回起草
-              </Button>
-              <Button variant="primary" size="sm" onClick={handlePromoteToFinal}>
-                <Check className="w-4 h-4 mr-1" />
-                确认定稿
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
-          </div>
+          <SceneAuditPanel
+            sceneId={scene.id}
+            onPromoteToFinal={handlePromoteToFinal}
+            onBackToDrafting={() => setActiveTab('drafting')}
+          />
         )}
 
         {/* Final Tab */}
@@ -872,181 +711,10 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
           </div>
         )}
 
+
         {/* Annotations Tab */}
         {activeTab === 'annotations' && (
-          <div className="space-y-4">
-            {/* New Annotation Form */}
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <h3 className="font-medium text-white flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-cinema-gold" />
-                  新建批注
-                </h3>
-                <div className="flex gap-2">
-                  {(['note', 'todo', 'warning', 'idea'] as const).map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setNewAnnotationType(type)}
-                      className={`
-                        px-2.5 py-1 rounded-md text-xs font-medium transition-colors
-                        ${newAnnotationType === type
-                          ? 'bg-cinema-700 text-white'
-                          : 'bg-cinema-800 text-gray-400 hover:bg-cinema-700'
-                        }
-                      `}
-                    >
-                      <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${ANNOTATION_TYPE_COLORS[type]}`} />
-                      {ANNOTATION_TYPE_LABELS[type]}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  value={newAnnotationContent}
-                  onChange={(e) => setNewAnnotationContent(e.target.value)}
-                  placeholder="记录想法、待办事项或提醒..."
-                  rows={3}
-                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
-                />
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={!newAnnotationContent.trim() || createAnnotation.isPending}
-                    onClick={() => {
-                      if (!scene) return;
-                      createAnnotation.mutate({
-                        scene_id: scene.id,
-                        story_id: scene.story_id,
-                        content: newAnnotationContent.trim(),
-                        annotation_type: newAnnotationType,
-                      }, {
-                        onSuccess: () => setNewAnnotationContent(''),
-                      });
-                    }}
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    添加批注
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Annotations List */}
-            {annotationsLoading ? (
-              <p className="text-sm text-gray-500 text-center py-4">加载中...</p>
-            ) : annotations.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-8">暂无批注</p>
-            ) : (
-              <div className="space-y-3">
-                {annotations.map((annotation) => (
-                  <Card
-                    key={annotation.id}
-                    className={annotation.resolved_at ? 'opacity-60' : ''}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <div className={`
-                          w-2 h-2 mt-1.5 rounded-full shrink-0
-                          ${ANNOTATION_TYPE_COLORS[annotation.annotation_type]}
-                        `} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-medium text-gray-400">
-                              {ANNOTATION_TYPE_LABELS[annotation.annotation_type]}
-                            </span>
-                            <span className="text-xs text-gray-600">
-                              {new Date(annotation.created_at).toLocaleString()}
-                            </span>
-                            {annotation.resolved_at && (
-                              <span className="text-xs text-green-500">已解决</span>
-                            )}
-                          </div>
-
-                          {editingAnnotationId === annotation.id ? (
-                            <div className="space-y-2">
-                              <textarea
-                                value={editingContent}
-                                onChange={(e) => setEditingContent(e.target.value)}
-                                rows={2}
-                                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  disabled={!editingContent.trim() || updateAnnotation.isPending}
-                                  onClick={() => {
-                                    updateAnnotation.mutate({
-                                      annotationId: annotation.id,
-                                      content: editingContent.trim(),
-                                    }, {
-                                      onSuccess: () => setEditingAnnotationId(null),
-                                    });
-                                  }}
-                                >
-                                  保存
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setEditingAnnotationId(null)}
-                                >
-                                  取消
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className={`text-sm ${annotation.resolved_at ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
-                              {annotation.content}
-                            </p>
-                          )}
-                        </div>
-
-                        {editingAnnotationId !== annotation.id && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={() => {
-                                setEditingAnnotationId(annotation.id);
-                                setEditingContent(annotation.content);
-                              }}
-                              className="p-1.5 rounded-md text-gray-500 hover:text-white hover:bg-cinema-700 transition-colors"
-                              title="编辑"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            {annotation.resolved_at ? (
-                              <button
-                                onClick={() => unresolveAnnotation.mutate(annotation.id)}
-                                className="p-1.5 rounded-md text-gray-500 hover:text-white hover:bg-cinema-700 transition-colors"
-                                title="标记未解决"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => resolveAnnotation.mutate(annotation.id)}
-                                className="p-1.5 rounded-md text-gray-500 hover:text-green-400 hover:bg-cinema-700 transition-colors"
-                                title="标记已解决"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => deleteAnnotation.mutate(annotation.id)}
-                              className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-cinema-700 transition-colors"
-                              title="删除"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
+          <SceneAnnotationPanel sceneId={scene.id} storyId={scene.story_id} />
         )}
       </div>
     </div>

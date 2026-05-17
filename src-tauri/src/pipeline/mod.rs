@@ -4,6 +4,7 @@ pub mod review;
 pub mod finalize;
 pub mod post_process;
 pub mod commands;
+pub mod style_analysis;
 
 pub use types::*;
 pub use refine::refine_draft;
@@ -12,6 +13,7 @@ pub use finalize::finalize_draft;
 pub use post_process::{build_finalize_steps, run_post_process, run_post_process_step};
 
 use crate::db::{DbPool, DraftRepository, DraftStatus, RevisionRepository, RevisionStatus, PipelineReviewRepository, PostProcessRepository, PostProcessStatus, PostProcessStep, StepStatus};
+use crate::error::AppError;
 use crate::llm::LlmService;
 use tauri::AppHandle;
 
@@ -30,11 +32,11 @@ impl PipelineOrchestrator {
         &self,
         story_id: &str,
         chapter_number: i32,
-    ) -> Result<Option<crate::db::Draft>, String> {
+    ) -> Result<Option<crate::db::Draft>, AppError> {
         let repo = DraftRepository::new(self.pool.clone());
         repo.get_latest_by_chapter(story_id, chapter_number)
             .map(|d| d.filter(|draft| draft.status != DraftStatus::Archived))
-            .map_err(|e| e.to_string())
+            .map_err(AppError::from)
     }
 
     /// 获取指定章节已定稿的草稿
@@ -42,28 +44,28 @@ impl PipelineOrchestrator {
         &self,
         story_id: &str,
         chapter_number: i32,
-    ) -> Result<Option<crate::db::Draft>, String> {
+    ) -> Result<Option<crate::db::Draft>, AppError> {
         let repo = DraftRepository::new(self.pool.clone());
         repo.get_finalized_by_chapter(story_id, chapter_number)
-            .map_err(|e| e.to_string())
+            .map_err(AppError::from)
     }
 
     /// 获取草稿的审稿报告列表
     pub fn get_draft_review_history(
         &self,
         draft_id: &str,
-    ) -> Result<Vec<crate::db::PipelineReview>, String> {
+    ) -> Result<Vec<crate::db::PipelineReview>, AppError> {
         let repo = PipelineReviewRepository::new(self.pool.clone());
-        repo.get_by_draft(draft_id).map_err(|e| e.to_string())
+        repo.get_by_draft(draft_id).map_err(AppError::from)
     }
 
     /// 获取草稿的修稿历史
     pub fn get_draft_revision_history(
         &self,
         draft_id: &str,
-    ) -> Result<Vec<crate::db::Revision>, String> {
+    ) -> Result<Vec<crate::db::Revision>, AppError> {
         let repo = RevisionRepository::new(self.pool.clone());
-        repo.get_by_draft(draft_id).map_err(|e| e.to_string())
+        repo.get_by_draft(draft_id).map_err(AppError::from)
     }
 
     /// 废弃指定草稿的所有后续版本（当用户选择回退时）
@@ -72,10 +74,9 @@ impl PipelineOrchestrator {
         story_id: &str,
         chapter_number: i32,
         keep_version: i32,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, AppError> {
         let repo = DraftRepository::new(self.pool.clone());
-        let drafts = repo.get_by_story_chapter(story_id, chapter_number)
-            .map_err(|e| e.to_string())?;
+        let drafts = repo.get_by_story_chapter(story_id, chapter_number)?;
 
         let mut discarded = 0;
         for draft in drafts {
@@ -92,22 +93,22 @@ impl PipelineOrchestrator {
     pub fn merge_revision(
         &self,
         revision_id: &str,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, AppError> {
         let repo = RevisionRepository::new(self.pool.clone());
         repo.update_status(revision_id, RevisionStatus::Merged)
-            .map_err(|e| e.to_string())
+            .map_err(AppError::from)
     }
 
     /// 获取后处理运行状态（含步骤详情）
     pub fn get_post_process_status(
         &self,
         run_id: &str,
-    ) -> Result<Option<PostProcessRunWithSteps>, String> {
+    ) -> Result<Option<PostProcessRunWithSteps>, AppError> {
         let run_repo = PostProcessRepository::new(self.pool.clone());
-        let run = run_repo.get_run_by_id(run_id).map_err(|e| e.to_string())?;
+        let run = run_repo.get_run_by_id(run_id)?;
         match run {
             Some(r) => {
-                let steps = run_repo.get_steps_by_run(run_id).map_err(|e| e.to_string())?;
+                let steps = run_repo.get_steps_by_run(run_id)?;
                 Ok(Some(PostProcessRunWithSteps { run: r, steps }))
             }
             None => Ok(None),

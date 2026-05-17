@@ -3,10 +3,11 @@
 use super::{SubscriptionService, SubscriptionStatus, QuotaCheckResult, QuotaDetail};
 use tauri::{command, AppHandle, Manager};
 use crate::db::DbPool;
+use crate::error::AppError;
 
 /// 获取当前用户订阅状态
 #[command]
-pub fn get_subscription_status(app_handle: AppHandle) -> Result<SubscriptionStatus, String> {
+pub fn get_subscription_status(app_handle: AppHandle) -> Result<SubscriptionStatus, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     // 当前使用 device/machine id 作为 user_id，后续可接入真实用户系统
@@ -16,7 +17,7 @@ pub fn get_subscription_status(app_handle: AppHandle) -> Result<SubscriptionStat
 
 /// 检查 AI 使用配额（向后兼容，所有功能已免费）
 #[command]
-pub fn check_ai_quota(app_handle: AppHandle) -> Result<QuotaCheckResult, String> {
+pub fn check_ai_quota(app_handle: AppHandle) -> Result<QuotaCheckResult, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);
@@ -25,7 +26,7 @@ pub fn check_ai_quota(app_handle: AppHandle) -> Result<QuotaCheckResult, String>
 
 /// 获取 V2 配额详情（按功能区分）
 #[command]
-pub fn get_quota_detail(app_handle: AppHandle) -> Result<QuotaDetail, String> {
+pub fn get_quota_detail(app_handle: AppHandle) -> Result<QuotaDetail, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);
@@ -34,7 +35,7 @@ pub fn get_quota_detail(app_handle: AppHandle) -> Result<QuotaDetail, String> {
 
 /// 检查自动续写配额
 #[command(rename_all = "snake_case")]
-pub fn check_auto_write_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, String> {
+pub fn check_auto_write_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);
@@ -43,7 +44,7 @@ pub fn check_auto_write_quota(app_handle: AppHandle, requested_chars: i32) -> Re
 
 /// 检查自动修改配额
 #[command(rename_all = "snake_case")]
-pub fn check_auto_revise_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, String> {
+pub fn check_auto_revise_quota(app_handle: AppHandle, requested_chars: i32) -> Result<QuotaCheckResult, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);
@@ -71,7 +72,7 @@ fn get_user_id(app_handle: &AppHandle) -> String {
 
 /// 模拟升级订阅（开发测试用）
 #[command]
-pub fn dev_upgrade_subscription(tier: String, app_handle: AppHandle) -> Result<SubscriptionStatus, String> {
+pub fn dev_upgrade_subscription(tier: String, app_handle: AppHandle) -> Result<SubscriptionStatus, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);
@@ -82,7 +83,7 @@ pub fn dev_upgrade_subscription(tier: String, app_handle: AppHandle) -> Result<S
 
 /// 模拟降级订阅（开发测试用）
 #[command]
-pub fn dev_downgrade_subscription(app_handle: AppHandle) -> Result<SubscriptionStatus, String> {
+pub fn dev_downgrade_subscription(app_handle: AppHandle) -> Result<SubscriptionStatus, AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(&app_handle);

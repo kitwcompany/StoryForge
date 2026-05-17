@@ -999,6 +999,23 @@ pub struct StyleDNA {
 }
 
 
+// ==================== StyleDNA 六维向量快照 (W3-B7) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StyleSnapshot {
+    pub id: String,
+    pub story_id: String,
+    pub chapter_number: Option<i32>,
+    pub scene_number: Option<i32>,
+    pub sentence_length: f64,
+    pub dialogue_ratio: f64,
+    pub metaphor_density: f64,
+    pub inner_monologue_ratio: f64,
+    pub emotion_density: f64,
+    pub rhythm_score: f64,
+    pub computed_at: DateTime<Local>,
+}
+
 // ==================== 风格混合配置模型 (v4.4.0 - 3风格三角框架) ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

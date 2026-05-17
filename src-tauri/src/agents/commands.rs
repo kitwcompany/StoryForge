@@ -12,6 +12,7 @@ use once_cell::sync::Lazy;
 use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
 use crate::db::{DbPool, CreateStoryRequest};
+use crate::error::AppError;
 use crate::db::repositories::{StoryRepository};
 use crate::db::repositories_v3::{SceneRepository, SceneUpdate};
 use crate::subscription::{SubscriptionService, SubscriptionTier};
@@ -56,49 +57,49 @@ fn get_user_id(app_handle: &AppHandle) -> String {
 }
 
 /// 检查自动续写配额
-fn check_auto_write_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), String> {
+fn check_auto_write_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(app_handle);
     let result = service.check_auto_write_quota(&user_id, requested_chars)?;
     if !result.allowed {
-        return Err(result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string()));
+        return Err(AppError::quota_exceeded("auto_write", result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string())));
     }
     Ok(())
 }
 
 /// 消费一次自动续写配额
-fn consume_auto_write_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), String> {
+fn consume_auto_write_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(app_handle);
     let result = service.consume_auto_write_quota(&user_id, _actual_chars)?;
     if !result.allowed {
-        return Err(result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string()));
+        return Err(AppError::quota_exceeded("auto_write", result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string())));
     }
     Ok(())
 }
 
 /// 检查自动修改配额
-fn check_auto_revise_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), String> {
+fn check_auto_revise_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(app_handle);
     let result = service.check_auto_revise_quota(&user_id, requested_chars)?;
     if !result.allowed {
-        return Err(result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string()));
+        return Err(AppError::quota_exceeded("auto_revise", result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string())));
     }
     Ok(())
 }
 
 /// 消费一次自动修改配额
-fn consume_auto_revise_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), String> {
+fn consume_auto_revise_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>();
     let service = SubscriptionService::new(pool.inner().clone());
     let user_id = get_user_id(app_handle);
     let result = service.consume_auto_revise_quota(&user_id, _actual_chars)?;
     if !result.allowed {
-        return Err(result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string()));
+        return Err(AppError::quota_exceeded("auto_revise", result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string())));
     }
     Ok(())
 }
@@ -129,7 +130,7 @@ pub struct ExecuteAgentResponse {
 pub async fn agent_execute(
     request: ExecuteAgentRequest,
     app_handle: AppHandle,
-) -> Result<ExecuteAgentResponse, String> {
+) -> Result<ExecuteAgentResponse, AppError> {
     let task_id = Uuid::new_v4().to_string();
     
     // 构建上下文
@@ -254,7 +255,7 @@ pub struct WriterAgentResponse {
 pub async fn writer_agent_execute(
     request: WriterAgentRequest,
     app_handle: AppHandle,
-) -> Result<WriterAgentResponse, String> {
+) -> Result<WriterAgentResponse, AppError> {
     let mut story_id = request.story_id.clone();
     let mut chapter_number = request.chapter_number.unwrap_or(1);
     let mut created_chapter_id: Option<String> = None;
@@ -270,9 +271,9 @@ pub async fn writer_agent_execute(
             description: Some(request.instruction.clone()),
             genre: Some("小说".to_string()),
             style_dna_id: None,
-        }).map_err(|e| e.to_string())?;
+        }).map_err(AppError::from)?;
 
-        let scene = scene_repo.create(&story.id, 1, Some("第一场景")).map_err(|e| e.to_string())?;
+        let scene = scene_repo.create(&story.id, 1, Some("第一场景")).map_err(AppError::from)?;
 
         story_id = story.id.clone();
         chapter_number = 1;
@@ -338,7 +339,7 @@ pub async fn writer_agent_execute(
     // 使用 AgentOrchestrator 执行 Writer → Inspector → Writer 闭环优化
     let orchestrator = super::orchestrator::AgentOrchestrator::new(service, orchestrator_config, app_handle.clone());
 
-    match orchestrator.execute_write_with_inspection(task).await {
+    match orchestrator.generate(task, super::orchestrator::GenerationMode::Full).await {
         Ok(workflow_result) => {
             log::info!("[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}", 
                 workflow_result.final_score, workflow_result.was_rewritten);
@@ -371,7 +372,7 @@ pub async fn writer_agent_execute(
                 chapter_id: created_chapter_id,
             })
         },
-        Err(e) => Err(e),
+        Err(e) => Err(AppError::internal(e)),
     }
 }
 
@@ -411,7 +412,7 @@ pub struct AutoWriteProgressEvent {
 pub async fn auto_write(
     request: AutoWriteRequest,
     app_handle: AppHandle,
-) -> Result<AutoWriteResponse, String> {
+) -> Result<AutoWriteResponse, AppError> {
     let task_id = Uuid::new_v4().to_string();
     let _user_id = get_user_id(&app_handle);
 
@@ -424,7 +425,7 @@ pub async fn auto_write(
 
     // 读取当前场景内容作为上下文
     let current_content = scene_repo.get_by_id(&request.chapter_id)
-        .map_err(|e| e.to_string())?
+        .map_err(AppError::from)?
         .map(|s| s.content.unwrap_or_default())
         .unwrap_or_default();
 
@@ -684,7 +685,7 @@ fn get_revision_instruction(revision_type: &str) -> &'static str {
 pub async fn auto_revise(
     request: AutoReviseRequest,
     app_handle: AppHandle,
-) -> Result<AutoReviseResponse, String> {
+) -> Result<AutoReviseResponse, AppError> {
     let task_id = Uuid::new_v4().to_string();
 
     // 预估算文本长度用于配额检查
@@ -695,7 +696,7 @@ pub async fn auto_revise(
                 let pool = app_handle.state::<DbPool>();
                 let scene_repo = SceneRepository::new(pool.inner().clone());
                 scene_repo.get_by_id(sid)
-                    .map_err(|e| e.to_string())?
+                    .map_err(AppError::from)?
                     .map(|s| s.content.unwrap_or_default().chars().count() as i32)
                     .unwrap_or(0)
             } else { 0 }
@@ -704,7 +705,7 @@ pub async fn auto_revise(
             let pool = app_handle.state::<DbPool>();
             let scene_repo = SceneRepository::new(pool.inner().clone());
             let scenes = scene_repo.get_by_story(&request.story_id)
-                .map_err(|e| e.to_string())?;
+                .map_err(AppError::from)?;
             scenes.into_iter()
                 .filter_map(|s| s.content)
                 .map(|c| c.chars().count() as i32)

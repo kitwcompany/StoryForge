@@ -32,6 +32,29 @@ function getScenePhaseLabel(sequenceNumber: number): string {
   return '收尾';
 }
 
+// W4-B11: 场景执行阶段标签
+function getExecutionStageLabel(stage?: string): string {
+  switch (stage) {
+    case 'planning': return '规划';
+    case 'outline': return '大纲';
+    case 'drafting': return '起草';
+    case 'review': return '审校';
+    case 'final': return '定稿';
+    default: return '规划';
+  }
+}
+
+function getExecutionStageColor(stage?: string): { bg: string; text: string } {
+  switch (stage) {
+    case 'planning': return { bg: 'bg-gray-500/20', text: 'text-gray-400' };
+    case 'outline': return { bg: 'bg-blue-500/20', text: 'text-blue-400' };
+    case 'drafting': return { bg: 'bg-purple-500/20', text: 'text-purple-400' };
+    case 'review': return { bg: 'bg-orange-500/20', text: 'text-orange-400' };
+    case 'final': return { bg: 'bg-green-500/20', text: 'text-green-400' };
+    default: return { bg: 'bg-gray-500/20', text: 'text-gray-400' };
+  }
+}
+
 interface StoryTimelineProps {
   scenes: Scene[];
   currentSceneId?: string | null;
@@ -161,7 +184,16 @@ export function StoryTimeline({
                 <h3 className="font-medium text-white truncate">
                   {scene.title || `场景 ${scene.sequence_number}`}
                 </h3>
-                
+
+                {/* Execution stage badge */}
+                <span className={`
+                  inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0
+                  ${getExecutionStageColor(scene.execution_stage).bg}
+                  ${getExecutionStageColor(scene.execution_stage).text}
+                `}>
+                  {getExecutionStageLabel(scene.execution_stage)}
+                </span>
+
                 {/* Actions */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button

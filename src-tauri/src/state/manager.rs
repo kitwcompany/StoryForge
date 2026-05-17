@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 use crate::db::DbPool;
+use crate::error::AppError;
 use rusqlite::params;
 
 /// Global story state manager
@@ -119,7 +120,7 @@ impl StoryStateManager {
         }
     }
 
-    pub fn create_state(&self, story_id: String, info: StoryInfo) -> Result<StoryState, String> {
+    pub fn create_state(&self, story_id: String, info: StoryInfo) -> Result<StoryState, AppError> {
         let state = StoryState {
             story_id: story_id.clone(),
             story_info: info,
@@ -146,9 +147,9 @@ impl StoryStateManager {
         Ok(state)
     }
 
-    fn save_state(&self, state: &StoryState) -> Result<(), String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
-        let state_json = serde_json::to_string(state).map_err(|e| e.to_string())?;
+    fn save_state(&self, state: &StoryState) -> Result<(), AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
+        let state_json = serde_json::to_string(state).map_err(AppError::from)?;
         conn.execute(
             "INSERT OR REPLACE INTO story_runtime_states (id, story_id, state_json, updated_at)
              VALUES (
@@ -161,15 +162,15 @@ impl StoryStateManager {
                 state_json,
                 Utc::now().to_rfc3339(),
             ],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
         Ok(())
     }
 
-    pub fn get_state(&self, story_id: &str) -> Result<Option<StoryState>, String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    pub fn get_state(&self, story_id: &str) -> Result<Option<StoryState>, AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         let mut stmt = conn.prepare(
             "SELECT state_json FROM story_runtime_states WHERE story_id = ?1"
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
 
         let result = stmt.query_row([story_id], |row| {
             let json: String = row.get(0)?;
@@ -178,18 +179,18 @@ impl StoryStateManager {
 
         match result {
             Ok(json) => {
-                let state: StoryState = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+                let state: StoryState = serde_json::from_str(&json).map_err(AppError::from)?;
                 Ok(Some(state))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(AppError::from(e)),
         }
     }
 
-    pub fn update_state(&self, story_id: &str, updater: impl FnOnce(&mut StoryState)) -> Result<(), String> {
+    pub fn update_state(&self, story_id: &str, updater: impl FnOnce(&mut StoryState)) -> Result<(), AppError> {
         let mut state = match self.get_state(story_id)? {
             Some(s) => s,
-            None => return Err("Story state not found".to_string()),
+            None => return Err(AppError::internal("Story state not found")),
         };
         updater(&mut state);
         state.updated_at = Utc::now();
@@ -204,13 +205,13 @@ impl StoryStateManager {
         self.current_story_id.lock().unwrap().clone()
     }
 
-    pub fn add_character(&self, story_id: &str, character: CharacterState) -> Result<(), String> {
+    pub fn add_character(&self, story_id: &str, character: CharacterState) -> Result<(), AppError> {
         self.update_state(story_id, |state| {
             state.characters.insert(character.id.clone(), character);
         })
     }
 
-    pub fn update_chapter_status(&self, story_id: &str, chapter_id: &str, status: ChapterStatus) -> Result<(), String> {
+    pub fn update_chapter_status(&self, story_id: &str, chapter_id: &str, status: ChapterStatus) -> Result<(), AppError> {
         self.update_state(story_id, |state| {
             if let Some(chapter) = state.chapters.iter_mut().find(|c| c.id == chapter_id) {
                 chapter.status = status;
@@ -218,27 +219,27 @@ impl StoryStateManager {
         })
     }
 
-    pub fn add_plot_point(&self, story_id: &str, point: String) -> Result<(), String> {
+    pub fn add_plot_point(&self, story_id: &str, point: String) -> Result<(), AppError> {
         self.update_state(story_id, |state| {
             state.plot_progression.plot_points_hit.push(point);
         })
     }
 
-    pub fn get_all_states(&self) -> Result<Vec<StoryState>, String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+    pub fn get_all_states(&self) -> Result<Vec<StoryState>, AppError> {
+        let conn = self.pool.get().map_err(AppError::from)?;
         let mut stmt = conn.prepare(
             "SELECT state_json FROM story_runtime_states"
-        ).map_err(|e| e.to_string())?;
+        ).map_err(AppError::from)?;
 
         let rows = stmt.query_map([], |row| {
             Ok(row.get::<_, String>(0)?)
         })
-        .map_err(|e| e.to_string())?
+        .map_err(AppError::from)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
         rows.iter()
-            .map(|json| serde_json::from_str(json).map_err(|e| e.to_string()))
+            .map(|json| serde_json::from_str(json).map_err(AppError::from))
             .collect()
     }
 }

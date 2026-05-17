@@ -11,7 +11,7 @@ import {
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 import { createLogger } from '@/utils/logger';
 import type { ViewType } from '@/types';
@@ -45,7 +45,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
 
   const handleOpenFrontstage = async () => {
     try {
-      await invoke('show_frontstage');
+      await loggedInvoke<unknown>('show_frontstage');
       toast.success('幕前写作界面已打开');
     } catch (error) {
       sidebarLogger.error('Failed to open frontstage', { error });

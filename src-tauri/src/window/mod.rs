@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Manager, WebviewWindow, Emitter};
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -23,52 +24,52 @@ impl WindowManager {
     }
 
     /// 显示幕前窗口
-    pub fn show_frontstage(app: &AppHandle) -> Result<(), String> {
+    pub fn show_frontstage(app: &AppHandle) -> Result<(), AppError> {
         if let Some(window) = Self::get_frontstage(app) {
-            window.show().map_err(|e| e.to_string())?;
-            window.set_focus().map_err(|e| e.to_string())?;
+            window.show().map_err(|e| AppError::internal(e.to_string()))?;
+            window.set_focus().map_err(|e| AppError::internal(e.to_string()))?;
             Ok(())
         } else {
-            Err("Frontstage window not found".to_string())
+            Err(AppError::internal("Frontstage window not found"))
         }
     }
 
     /// 隐藏幕前窗口
-    pub fn hide_frontstage(app: &AppHandle) -> Result<(), String> {
+    pub fn hide_frontstage(app: &AppHandle) -> Result<(), AppError> {
         if let Some(window) = Self::get_frontstage(app) {
-            window.hide().map_err(|e| e.to_string())
+            window.hide().map_err(|e| AppError::internal(e.to_string()))
         } else {
-            Err("Frontstage window not found".to_string())
+            Err(AppError::internal("Frontstage window not found"))
         }
     }
 
     /// 切换幕前窗口显示状态
-    pub fn toggle_frontstage(app: &AppHandle) -> Result<bool, String> {
+    pub fn toggle_frontstage(app: &AppHandle) -> Result<bool, AppError> {
         if let Some(window) = Self::get_frontstage(app) {
-            let is_visible = window.is_visible().map_err(|e| e.to_string())?;
+            let is_visible = window.is_visible().map_err(|e| AppError::internal(e.to_string()))?;
             if is_visible {
-                window.hide().map_err(|e| e.to_string())?;
+                window.hide().map_err(|e| AppError::internal(e.to_string()))?;
                 Ok(false)
             } else {
-                window.show().map_err(|e| e.to_string())?;
-                window.set_focus().map_err(|e| e.to_string())?;
+                window.show().map_err(|e| AppError::internal(e.to_string()))?;
+                window.set_focus().map_err(|e| AppError::internal(e.to_string()))?;
                 Ok(true)
             }
         } else {
-            Err("Frontstage window not found".to_string())
+            Err(AppError::internal("Frontstage window not found"))
         }
     }
 
     /// 获取窗口状态
-    pub fn get_window_state(app: &AppHandle) -> Result<WindowState, String> {
+    pub fn get_window_state(app: &AppHandle) -> Result<WindowState, AppError> {
         let frontstage_visible = if let Some(window) = Self::get_frontstage(app) {
-            window.is_visible().map_err(|e| e.to_string())?
+            window.is_visible().map_err(|e| AppError::internal(e.to_string()))?
         } else {
             false
         };
 
         let backstage_visible = if let Some(window) = Self::get_backstage(app) {
-            window.is_visible().map_err(|e| e.to_string())?
+            window.is_visible().map_err(|e| AppError::internal(e.to_string()))?
         } else {
             false
         };
@@ -80,31 +81,31 @@ impl WindowManager {
     }
 
     /// 向幕前窗口发送内容更新
-    pub fn send_to_frontstage(app: &AppHandle, event: FrontstageEvent) -> Result<(), String> {
+    pub fn send_to_frontstage(app: &AppHandle, event: FrontstageEvent) -> Result<(), AppError> {
         if let Some(window) = Self::get_frontstage(app) {
             window
                 .emit("frontstage-update", event)
-                .map_err(|e| e.to_string())
+                .map_err(|e| AppError::internal(e.to_string()))
         } else {
-            Err("Frontstage window not found".to_string())
+            Err(AppError::internal("Frontstage window not found"))
         }
     }
 
     /// 向幕后窗口发送内容更新
-    pub fn send_to_backstage(app: &AppHandle, event: BackstageEvent) -> Result<(), String> {
+    pub fn send_to_backstage(app: &AppHandle, event: BackstageEvent) -> Result<(), AppError> {
         if let Some(window) = Self::get_backstage(app) {
             window
                 .emit("backstage-update", event)
-                .map_err(|e| e.to_string())
+                .map_err(|e| AppError::internal(e.to_string()))
         } else {
-            Err("Backstage window not found".to_string())
+            Err(AppError::internal("Backstage window not found"))
         }
     }
 }
 
 /// 发送给幕前窗口的事件
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export_to = "../src-frontend/src/generated/")]
+#[ts(rename_all = "camelCase")]
 #[serde(tag = "type", content = "payload")]
 pub enum FrontstageEvent {
     /// 更新正文内容（完全替换）
@@ -123,7 +124,7 @@ pub enum FrontstageEvent {
 
 /// 发送给幕后窗口的事件
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export_to = "../src-frontend/src/generated/")]
+#[ts(rename_all = "camelCase")]
 #[serde(tag = "type", content = "payload")]
 pub enum BackstageEvent {
     /// 幕前内容变更
@@ -142,7 +143,7 @@ pub enum BackstageEvent {
 
 /// AI 提示位置
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export_to = "../src-frontend/src/generated/")]
+#[ts(rename_all = "camelCase")]
 pub struct HintPosition {
     pub line: usize,
     pub column: usize,
@@ -151,27 +152,27 @@ pub struct HintPosition {
 
 /// 窗口相关 Tauri 命令
 #[tauri::command]
-pub fn show_frontstage(app: AppHandle) -> Result<(), String> {
+pub fn show_frontstage(app: AppHandle) -> Result<(), AppError> {
     WindowManager::show_frontstage(&app)
 }
 
 #[tauri::command]
-pub fn hide_frontstage(app: AppHandle) -> Result<(), String> {
+pub fn hide_frontstage(app: AppHandle) -> Result<(), AppError> {
     WindowManager::hide_frontstage(&app)
 }
 
 #[tauri::command]
-pub fn toggle_frontstage(app: AppHandle) -> Result<bool, String> {
+pub fn toggle_frontstage(app: AppHandle) -> Result<bool, AppError> {
     WindowManager::toggle_frontstage(&app)
 }
 
 #[tauri::command]
-pub fn get_window_state(app: AppHandle) -> Result<WindowState, String> {
+pub fn get_window_state(app: AppHandle) -> Result<WindowState, AppError> {
     WindowManager::get_window_state(&app)
 }
 
 #[tauri::command]
-pub fn update_frontstage_content(app: AppHandle, text: String, chapter_id: String) -> Result<(), String> {
+pub fn update_frontstage_content(app: AppHandle, text: String, chapter_id: String) -> Result<(), AppError> {
     let event = FrontstageEvent::ContentUpdate { text, chapter_id };
     WindowManager::send_to_frontstage(&app, event)
 }

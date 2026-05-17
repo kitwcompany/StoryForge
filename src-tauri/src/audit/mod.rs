@@ -4,6 +4,7 @@
 //! 为场景生成五维审计报告。
 
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::repositories_v3::{SceneRepository, StyleDnaRepository};
 use crate::db::repositories::StoryRepository;
 use crate::creative_engine::continuity::{ContinuityEngine, Severity as ContinuitySeverity};
@@ -59,7 +60,7 @@ impl AuditService {
         scene_id: &str,
         audit_type: &str,
         app_handle: Option<&AppHandle>,
-    ) -> Result<AuditReport, String> {
+    ) -> Result<AuditReport, AppError> {
         // 1. 获取场景信息
         let scene_repo = SceneRepository::new(self.pool.clone());
         let scene = scene_repo.get_by_id(scene_id)
@@ -133,7 +134,7 @@ impl AuditService {
         story_id: &str,
         scene_id: &str,
         content: &str,
-    ) -> Result<AuditDimension, String> {
+    ) -> Result<AuditDimension, AppError> {
         let engine = ContinuityEngine::new(self.pool.clone());
         let check = engine.check_scene_continuity(story_id, scene_id, content)?;
 
@@ -169,7 +170,7 @@ impl AuditService {
         })
     }
 
-    fn check_character(&self, content: &str) -> Result<AuditDimension, String> {
+    fn check_character(&self, content: &str) -> Result<AuditDimension, AppError> {
         let checker = QualityChecker::new();
         let report = checker.check(content);
 
@@ -203,7 +204,7 @@ impl AuditService {
         &self,
         content: &str,
         style_dna_id: Option<&str>,
-    ) -> Result<AuditDimension, String> {
+    ) -> Result<AuditDimension, AppError> {
         let mut issues = Vec::new();
 
         // 获取目标 StyleDNA
@@ -252,7 +253,7 @@ impl AuditService {
         })
     }
 
-    fn check_pacing(&self, content: &str) -> Result<AuditDimension, String> {
+    fn check_pacing(&self, content: &str) -> Result<AuditDimension, AppError> {
         let checker = QualityChecker::new();
         let report = checker.check(content);
 
@@ -319,7 +320,7 @@ impl AuditService {
         story_id: &str,
         _scene_id: &str,
         scene_number: i32,
-    ) -> Result<AuditDimension, String> {
+    ) -> Result<AuditDimension, AppError> {
         let ledger = PayoffLedger::new(self.pool.clone());
         let items = ledger.get_ledger(story_id)?;
 
@@ -404,7 +405,7 @@ impl AuditService {
         &self,
         content: &str,
         app_handle: &AppHandle,
-    ) -> Result<AuditDimension, String> {
+    ) -> Result<AuditDimension, AppError> {
         let llm = LlmService::new(app_handle.clone());
         let checker = QualityChecker::new();
         let report = checker.check_with_llm(content, &llm).await?;

@@ -34,12 +34,16 @@ export type LlmProvider =
   | 'zhipu'
   | 'custom';
 
+// 模型来源 — 与后端 ModelSource 对应
+export type ModelSource = 'platform' | 'local' | 'user_owned';
+
 // 基础模型配置（通用字段）
 export interface BaseModelConfig {
   id: string;
   name: string;
   description?: string;
   provider: LlmProvider;
+  model_source?: ModelSource;
   model: string;
   api_key?: string;
   api_base?: string;

@@ -27,7 +27,7 @@ export class BrowserTestHelper {
     
     this.browser = await browserLauncher.launch({
       headless,
-      args: ['--disable-web-security', '--disable-features=IsolateOrigins'],
+      args: [],
     });
 
     this.context = await this.browser.newContext({

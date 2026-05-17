@@ -471,7 +471,7 @@ impl AgentService {
             self.clone(),
             self.app_handle.clone(),
         );
-        let (final_content, final_score, final_suggestions) = match orchestrator.execute_write_with_inspection(task.clone()).await {
+        let (final_content, final_score, final_suggestions) = match orchestrator.generate(task.clone(), crate::agents::orchestrator::GenerationMode::Full).await {
             Ok(workflow_result) => {
                 log::info!(
                     "[AgentOrchestrator] Workflow completed: score={:.2}, rewritten={}",
@@ -819,7 +819,13 @@ impl AgentService {
         vars.insert("tone".to_string(), ctx.tone.clone());
         vars.insert("pacing".to_string(), ctx.pacing.clone());
         vars.insert("characters".to_string(), ctx.format_characters());
-        vars.insert("previous_chapters".to_string(), ctx.format_previous_chapters());
+        // W3-B1: MemoryPack 注入提示词 — 如果存在 memory_pack，使用结构化记忆替代传统前文摘要
+        let previous_chapters_text = if let Some(ref pack) = ctx.memory_pack {
+            Self::format_memory_pack_for_prompt(pack)
+        } else {
+            ctx.format_previous_chapters()
+        };
+        vars.insert("previous_chapters".to_string(), previous_chapters_text);
         vars.insert("current_content".to_string(), ctx.current_content.clone().unwrap_or_else(|| "无".to_string()));
         vars.insert("instruction".to_string(), task.input.clone());
         vars.insert("world_rules".to_string(), ctx.world_rules.clone().unwrap_or_default());
@@ -1138,6 +1144,108 @@ impl AgentService {
             "message": event.message,
             "progress": event.progress,
         }));
+    }
+
+    /// W3-B1: 将 MemoryPack 格式化为提示词可用的记忆上下文文本
+    fn format_memory_pack_for_prompt(pack: &crate::memory::orchestrator::MemoryPack) -> String {
+        let mut parts = Vec::new();
+
+        // Working Memory（工作记忆：近章摘要 + 当前大纲 + 前文）
+        if !pack.working_memory.is_empty() {
+            parts.push("【工作记忆】".to_string());
+            for entry in &pack.working_memory {
+                let content_str = match &entry.content {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                // 截断过长的条目，避免提示词爆炸
+                let display = if content_str.chars().count() > 300 {
+                    format!("{}...", content_str.chars().take(300).collect::<String>())
+                } else {
+                    content_str
+                };
+                parts.push(format!("- [{}] {}", entry.source, display));
+            }
+        }
+
+        // Episodic Memory（情景记忆：状态变更、关系变化）
+        if !pack.episodic_memory.is_empty() {
+            parts.push(String::new());
+            parts.push("【情景记忆】".to_string());
+            for entry in &pack.episodic_memory {
+                let content_str = match &entry.content {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                let display = if content_str.chars().count() > 200 {
+                    format!("{}...", content_str.chars().take(200).collect::<String>())
+                } else {
+                    content_str
+                };
+                parts.push(format!("- [{}] {}", entry.source, display));
+            }
+        }
+
+        // Semantic Memory（语义记忆：长期事实、世界规则）
+        let semantic_items: Vec<_> = pack.semantic_memory.iter()
+            .filter(|item| item.category != "timeline") // timeline 太冗长，过滤
+            .collect();
+        if !semantic_items.is_empty() {
+            parts.push(String::new());
+            parts.push("【语义记忆】".to_string());
+            for item in semantic_items.iter().take(20) {
+                if let Some(ref value) = item.value {
+                    let subject = item.subject.as_deref().unwrap_or("未知");
+                    parts.push(format!("- {}（{}）: {}", subject, item.category, value));
+                }
+            }
+        }
+
+        // Active Constraints（活跃约束：世界规则、开放循环）
+        if !pack.active_constraints.is_empty() {
+            parts.push(String::new());
+            parts.push("【活跃约束】".to_string());
+            for constraint in &pack.active_constraints {
+                if let Some(ref value) = constraint.value {
+                    parts.push(format!("- {}: {}", constraint.category, value));
+                }
+            }
+        }
+
+        // Warnings（记忆冲突警告）
+        if !pack.warnings.is_empty() {
+            parts.push(String::new());
+            parts.push("【记忆警告】".to_string());
+            for warning in &pack.warnings {
+                parts.push(format!(
+                    "- {}（{} 项冲突，示例: {:?}）",
+                    warning.warning_type,
+                    warning.count,
+                    warning.sample.iter().map(|s| s.value.clone().unwrap_or_default()).collect::<Vec<_>>()
+                ));
+            }
+        }
+
+        // Stats（记忆统计，用于调试，不注入提示词）
+        // 仅当存在异常时附加一行
+        if pack.stats.conflicts > 0 || pack.stats.filtered > 50 {
+            parts.push(String::new());
+            parts.push(format!(
+                "[记忆统计] 总计: {}, 工作: {}, 情景: {}, 语义: {}, 过滤: {}, 冲突: {}",
+                pack.stats.total,
+                pack.stats.working_total,
+                pack.stats.episodic_total,
+                pack.stats.semantic_total,
+                pack.stats.filtered,
+                pack.stats.conflicts
+            ));
+        }
+
+        if parts.is_empty() {
+            "暂无记忆".to_string()
+        } else {
+            parts.join("\n")
+        }
     }
 
     fn calculate_quality_score(&self, content: &str) -> f32 {

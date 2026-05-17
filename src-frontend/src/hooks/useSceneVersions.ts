@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import type { 
   SceneVersion, 
   VersionDiff, 
@@ -17,7 +17,7 @@ export function useSceneVersions(sceneId: string | null) {
     queryKey: [VERSIONS_KEY, sceneId],
     queryFn: async () => {
       if (!sceneId) return [];
-      return invoke<SceneVersion[]>('get_scene_versions', { scene_id: sceneId });
+      return loggedInvoke<SceneVersion[]>('get_scene_versions', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -28,7 +28,7 @@ export function useSceneVersion(versionId: string | null) {
     queryKey: [VERSIONS_KEY, 'detail', versionId],
     queryFn: async () => {
       if (!versionId) return null;
-      return invoke<SceneVersion | null>('get_scene_version', { version_id: versionId });
+      return loggedInvoke<SceneVersion | null>('get_scene_version', { version_id: versionId });
     },
     enabled: !!versionId,
   });
@@ -39,7 +39,7 @@ export function useVersionDiff(fromVersionId: string | null, toVersionId: string
     queryKey: [VERSIONS_KEY, 'diff', fromVersionId, toVersionId],
     queryFn: async () => {
       if (!fromVersionId || !toVersionId) return null;
-      return invoke<VersionDiff>('compare_scene_versions', { 
+      return loggedInvoke<VersionDiff>('compare_scene_versions', { 
         from_version_id: fromVersionId, 
         to_version_id: toVersionId 
       });
@@ -53,7 +53,7 @@ export function useVersionChain(sceneId: string | null) {
     queryKey: [VERSIONS_KEY, 'chain', sceneId],
     queryFn: async () => {
       if (!sceneId) return [];
-      return invoke<VersionChainNode[]>('get_scene_version_chain', { scene_id: sceneId });
+      return loggedInvoke<VersionChainNode[]>('get_scene_version_chain', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -64,7 +64,7 @@ export function useVersionStats(sceneId: string | null) {
     queryKey: [VERSIONS_KEY, 'stats', sceneId],
     queryFn: async () => {
       if (!sceneId) return null;
-      return invoke<VersionStats>('get_scene_version_stats', { scene_id: sceneId });
+      return loggedInvoke<VersionStats>('get_scene_version_stats', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -82,7 +82,7 @@ export function useCreateSceneVersion() {
       createdBy: CreatorType;
       confidenceScore?: number;
     }) => {
-      return invoke<SceneVersion>('create_scene_version', {
+      return loggedInvoke<SceneVersion>('create_scene_version', {
         scene_id: params.sceneId,
         change_summary: params.changeSummary,
         created_by: params.createdBy,
@@ -106,7 +106,7 @@ export function useRestoreSceneVersion() {
       versionId: string;
       restoredBy: CreatorType;
     }) => {
-      return invoke<SceneVersion>('restore_scene_version', {
+      return loggedInvoke<SceneVersion>('restore_scene_version', {
         scene_id: params.sceneId,
         version_id: params.versionId,
         restored_by: params.restoredBy,
@@ -128,7 +128,7 @@ export function useDeleteSceneVersion() {
       versionId: string;
       sceneId: string;
     }) => {
-      return invoke<number>('delete_scene_version', { 
+      return loggedInvoke<number>('delete_scene_version', { 
         version_id: params.versionId 
       });
     },

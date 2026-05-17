@@ -14,6 +14,8 @@ pub mod dna;
 pub mod blend;
 pub mod drift_checker;
 pub mod classic_styles;
+pub mod metrics;
+pub mod evolution;
 
 pub use dna::StyleDNA;
 pub use blend::StyleBlendConfig;

@@ -15,7 +15,7 @@ pub async fn review_draft(
     review_focus: Option<&str>,
     config: &PipelineConfig,
     pool: &DbPool,
-    _llm_service: &LlmService,
+    llm_service: &LlmService,
     callbacks: &dyn PipelineCallbacks,
 ) -> Result<ReviewResult, PipelineError> {
     callbacks.progress("review", 0.1);
@@ -60,18 +60,30 @@ pub async fn review_draft(
     callbacks.log("[审稿] 已构建审稿 prompt");
     callbacks.progress("review", 0.4);
 
-    // 4. 调用 LLM（TODO: 接入实际 LLM 调用，解析 JSON）
-    // 占位：返回默认审稿结果
-    let review_result = ReviewResult {
-        review_id: String::new(), // 将在保存后填充
-        overall_score: 85.0,
-        dimensions: config.review_dimensions.iter().map(|dim| ReviewDimensionResult {
-            name: dim.clone(),
-            score: 85.0,
-            comment: format!("[占位] {} 维度评审尚未接入 LLM", dim),
-        }).collect(),
-        issues: vec![],
-        summary: "[占位] 审稿报告尚未接入 LLM。".to_string(),
+    // 4. 调用 LLM 生成审稿报告
+    let review_result = match llm_service.generate(prompt, Some(4096), Some(0.3)).await {
+        Ok(resp) => {
+            let text = resp.content.trim().to_string();
+            match parse_review_json(&text) {
+                Ok(result) => {
+                    callbacks.log("[审稿] 审稿报告 JSON 解析成功");
+                    result
+                }
+                Err(parse_err) => {
+                    callbacks.log(&format!("[审稿] JSON 解析失败，回退到占位: {}", parse_err.message));
+                    // 回退：生成一个基于文本分析的简化审稿结果
+                    generate_fallback_review(&draft.content, &config.review_dimensions, &text)
+                }
+            }
+        }
+        Err(e) => {
+            callbacks.log(&format!("[审稿] LLM 调用失败: {}", e));
+            return Err(PipelineError {
+                phase: "review".to_string(),
+                message: format!("LLM 审稿调用失败: {}", e),
+                recoverable: true,
+            });
+        }
     };
 
     callbacks.log("[审稿] AI 审稿完成");
@@ -180,4 +192,84 @@ pub fn parse_review_json(text: &str) -> Result<ReviewResult, PipelineError> {
         message: format!("审稿报告 JSON 解析失败: {}", e),
         recoverable: true,
     })
+}
+
+/// 当 JSON 解析失败时，生成一个简化的回退审稿结果
+fn generate_fallback_review(
+    content: &str,
+    dimensions: &[String],
+    raw_response: &str,
+) -> ReviewResult {
+    let word_count = content.chars().count();
+
+    // 基于字数和内容特征生成启发式评分
+    let base_score = if word_count > 500 {
+        80.0
+    } else if word_count > 100 {
+        70.0
+    } else {
+        60.0
+    };
+
+    let dimension_results: Vec<ReviewDimensionResult> = dimensions
+        .iter()
+        .map(|dim| {
+            let score_f64 = match dim.as_str() {
+                "continuity" | "logic" => base_score + 5.0,
+                "character" => base_score,
+                "foreshadow" => base_score - 2.0,
+                "pacing" => base_score + 2.0,
+                "style" => base_score + 3.0,
+                _ => base_score,
+            };
+            let score = (score_f64 as f32).clamp(0.0_f32, 100.0_f32);
+
+            ReviewDimensionResult {
+                name: dim.clone(),
+                score,
+                comment: format!(
+                    "[自动评估] {} 维度基于文本特征评估得分 {:.1}",
+                    dim, score
+                ),
+            }
+        })
+        .collect();
+
+    let overall_score = if dimension_results.is_empty() {
+        base_score as f32
+    } else {
+        (dimension_results.iter().map(|d| d.score).sum::<f32>() / dimension_results.len() as f32)
+            .clamp(0.0_f32, 100.0_f32)
+    };
+
+    // 检查 raw_response 中是否包含问题关键词
+    let mut issues = Vec::new();
+    let lower = raw_response.to_lowercase();
+    if lower.contains("矛盾") || lower.contains("不一致") {
+        issues.push(ReviewIssueResult {
+            severity: "medium".to_string(),
+            dimension: "剧情连贯性".to_string(),
+            description: "响应中检测到可能的一致性问题".to_string(),
+            suggestion: "请检查前后文逻辑".to_string(),
+        });
+    }
+    if lower.contains("角色") && (lower.contains("崩塌") || lower.contains("不合理")) {
+        issues.push(ReviewIssueResult {
+            severity: "high".to_string(),
+            dimension: "角色一致性".to_string(),
+            description: "响应中检测到可能的角色一致性问题".to_string(),
+            suggestion: "请检查角色人设".to_string(),
+        });
+    }
+
+    ReviewResult {
+        review_id: String::new(),
+        overall_score,
+        dimensions: dimension_results,
+        issues,
+        summary: format!(
+            "[回退评估] 原始响应未能解析为标准 JSON，已基于文本特征生成简化审稿报告。原始响应前 200 字: {}",
+            raw_response.chars().take(200).collect::<String>()
+        ),
+    }
 }

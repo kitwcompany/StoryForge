@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::db::DbPool;
+use crate::error::AppError;
 use crate::db::repositories::{StoryRepository, CharacterRepository};
 use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository, KnowledgeGraphRepository};
 use rusqlite::params;
@@ -18,24 +19,24 @@ impl CanonicalStateManager {
     }
 
     /// 获取故事的规范状态快照（实时聚合）
-    pub async fn get_snapshot(&self, story_id: &str) -> Result<CanonicalStateSnapshot, String> {
+    pub async fn get_snapshot(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
         self.create_snapshot(story_id).await
     }
 
     /// 创建故事的规范状态快照（实时聚合）
-    pub async fn create_snapshot(&self, story_id: &str) -> Result<CanonicalStateSnapshot, String> {
+    pub async fn create_snapshot(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
         // 1. 验证故事存在
         let story_repo = StoryRepository::new(self.pool.clone());
         let _story = story_repo
             .get_by_id(story_id)
-            .map_err(|e| e.to_string())?
+            .map_err(AppError::from)?
             .ok_or_else(|| "故事不存在".to_string())?;
 
         // 2. 读取场景列表
         let scene_repo = SceneRepository::new(self.pool.clone());
         let scenes = scene_repo
             .get_by_story(story_id)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         // 找出当前场景（sequence_number 最大的）
         let current_scene = scenes.iter().max_by_key(|s| s.sequence_number).cloned();
@@ -86,7 +87,7 @@ impl CanonicalStateManager {
         story_id: &str,
         character_id: &str,
         state: CharacterStateSnapshot,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         let conn = self
             .pool
             .get()
@@ -128,7 +129,7 @@ impl CanonicalStateManager {
         &self,
         _story_id: &str,
         _context: StoryContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         // 目前 story_context 通过实时聚合获取，不需要独立持久化
         // 如需持久化可在后续版本添加 canonical_states 缓存表
         log::info!("[CanonicalState] update_story_context called (no-op, context is aggregated in real-time)");
@@ -137,11 +138,11 @@ impl CanonicalStateManager {
 
     // ==================== 内部数据获取 ====================
 
-    fn fetch_character_states(&self, story_id: &str) -> Result<Vec<CharacterStateSnapshot>, String> {
+    fn fetch_character_states(&self, story_id: &str) -> Result<Vec<CharacterStateSnapshot>, AppError> {
         let char_repo = CharacterRepository::new(self.pool.clone());
         let characters = char_repo
             .get_by_story(story_id)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         let conn = self
             .pool
@@ -154,7 +155,7 @@ impl CanonicalStateManager {
                         secrets_known, secrets_unknown, arc_progress
                  FROM character_states WHERE story_id = ?1",
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         let state_rows: std::collections::HashMap<String, (Option<String>, Option<String>, Option<String>, Vec<String>, Vec<String>, f32)> = stmt
             .query_map([story_id], |row| {
@@ -169,9 +170,9 @@ impl CanonicalStateManager {
                 let unknown: Vec<String> = serde_json::from_str(&unknown_json).unwrap_or_default();
                 Ok((cid, (loc, emo, goal, known, unknown, arc)))
             })
-            .map_err(|e| e.to_string())?
+            .map_err(AppError::from)?
             .collect::<Result<std::collections::HashMap<_, _>, _>>()
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         let snapshots: Vec<CharacterStateSnapshot> = characters
             .into_iter()
@@ -196,7 +197,7 @@ impl CanonicalStateManager {
         Ok(snapshots)
     }
 
-    fn fetch_world_facts(&self, story_id: &str) -> Result<Vec<WorldFact>, String> {
+    fn fetch_world_facts(&self, story_id: &str) -> Result<Vec<WorldFact>, AppError> {
         let wb_repo = WorldBuildingRepository::new(self.pool.clone());
         let world_building = match wb_repo.get_by_story(story_id) {
             Ok(Some(wb)) => wb,
@@ -266,14 +267,14 @@ impl CanonicalStateManager {
         &self,
         story_id: &str,
         scenes: &[crate::db::models_v3::Scene],
-    ) -> Result<Vec<Conflict>, String> {
+    ) -> Result<Vec<Conflict>, AppError> {
         let mut conflicts = Vec::new();
 
         // 从知识图谱关系中提取冲突
         let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
         let relations = kg_repo
             .get_relations_by_story(story_id)
-            .map_err(|e| e.to_string())?;
+            .map_err(AppError::from)?;
 
         for relation in relations {
             let rt_str = relation.relation_type.to_string().to_lowercase();
@@ -304,7 +305,7 @@ impl CanonicalStateManager {
         &self,
         story_id: &str,
         current_sequence: i32,
-    ) -> Result<(Vec<PayoffRef>, Vec<PayoffRef>), String> {
+    ) -> Result<(Vec<PayoffRef>, Vec<PayoffRef>), AppError> {
         // 复用 PayoffLedger 的逻辑，确保前后端逾期检测一致
         let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(self.pool.clone());
         let items = ledger.get_ledger(story_id)?;

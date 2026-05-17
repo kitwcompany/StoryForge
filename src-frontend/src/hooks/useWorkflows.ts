@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
 export interface WorkflowNode {
@@ -42,7 +42,7 @@ export function useWorkflows() {
   return useQuery({
     queryKey: ['workflows'],
     queryFn: async () => {
-      return invoke<LoadedWorkflow[]>('list_workflows');
+      return loggedInvoke<LoadedWorkflow[]>('list_workflows');
     },
   });
 }
@@ -50,7 +50,7 @@ export function useWorkflows() {
 export function useReloadWorkflows() {
   return useMutation({
     mutationFn: async () => {
-      return invoke<number>('reload_workflows');
+      return loggedInvoke<number>('reload_workflows');
     },
     onSuccess: (count) => {
       toast.success(`已重新加载 ${count} 个工作流`);

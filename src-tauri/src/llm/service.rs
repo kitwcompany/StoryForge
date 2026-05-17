@@ -9,6 +9,7 @@ use super::anthropic::AnthropicAdapter;
 use super::ollama::OllamaAdapter;
 use super::openai::OpenAiAdapter;
 use crate::config::settings::{AppConfig, LlmProfile, LlmProvider};
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -202,15 +203,27 @@ impl LlmService {
             })?;
         
         log::info!("[LLM] Starting sync generation with profile={} prompt_len={}", profile.id, prompt.len());
-        
+
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
+        let pipeline_ref = pipeline_ctx.as_ref();
+
+        // Wave 1: 统一配额检查入口 — 仅对平台模型执行配额检查
+        if profile.model_source == crate::config::settings::ModelSource::Platform {
+            if let Err(e) = self.check_platform_quota() {
+                let err_msg = e.to_string();
+                log::warn!("[LLM] Quota check failed: {}", err_msg);
+                self.emit_llm_progress("error", &err_msg, 0, &model_name, pipeline_ref);
+                return Err(err_msg);
+            }
+        }
+
         log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
         let adapter = self.create_adapter(&profile).map_err(|e| {
             log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
             e
         })?;
-        
+
         let request = GenerateRequest {
             prompt,
             max_tokens,
@@ -219,7 +232,6 @@ impl LlmService {
         
         // 构建带有上下文的进度消息
         let label = context_label.unwrap_or("");
-        let pipeline_ref = pipeline_ctx.as_ref();
         let step_prefix = pipeline_ref.map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps)).unwrap_or_default();
         
         let connecting_msg = if label.is_empty() { 
@@ -278,23 +290,39 @@ impl LlmService {
         
         // 发送已发送请求事件
         self.emit_llm_progress("sent", &sent_msg, 0, &model_name, pipeline_ref);
-        
+
+        // Wave 1: 注册取消通道（同步生成也支持取消）
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+        {
+            let mut senders = self.cancel_senders.lock().unwrap();
+            senders.insert(request_id.clone(), cancel_tx);
+        }
+
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
         // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
         let start_time = std::time::Instant::now();
-        
-        let result = {
-            let r = timeout(Duration::from_secs(600), adapter.generate(request)).await;
-            match r {
-                Ok(Ok(resp)) => Ok(resp),
-                Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
-                Err(_) => {
-                    log::warn!("[LLM] Generation timed out after {}s", 600);
-                    Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+
+        let result = tokio::select! {
+            r = timeout(Duration::from_secs(600), adapter.generate(request)) => {
+                match r {
+                    Ok(Ok(resp)) => Ok(resp),
+                    Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
+                    Err(_) => {
+                        log::warn!("[LLM] Generation timed out after {}s", 600);
+                        Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+                    }
                 }
             }
+            _ = cancel_rx.recv() => {
+                log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
+                Err("生成已取消".to_string())
+            }
         };
-        
+
+        // 清理取消通道
+        let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+
         // 取消心跳任务
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
@@ -344,12 +372,23 @@ impl LlmService {
         
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
+
+        // Wave 1: 统一配额检查入口 — 仅对平台模型执行配额检查
+        if profile.model_source == crate::config::settings::ModelSource::Platform {
+            if let Err(e) = self.check_platform_quota() {
+                let err_msg = e.to_string();
+                log::warn!("[LLM] Quota check failed for profile={}: {}", profile_id, err_msg);
+                self.emit_llm_progress("error", &err_msg, 0, &model_name, None);
+                return Err(err_msg);
+            }
+        }
+
         log::debug!("[LLM] Adapter selected: {:?} model={}", provider, model_name);
         let adapter = self.create_adapter(&profile).map_err(|e| {
             log::error!("[LLM] Failed to create adapter for provider {:?}: {}", provider, e);
             e
         })?;
-        
+
         let request = GenerateRequest {
             prompt,
             max_tokens,
@@ -398,23 +437,39 @@ impl LlmService {
         
         // 发送已发送请求事件
         self.emit_llm_progress("sent", &sent_msg, 0, &model_name, None);
-        
+
+        // Wave 1: 注册取消通道（同步生成也支持取消）
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+        {
+            let mut senders = self.cancel_senders.lock().unwrap();
+            senders.insert(request_id.clone(), cancel_tx);
+        }
+
         // 使用作用域块确保 Box<dyn StdError> 在 heartbeat_handle.await 之前被销毁
         // v5.2.2: 本地大模型生成长文本可能需要5-10分钟，将超时从120秒延长到600秒
         let start_time = std::time::Instant::now();
-        
-        let result = {
-            let r = timeout(Duration::from_secs(600), adapter.generate(request)).await;
-            match r {
-                Ok(Ok(resp)) => Ok(resp),
-                Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
-                Err(_) => {
-                    log::warn!("[LLM] Generation timed out after {}s", 600);
-                    Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+
+        let result = tokio::select! {
+            r = timeout(Duration::from_secs(600), adapter.generate(request)) => {
+                match r {
+                    Ok(Ok(resp)) => Ok(resp),
+                    Ok(Err(e)) => Err(format!("Generation failed: {}", e)),
+                    Err(_) => {
+                        log::warn!("[LLM] Generation timed out after {}s", 600);
+                        Err("模型生成超时（600秒无响应），本地模型可能较慢".to_string())
+                    }
                 }
             }
+            _ = cancel_rx.recv() => {
+                log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
+                Err("生成已取消".to_string())
+            }
         };
-        
+
+        // 清理取消通道
+        let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+
         // 取消心跳任务
         heartbeat_handle.abort();
         let _ = heartbeat_handle.await;
@@ -450,6 +505,25 @@ impl LlmService {
 
         let profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
+
+        // Wave 1: 统一配额检查入口 — 仅对平台模型执行配额检查
+        if profile.model_source == crate::config::settings::ModelSource::Platform {
+            if let Err(e) = self.check_platform_quota() {
+                let err_msg = e.to_string();
+                log::warn!("[LLM] Quota check failed for stream request_id={}: {}", request_id, err_msg);
+                let error_code = if matches!(e, crate::error::AppError::QuotaExceeded { .. }) {
+                    "QUOTA_EXCEEDED"
+                } else {
+                    "QUOTA_CHECK_FAILED"
+                };
+                let error = GenerationError {
+                    error: err_msg.clone(),
+                    error_code: error_code.to_string(),
+                };
+                let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
+                return Err(err_msg);
+            }
+        }
 
         // 构建增强提示词
         let enhanced_prompt = self.build_writing_prompt(&prompt, context.as_deref());
@@ -609,6 +683,55 @@ impl LlmService {
             log::warn!("[LLM] No active generation found for request_id: {}", request_id);
         }
     }
+
+    /// 解析当前用户ID（从 .machine_id 文件）
+    fn resolve_user_id(&self) -> Option<String> {
+        let app_dir = self.app_handle.path().app_data_dir().ok()?;
+        let machine_id_path = app_dir.join(".machine_id");
+        if machine_id_path.exists() {
+            std::fs::read_to_string(&machine_id_path).ok().map(|s| s.trim().to_string())
+        } else {
+            None
+        }
+    }
+
+    /// 检查平台模型配额（Wave 1: 统一配额检查入口）
+    ///
+    /// 配额充足时返回 Ok，配额不足时返回 Err(AppError::QuotaExceeded)。
+    fn check_platform_quota(&self) -> Result<(), AppError> {
+        let user_id = self.resolve_user_id()
+            .ok_or_else(|| AppError::internal("无法识别用户身份"))?;
+
+        let pool = self.app_handle.try_state::<crate::db::DbPool>()
+            .ok_or_else(|| AppError::internal("数据库未初始化"))?;
+        Self::check_platform_quota_for_user(&user_id, pool.inner())
+    }
+
+    /// 可测试的配额检查核心逻辑（W4-B5）
+    fn check_platform_quota_for_user(user_id: &str, pool: &crate::db::DbPool) -> Result<(), AppError> {
+        let service = crate::subscription::SubscriptionService::new(pool.clone());
+
+        let result = service.check_platform_model_quota(user_id)?;
+        if !result.allowed {
+            return Err(AppError::QuotaExceeded {
+                message: "今日 AI 调用次数已用完，升级专业版解锁无限次".to_string(),
+                quota_type: "platform_model_daily".to_string(),
+                remaining: Some(0),
+            });
+        }
+
+        // 配额充足，原子扣减
+        let consume_result = service.consume_platform_model_quota(user_id)?;
+        if !consume_result.allowed {
+            return Err(AppError::QuotaExceeded {
+                message: "今日 AI 调用次数已用完，升级专业版解锁无限次".to_string(),
+                quota_type: "platform_model_daily".to_string(),
+                remaining: Some(0),
+            });
+        }
+
+        Ok(())
+    }
 }
 
 /// 全局LLM服务实例
@@ -637,4 +760,82 @@ impl Clone for LlmService {
     }
 }
 
+// =============================================================================
+// W4-B5: 配额逻辑单元测试
+// =============================================================================
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn insert_test_user(pool: &crate::db::DbPool, user_id: &str, tier: &str, daily_used: i32, daily_limit: i32, offline_grace_used: i32) {
+        let conn = pool.get().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO subscriptions (id, user_id, tier, status, started_at, created_at, updated_at) VALUES (?1, ?2, ?3, 'active', ?4, ?4, ?4)",
+            rusqlite::params![uuid::Uuid::new_v4().to_string(), user_id, tier, now],
+        ).unwrap();
+        let reset = format!("{}T00:00:00+08:00", chrono::Local::now().date_naive().succ_opt().unwrap_or(chrono::Local::now().date_naive()));
+        conn.execute(
+            "INSERT INTO ai_usage_quota (id, user_id, tier, daily_limit, daily_used, quota_reset_at, updated_at, total_used, auto_write_used, auto_write_limit, auto_revise_used, auto_revise_limit, max_chars_per_call, offline_grace_used) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?4, 0, ?4, 1000, ?8)",
+            rusqlite::params![uuid::Uuid::new_v4().to_string(), user_id, tier, daily_limit, daily_used, reset, now, offline_grace_used],
+        ).unwrap();
+    }
+
+    /// 配额充足时返回 Ok，且应触发消费（daily_used + 1）
+    #[test]
+    fn test_check_platform_quota_allowed() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let user_id = "test-user-allowed";
+        insert_test_user(&pool, user_id, "free", 0, 10, 0);
+
+        let result = LlmService::check_platform_quota_for_user(user_id, &pool);
+        assert!(result.is_ok(), "配额充足时应返回 Ok: {:?}", result);
+
+        // 验证消费后 daily_used 增加 1
+        let conn = pool.get().unwrap();
+        let used: i32 = conn.query_row(
+            "SELECT daily_used FROM ai_usage_quota WHERE user_id = ?1",
+            [user_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(used, 1, "配额应被消费一次");
+    }
+
+    /// 配额不足时返回 Err(AppError::QuotaExceeded)，且不触发额外消费
+    #[test]
+    fn test_check_platform_quota_exceeded_returns_quota_error() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let user_id = "test-user-exceeded";
+        insert_test_user(&pool, user_id, "free", 10, 10, 10);
+
+        let result = LlmService::check_platform_quota_for_user(user_id, &pool);
+        assert!(result.is_err(), "配额不足时应返回 Err");
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, AppError::QuotaExceeded { .. }),
+            "错误类型应为 QuotaExceeded，实际为: {:?}", err
+        );
+
+        // 验证 daily_used 未被增加（无 HTTP 请求发出等价于：不触发额外消费）
+        let conn = pool.get().unwrap();
+        let used: i32 = conn.query_row(
+            "SELECT daily_used FROM ai_usage_quota WHERE user_id = ?1",
+            [user_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(used, 10, "配额不足时不应触发消费");
+    }
+
+    /// Pro 用户永远不受配额限制
+    #[test]
+    fn test_check_platform_quota_pro_user_unlimited() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let user_id = "test-user-pro";
+        insert_test_user(&pool, user_id, "pro", 0, 999999, 0);
+
+        let result = LlmService::check_platform_quota_for_user(user_id, &pool);
+        assert!(result.is_ok(), "Pro 用户应始终通过配额检查: {:?}", result);
+    }
+}

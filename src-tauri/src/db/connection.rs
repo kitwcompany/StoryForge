@@ -10,7 +10,7 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     let manager = SqliteConnectionManager::memory()
         .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;"));
     let pool = Pool::builder()
-        .max_size(1)
+        .max_size(5)
         .build(manager)?;
 
     let mut conn = pool.get()?;
@@ -2779,6 +2779,113 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX idx_llm_calls_model ON llm_calls(model_id)",
+            [],
+        )?;
+    }
+
+    // Migration 65: AI 使用配额表添加 offline_grace_used 字段 (W1-B6: 离线配额快照)
+    let quota_v3_columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(ai_usage_quota)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !quota_v3_columns.iter().any(|c| c == "offline_grace_used") {
+        conn.execute(
+            "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
+    // Migration 66: 创建 style_snapshots 表 — StyleDNA 六维向量存储 (W3-B7)
+    let snapshot_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='style_snapshots'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if snapshot_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE style_snapshots (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                chapter_number INTEGER,
+                scene_number INTEGER,
+                sentence_length REAL NOT NULL,
+                dialogue_ratio REAL NOT NULL,
+                metaphor_density REAL NOT NULL,
+                inner_monologue_ratio REAL NOT NULL,
+                emotion_density REAL NOT NULL,
+                rhythm_score REAL NOT NULL,
+                computed_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_style_snapshots_story ON style_snapshots(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_style_snapshots_story_chapter ON style_snapshots(story_id, chapter_number)",
+            [],
+        )?;
+    }
+
+    // Migration 67: narrative_* 表添加 status 字段 — Deconstruction 存储统一 (W3-B2/W3-B3)
+    for table in ["narrative_characters", "narrative_scenes", "narrative_world_buildings"] {
+        let columns: Vec<String> = conn.prepare(
+            &format!("PRAGMA table_info({})", table)
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        if !columns.iter().any(|c| c == "status") {
+            conn.execute(
+                &format!("ALTER TABLE {} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'", table),
+                [],
+            )?;
+        }
+    }
+
+    // W2-B9: genesis_runs 表 — GenesisRun 状态机持久化
+    let genesis_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='genesis_runs'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if genesis_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE genesis_runs (
+                id TEXT PRIMARY KEY,
+                story_id TEXT,
+                session_id TEXT NOT NULL,
+                premise TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                current_step TEXT,
+                current_step_number INTEGER NOT NULL DEFAULT 0,
+                total_steps INTEGER NOT NULL DEFAULT 7,
+                steps_json TEXT NOT NULL DEFAULT '{}',
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_genesis_runs_story ON genesis_runs(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_genesis_runs_session ON genesis_runs(session_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_genesis_runs_status ON genesis_runs(status)",
             [],
         )?;
     }

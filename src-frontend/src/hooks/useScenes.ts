@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import type { Scene, CreateSceneRequest, UpdateSceneRequest, ConflictType, Chapter } from '@/types';
 
 const SCENES_KEY = 'scenes';
@@ -11,7 +11,7 @@ export function useScenes(storyId: string | null) {
     queryKey: [SCENES_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return [];
-      return invoke<Scene[]>('get_story_scenes', { story_id: storyId });
+      return loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -22,7 +22,7 @@ export function useScene(sceneId: string | null) {
     queryKey: [SCENES_KEY, 'detail', sceneId],
     queryFn: async () => {
       if (!sceneId) return null;
-      return invoke<Scene | null>('get_scene', { scene_id: sceneId });
+      return loggedInvoke<Scene | null>('get_scene', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -34,7 +34,7 @@ export function useSceneWithChapter(sceneId: string | null) {
     queryKey: [SCENES_KEY, 'chapter', sceneId],
     queryFn: async () => {
       if (!scene?.chapter_id) return null;
-      return invoke<Chapter | null>('get_chapter', { id: scene.chapter_id });
+      return loggedInvoke<Chapter | null>('get_chapter', { id: scene.chapter_id });
     },
     enabled: !!scene?.chapter_id,
   });
@@ -64,7 +64,7 @@ export function useCreateScene() {
       settingLocation?: string;
       content?: string;
     }) => {
-      return invoke<Scene>('create_scene', {
+      return loggedInvoke<Scene>('create_scene', {
         story_id: params.storyId,
         sequence_number: params.sequenceNumber,
         title: params.title,
@@ -91,7 +91,7 @@ export function useUpdateScene() {
       storyId: string;
       updates: UpdateSceneRequest;
     }) => {
-      return invoke<number>('update_scene', {
+      return loggedInvoke<number>('update_scene', {
         scene_id: params.sceneId,
         updates: params.updates,
       });
@@ -108,7 +108,7 @@ export function useDeleteScene() {
   
   return useMutation({
     mutationFn: async (params: { sceneId: string; storyId: string }) => {
-      return invoke<number>('delete_scene', { scene_id: params.sceneId });
+      return loggedInvoke<number>('delete_scene', { scene_id: params.sceneId });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [SCENES_KEY, variables.storyId] });
@@ -121,7 +121,7 @@ export function useReorderScenes() {
   
   return useMutation({
     mutationFn: async (params: { storyId: string; sceneIds: string[] }) => {
-      return invoke<void>('reorder_scenes', {
+      return loggedInvoke<void>('reorder_scenes', {
         story_id: params.storyId,
         scene_ids: params.sceneIds,
       });

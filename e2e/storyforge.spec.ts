@@ -145,27 +145,105 @@ test.describe('StoryForge 应用测试', () => {
   });
 
   test.describe('🎯 功能交互测试', () => {
-    
+
     test('页面导航流畅度', async ({ page }) => {
       await page.goto('/index.html');
       await page.waitForTimeout(2000);
-      
+
       // 测试导航到不同页面
       const pages = ['#/stories', '#/characters', '#/scenes', '#/settings'];
-      
+
       for (const route of pages) {
         const startTime = Date.now();
         await page.goto(`/index.html${route}`);
         await page.waitForLoadState('networkidle');
         const loadTime = Date.now() - startTime;
-        
+
         console.log(`页面 ${route} 加载时间: ${loadTime}ms`);
-        
+
         await page.screenshot({
           path: `e2e/screenshots/nav_${route.replace('#/', '')}.png`,
           fullPage: true
         });
       }
+    });
+  });
+
+  test.describe('💾 数据持久化核心断言', () => {
+
+    test('保存章节后重进 Frontstage，内容仍存在', async ({ page }) => {
+      const TEST_CONTENT = '这是E2E测试内容，保存后应仍然存在。';
+
+      // 注入 mock Tauri API，模拟后端数据持久化
+      await page.addInitScript(() => {
+        let mockContent = '';
+        const mockChapter = {
+          id: 'test-chapter-1',
+          story_id: 'test-story-1',
+          title: '测试章节',
+          chapter_number: 1,
+          content: ''
+        };
+
+        (window as any).__TAURI_INTERNALS__ = {
+          invoke: async (cmd: string, args?: any) => {
+            if (cmd === 'list_stories') {
+              return [{ id: 'test-story-1', title: '测试故事' }];
+            }
+            if (cmd === 'get_story_chapters') {
+              mockChapter.content = mockContent;
+              return [mockChapter];
+            }
+            if (cmd === 'get_story_scenes') {
+              return [];
+            }
+            if (cmd === 'get_chapter') {
+              mockChapter.content = mockContent;
+              return mockChapter;
+            }
+            if (cmd === 'update_chapter') {
+              mockContent = args?.content || '';
+              mockChapter.content = mockContent;
+              return null;
+            }
+            if (cmd === 'notify_backstage_content_changed') {
+              return null;
+            }
+            // 其他命令静默返回 null，避免未定义错误阻断 UI
+            return null;
+          }
+        };
+      });
+
+      await page.goto('/frontstage.html');
+      await page.waitForTimeout(3000);
+
+      // 断言编辑器已加载
+      const editor = page.locator('.ProseMirror, [contenteditable="true"]').first();
+      await expect(editor).toBeVisible();
+
+      // 在编辑器中输入内容
+      await editor.click();
+      await editor.fill(TEST_CONTENT);
+
+      // 等待自动保存触发（FrontstageApp 中 autoSave 的 debounce 为 2000ms）
+      await page.waitForTimeout(3500);
+
+      // 断言编辑器中确实包含输入内容
+      const textBeforeReload = await editor.innerText();
+      expect(textBeforeReload).toContain(TEST_CONTENT);
+
+      // 刷新页面模拟"重进 Frontstage"
+      await page.reload();
+      await page.waitForTimeout(3000);
+
+      // 重新获取编辑器并断言内容仍然存在
+      const editorAfterReload = page.locator('.ProseMirror, [contenteditable="true"]').first();
+      await expect(editorAfterReload).toBeVisible();
+      const textAfterReload = await editorAfterReload.innerText();
+      expect(textAfterReload).toContain(TEST_CONTENT);
+
+      console.log('✅ 保存后重进 Frontstage，内容持久化验证通过');
     });
   });
 });

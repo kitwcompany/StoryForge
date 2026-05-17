@@ -15,7 +15,7 @@ pub async fn refine_draft(
     user_prompt: Option<&str>,
     _config: &PipelineConfig,
     pool: &DbPool,
-    _llm_service: &LlmService,
+    llm_service: &LlmService,
     callbacks: &dyn PipelineCallbacks,
 ) -> Result<RefineResult, PipelineError> {
     callbacks.progress("refine", 0.1);
@@ -52,11 +52,28 @@ pub async fn refine_draft(
     callbacks.log("[修稿] 已构建修稿 prompt");
     callbacks.progress("refine", 0.4);
 
-    // 5. 调用 LLM（TODO: 接入流式生成）
-    // 目前返回原内容作为占位，实际应调用 LLM
-    let refined_content = draft.content.clone();
-    let word_count = draft.word_count;
-    let change_summary = Some("[占位] AI 修稿尚未接入 LLM，返回原内容".to_string());
+    // 5. 调用 LLM 进行修稿
+    let response = match llm_service.generate(prompt, Some(4096), Some(0.7)).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            return Err(PipelineError {
+                phase: "refine".to_string(),
+                message: format!("LLM 修稿调用失败: {}", e),
+                recoverable: true,
+            });
+        }
+    };
+
+    let refined_content = response.content.trim().to_string();
+    let word_count = refined_content.chars().count() as i32;
+
+    // 计算变更摘要
+    let change_summary = if refined_content == draft.content {
+        Some("修稿后内容与原稿一致（AI 认为无需修改）".to_string())
+    } else {
+        let diff_ratio = calculate_diff_ratio(&draft.content, &refined_content);
+        Some(format!("修稿完成，内容变动约 {:.1}%", diff_ratio * 100.0))
+    };
 
     callbacks.log("[修稿] AI 修稿完成");
     callbacks.progress("refine", 0.8);
@@ -140,4 +157,46 @@ fn build_refine_prompt(
     prompt.push_str("\n```\n\n## 输出要求\n直接输出修稿后的完整正文，不要解释修改原因，不要添加任何评论或分析。如果内容已经完美，可以原样返回。");
 
     prompt
+}
+
+/// 计算两段文本的差异比例（简化版：基于行/字符差异）
+fn calculate_diff_ratio(original: &str, modified: &str) -> f64 {
+    if original.is_empty() {
+        return if modified.is_empty() { 0.0 } else { 1.0 };
+    }
+
+    let original_chars: Vec<char> = original.chars().collect();
+    let modified_chars: Vec<char> = modified.chars().collect();
+
+    // 使用最长公共子序列（LCS）计算差异
+    let m = original_chars.len();
+    let n = modified_chars.len();
+
+    if m == 0 || n == 0 {
+        return 1.0;
+    }
+
+    // 使用一维 DP 优化空间
+    let mut prev = vec![0u32; n + 1];
+    let mut curr = vec![0u32; n + 1];
+
+    for i in 1..=m {
+        for j in 1..=n {
+            if original_chars[i - 1] == modified_chars[j - 1] {
+                curr[j] = prev[j - 1] + 1;
+            } else {
+                curr[j] = std::cmp::max(prev[j], curr[j - 1]);
+            }
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    let lcs_len = prev[n] as f64;
+    let max_len = std::cmp::max(m, n) as f64;
+
+    if max_len == 0.0 {
+        0.0
+    } else {
+        1.0 - (lcs_len / max_len)
+    }
 }

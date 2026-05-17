@@ -5,7 +5,7 @@
  * 支持多模态、语言和Embedding模型
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { ModelConfig, getEmbeddingModel } from '@/config/models';
 import { createLogger } from '@/utils/logger';
 import { getConfig } from './tauri';
@@ -85,7 +85,7 @@ class ModelService {
   // 检查模型连接状态（通过后端 Rust 代理，绕过 CSP/CORS 限制）
   async checkModelStatus(): Promise<'connected' | 'disconnected' | 'connecting'> {
     try {
-      const status = await invoke<string>('check_model_status');
+      const status = await loggedInvoke<string>('check_model_status');
       return status as 'connected' | 'disconnected';
     } catch (error) {
       modelServiceLogger.warn('Model status check failed', { error });
@@ -105,7 +105,7 @@ class ModelService {
   ): Promise<ChatCompletionResponse> {
     const config = await getConfig();
 
-    const data = await invoke<ChatCompletionResponse>('chat_completion', {
+    const data = await loggedInvoke<ChatCompletionResponse>('chat_completion', {
       base_url: config.base_url,
       api_key: config.api_key || undefined,
       model: config.model,

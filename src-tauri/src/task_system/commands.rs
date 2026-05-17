@@ -1,5 +1,6 @@
 //! Task System Tauri IPC Commands
 
+use crate::error::AppError;
 use super::models::*;
 use super::service::TaskService;
 
@@ -15,7 +16,7 @@ pub async fn create_task(
     max_retries: Option<i32>,
     heartbeat_timeout_seconds: Option<i32>,
     service: tauri::State<'_, TaskService>,
-) -> Result<Task, String> {
+) -> Result<Task, AppError> {
     let req = CreateTaskRequest {
         name,
         description,
@@ -40,7 +41,7 @@ pub async fn update_task(
     max_retries: Option<i32>,
     heartbeat_timeout_seconds: Option<i32>,
     service: tauri::State<'_, TaskService>,
-) -> Result<Task, String> {
+) -> Result<Task, AppError> {
     let req = UpdateTaskRequest {
         name,
         description,
@@ -56,7 +57,7 @@ pub async fn update_task(
 pub async fn delete_task(
     id: String,
     service: tauri::State<'_, TaskService>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     service.delete_task(&id)
 }
 
@@ -64,7 +65,7 @@ pub async fn delete_task(
 pub async fn list_tasks(
     status_filter: Option<String>,
     service: tauri::State<'_, TaskService>,
-) -> Result<Vec<Task>, String> {
+) -> Result<Vec<Task>, AppError> {
     service.list_tasks(status_filter)
 }
 
@@ -72,16 +73,16 @@ pub async fn list_tasks(
 pub async fn get_task(
     id: String,
     service: tauri::State<'_, TaskService>,
-) -> Result<Task, String> {
+) -> Result<Task, AppError> {
     service.get_task(&id)
-        .and_then(|opt| opt.ok_or_else(|| "Task not found".to_string()))
+        .and_then(|opt| opt.ok_or_else(|| AppError::not_found("Task", &id)))
 }
 
 #[tauri::command]
 pub async fn trigger_task(
     id: String,
     service: tauri::State<'_, TaskService>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     service.trigger_task(&id)
 }
 
@@ -89,7 +90,7 @@ pub async fn trigger_task(
 pub async fn cancel_task(
     id: String,
     service: tauri::State<'_, TaskService>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     service.cancel_task(&id)
 }
 
@@ -97,6 +98,6 @@ pub async fn cancel_task(
 pub async fn get_task_logs(
     task_id: String,
     service: tauri::State<'_, TaskService>,
-) -> Result<Vec<TaskLog>, String> {
+) -> Result<Vec<TaskLog>, AppError> {
     service.get_task_logs(&task_id)
 }

@@ -1,6 +1,7 @@
 //! JWT Session 管理
 
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,10 +19,10 @@ struct Claims {
 }
 
 /// 生成JWT token
-pub fn create_token(user_id: &str) -> Result<String, String> {
+pub fn create_token(user_id: &str) -> Result<String, AppError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
+        .map_err(AppError::from)?
         .as_secs() as usize;
 
     let exp = now + TOKEN_EXPIRY_SECONDS as usize;
@@ -47,7 +48,7 @@ pub fn create_token(user_id: &str) -> Result<String, String> {
 
 /// 验证JWT token，返回user_id
 #[allow(dead_code)]
-pub fn validate_token(token: &str) -> Result<String, String> {
+pub fn validate_token(token: &str) -> Result<String, AppError> {
     let secret = get_jwt_secret();
     let validation = Validation::default();
 

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
+use crate::error::AppError;
 use super::types::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -252,7 +253,7 @@ impl McpServer {
                 perform_web_search(arguments).await
             }).await {
                 Ok(Ok(result)) => Ok(result),
-                Ok(Err(e)) => Err(McpError::RpcError(e)),
+                Ok(Err(e)) => Err(McpError::RpcError(e.to_string())),
                 Err(_) => Err(McpError::Timeout),
             };
         }
@@ -267,7 +268,7 @@ impl McpServer {
 }
 
 /// 执行真实的网页搜索（使用 DuckDuckGo Lite）
-async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::Value, AppError> {
     let query = arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
     if query.is_empty() {
         return Ok(serde_json::json!({"query": "", "results": [], "note": "Empty query"}));
@@ -281,7 +282,7 @@ async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::
         .timeout(std::time::Duration::from_secs(15))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0")
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(AppError::from)?;
 
     match client.get(&url).send().await {
         Ok(response) => {

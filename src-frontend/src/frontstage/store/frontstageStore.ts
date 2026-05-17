@@ -1,5 +1,13 @@
 /**
  * FrontStage 状态管理
+ *
+ * W2-F1: frontstageStore 是编辑中内容的唯一可写源。
+ * 当前 FrontstageApp.tsx 仍在向本 store 迁移中。
+ * 关键原则：
+ * 1. `content` 和 `isSaved` 应由本 store 持有，外部同步事件（sync-event / ContentUpdate）
+ *    不应在 `isSaved === false` 时覆盖编辑器内容。
+ * 2. `appStore` 的 chapters 列表仅用于展示，不做编辑源。
+ * 3. 保存过程中不丢焦点：RichTextEditor 在 editor.isFocused 时拒绝外部 setContent。
  */
 
 import { create } from 'zustand';
@@ -21,7 +29,7 @@ interface FrontstageState {
   isGenerating: boolean;
   
   // Actions
-  setContent: (content: string) => void;
+  setContent: (content: string | ((prev: string) => string)) => void;
   setChapterInfo: (id: string, title: string, storyTitle?: string) => void;
   addAiHint: (hint: AiHint) => void;
   removeAiHint: (id: string) => void;
@@ -42,7 +50,10 @@ export const useFrontstageStore = create<FrontstageState>((set) => ({
   isGenerating: false,
   
   // Actions
-  setContent: (content) => set({ content, isSaved: false }),
+  setContent: (content) => set((state) => ({
+    content: typeof content === 'function' ? (content as (prev: string) => string)(state.content) : content,
+    isSaved: false,
+  })),
   
   setChapterInfo: (id, title, storyTitle) => set({
     chapterId: id,

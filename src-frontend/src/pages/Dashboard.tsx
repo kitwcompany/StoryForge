@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, Users, FileText, Sparkles, ArrowRight, Clock, FolderOpen } from 'lucide-react';
+import { BookOpen, Users, FileText, Sparkles, ArrowRight, Clock, FolderOpen, Activity } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useStories, useCreateStory } from '@/hooks/useStories';
 import { createStoryWithWizard } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
+import { GenesisPanel } from '@/components/GenesisPanel';
 import { formatNumber, formatDate } from '@/utils/format';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
@@ -171,6 +172,19 @@ export function Dashboard() {
             </Card>
           );
         })}
+      </div>
+
+      {/* Genesis Runs */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl font-semibold text-white flex items-center gap-2">
+            <Activity className="w-5 h-5 text-cinema-gold" />
+            Genesis 运行记录
+          </h2>
+        </div>
+        <div className="h-80">
+          <GenesisPanel embedded />
+        </div>
       </div>
 
       {/* Recent Stories */}

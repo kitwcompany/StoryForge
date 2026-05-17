@@ -1,30 +1,24 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
-import { 
-  GitBranch, Eye, X, Send, 
-  Brain, ClipboardList, Cog, CheckCircle, Check, Bot, 
-  Plug, Zap, XCircle, Timer, PenTool, Hourglass, 
-  Ban, AlertTriangle, BookOpen, Sparkles, Loader2, Settings2
-} from 'lucide-react';
-import { writerAgentExecute, recordFeedback, smartExecute, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
+import { X } from 'lucide-react';
+import { recordFeedback, smartExecute, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
 import { modelService } from '@/services/modelService';
-import { cn } from '@/utils/cn';
 import { autoFormatText } from '@/utils/format';
+import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useSyncStore } from '@/hooks/useSyncStore';
+import { useAppStore } from '@/stores/appStore';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress } from '@/hooks/usePipelineProgress';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
-import ColorThemeDot from './components/ColorThemeDot';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
-import { IngestHealthIndicator } from './components/IngestHealthIndicator';
 import { PeekDrawer } from './components/PeekDrawer';
 import { usePayoffLedger } from '@/hooks/useForeshadowings';
 import toast from 'react-hot-toast';
@@ -32,65 +26,9 @@ import { createLogger } from '@/utils/logger';
 
 const frontstageLogger = createLogger('ui:FrontstageApp');
 
-/// 根据状态文本自动匹配 lucide 图标
-const StatusIcon: React.FC<{ text: string }> = ({ text }) => {
-  // 移除旧emoji（如果有）
-  const cleanText = text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{23F0}-\u{23FF}]|[\u{200D}]/gu, '').trim();
-  
-  let Icon = Loader2;
-  let iconClass = 'w-3.5 h-3.5';
-  
-  if (cleanText.includes('分析') || cleanText.includes('Thinking') || cleanText.includes('构建') || cleanText.includes('加载') || cleanText.includes('读取') || cleanText.includes('渲染') || cleanText.includes('准备') || cleanText.includes('查询') || cleanText.includes('计算')) {
-    Icon = Brain;
-  } else if (cleanText.includes('注入') || cleanText.includes('组装') || cleanText.includes('拼接')) {
-    Icon = Cog;
-  } else if (cleanText.includes('计划') || cleanText.includes('规划') || cleanText.includes('plan')) {
-    Icon = ClipboardList;
-  } else if (cleanText.includes('执行') || cleanText.includes('running') || cleanText.includes('步骤')) {
-    Icon = Cog;
-  } else if (cleanText.includes('完成') || cleanText.includes('completed') || cleanText.includes('通过')) {
-    Icon = CheckCircle;
-    iconClass = 'w-3.5 h-3.5 text-green-500';
-  } else if (cleanText.includes('质检') || cleanText.includes('检查')) {
-    Icon = Check;
-  } else if (cleanText.includes('大纲')) {
-    Icon = BookOpen;
-  } else if (cleanText.includes('连接') || cleanText.includes('connecting')) {
-    Icon = Plug;
-  } else if (cleanText.includes('发送') || cleanText.includes('sent') || cleanText.includes('请求')) {
-    Icon = Send;
-  } else if (cleanText.includes('生成中') || cleanText.includes('generating') || cleanText.includes('生成内容')) {
-    Icon = Zap;
-  } else if (cleanText.includes('错误') || cleanText.includes('失败') || cleanText.includes('error') || cleanText.includes('超时')) {
-    Icon = XCircle;
-    iconClass = 'w-3.5 h-3.5 text-red-500';
-  } else if (cleanText.includes('等待') || cleanText.includes('时间')) {
-    Icon = Timer;
-  } else if (cleanText.includes('写作') || cleanText.includes('Writer') || cleanText.includes('writer')) {
-    Icon = PenTool;
-  } else if (cleanText.includes('取消')) {
-    Icon = Ban;
-  } else if (cleanText.includes('警告') || cleanText.includes('空内容') || cleanText.includes('注意')) {
-    Icon = AlertTriangle;
-  } else if (cleanText.includes('构思') || cleanText.includes('bootstrap') || cleanText.includes('新建') || cleanText.includes('创建')) {
-    Icon = Sparkles;
-  } else if (cleanText.includes('续写') || cleanText.includes('撰写')) {
-    Icon = PenTool;
-  } else if (cleanText.includes('学习') || cleanText.includes('自适应')) {
-    Icon = Brain;
-  } else if (cleanText.includes('设置') || cleanText.includes('配置')) {
-    Icon = Settings2;
-  }
-  
-  const isLoading = !cleanText.includes('完成') && !cleanText.includes('错误') && !cleanText.includes('失败');
-  
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <Icon className={`${iconClass} ${isLoading ? 'animate-spin' : ''}`} />
-      <span>{cleanText}</span>
-    </span>
-  );
-};
+import FrontstageHeader from './components/FrontstageHeader';
+import FrontstageSidebar from './components/FrontstageSidebar';
+import FrontstageBottomBar from './components/FrontstageBottomBar';
 
 interface Story {
   id: string;
@@ -141,6 +79,9 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
+  // W2-F1 TODO: `content` 和 `isSaved` 应迁移到 frontstageStore（唯一可写源）。
+  // 当前已通过事件入口保护（ContentUpdate/ChapterSwitch 在 isSaved===false 时不覆盖）
+  // 和 RichTextEditor 焦点保护满足验收标准。
   const [content, setContent] = useState('');
   const [isSaved, setIsSaved] = useState(true);
   const [generatedText, setGeneratedText] = useState('');
@@ -210,7 +151,7 @@ const FrontstageApp: React.FC = () => {
         // 静默刷新当前 chapter 内容
         (async () => {
           try {
-            const updated = await invoke<Chapter | null>('get_chapter', { id: chapterId });
+            const updated = await loggedInvoke<Chapter | null>('get_chapter', { id: chapterId });
             if (updated && updated.content !== undefined) {
               setContent(prev => {
                 if (prev !== updated.content) {
@@ -324,7 +265,6 @@ const FrontstageApp: React.FC = () => {
 
   // 底部输入栏
   const [inputValue, setInputValue] = useState('');
-  const bottomInputRef = useRef<HTMLTextAreaElement>(null);
 
   // 输入栏智能提示系统
   const [ghostHint, setGhostHint] = useState('');           // 灰色提示内容
@@ -333,13 +273,11 @@ const FrontstageApp: React.FC = () => {
   const [historyIndex, setHistoryIndex] = useState(-1);      // -1=LLM建议, 0+=历史
   const [modelStatus, setModelStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
   const [modelName, setModelName] = useState('');
-  const [showModelTooltip, setShowModelTooltip] = useState(false);
 
   // AI 学习指示器
   const [learnings, setLearnings] = useState<LearningPoint[]>([]);
 
   const editorRef = useRef<RichTextEditorRef>(null);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
@@ -397,15 +335,13 @@ const FrontstageApp: React.FC = () => {
     lastEventTimeRef.current = Date.now();
   }, []);
 
-  // 监听编辑器配置变化（同步幕后设置到幕前）
+  // W2-F2: 监听编辑器配置变化（同步幕后设置到幕前），替代 editor-config-changed DOM CustomEvent
+  const editorConfig = useAppStore((state) => state.editorConfig);
   useEffect(() => {
-    const handleConfigChange = (e: CustomEvent) => {
-      const config = e.detail;
-      if (config?.fontSize) setFontSize(config.fontSize);
-    };
-    window.addEventListener('editor-config-changed', handleConfigChange as EventListener);
-    return () => window.removeEventListener('editor-config-changed', handleConfigChange as EventListener);
-  }, []);
+    if (editorConfig?.fontSize) {
+      setFontSize(editorConfig.fontSize);
+    }
+  }, [editorConfig]);
 
   // 加载当前故事的角色
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
@@ -431,7 +367,8 @@ const FrontstageApp: React.FC = () => {
 
         switch (type) {
           case 'ContentUpdate':
-            if (payload?.text !== undefined) {
+            // W2-F1: 有未保存更改时不覆盖，避免同步事件导致内容回滚
+            if (payload?.text !== undefined && isSaved) {
               setContent(autoFormatText(payload.text));
             }
             break;
@@ -443,9 +380,7 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'DataRefresh':
             loadStories();
-            if (payload?.entity === 'characters') {
-              window.dispatchEvent(new CustomEvent('characters-refreshed'));
-            }
+            // W2-F2: characters-refreshed DOM CustomEvent 已废弃，数据刷新由 useSyncStore 统一处理
             break;
           case 'SaveStatus':
             setIsSaved(payload?.saved ?? true);
@@ -454,20 +389,26 @@ const FrontstageApp: React.FC = () => {
             if (payload?.chapter_id) {
               frontstageLogger.info('[ChapterSwitch] Received event', { story_id: payload.story_id, chapter_id: payload.chapter_id, has_content: !!payload.content, content_length: payload.content?.length || 0 });
               // v5.4.1 fix: 如果事件中直接包含内容，直接使用（绕过 DB 查询竞态）
+              // W2-F1: 切换不同章节时无条件加载；同一章节且有未保存更改时不覆盖，避免内容回滚
               if (payload?.content && payload.content.trim().length > 0) {
-                frontstageLogger.info('[ChapterSwitch] Using content from event directly');
-                setContent(autoFormatText(payload.content));
+                const isSameChapter = payload.chapter_id === currentChapterRef.current?.id;
+                if (!isSameChapter || isSaved) {
+                  frontstageLogger.info('[ChapterSwitch] Using content from event directly');
+                  setContent(autoFormatText(payload.content));
+                } else {
+                  frontstageLogger.info('[ChapterSwitch] Skipping content overwrite (unsaved changes)');
+                }
               }
               // v5.4.1: 使用 ref 获取最新状态，避免 stale closure
               if (payload?.story_id && payload.story_id !== currentStoryRef.current?.id) {
                 (async () => {
                   try {
-                    const allStories = await invoke<Story[]>('list_stories');
+                    const allStories = await loggedInvoke<Story[]>('list_stories');
                     const targetStory = allStories.find(s => s.id === payload.story_id);
                     frontstageLogger.info('[ChapterSwitch] Target story lookup', { found: !!targetStory, story_count: allStories.length });
                     if (targetStory) {
-                      const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
-                      const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
+                      const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
+                      const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
                       frontstageLogger.info('[ChapterSwitch] Loaded chapters', { count: storyChapters.length, chapter_ids: storyChapters.map(c => c.id) });
                       setCurrentStory(targetStory);
                       setChapters(storyChapters);
@@ -493,7 +434,7 @@ const FrontstageApp: React.FC = () => {
                       }
                       // v5.0.0 修复：通知 backstage 刷新故事列表，确保幕后也能看到新故事
                       try {
-                        await invoke('notify_backstage_content_changed', {
+                        await loggedInvoke<unknown>('notify_backstage_content_changed', {
                           text: targetChapter?.content || '',
                           chapter_id: targetChapter?.id || ''
                         });
@@ -519,7 +460,7 @@ const FrontstageApp: React.FC = () => {
                   frontstageLogger.warn('[ChapterSwitch] Chapter not found in current story, re-fetching from DB', { chapter_id: payload.chapter_id, story_id: payload.story_id });
                   (async () => {
                     try {
-                      const freshChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: payload.story_id });
+                      const freshChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: payload.story_id });
                       const freshChapter = freshChapters.find(c => c.id === payload.chapter_id);
                       if (freshChapter) {
                         frontstageLogger.info('[ChapterSwitch] Found chapter after re-fetch', { chapter_id: freshChapter.id, content_length: freshChapter.content?.length || 0 });
@@ -729,7 +670,7 @@ const FrontstageApp: React.FC = () => {
 
   const loadStories = async () => {
     try {
-      const result = await invoke<Story[]>('list_stories');
+      const result = await loggedInvoke<Story[]>('list_stories');
       setStories(result);
       // v5.4.1 fix: Bootstrap 期间（isGenerating=true）不要自动选择 story，
       // 避免 FirstChapterGenerationStep 尚未完成时 selectStory 拿到空 chapters 导致编辑器被清空
@@ -744,7 +685,7 @@ const FrontstageApp: React.FC = () => {
   // v5.4.0: 刷新当前故事的 scenes 列表（用于 sync-event 回调）
   const loadStoryScenes = async (storyId: string) => {
     try {
-      const result = await invoke<Scene[]>('get_story_scenes', { story_id: storyId });
+      const result = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
       setScenes(result);
     } catch (e) {
       frontstageLogger.error('Failed to load scenes', { error: e });
@@ -754,7 +695,7 @@ const FrontstageApp: React.FC = () => {
   // v5.4.0: 刷新当前故事的 chapters 列表（用于 sync-event 回调）
   const loadStoryChapters = async (storyId: string) => {
     try {
-      const result = await invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
+      const result = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
       setChapters(result);
     } catch (e) {
       frontstageLogger.error('Failed to load chapters', { error: e });
@@ -765,8 +706,8 @@ const FrontstageApp: React.FC = () => {
     setCurrentStory(story);
     try {
       const [result, scenesResult] = await Promise.all([
-        invoke<Chapter[]>('get_story_chapters', { story_id: story.id }),
-        invoke<Scene[]>('get_story_scenes', { story_id: story.id }),
+        loggedInvoke<Chapter[]>('get_story_chapters', { story_id: story.id }),
+        loggedInvoke<Scene[]>('get_story_scenes', { story_id: story.id }),
       ]);
       setChapters(result);
       setScenes(scenesResult);
@@ -788,10 +729,7 @@ const FrontstageApp: React.FC = () => {
       content_length: chapter.content?.length ?? 0,
       content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY'
     });
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
+    cancelAutoSave();
     setCurrentChapter(chapter);
     setContent(autoFormatText(chapter.content || ''));
     setIsSaved(true);
@@ -814,28 +752,35 @@ const FrontstageApp: React.FC = () => {
     const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
     setWordCount(chineseChars + englishWords);
 
-    if (currentChapter) {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-      autoSaveTimerRef.current = setTimeout(async () => {
-        try {
-          await invoke('update_chapter', {
-            id: currentChapter.id,
-            title: currentChapter.title,
-            content: newContent,
-            word_count: wordCount
-          });
-          setIsSaved(true);
-          justSavedRef.current = Date.now();
-        } catch (e) {
-          frontstageLogger.error('Auto-save failed', { error: e });
-        }
-      }, 2000);
-    }
+    const computedWordCount = chineseChars + englishWords;
 
     if (currentChapter) {
-      invoke('notify_backstage_content_changed', {
+      // W4-F7: 自动保存非阻塞化 — 使用 requestIdleCallback + startTransition
+      scheduleAutoSave(
+        {
+          chapterId: currentChapter.id,
+          title: currentChapter.title,
+          content: newContent,
+          wordCount: computedWordCount,
+        },
+        async (payload) => {
+          try {
+            await loggedInvoke<unknown>('update_chapter', {
+              id: payload.chapterId,
+              title: payload.title,
+              content: payload.content,
+              word_count: payload.wordCount,
+            });
+            setIsSaved(true);
+            justSavedRef.current = Date.now();
+          } catch (e) {
+            frontstageLogger.error('Auto-save failed', { error: e });
+          }
+        },
+        2000
+      );
+
+      loggedInvoke<unknown>('notify_backstage_content_changed', {
         text: newContent,
         chapter_id: currentChapter.id
       }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
@@ -844,7 +789,7 @@ const FrontstageApp: React.FC = () => {
 
   const openBackstage = async () => {
     try {
-      await invoke('show_backstage', { story_id: currentStory?.id || null });
+      await loggedInvoke<unknown>('show_backstage', { story_id: currentStory?.id || null });
     } catch (e) {
       frontstageLogger.error('Failed to open backstage', { error: e });
       const isTauri = !!(window as any).__TAURI__;
@@ -936,11 +881,11 @@ const FrontstageApp: React.FC = () => {
         const newStoryId = storyCreatedMsg.replace('story_created:', '');
         (async () => {
           try {
-            const allStories = await invoke<Story[]>('list_stories');
+            const allStories = await loggedInvoke<Story[]>('list_stories');
             const targetStory = allStories.find(s => s.id === newStoryId);
             if (targetStory) {
-              const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
-              const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
+              const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
+              const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: targetStory.id });
               setCurrentStory(targetStory);
               setChapters(storyChapters);
               setScenes(storyScenes);
@@ -1098,7 +1043,7 @@ const FrontstageApp: React.FC = () => {
     // v5.4.0: 如果有 session_id，调用后端取消 GenesisPipeline
     if (sessionIdRef.current) {
       try {
-        await invoke('cancel_genesis_pipeline', { session_id: sessionIdRef.current });
+        await loggedInvoke<unknown>('cancel_genesis_pipeline', { session_id: sessionIdRef.current });
         toast('已取消生成并通知后端停止后台任务');
       } catch (e) {
         frontstageLogger.error('Failed to cancel genesis pipeline', { error: e });
@@ -1228,11 +1173,11 @@ const FrontstageApp: React.FC = () => {
         // 直接加载新创建的故事和章节
         (async () => {
           try {
-            const allStories = await invoke<Story[]>('list_stories');
+            const allStories = await loggedInvoke<Story[]>('list_stories');
             const targetStory = allStories.find(s => s.id === storyId);
             if (targetStory) {
-              const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
-              const storyScenes = await invoke<Scene[]>('get_story_scenes', { story_id: storyId });
+              const storyChapters = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
+              const storyScenes = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
               const firstChapter = storyChapters[0];
               frontstageLogger.info('[SmartGeneration] Loaded new story', {
                 story_id: storyId,
@@ -1551,137 +1496,36 @@ const FrontstageApp: React.FC = () => {
     return sum + chineseChars + englishWords;
   }, 0);
 
-  // 文思图标 tooltip
-  const wensiTooltip = wensiMode === 'active'
-    ? '文思活跃 — Ctrl+Enter 续写'
-    : wensiMode === 'passive'
-      ? '文思被动 — 仅萤火提示'
-      : '文思关闭';
-
   return (
     <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
-      {/* Header */}
-      <header className="frontstage-header">
-        <div className="frontstage-header-left">
-          <span
-            className="frontstage-story-name"
-            onClick={openBackstage}
-            title="点击回幕后工作室"
-          >
-            {currentStory?.title || '草苔'}
-          </span>
-          <div className="frontstage-status-bar">
-            <span className="status-item">
-              {currentChapter?.title || (currentChapter ? `第${currentChapter.chapter_number}章` : '')}
-            </span>
-            <span className="status-separator">·</span>
-            <span className="status-item" title="当前章节字数 / 全文字数">
-              {wordCount} 字 / {totalWordCount} 字
-            </span>
-            <span className="status-separator">·</span>
-            <span className="status-item" title="字体大小">
-              {fontSize}px
-            </span>
-            {!isSaved && (
-              <>
-                <span className="status-separator">·</span>
-                <span className="status-item saving">保存中...</span>
-              </>
-            )}
-            {orchestratorStatus && (
-              <>
-                <span className="status-separator">·</span>
-                <span className="status-item saving" title="AI 编排器状态">
-                  {orchestratorStatus.message}
-                </span>
-              </>
-            )}
-            {bootstrapProgress && (
-              <>
-                <span className="status-separator">·</span>
-                <span
-                  className={`status-item ${bootstrapProgress.status === 'failed' ? 'error' : bootstrapProgress.status === 'completed' ? 'saved' : 'saving'}`}
-                  title={bootstrapProgress.status === 'failed' ? `失败: ${bootstrapProgress.message}` : '小说初始化进度'}
-                >
-                  {bootstrapProgress.stepName}
-                  {bootstrapProgress.status === 'failed' ? ' ❌' : ''}
-                  ({bootstrapProgress.stepNumber}/{bootstrapProgress.totalSteps})
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {!isZenMode && (
-          <div className="frontstage-header-right">
-            <IngestHealthIndicator storyId={currentStory?.id || null} />
-            <ColorThemeDot isZenMode={isZenMode} />
-            <button
-              className={`wensi-mode-toggle wensi-${wensiMode}`}
-              onClick={cycleWensiMode}
-              title={wensiTooltip}
-            >
-              <span className="wensi-icon">
-                {wensiMode === 'active' ? '热' : wensiMode === 'passive' ? '温' : '·'}
-              </span>
-            </button>
-            <button
-              className="zen-mode-btn"
-              onClick={() => setIsZenMode(!isZenMode)}
-              title="F11 禅模式"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 3v18" />
-              </svg>
-            </button>
-          </div>
-        )}
-      </header>
+      <FrontstageHeader
+        currentStory={currentStory}
+        currentChapter={currentChapter}
+        wordCount={wordCount}
+        totalWordCount={totalWordCount}
+        fontSize={fontSize}
+        isSaved={isSaved}
+        isZenMode={isZenMode}
+        wensiMode={wensiMode}
+        orchestratorStatus={orchestratorStatus}
+        bootstrapProgress={bootstrapProgress}
+        onOpenBackstage={openBackstage}
+        onCycleWensiMode={cycleWensiMode}
+        onToggleZenMode={() => setIsZenMode(prev => !prev)}
+      />
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar - Dock 工具栏 */}
-        {!isZenMode && (
-          <aside className="frontstage-sidebar" style={{ width: '48px' }}>
-            <div className="frontstage-sidebar-content h-full flex flex-col items-center py-3 gap-1">
-              <button
-                className={cn('sidebar-dock-btn', isRevisionMode && 'active')}
-                onClick={() => setIsRevisionMode(!isRevisionMode)}
-                title="修订模式"
-              >
-                <GitBranch className="w-4 h-4" />
-              </button>
-              <button
-                className="sidebar-dock-btn"
-                onClick={() => editorRef.current?.generateCommentary()}
-                disabled={!currentStory}
-                title="生成古典评点"
-              >
-                <span className="text-xs font-serif">批</span>
-              </button>
-
-              <button
-                className={cn('sidebar-dock-btn', showPeekDrawer && 'active')}
-                onClick={() => setShowPeekDrawer(prev => !prev)}
-                disabled={!currentStory}
-                title="窥视面板"
-              >
-                <BookOpen className="w-4 h-4" />
-              </button>
-
-              <div className="flex-1 min-h-0" />
-
-              <button
-                className="sidebar-dock-btn backstage-dock-btn"
-                onClick={openBackstage}
-                title="打开幕后工作室"
-              >
-                <Eye className="w-4 h-4" />
-              </button>
-            </div>
-          </aside>
-        )}
+        <FrontstageSidebar
+          isZenMode={isZenMode}
+          isRevisionMode={isRevisionMode}
+          showPeekDrawer={showPeekDrawer}
+          hasCurrentStory={!!currentStory}
+          onToggleRevisionMode={() => setIsRevisionMode(prev => !prev)}
+          onGenerateCommentary={() => editorRef.current?.generateCommentary()}
+          onTogglePeekDrawer={() => setShowPeekDrawer(prev => !prev)}
+          onOpenBackstage={openBackstage}
+        />
 
         {/* Editor + Bottom Input */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1730,86 +1574,21 @@ const FrontstageApp: React.FC = () => {
             />
           </main>
 
-          {/* Bottom Input Bar — v2: 模型状态 + 智能提示 + 历史 */}
-          {!isZenMode && (
-            <div className="frontstage-bottom-bar">
-              <div className="frontstage-bottom-bar-inner">
-                {/* 输入框 */}
-                <div className="frontstage-input-pill">
-                  {/* 模型状态指示器 */}
-                  <div
-                    className="model-status-wrapper"
-                    onMouseEnter={() => setShowModelTooltip(true)}
-                    onMouseLeave={() => setShowModelTooltip(false)}
-                  >
-                    <div className={`model-status-dot status-${modelStatus}`} />
-                    {showModelTooltip && (
-                      <div className="model-tooltip">
-                        <div className="model-tooltip-header">
-                          <span className="model-name">{modelName || '未配置'}</span>
-                          <span className={`model-status-text status-${modelStatus}`}>
-                            {modelStatus === 'connected' ? '已连接' : modelStatus === 'connecting' ? '检测中' : '未连接'}
-                          </span>
-                        </div>
-                        <div className="model-id">{modelStatus === 'connected' ? '模型就绪，可直接输入指令' : '请检查模型配置'}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 输入框 + Ghost Hint */}
-                  <div className="frontstage-input-middle">
-                    <div className="frontstage-input-ghost-wrapper">
-                      {ghostHint && !inputValue && (
-                        <span className="frontstage-input-ghost">
-                          {ghostHint}
-                          <span className="frontstage-input-ghost-hint">
-                            {hintSource === 'llm' ? ' · →确认' : ' · ↑↓切换 · →确认'}
-                          </span>
-                        </span>
-                      )}
-                      <textarea
-                        ref={bottomInputRef}
-                        className="frontstage-input-textarea"
-                        placeholder={ghostHint ? '' : '输入任意指令…'}
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={handleInputKeyDown}
-                        onFocus={handleInputFocus}
-                        disabled={isGenerating}
-                        rows={1}
-                      />
-                    </div>
-                  </div>
-
-                  {isGenerating ? (
-                    <button
-                      className="frontstage-input-cancel"
-                      onClick={handleCancelGeneration}
-                      title="取消生成"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button
-                      className="frontstage-input-send"
-                      onClick={handleInputSubmit}
-                      disabled={!inputValue.trim()}
-                      title="发送"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
-                {/* 生成状态行 — 独立显示在输入框下方，完整宽度 */}
-                {isGenerating && generationStatus && (
-                  <div className="generation-status-row" title={generationStatus}>
-                    <StatusIcon text={generationStatus} />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <FrontstageBottomBar
+            isZenMode={isZenMode}
+            isGenerating={isGenerating}
+            generationStatus={generationStatus}
+            inputValue={inputValue}
+            ghostHint={ghostHint}
+            hintSource={hintSource}
+            modelStatus={modelStatus}
+            modelName={modelName}
+            onInputChange={setInputValue}
+            onInputSubmit={handleInputSubmit}
+            onCancelGeneration={handleCancelGeneration}
+            onInputFocus={handleInputFocus}
+            onInputKeyDown={handleInputKeyDown}
+          />
         </div>
       </div>
 

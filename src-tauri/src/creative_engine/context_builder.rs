@@ -65,22 +65,60 @@ impl StoryContextBuilder {
         selected_text: Option<String>,
     ) -> Result<AgentContext, String> {
         let story = self.fetch_story(story_id)?;
-        // Bootstrap 容错：数据库可能为空，失败时返回默认值而非中断
-        let characters = self.fetch_characters(story_id).unwrap_or_else(|e| {
-            log::warn!("[StoryContextBuilder] fetch_characters failed for {}: {}, using empty", story_id, e);
-            vec![]
-        });
-        let previous_scenes = self.fetch_previous_scenes(story_id, scene_number).unwrap_or_else(|e| {
-            log::warn!("[StoryContextBuilder] fetch_previous_scenes failed for {}: {}, using empty", story_id, e);
-            vec![]
-        });
-        let world_rules = self.fetch_world_rules(story_id)?;
-        let style = self.fetch_writing_style(story_id).unwrap_or_else(|e| {
-            log::warn!("[StoryContextBuilder] fetch_writing_style failed for {}: {}, using None", story_id, e);
-            None
-        });
-        let current_scene = scene_number.and_then(|n| self.fetch_current_scene(story_id, n).ok());
-        let relevant_entities = self.fetch_relevant_entities(story_id, 10).unwrap_or_default();
+
+        // Wave 1: 错误分级 — 区分致命错误与可降级错误
+        let mut warnings = Vec::new();
+
+        let characters = match self.fetch_characters(story_id) {
+            Ok(chars) => chars,
+            Err(e) => {
+                warnings.push(format!("角色数据获取失败: {}", e));
+                vec![]
+            }
+        };
+
+        let previous_scenes = match self.fetch_previous_scenes(story_id, scene_number) {
+            Ok(scenes) => scenes,
+            Err(e) => {
+                warnings.push(format!("前文场景获取失败: {}", e));
+                vec![]
+            }
+        };
+
+        let world_rules = match self.fetch_world_rules(story_id) {
+            Ok(rules) => rules,
+            Err(e) => {
+                warnings.push(format!("世界观规则获取失败: {}", e));
+                vec![]
+            }
+        };
+
+        let style = match self.fetch_writing_style(story_id) {
+            Ok(s) => s,
+            Err(e) => {
+                warnings.push(format!("文风配置获取失败: {}", e));
+                None
+            }
+        };
+
+        let current_scene = match scene_number {
+            Some(n) => match self.fetch_current_scene(story_id, n) {
+                Ok(scene) => Some(scene),
+                Err(e) => {
+                    warnings.push(format!("当前场景获取失败: {}", e));
+                    None
+                }
+            },
+            None => None,
+        };
+
+        let relevant_entities = match self.fetch_relevant_entities(story_id, 10) {
+            Ok(entities) => entities,
+            Err(e) => {
+                warnings.push(format!("知识图谱实体获取失败: {}", e));
+                vec![]
+            }
+        };
 
         // 构建角色信息（增强版：包含目标、背景）
         let character_infos: Vec<CharacterInfo> = characters
@@ -134,6 +172,47 @@ impl StoryContextBuilder {
         );
         let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
 
+        // W3-B1: 构建 MemoryPack，将 previous_chapters 吸收进 working_memory
+        let memory_pack = {
+            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
+            match orchestrator.build_memory_pack(
+                story_id,
+                scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
+                "write",
+                current_scene.as_ref().and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
+            ) {
+                Ok(mut pack) => {
+                    // 将 previous_chapters 吸收进 working_memory
+                    for chapter in &previous_chapters {
+                        pack.working_memory.push(crate::memory::orchestrator::MemoryEntry {
+                            layer: "working".to_string(),
+                            source: "previous_chapter".to_string(),
+                            chapter: chapter.number as i32,
+                            content: serde_json::json!({
+                                "title": chapter.title,
+                                "summary": chapter.summary
+                            }),
+                        });
+                    }
+                    Some(pack)
+                }
+                Err(e) => {
+                    warnings.push(format!("记忆包构建失败: {}", e));
+                    None
+                }
+            }
+        };
+
+        // 如果有任何警告，记录日志（保留以便调试）
+        if !warnings.is_empty() {
+            log::warn!(
+                "[StoryContextBuilder] Built context for {} with {} warnings: {:?}",
+                story_id,
+                warnings.len(),
+                warnings
+            );
+        }
+
         Ok(AgentContext {
             story_id: story_id.to_string(),
             story_title: story.title,
@@ -155,6 +234,8 @@ impl StoryContextBuilder {
             methodology_step: None,
             style_dna_id: story.style_dna_id,
             style_blend,
+            warnings,
+            memory_pack,
         })
     }
 
@@ -213,7 +294,9 @@ impl StoryContextBuilder {
                 }
             }
             Err(e) => {
+                let warn_msg = format!("记忆检索失败: {}", e);
                 log::warn!("[StoryContextBuilder] QueryPipeline 查询失败: {}, 使用基础上下文", e);
+                context.warnings.push(warn_msg);
             }
         }
 
@@ -478,5 +561,63 @@ mod tests {
         assert!(text.contains("时间限制：日出前"));
         assert!(text.contains("出场角色"));
         assert!(text.contains("张三"));
+    }
+
+    // W4-B4: 验证 DB 错误时返回 Err 而非空默认值
+    #[test]
+    fn test_build_returns_err_when_story_query_fails() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        // 制造致命错误：删除 stories 表使 fetch_story 触发 DB 错误
+        {
+            let conn = pool.get().unwrap();
+            conn.execute("DROP TABLE stories", []).unwrap();
+        }
+
+        let builder = StoryContextBuilder::new(pool);
+        let result = builder.build("any-id", None, None, None);
+
+        assert!(result.is_err(), "当 stories 表不存在时，build 应返回致命错误");
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("获取故事失败") || err_msg.contains("no such table"),
+            "错误信息应指示 DB 查询失败: {}", err_msg);
+    }
+
+    #[test]
+    fn test_build_returns_err_when_story_not_found() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let builder = StoryContextBuilder::new(pool);
+        let result = builder.build("non-existent-story", None, None, None);
+
+        assert!(result.is_err(), "当故事不存在时，build 应返回 Err");
+        assert!(result.unwrap_err().contains("故事不存在"));
+    }
+
+    #[test]
+    fn test_build_degrades_non_fatal_errors_to_warnings() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        // 先插入一个合法的故事
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO stories (id, title, genre, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params!["story-1", "测试故事", "奇幻", chrono::Local::now().to_rfc3339(), chrono::Local::now().to_rfc3339()],
+            ).unwrap();
+        }
+
+        // 删除 characters 表使 fetch_characters 失败
+        {
+            let conn = pool.get().unwrap();
+            conn.execute("DROP TABLE characters", []).unwrap();
+        }
+
+        let builder = StoryContextBuilder::new(pool);
+        let result = builder.build("story-1", None, None, None);
+
+        // 非致命错误应降级为警告，build 仍返回 Ok
+        assert!(result.is_ok(), "非致命 DB 错误应被降级为警告，不阻止上下文构建");
+        let ctx = result.unwrap();
+        assert!(!ctx.warnings.is_empty(), "应有警告记录非致命错误");
+        assert!(ctx.warnings.iter().any(|w| w.contains("角色数据获取失败")),
+            "警告中应包含角色获取失败信息: {:?}", ctx.warnings);
     }
 }

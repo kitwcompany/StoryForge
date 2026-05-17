@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
@@ -53,25 +53,23 @@ function App() {
   useWorkflowNodes();
 
   // 统一实时状态同步中心：监听后端数据变更事件，自动刷新缓存
+  // W2-F2: 数据刷新已由 useSyncStore 内部通过 queryClient.invalidateQueries 完成，
+  // 不再需要 backstage-data-refreshed DOM CustomEvent
   useSyncStore({
     onStoryCreated: (storyId) => {
       toast.success('新故事已创建');
-      window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'stories' }));
-    },
-    onStoryUpdated: () => {
-      window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'stories' }));
     },
     onStoryDeleted: () => {
       toast('故事已删除', { icon: '🗑️' });
-      window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'stories' }));
     },
   });
   
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
-  // v5.0.0 修复：用于强制 React 重新渲染的 key
-  const [renderKey, setRenderKey] = useState(0);
+  // W2-F2: 从 local state 迁移到 Zustand store，替代 DOM CustomEvent 通信
+  const isLoginOpen = useAppStore((state) => state.isLoginModalOpen);
+  // W2-F3: 用 DOM ref 替代 renderKey 反模式，避免 React remount
+  const mainRef = useRef<HTMLElement>(null);
 
   // 自动更新检测
   const {
@@ -98,12 +96,8 @@ function App() {
     checkFrontstage();
   }, []);
 
-  // 监听登录弹窗事件
-  useEffect(() => {
-    const handleShowLogin = () => setIsLoginOpen(true);
-    window.addEventListener('show-login-modal', handleShowLogin);
-    return () => window.removeEventListener('show-login-modal', handleShowLogin);
-  }, []);
+  // W2-F2: show-login-modal 已废弃，改用 Zustand store (isLoginModalOpen / setLoginModalOpen)
+  // 原 window.addEventListener('show-login-modal', ...) 已移除
 
   // 监听 backstage-update 事件（幕前 → 幕后联动）
   useEffect(() => {
@@ -131,11 +125,8 @@ function App() {
               const targetView = payload?.view || 'dashboard';
               setCurrentView(targetView as ViewType);
               if (payload?.highlight_story_id) {
-                window.dispatchEvent(
-                  new CustomEvent('backstage-navigate-to-story', {
-                    detail: { storyId: payload.highlight_story_id },
-                  })
-                );
+                // W2-F2: 替代 backstage-navigate-to-story DOM CustomEvent
+                useAppStore.getState().setNavigateHighlightStoryId(payload.highlight_story_id);
               }
               break;
           }
@@ -156,7 +147,7 @@ function App() {
     const handleWindowShown = async (retries = 3) => {
       // 窗口重新可见时，强制刷新故事列表并恢复 currentStory
       try {
-        const stories = await invoke<Story[]>('list_stories');
+        const stories = await loggedInvoke<Story[]>('list_stories');
         if (stories.length > 0) {
           const { currentStory, stories: oldStories } = useAppStore.getState();
           // 检测是否有新故事（旧列表中不存在的），有则自动切换到新故事
@@ -183,7 +174,7 @@ function App() {
           queryClient.invalidateQueries({ queryKey: ['character-relationships', cs.id] });
         }
         // 触发全局数据刷新事件，让各页面重新获取数据
-        window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: 'all' }));
+        // W2-F2: backstage-data-refreshed 已废弃，useSyncStore 已覆盖数据刷新
       } catch (e) {
         createLogger('ui:App').error('Failed to refresh on window shown', { error: e });
         if (retries > 0) {
@@ -192,17 +183,22 @@ function App() {
       }
     };
 
-    // v5.2.0 修复：激进的渲染恢复逻辑，防止 WebView2 hide/show 后白屏
+    // v5.2.0 / W2-F3: 用 DOM 操作触发 GPU 重绘，避免 renderKey 反模式
     const forceRedraw = () => {
-      // 多重重绘触发
+      const trigger = (el: HTMLElement | null) => {
+        if (!el) return;
+        // 极短的 opacity 抖动强制 WebView2 compositor 刷新
+        el.style.opacity = '0.99';
+        requestAnimationFrame(() => {
+          el.style.opacity = '';
+        });
+      };
       window.dispatchEvent(new Event('resize'));
       window.dispatchEvent(new Event('scroll'));
-      // 强制 React 重新渲染当前视图
-      setRenderKey(k => k + 1);
-      // 延迟再次触发，确保 WebView2 渲染表面已完全恢复
+      trigger(mainRef.current);
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
-        setRenderKey(k => k + 1);
+        trigger(mainRef.current);
       }, 300);
     };
 
@@ -281,9 +277,9 @@ function App() {
           isOpen={isFrontstageOpen}
           onToggle={() => setIsFrontstageOpen(!isFrontstageOpen)}
         />
-        <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+        <LoginModal isOpen={isLoginOpen} onClose={() => useAppStore.getState().setLoginModalOpen(false)} />
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />
-        <main key={renderKey} className="flex-1 overflow-auto">
+        <main ref={mainRef} className="flex-1 overflow-auto">
           {renderView()}
         </main>
       </div>

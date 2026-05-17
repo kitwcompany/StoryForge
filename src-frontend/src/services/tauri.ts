@@ -20,7 +20,8 @@ function sanitizeArgs(args: Record<string, unknown> | undefined): Record<string,
 }
 
 /** 带日志追踪的 invoke 包装 */
-async function loggedInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+/** 带日志追踪的 invoke 包装 — 统一导出供全局使用 */
+export async function loggedInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const start = performance.now();
   const safeArgs = sanitizeArgs(args);
   apiLogger.debug(`→ ${cmd}`, safeArgs);
@@ -232,6 +233,7 @@ export const executeIntent = (intent: Intent, storyId: string) =>
 export interface SmartExecuteRequest {
   user_input: string;
   current_content?: string;
+  selected_text?: string;
 }
 
 export interface SmartExecuteResult {
@@ -242,7 +244,7 @@ export interface SmartExecuteResult {
 }
 
 export const smartExecute = (req: SmartExecuteRequest) =>
-  loggedInvoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input, current_content: req.current_content });
+  loggedInvoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input, current_content: req.current_content, selected_text: req.selected_text });
 
 // Feedback Recording
 export interface RecordFeedbackRequest {
@@ -712,18 +714,8 @@ export const getRuntimeContract = (storyId: string, chapterNumber: number) =>
 export const initChapterCommit = (storyId: string, chapterNumber: number, sceneId?: string) =>
   loggedInvoke<ChapterCommit>('init_chapter_commit', { story_id: storyId, chapter_number: chapterNumber, scene_id: sceneId });
 
-export const applyChapterCommit = (params: {
-  commit_id: string;
-  outline_snapshot_json: string;
-  review_result_json: string;
-  fulfillment_result_json: string;
-  accepted_events_json: string;
-  state_deltas_json: string;
-  entity_deltas_json: string;
-  summary_text: string;
-  dominant_strand: string;
-}) => loggedInvoke<void>('apply_chapter_commit', params);
-
+// W2-B5: apply_chapter_commit 已改为 update_chapter 成功后自动触发（30s debounce）
+// 前端不再显式调用，保留 get_chapter_commits 用于展示 commit 历史
 export const getChapterCommits = (storyId: string) =>
   loggedInvoke<ChapterCommit[]>('get_chapter_commits', { story_id: storyId });
 
@@ -1120,3 +1112,48 @@ export const batchUpdateCharacterStates = (updates: Array<{ character_id: string
 
 export const getCharacterState = (characterId: string) =>
   loggedInvoke<CharacterState | null>('get_character_state', { character_id: characterId });
+
+// --- Genesis Pipeline (W3-F1) ---
+
+export interface GenesisRun {
+  id: string;
+  story_id?: string;
+  session_id: string;
+  premise: string;
+  status: string;
+  current_step?: string;
+  current_step_number: number;
+  total_steps: number;
+  steps_json: string;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const listGenesisRuns = (limit?: number) =>
+  loggedInvoke<GenesisRun[]>('list_genesis_runs', { limit });
+
+export const getGenesisRun = (id: string) =>
+  loggedInvoke<GenesisRun | null>('get_genesis_run', { id });
+
+export const cancelGenesisPipeline = (sessionId: string) =>
+  loggedInvoke<boolean>('cancel_genesis_pipeline', { session_id: sessionId });
+
+// --- StyleDNA (W3-F2) ---
+
+export interface StyleSnapshot {
+  id: string;
+  story_id: string;
+  chapter_number?: number;
+  scene_number?: number;
+  sentence_length: number;
+  dialogue_ratio: number;
+  metaphor_density: number;
+  inner_monologue_ratio: number;
+  emotion_density: number;
+  rhythm_score: number;
+  computed_at: string;
+}
+
+export const getLatestStyleSnapshot = (storyId: string) =>
+  loggedInvoke<StyleSnapshot | null>('get_latest_style_snapshot', { story_id: storyId });

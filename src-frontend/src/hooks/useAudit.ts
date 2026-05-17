@@ -3,7 +3,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 
 export interface AuditIssue {
   severity: 'blocking' | 'warning' | 'info';
@@ -33,7 +33,7 @@ export function useAuditScene(sceneId: string | null, auditType: string = 'light
     queryKey: [AUDIT_KEY, sceneId, auditType],
     queryFn: async () => {
       if (!sceneId) throw new Error('Scene ID is required');
-      return invoke<AuditReport>('audit_scene', { scene_id: sceneId, audit_type: auditType });
+      return loggedInvoke<AuditReport>('audit_scene', { scene_id: sceneId, audit_type: auditType });
     },
     enabled: !!sceneId && enabled,
     staleTime: 1000 * 60 * 5, // 5 minutes

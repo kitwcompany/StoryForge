@@ -4,13 +4,14 @@
 
 use super::models::*;
 use super::service::{AnalysisStatusResponse, BookDeconstructionService};
+use crate::error::AppError;
 use crate::db::DbPool;
 use crate::llm::LlmService;
 use tauri::{command, AppHandle, Manager};
 
 /// 上传文件并开始分析
 #[command]
-pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<String, String> {
+pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<String, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -18,7 +19,7 @@ pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<Str
     service
         .upload_and_analyze(std::path::Path::new(&file_path))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(AppError::from)
 }
 
 /// 获取分析状态
@@ -26,7 +27,7 @@ pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<Str
 pub async fn get_analysis_status(
     book_id: String,
     app_handle: AppHandle,
-) -> Result<AnalysisStatusResponse, String> {
+) -> Result<AnalysisStatusResponse, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -39,7 +40,7 @@ pub async fn get_analysis_status(
 pub async fn get_book_analysis(
     book_id: String,
     app_handle: AppHandle,
-) -> Result<BookAnalysisResult, String> {
+) -> Result<BookAnalysisResult, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -49,7 +50,7 @@ pub async fn get_book_analysis(
 
 /// 获取已拆书籍列表
 #[command]
-pub async fn list_reference_books(app_handle: AppHandle) -> Result<Vec<ReferenceBookSummary>, String> {
+pub async fn list_reference_books(app_handle: AppHandle) -> Result<Vec<ReferenceBookSummary>, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -62,7 +63,7 @@ pub async fn list_reference_books(app_handle: AppHandle) -> Result<Vec<Reference
 pub async fn delete_reference_book(
     book_id: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -75,7 +76,7 @@ pub async fn delete_reference_book(
 pub async fn convert_book_to_story(
     book_id: String,
     app_handle: AppHandle,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);
@@ -88,7 +89,7 @@ pub async fn convert_book_to_story(
 pub async fn cancel_book_analysis(
     book_id: String,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
     let llm_service = LlmService::new(app_handle.clone());
     let service = BookDeconstructionService::new(pool, llm_service, app_handle);

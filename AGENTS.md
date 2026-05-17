@@ -732,4 +732,20 @@ specs/                       # 功能规格目录（按功能分支组织）
 
 ---
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues。使用 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+默认标签词汇：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+多上下文布局 — 根目录有 `CONTEXT-MAP.md` 指向各上下文的 `CONTEXT.md`，外加 `docs/adr/` 和上下文级的 `docs/adr/`。详见 `docs/agents/domain.md`。
+
+---
+
 *最后更新: 2026-05-01 - v5.1.1 对齐差距修复 + 文档同步规则*

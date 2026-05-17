@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 
 export interface Foreshadowing {
   id: string;
@@ -65,7 +65,7 @@ export function useForeshadowings(storyId: string | null) {
     queryKey: [FORESHADOWINGS_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return [];
-      return invoke<Foreshadowing[]>('get_story_foreshadowings', { story_id: storyId });
+      return loggedInvoke<Foreshadowing[]>('get_story_foreshadowings', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -75,7 +75,7 @@ export function useCreateForeshadowing() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: CreateForeshadowingInput) => {
-      return invoke<string>('create_foreshadowing', {
+      return loggedInvoke<string>('create_foreshadowing', {
         story_id: input.story_id,
         content: input.content,
         setup_scene_id: input.setup_scene_id,
@@ -95,7 +95,7 @@ export function useUpdateForeshadowingStatus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: UpdateForeshadowingStatusInput) => {
-      return invoke<void>('update_foreshadowing_status', {
+      return loggedInvoke<void>('update_foreshadowing_status', {
         id: input.id,
         status: input.status,
         payoff_scene_id: input.payoff_scene_id,
@@ -117,7 +117,7 @@ export function usePayoffLedger(storyId: string | null) {
     queryKey: [PAYOFF_LEDGER_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return [];
-      return invoke<PayoffLedgerItem[]>('get_payoff_ledger', { story_id: storyId });
+      return loggedInvoke<PayoffLedgerItem[]>('get_payoff_ledger', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -128,7 +128,7 @@ export function useDetectOverduePayoffs(storyId: string | null, currentSceneNumb
     queryKey: [OVERDUE_KEY, storyId, currentSceneNumber],
     queryFn: async () => {
       if (!storyId || currentSceneNumber == null) return [];
-      return invoke<PayoffLedgerItem[]>('detect_overdue_payoffs', {
+      return loggedInvoke<PayoffLedgerItem[]>('detect_overdue_payoffs', {
         story_id: storyId,
         current_scene_number: currentSceneNumber,
       });
@@ -142,7 +142,7 @@ export function useRecommendPayoffTiming(storyId: string | null, currentSceneNum
     queryKey: [RECOMMENDATIONS_KEY, storyId, currentSceneNumber],
     queryFn: async () => {
       if (!storyId || currentSceneNumber == null) return [];
-      return invoke<PayoffRecommendation[]>('recommend_payoff_timing', {
+      return loggedInvoke<PayoffRecommendation[]>('recommend_payoff_timing', {
         story_id: storyId,
         current_scene_number: currentSceneNumber,
       });
@@ -163,7 +163,7 @@ export function useUpdatePayoffLedgerFields() {
       scope_type?: string;
       ledger_key?: string;
     }) => {
-      return invoke<void>('update_payoff_ledger_fields', {
+      return loggedInvoke<void>('update_payoff_ledger_fields', {
         foreshadowing_id: params.foreshadowing_id,
         target_start_scene: params.target_start_scene,
         target_end_scene: params.target_end_scene,

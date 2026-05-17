@@ -253,6 +253,22 @@ pub struct ChapterCommit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenesisRun {
+    pub id: String,
+    pub story_id: Option<String>,
+    pub session_id: String,
+    pub premise: String,
+    pub status: String, // pending | running | paused | completed | failed
+    pub current_step: Option<String>,
+    pub current_step_number: i32,
+    pub total_steps: i32,
+    pub steps_json: String,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryItem {
     pub id: String,
     pub story_id: String,

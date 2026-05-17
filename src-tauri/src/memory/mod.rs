@@ -99,6 +99,8 @@ impl ShortTermMemory {
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
+            warnings: Vec::new(),
+            memory_pack: None,
         }
     }
 

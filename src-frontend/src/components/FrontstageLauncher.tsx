@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { BookOpen, ExternalLink } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
@@ -24,7 +24,7 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
     // Check if Tauri API is available
     const checkTauri = async () => {
       try {
-        await invoke('get_window_state');
+        await loggedInvoke<unknown>('get_window_state');
         setIsVisible(true);
       } catch {
         setIsVisible(false);
@@ -35,7 +35,7 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
 
   const handleOpenFrontstage = async () => {
     try {
-      await invoke('show_frontstage');
+      await loggedInvoke<unknown>('show_frontstage');
       toast.success('幕前写作界面已打开');
       onToggle();
     } catch (error) {

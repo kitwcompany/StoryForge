@@ -3,6 +3,7 @@
 pub mod evolution;
 pub use evolution::{CapabilityEvolutionEngine, ExecutionRecord};
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -59,6 +60,49 @@ pub struct Capability {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
+impl Capability {
+    /// 从 MCP Tool 构造 Capability（W4-B2: 动态注册）
+    pub fn from_mcp_tool(server_id: &str, tool: &crate::mcp::types::McpTool) -> Self {
+        let capability_id = format!("mcp.{server_id}.{}", tool.name);
+        // 从 JSON Schema properties 提取参数列表
+        let parameters = if let Some(props) = tool.parameters.get("properties").and_then(|v| v.as_object()) {
+            let required: Vec<String> = tool.parameters
+                .get("required")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+            props.iter().map(|(name, schema)| {
+                let param_type = schema.get("type").and_then(|v| v.as_str()).unwrap_or("string").to_string();
+                let description = schema.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                CapabilityParam {
+                    name: name.clone(),
+                    description,
+                    required: required.contains(name),
+                    param_type,
+                }
+            }).collect()
+        } else {
+            vec![]
+        };
+        Capability {
+            id: capability_id,
+            name: tool.name.clone(),
+            description: tool.description.clone(),
+            when_to_use: format!("Use the MCP tool '{}' from server '{}' when the task requires external capabilities.", tool.name, server_id),
+            input_description: format!("Parameters for {}", tool.name),
+            output_description: "Result from MCP tool execution".to_string(),
+            parameters,
+            source_type: CapabilitySource::McpTool,
+            metadata: {
+                let mut m = HashMap::new();
+                m.insert("server_id".to_string(), serde_json::Value::String(server_id.to_string()));
+                m.insert("tool_name".to_string(), serde_json::Value::String(tool.name.clone()));
+                m
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilitySource {
@@ -94,6 +138,20 @@ impl CapabilityRegistry {
         self.capabilities.iter_mut().find(|c| c.id == id)
     }
 
+    /// 移除指定 ID 的能力
+    pub fn unregister(&mut self, id: &str) -> bool {
+        let before = self.capabilities.len();
+        self.capabilities.retain(|c| c.id != id);
+        self.capabilities.len() < before
+    }
+
+    /// 移除匹配前缀的所有能力（用于 MCP 断开时批量注销）
+    pub fn unregister_by_prefix(&mut self, prefix: &str) -> usize {
+        let before = self.capabilities.len();
+        self.capabilities.retain(|c| !c.id.starts_with(prefix));
+        before - self.capabilities.len()
+    }
+
     /// 更新能力的 when_to_use 描述（能力进化反馈环）
     pub fn update_when_to_use(&mut self, id: &str, new_when_to_use: &str) -> bool {
         if let Some(cap) = self.get_by_id_mut(id) {
@@ -120,7 +178,22 @@ impl Default for CapabilityRegistry {
     fn default() -> Self { Self::new() }
 }
 
-pub fn build_default_registry() -> CapabilityRegistry {
+/// 全局 CapabilityRegistry 单例
+///
+/// 应用启动后首次访问时自动初始化，加载默认能力集合并应用已进化的描述。
+/// 所有模块通过 `get_capability_registry()` 访问，避免重复构建和重复加载。
+static CAPABILITY_REGISTRY: Lazy<Mutex<CapabilityRegistry>> =
+    Lazy::new(|| Mutex::new(init_registry()));
+
+/// 获取全局 CapabilityRegistry 的锁
+pub fn get_capability_registry() -> std::sync::MutexGuard<'static, CapabilityRegistry> {
+    CAPABILITY_REGISTRY
+        .lock()
+        .expect("CapabilityRegistry mutex poisoned")
+}
+
+/// 初始化注册表（内部使用，由全局单例调用一次）
+fn init_registry() -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
 
     // Agents

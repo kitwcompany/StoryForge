@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -176,7 +176,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
     setError(null);
 
     try {
-      const id = await invoke<string>('agent_execute_stream', {
+      const id = await loggedInvoke<string>('agent_execute_stream', {
         request: {
           agent_type: selectedAgent,
           story_id: storyId,
@@ -197,7 +197,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   const handleCancel = useCallback(async () => {
     if (!taskId) return;
     try {
-      await invoke('agent_cancel_task', { taskId });
+      await loggedInvoke<unknown>('agent_cancel_task', { taskId });
     } catch (err) {
       // ignore cancel errors
     } finally {

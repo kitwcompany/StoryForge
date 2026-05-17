@@ -3,7 +3,7 @@
  * v4.5.0
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { open } from '@tauri-apps/plugin-shell';
 
 export interface AuthConfig {
@@ -30,31 +30,31 @@ export interface OAuthStartResponse {
  * 获取认证配置
  */
 export const getAuthConfig = () =>
-  invoke<AuthConfig>('get_auth_config');
+  loggedInvoke<AuthConfig>('get_auth_config');
 
 /**
  * 开始 OAuth 登录流程
  */
 export const oauthStart = (provider: string) =>
-  invoke<OAuthStartResponse>('oauth_start', { provider });
+  loggedInvoke<OAuthStartResponse>('oauth_start', { provider });
 
 /**
  * OAuth 回调处理（桌面端通过本地 HTTP 服务器接收后调用）
  */
 export const oauthCallback = (provider: string, code: string, state: string) =>
-  invoke<UserInfo>('oauth_callback', { provider, code, state });
+  loggedInvoke<UserInfo>('oauth_callback', { provider, code, state });
 
 /**
  * 获取当前登录用户
  */
 export const getCurrentUser = () =>
-  invoke<UserInfo | null>('get_current_user');
+  loggedInvoke<UserInfo | null>('get_current_user');
 
 /**
  * 注销登录
  */
 export const logout = (token: string) =>
-  invoke<void>('logout', { token });
+  loggedInvoke<void>('logout', { token });
 
 /**
  * 打开系统浏览器进行 OAuth 授权

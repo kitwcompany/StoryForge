@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState } from 'react';
 import type {
@@ -21,7 +21,7 @@ export function useUploadBook() {
 
   return useMutation({
     mutationFn: async (filePath: string) => {
-      const bookId: string = await invoke('upload_book', { filePath });
+      const bookId: string = await loggedInvoke<string>('upload_book', { filePath });
       return bookId;
     },
     onSuccess: () => {
@@ -192,7 +192,7 @@ export function useBookAnalysisStatus(bookId: string | null) {
     queryKey: [STATUS_KEY, bookId],
     queryFn: async () => {
       if (!bookId) return null;
-      const status: AnalysisStatusResponse = await invoke('get_analysis_status', { bookId });
+      const status: AnalysisStatusResponse = await loggedInvoke<AnalysisStatusResponse>('get_analysis_status', { bookId });
       return status;
     },
     refetchInterval: (query) => {
@@ -215,7 +215,7 @@ export function useBookAnalysis(bookId: string | null) {
     queryKey: [ANALYSIS_KEY, bookId],
     queryFn: async () => {
       if (!bookId) return null;
-      const result: BookAnalysisResult = await invoke('get_book_analysis', { bookId });
+      const result: BookAnalysisResult = await loggedInvoke<BookAnalysisResult>('get_book_analysis', { bookId });
       return result;
     },
     enabled: !!bookId,
@@ -228,7 +228,7 @@ export function useReferenceBooks() {
   return useQuery({
     queryKey: [BOOKS_KEY],
     queryFn: async () => {
-      const books: ReferenceBookSummary[] = await invoke('list_reference_books');
+      const books: ReferenceBookSummary[] = await loggedInvoke<ReferenceBookSummary[]>('list_reference_books');
       return books;
     },
   });
@@ -241,7 +241,7 @@ export function useDeleteBook() {
 
   return useMutation({
     mutationFn: async (bookId: string) => {
-      await invoke('delete_reference_book', { bookId });
+      await loggedInvoke<void>('delete_reference_book', { bookId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [BOOKS_KEY] });
@@ -254,7 +254,7 @@ export function useDeleteBook() {
 export function useConvertToStory() {
   return useMutation({
     mutationFn: async (bookId: string) => {
-      const storyId: string = await invoke('convert_book_to_story', { bookId });
+      const storyId: string = await loggedInvoke<string>('convert_book_to_story', { bookId });
       return storyId;
     },
   });
@@ -267,7 +267,7 @@ export function useCancelBookAnalysis() {
 
   return useMutation({
     mutationFn: async (bookId: string) => {
-      await invoke('cancel_book_analysis', { bookId });
+      await loggedInvoke<void>('cancel_book_analysis', { bookId });
     },
     onSuccess: (_, bookId) => {
       queryClient.invalidateQueries({ queryKey: [STATUS_KEY, bookId] });

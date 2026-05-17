@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 import { callMcpTool, disconnectMcpServer } from '@/services/tauri';
 
@@ -28,7 +28,7 @@ export function useMcpTools() {
   const listTools = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await invoke<McpTool[]>('list_mcp_tools');
+      const data = await loggedInvoke<McpTool[]>('list_mcp_tools');
       setTools(data.map((t) => ({ ...t, source: 'builtin' as const })));
     } catch (error) {
       toast.error('获取工具列表失败: ' + (error as Error).message);
@@ -39,7 +39,7 @@ export function useMcpTools() {
 
   const executeTool = useCallback(async (toolName: string, args: Record<string, unknown>) => {
     try {
-      const result = await invoke<unknown>('execute_mcp_tool', {
+      const result = await loggedInvoke<unknown>('execute_mcp_tool', {
         toolName,
         arguments: args,
       });
@@ -61,7 +61,7 @@ export function useMcpTools() {
         args: config.args.split(' ').filter(Boolean),
         env,
       };
-      const data = await invoke<McpTool[]>('connect_mcp_server', { config: serverConfig });
+      const data = await loggedInvoke<McpTool[]>('connect_mcp_server', { config: serverConfig });
       setExternalTools(data.map((t) => ({ ...t, source: 'external' as const })));
       setConnectedServer(config);
       toast.success(`已连接到 ${config.name}，发现 ${data.length} 个工具`);

@@ -13,7 +13,7 @@ use ts_rs::TS;
 /// - `[Resource]Deleted`: 资源删除（前台/后台需要移除条目）
 /// - `[Resource]Selected`: 资源选择（前台/后台需要切换当前焦点）
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export_to = "../src-frontend/src/generated/")]
+#[ts(rename_all = "camelCase")]
 #[serde(rename_all = "camelCase", tag = "type", content = "payload")]
 pub enum SyncEvent {
     // === Story 事件 ===

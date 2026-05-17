@@ -18,13 +18,17 @@ import type { ProjectionHealthReport } from '@/types/v3';
 import {
   FileText, TrendingUp, Brain, ShieldAlert, BookOpen,
   ChevronRight, Loader2, Zap, Activity, CheckCircle, AlertTriangle,
-  Layers, Edit, Copy, Trash2, Plus,
+  Layers, Edit, Copy, Trash2, Plus, Radar,
 } from 'lucide-react';
+import { StyleDnaRadar } from '@/components/StyleDnaRadar';
 import toast from 'react-hot-toast';
+import { createLogger } from '@/utils/logger';
+
+const styleLogger = createLogger('ui:StorySystem');
 
 export function StorySystem() {
   const currentStory = useAppStore((s) => s.currentStory);
-  const [activeTab, setActiveTab] = useState<'contracts' | 'commits' | 'reading' | 'memory' | 'anti-ai' | 'genres'>('contracts');
+  const [activeTab, setActiveTab] = useState<'contracts' | 'commits' | 'reading' | 'memory' | 'anti-ai' | 'genres' | 'style-dna'>('contracts');
   const [isLoading, setIsLoading] = useState(false);
 
   // Contracts
@@ -184,6 +188,7 @@ export function StorySystem() {
     { id: 'reading' as const, label: '追读力', icon: TrendingUp },
     { id: 'memory' as const, label: '记忆', icon: Brain },
     { id: 'genres' as const, label: '体裁', icon: Layers },
+    { id: 'style-dna' as const, label: '风格 DNA', icon: Radar },
   ];
 
   if (!currentStory) {
@@ -524,6 +529,19 @@ export function StorySystem() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Style DNA Tab */}
+      {activeTab === 'style-dna' && (
+        <div className="max-w-2xl">
+          <StyleDnaRadar
+            storyId={currentStory.id}
+            onConstraintChange={(constraints) => {
+              toast.success('StyleDNA 约束已更新');
+              styleLogger.info('StyleDNA constraints updated', { constraints });
+            }}
+          />
         </div>
       )}
 

@@ -264,20 +264,18 @@ export function Stories() {
   const [highlightedStoryId, setHighlightedStoryId] = useState<string | null>(null);
   const [openOverviewStoryId, setOpenOverviewStoryId] = useState<string | null>(null);
 
-  // 监听 backstage-navigate-to-story 事件
+  // W2-F2: 替代 backstage-navigate-to-story DOM CustomEvent，改用 Zustand store
+  const navigateHighlightStoryId = useAppStore((state) => state.navigateHighlightStoryId);
+  const setNavigateHighlightStoryId = useAppStore((state) => state.setNavigateHighlightStoryId);
   useEffect(() => {
-    const handleNavigateToStory = (e: Event) => {
-      const customEvent = e as CustomEvent<{ storyId: string }>;
-      const { storyId } = customEvent.detail;
-      setHighlightedStoryId(storyId);
-      setOpenOverviewStoryId(storyId);
-      // 清除高亮动画状态
+    if (navigateHighlightStoryId) {
+      setHighlightedStoryId(navigateHighlightStoryId);
+      setOpenOverviewStoryId(navigateHighlightStoryId);
+      setNavigateHighlightStoryId(null); // 消费掉事件
       const timer = setTimeout(() => setHighlightedStoryId(null), 3000);
       return () => clearTimeout(timer);
-    };
-    window.addEventListener('backstage-navigate-to-story', handleNavigateToStory);
-    return () => window.removeEventListener('backstage-navigate-to-story', handleNavigateToStory);
-  }, []);
+    }
+  }, [navigateHighlightStoryId, setNavigateHighlightStoryId]);
 
   const { data: styleDnas = [] } = useQuery({
     queryKey: ['style-dnas'],
