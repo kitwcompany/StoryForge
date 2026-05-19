@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.7.1 项目完成状态
+# StoryForge (草苔) v0.7.2 项目完成状态
 
-> 最后更新: 2026-05-17（v0.7.1 + ChapterCommitService 防抖聚合提交 + 导出聚合完整性 + 大型组件提取重构）
+> 最后更新: 2026-05-19（v0.7.2 + 拆书存储同构化 + MCP 动态注册 + 1:N 聚合编辑 + SceneDividerNode + LLM 取消 + AppError 结构化 IPC）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -76,6 +76,54 @@
 | `SceneEditor.tsx` 拆分 | ✅ | `SceneAuditPanel` + `SceneAnnotationPanel` 提取到 `scene-editor/` |
 | `StoryTimeline.tsx` 徽章 | ✅ | `execution_stage` 彩色徽章 + 叙事阶段双轨可视化 |
 | 未使用导入清理 | ✅ | `Image`/`createLogger`/`Clock`/`Eye`/`FileText` 等 |
+
+---
+
+### v0.7.2 功能增强：存储同构化 + MCP 动态注册 + 聚合编辑 + 场景分隔节点 + LLM 取消（2026-05-19）
+
+#### 拆书分析存储同构化
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `reference_*` → `narrative_*` 写入 | ✅ | `BookDeconstructionExecutor` 保存到统一表，含 `source`/`status` 标记 |
+| `get_analysis` 从 `narrative_*` 读取 | ✅ | 查询后转换回 `BookAnalysisResult`，API 零变动 |
+| `delete_book` 级联清理 | ✅ | 同步删除 `narrative_characters`/`narrative_scenes`/`narrative_world_buildings` |
+| `convert_to_story` 状态切换 | ✅ | `reference` → `active` 自动更新 |
+| Migration 69 历史数据迁移 | ✅ | `reference_characters`/`reference_scenes` 自动汇入 `narrative_*` |
+
+#### MCP 工具动态注册
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `CapabilityRegistry` 实时同步 | ✅ | 外部 MCP 服务器连接后即时注册工具，无需重启 |
+| 前缀命名空间 | ✅ | 内置 `mcp.builtin.*` / 外部 `mcp.{server_id}.*` |
+| 动态注销 | ✅ | 断开时从 Registry 移除，防止调用失效工具 |
+
+#### 1:N 聚合编辑数据库 Schema
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Migration 68 | ✅ | `chapter_commits` 新增 `chapter_id` 外键 |
+| 全链路对齐 | ✅ | 数据结构 / Repository / Service 全部适配 |
+
+#### TipTap SceneDividerNode
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 原子块节点 | ✅ | `atom: true`，不可编辑，仅作为结构标记 |
+| 可视化分隔 | ✅ | 编辑器内场景边界水平线 + 标题标签 |
+| 事件扩展 | ✅ | click / mouseenter / mouseleave 支持 |
+
+#### LLM 调用取消机制
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `request_id` 级取消 | ✅ | `cancel_senders` HashMap 精确管理每条请求 |
+| `cancel_generation` | ✅ | 按 `request_id` 发送取消信号，不影响其他请求 |
+| 流式适配 | ✅ | `generate_stream` 每 chunk 前检查取消标志 |
+| Orchestrator 透传 | ✅ | `WorkflowResult` 携带 `request_id`，上层可取消 |
+
+#### AppError 结构化 IPC
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 统一错误格式 | ✅ | `{ code, message, data }` |
+| 错误码体系 | ✅ | `NOT_FOUND` / `VALIDATION_ERROR` / `LLM_ERROR` / `CANCELLED` / `TIMEOUT` 等 |
+| 前端精准处理 | ✅ | `loggedInvoke` 按 `code` 分支处理 |
 
 ---
 
@@ -611,6 +659,17 @@
 | 用量统计看板 | ✅ 完成 | 100% |
 | 幕前 Pipeline 指令 | ✅ 完成 | 100% |
 
+### v0.7.2 新增模块完成度
+
+| 模块 | 状态 | 完成度 |
+|------|------|--------|
+| 拆书存储同构化 | ✅ 完成 | 100% |
+| MCP 动态注册 | ✅ 完成 | 100% |
+| 1:N 聚合编辑 Schema | ✅ 完成 | 100% |
+| SceneDividerNode | ✅ 完成 | 100% |
+| LLM 取消机制 | ✅ 完成 | 100% |
+| AppError 结构化 IPC | ✅ 完成 | 100% |
+
 ---
 
 ## 🎯 待完善功能
@@ -662,6 +721,12 @@
 - ✅ 角色动态状态自动更新（v0.7.0）
 - ✅ 用量统计看板（v0.7.0）
 - ✅ 幕前 `/` 指令打通 Pipeline（v0.7.0）
+- ✅ 拆书分析存储同构化（v0.7.2）
+- ✅ MCP 工具动态注册（v0.7.2）
+- ✅ 1:N Chapter↔Scene 聚合编辑 Schema（v0.7.2）
+- ✅ TipTap SceneDividerNode（v0.7.2）
+- ✅ LLM request_id 级取消机制（v0.7.2）
+- ✅ AppError 结构化 IPC（v0.7.2）
 
 ---
 

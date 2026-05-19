@@ -2,7 +2,7 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v0.7.1 - AI 导演式小说创作系统
+# StoryForge (草苔) v0.7.2 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
@@ -11,6 +11,8 @@
 > **v0.7.0 最新更新（2026-05-15）**：AI 三审 Pipeline 系统（修稿 → 审稿 → 定稿 → 后处理）+ 角色动态状态面板（LLM 驱动实时更新）+ 用量统计看板 + 幕前 `/` 指令打通 Pipeline + Stories 场景进度看板 — 从"能创作"到"高质量创作"的完整质量管控闭环。
 >
 > **架构优化（2026-05-17）**：`ChapterCommitService` 防抖聚合提交（30秒空闲延迟）取代旧版独立 `auto_ingest_chapter` 管线，消除重复索引；导出聚合：空章节内容自动按场景序号聚合填充，确保 Markdown/HTML/PlainText 导出完整；`Settings.tsx` / `SceneEditor.tsx` 大型组件提取重构为原子化子组件；`StoryTimeline.tsx` 新增 `execution_stage` 彩色徽章（plan/outline/draft/review/final），场景进度一目了然。
+>
+> **v0.7.2 功能增强（2026-05-19）**：拆书分析存储同构化（`reference_characters`/`reference_scenes` 数据统一汇聚到 `narrative_*` 表，Migration 69 自动迁移历史数据）；MCP 工具动态注册（`CapabilityRegistry` 实时同步外部 MCP 服务器工具，前端通过 `mcp.{server_id}.*` 前缀区分内置与外部工具）；1:N 聚合编辑数据库 schema（`chapter_commits` 新增 `chapter_id` 外键，支持多场景聚合到单一章节）；TipTap 场景分隔节点（`SceneDividerNode` 原子块节点，可视化区分相邻场景内容）；LLM 调用取消机制（`request_id` 级取消信号，`cancel_generation` 精确中断单条请求）；`AppError` 结构化 IPC（统一 `{ code, message, data }` 错误格式，前端按 code 做精准错误处理）。
 >
 > **AI 三审 Pipeline 系统**：引入 `Rewrite → Refine → Review → Finalize` 四级创作管线，每章正文经过 AI 修稿（语言润色）、AI 审稿（多维评分与问题标注）、定稿（通过后处理步骤自动更新知识库、章节笔记、角色动态状态卡、风格分析），实现"每章必审、每稿必改、定稿即入库"的工业化创作流程。
 >
@@ -275,8 +277,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v0.7.1  
-**最后更新**: 2026-05-15  
+**当前版本**: v0.7.2  
+**最后更新**: 2026-05-19  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -335,7 +337,9 @@ v2-rust/
 │   │   │   │   ├── CharacterCardPopup.tsx # 角色卡片弹窗
 │   │   │   │   ├── CharacterPeekCard.tsx    # 角色悬浮卡片 (v6.0.0)
 │   │   │   │   ├── IngestHealthIndicator.tsx # Ingest 健康指示器 (v6.0.0)
-│   │   │   │   └── ChapterOutline.tsx
+│   │   │   │   ├── ChapterOutline.tsx
+│   │   │   │   └── SceneDividerNode.ts      # 场景分隔节点 (v0.7.2)
+│   │   │   ├── extensions/          # TipTap 编辑器扩展
 │   │   │   └── styles/frontstage.css
 │   │   ├── pages/               # 幕后页面
 │   │   │   ├── Dashboard.tsx    # 仪表盘
@@ -767,9 +771,63 @@ v2-rust/
 | 最近调用记录 | ✅ | 最近 20 条调用明细表（模型/功能/token/耗时/状态） |
 | IPC 命令 | ✅ | `get_llm_call_stats` / `get_recent_llm_calls` |
 
+### 19. v0.7.2 功能增强 (100% ✅)
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 拆书存储同构化 | ✅ | `reference_characters`/`reference_scenes` 数据统一汇聚到 `narrative_*` 表，Migration 69 自动迁移历史数据 |
+| MCP 工具动态注册 | ✅ | `CapabilityRegistry` 实时同步外部 MCP 服务器工具，前端通过 `mcp.{server_id}.*` 前缀区分内置与外部工具 |
+| 1:N 聚合编辑 Schema | ✅ | `chapter_commits` 新增 `chapter_id` 外键，支持多场景聚合到单一章节 |
+| SceneDividerNode | ✅ | TipTap 原子块节点，可视化区分相邻场景内容 |
+| LLM 取消机制 | ✅ | `request_id` 级取消信号，`cancel_generation` 精确中断单条请求 |
+| AppError 结构化 IPC | ✅ | 统一 `{ code, message, data }` 错误格式，前端按 code 精准处理 |
+
 ---
 
 ## 📅 更新历史
+
+### v0.7.2 (2026-05-19) - 存储同构化 + MCP 动态注册 + 聚合编辑 + 场景分隔节点 + LLM 取消
+
+> **核心理念**：夯实数据架构与扩展能力，为后续云端同步与协作编辑奠定 schema 基础。
+
+**拆书分析存储同构化**
+- **`reference_characters` → `narrative_characters`**：`BookDeconstructionExecutor` 保存结果时统一写入 `narrative_characters` 表，`source='extracted'` / `status='reference'`，消除 `reference_characters` 与 `narrative_characters` 的数据孤岛
+- **`reference_scenes` → `narrative_scenes`**：同上，拆书场景统一汇入 `narrative_scenes`
+- **Migration 69**：自动迁移历史 `reference_characters` / `reference_scenes` 数据到 `narrative_*` 表，`INSERT OR IGNORE` 避免重复
+- **`delete_book` 级联清理**：删除拆书结果时同步清理 `narrative_characters` / `narrative_scenes` / `narrative_world_buildings`
+- **`convert_to_story` 状态切换**：一键转故事时自动将 `narrative_*` 记录 `status` 从 `reference` 更新为 `active`
+
+**MCP 工具动态注册**
+- **`CapabilityRegistry` 实时同步**：外部 MCP 服务器连接成功后，自动将其工具列表注册到 `CapabilityRegistry`，`PlanGenerator` 无需重启即可感知新工具
+- **前缀命名空间**：外部工具统一使用 `mcp.{server_id}.{tool_name}` 前缀，与内置 `mcp.builtin.*` 工具区分，前端 `list_mcp_tools` 直接展示完整带前缀工具名
+- **动态注销**：MCP 服务器断开时从 `CapabilityRegistry` 移除对应工具，避免调用已失效工具
+
+**1:N 聚合编辑数据库 Schema**
+- **Migration 68**：`chapter_commits` 表新增 `chapter_id` 字段（`Option<String>`），支持多场景（Scene）聚合到单一章节（Chapter）的提交追踪
+- **Schema 对齐**：`ChapterCommit` 数据结构、`ChapterCommitRepository` 查询/插入 SQL、`chapter_commit_service.rs` 全部适配新字段
+
+**TipTap SceneDividerNode**
+- **原子块节点**：新增 `SceneDividerNode`（`group: 'block'`，`atom: true`），在幕前编辑器中可视化渲染场景边界分隔线
+- **不可编辑**：用户无法直接输入或删除分隔节点内容，仅作为结构标记存在
+- **事件交互**：支持 `click` / `mouseenter` / `mouseleave` 事件，可扩展悬浮提示场景信息
+
+**LLM 调用取消机制**
+- **`request_id` 级取消**：`LlmService` 维护 `cancel_senders: HashMap<String, Sender<()>>`，每次生成分配唯一 `request_id`
+- **`cancel_generation(request_id)`**：精确中断单条请求，避免取消影响其他并行 LLM 调用
+- **流式适配**：`generate_stream` 在接收每个 chunk 前检查取消信号，响应立即终止
+
+**AppError 结构化 IPC**
+- **统一错误格式**：所有 Tauri 命令返回 `Result<T, AppError>`，序列化为 `{ code: string, message: string, data?: unknown }`
+- **错误码体系**：`NOT_FOUND` / `VALIDATION_ERROR` / `LLM_ERROR` / `CANCELLED` / `TIMEOUT` 等标准 code
+- **前端精准处理**：`loggedInvoke` 解析 `AppError`，按 `code` 做 toast / 重试 / 静默忽略等差异化处理
+
+**编译与测试**
+- `cargo check`：零错误
+- `cargo test`：~225/225 通过
+- `npm run build`：通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 0.7.2
+
+---
 
 ### v0.7.0 (2026-05-15) - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级
 

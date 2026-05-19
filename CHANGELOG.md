@@ -82,6 +82,67 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v0.7.2] - 存储同构化 + MCP 动态注册 + 聚合编辑 + 场景分隔节点 + LLM 取消（2026-05-19）
+
+### 🗄️ 拆书分析存储同构化
+
+#### 统一存储层：reference_* → narrative_*
+- **`BookDeconstructionExecutor`** — 分析结果保存时统一写入 `narrative_characters` / `narrative_scenes` / `narrative_world_buildings`，`source='extracted'` / `status='reference'`
+- **`BookDeconstructionService::run_analysis`** — 保存到 `reference_*` 后，同步转换为 `CharacterElement` / `SceneElement` 并写入 `narrative_*`，保持过渡期双向兼容
+- **`BookDeconstructionService::get_analysis`** — 从 `narrative_*` 读取并转换回 `BookAnalysisResult`，API 接口零变动
+- **`BookDeconstructionService::delete_book`** — 删除时同步清理 `narrative_characters` / `narrative_scenes` / `narrative_world_buildings`
+- **`BookDeconstructionService::convert_to_story`** — 一键转故事时自动 `UPDATE narrative_* SET status = 'active'`，角色/场景从参考态切换为生产态
+
+#### Migration 69：历史数据自动迁移
+- `reference_characters` → `narrative_characters`：`INSERT OR IGNORE` + `LEFT JOIN` 去重，缺失字段（`background`/`goals`/`gender`/`age`）置空或默认值
+- `reference_scenes` → `narrative_scenes`：同上，字段映射对齐 `SceneElement` 结构
+
+### 🔌 MCP 工具动态注册
+
+- **`CapabilityRegistry` 实时同步** — 外部 MCP 服务器连接成功后，将其工具列表注入 `CapabilityRegistry`，`PlanGenerator` 即时感知新工具，无需重启应用
+- **前缀命名空间** — 内置工具 `mcp.builtin.*`，外部工具 `mcp.{server_id}.*`，前端 `list_mcp_tools` 返回完整带前缀列表，零配置区分来源
+- **动态注销** — MCP 服务器断开时从 `CapabilityRegistry` 移除对应工具，防止调用已失效外部工具
+- **`execute_mcp_tool` 注册修复** — 移除对不存在的 `GenericToolHandler` 的引用，动态注册仅更新 `CapabilityRegistry`，工具调用走现有 `call_mcp_tool` 路径
+
+### 📝 1:N 聚合编辑数据库 Schema
+
+- **Migration 68**：`chapter_commits` 表新增 `chapter_id` 字段（`TEXT` / `Option<String>`），支持多场景聚合到单一章节的提交追踪
+- **全链路对齐** — `ChapterCommit` 结构体、`ChapterCommitRepository`（create/get/update SQL）、`chapter_commit_service.rs` 全部适配新字段
+- **`ChapterCommitService::auto_commit`** — 有 `chapter_id` 时写入外键，无则保持 `NULL`，兼容现有单场景提交路径
+
+### 🖊️ TipTap SceneDividerNode
+
+- **原子块节点** — `src-frontend/src/frontstage/extensions/SceneDividerNode.ts`，`group: 'block'` / `atom: true` / `selectable: false`
+- **可视化渲染** — 幕前编辑器中相邻场景间显示水平分隔线 + 场景标题标签，结构边界一目了然
+- **不可编辑** — 用户无法直接输入或删除分隔节点，仅作为结构标记，防止误操作破坏场景边界
+- **事件扩展** — 支持 `click` / `mouseenter` / `mouseleave`，可扩展悬浮面板展示场景元信息
+
+### ⏹️ LLM 调用取消机制
+
+- **`request_id` 级取消** — `LlmService` 维护 `cancel_senders: HashMap<String, Sender<()>>`，每次 `generate` / `generate_stream` 分配唯一 `request_id`
+- **`cancel_generation(request_id)`** — 精确向指定 sender 发送 `()` 信号，中断对应请求，不影响其他并行 LLM 调用
+- **流式适配** — `generate_stream` 每接收一个 chunk 前 `try_recv` 检查取消信号，收到后立即终止流并返回已生成内容
+- **`AgentOrchestrator`** — `WorkflowResult` 新增 `request_id` 字段，上层可通过同一 ID 取消正在执行的生成任务
+
+### ⚠️ AppError 结构化 IPC
+
+- **统一错误格式** — 所有 Tauri 命令返回 `Result<T, AppError>`，JSON 序列化为 `{ code: string, message: string, data?: unknown }`
+- **错误码体系** — `NOT_FOUND` / `VALIDATION_ERROR` / `LLM_ERROR` / `CANCELLED` / `TIMEOUT` / `INTERNAL_ERROR` / `UNAUTHORIZED`
+- **前端精准处理** — `loggedInvoke` 捕获 `AppError` 后按 `code` 分支：toast 提示 / 静默忽略 / 自动重试 / 引导用户操作
+- **向后兼容** — 未显式返回 `AppError` 的命令仍走原有字符串错误路径，逐步迁移
+
+### 🔧 其他修复
+- **`CharacterElement::fears` 字段补全** — `service.rs` 构造 `CharacterElement` 时新增 `fears: String::new()`，修复 `cargo check` 编译错误
+- **`AgentResult::request_id` 测试补全** — `orchestrator.rs` 测试初始化补充 `request_id: None`，修复 `cargo test` 编译错误
+
+### 编译状态
+- `cargo check` ✅ 零错误
+- `cargo test` ✅ ~225/225 全部通过
+- `npm run build` ✅ 通过
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 0.7.2
+
+---
+
 ## [v0.7.1] - 架构优化：聚合提交 + 导出完整性 + 组件提取（2026-05-17）
 
 ### 🏗️ 后端架构优化
