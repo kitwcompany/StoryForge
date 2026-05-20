@@ -82,6 +82,33 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v0.7.2+1] - 网文体裁模板扩充至 43 个 + typical_structure 全面补全（2026-05-20）
+
+### 📝 网文体裁模板扩充与优化
+
+#### 新增 5 个 2026 年热门/经典缺失体裁模板
+- **灵气复苏** (`spiritual-recovery`) — 现代都市中灵气突然复苏，强调"日常与超凡的撕裂感"与旧秩序崩溃后的新博弈
+- **规则怪谈** (`rules-horror`) — 以"规则文本"为核心恐怖机制的独立流派，逻辑推理与在规则夹缝中求生存
+- **模拟器流** (`simulator`) — 系统流独立分支，"人生模拟器"推演不同选择，用无数次虚拟死亡换取现实中一次正确选择
+- **盗墓流** (`tomb-raiding`) — 经典探险流派，古墓探险、机关解谜、风水秘术，揭开历史谜团
+- **星际机甲** (`mecha-stellar`) — 科幻核心分支，机甲战斗、星际战争、宇宙探索，钢铁浪漫与史诗感
+
+#### 现有 38 个模板全面优化
+- **typical_structure 补全** — 全部 38 个现有模板从空数组 `[]` 补充为完整的 `{title, description}` 典型结构节点（平均 5-6 个阶段），为 AI 生成提供更清晰的叙事结构指引
+- **凡人流反模式修复** — 原 `anti_patterns` 为空的凡人流模板补充 5 条反模式（资质逆转、准备无敌、越阶无代价、人缘逆天、长生无感）
+
+#### 数据更新
+- `templates/genres.json`：`count` 38 → 43，全部 43 个 profile 已补充 `typical_structure`
+- 新增 5 个 Markdown 模板文件：`mecha-stellar.md` / `spiritual-recovery.md` / `rules-horror.md` / `simulator.md` / `tomb-raiding.md`
+
+**编译与测试**
+- `cargo check`：零错误
+- `cargo test`：~225/225 通过
+- `npm run build`：通过
+- 版本号维持：Cargo.toml / package.json / tauri.conf.json → 0.7.2
+
+---
+
 ## [v0.7.2] - 存储同构化 + MCP 动态注册 + 聚合编辑 + 场景分隔节点 + LLM 取消（2026-05-19）
 
 ### 🗄️ 拆书分析存储同构化
