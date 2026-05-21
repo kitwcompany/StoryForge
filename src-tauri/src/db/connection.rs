@@ -102,25 +102,10 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             UNIQUE(story_id, chapter_number)
         );
 
-        -- 场景分隔节点表 (v0.7.3 - 1:N 连续编辑表面)
-        CREATE TABLE IF NOT EXISTS scene_divider_nodes (
-            id TEXT PRIMARY KEY,
-            chapter_id TEXT NOT NULL,
-            position INTEGER NOT NULL,
-            scene_id TEXT NOT NULL,
-            label TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
-            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
-            UNIQUE(chapter_id, position)
-        );
-
         -- Create indexes
         CREATE INDEX IF NOT EXISTS idx_characters_story ON characters(story_id);
         CREATE INDEX IF NOT EXISTS idx_chapters_story ON chapters(story_id);
         CREATE INDEX IF NOT EXISTS idx_chapters_number ON chapters(story_id, chapter_number);
-        CREATE INDEX IF NOT EXISTS idx_scene_divider_chapter ON scene_divider_nodes(chapter_id);
         "#
     )?;
     // Migration 17: 创建任务表和任务日志表 (v3.5.0)
@@ -3039,14 +3024,18 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     })?.collect::<Result<Vec<_>, _>>()?;
 
     if chapter_columns_m71.iter().any(|c| c == "scene_id") {
-        conn.execute(
-            "ALTER TABLE chapters DROP COLUMN scene_id",
-            [],
-        )?;
-        conn.execute(
+        // 必须先删除索引，再删除列（SQLite DROP COLUMN 不能删除有索引的列）
+        // 使用显式事务包裹，避免 SQLite schema 缓存导致 drop column 时仍能看到已删除的索引
+        let tx = conn.transaction()?;
+        tx.execute(
             "DROP INDEX IF EXISTS idx_chapters_scene",
             [],
         )?;
+        tx.execute(
+            "ALTER TABLE chapters DROP COLUMN scene_id",
+            [],
+        )?;
+        tx.commit()?;
     }
 
     // Migration 72: 创建 scene_divider_nodes 表 (v0.7.3 - SceneDividerNode 功能化预留接口)
