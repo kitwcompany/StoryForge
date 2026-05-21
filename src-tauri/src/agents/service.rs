@@ -850,6 +850,7 @@ impl AgentService {
                     "scene_structure" => Some(MethodologyType::SceneStructure),
                     "hero_journey" => Some(MethodologyType::HeroJourney),
                     "character_depth" => Some(MethodologyType::CharacterDepth),
+                    "world_building" => Some(MethodologyType::HighDensityWorldBuilding),
                     _ => None,
                 };
                 if let Some(mt) = method_type {

@@ -13,11 +13,13 @@ pub mod snowflake;
 pub mod scene_structure;
 pub mod hero_journey;
 pub mod character_depth;
+pub mod high_density_world_building;
 
 pub use snowflake::{SnowflakeMethodology, SnowflakeStep};
 pub use scene_structure::SceneStructureMethodology;
 pub use hero_journey::{HeroJourneyMethodology, HeroJourneyStage};
 pub use character_depth::CharacterDepthModel;
+pub use high_density_world_building::{HighDensityWorldBuildingMethodology, WorldBuildingPhase};
 
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +31,7 @@ pub enum MethodologyType {
     SceneStructure,
     HeroJourney,
     CharacterDepth,
+    HighDensityWorldBuilding,
 }
 
 impl MethodologyType {
@@ -38,6 +41,7 @@ impl MethodologyType {
             MethodologyType::SceneStructure => "场景结构规范",
             MethodologyType::HeroJourney => "英雄之旅",
             MethodologyType::CharacterDepth => "人物深度模型",
+            MethodologyType::HighDensityWorldBuilding => "高密度世界构建法",
         }
     }
 
@@ -47,6 +51,7 @@ impl MethodologyType {
             MethodologyType::SceneStructure => "目标-冲突-灾难-反应-困境-决定六节拍场景结构",
             MethodologyType::HeroJourney => "约瑟夫·坎普贝尔的12阶段英雄之旅结构",
             MethodologyType::CharacterDepth => "目标-动机-冲突-秘密-弧光-顿悟六维人物模型",
+            MethodologyType::HighDensityWorldBuilding => "用极少元素通过状态驱动、桥节点连接、事件回流构建活的世界",
         }
     }
 }
@@ -114,6 +119,12 @@ impl MethodologyEngine {
             MethodologyType::CharacterDepth => {
                 Box::new(CharacterDepthModel::default())
             }
+            MethodologyType::HighDensityWorldBuilding => {
+                let phase = config.current_step.as_ref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(WorldBuildingPhase::Seed);
+                Box::new(HighDensityWorldBuildingMethodology::new(phase))
+            }
         };
 
         methodology.system_prompt_extension()
@@ -126,6 +137,7 @@ impl MethodologyEngine {
             MethodologyType::SceneStructure,
             MethodologyType::HeroJourney,
             MethodologyType::CharacterDepth,
+            MethodologyType::HighDensityWorldBuilding,
         ]
     }
 }
@@ -140,12 +152,13 @@ mod tests {
         assert_eq!(MethodologyType::SceneStructure.name(), "场景结构规范");
         assert_eq!(MethodologyType::HeroJourney.name(), "英雄之旅");
         assert_eq!(MethodologyType::CharacterDepth.name(), "人物深度模型");
+        assert_eq!(MethodologyType::HighDensityWorldBuilding.name(), "高密度世界构建法");
     }
 
     #[test]
     fn test_list_available() {
         let list = MethodologyEngine::list_available();
-        assert_eq!(list.len(), 4);
+        assert_eq!(list.len(), 5);
     }
 
     #[test]

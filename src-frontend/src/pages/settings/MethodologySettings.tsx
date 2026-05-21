@@ -26,6 +26,7 @@ export function MethodologySettings() {
     { id: 'scene_beat', name: '场景节拍', description: '以场景为单位构建叙事节拍，适合重视节奏的作者' },
     { id: 'hero_journey', name: '英雄之旅', description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事' },
     { id: 'character_depth', name: '人物深度', description: '以人物为核心驱动故事，适合重视角色塑造的作者' },
+    { id: 'world_building', name: '高密度世界构建', description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说' },
   ];
 
   const snowflakeSteps = [
@@ -39,6 +40,13 @@ export function MethodologySettings() {
     '8. 场景清单',
     '9. 场景扩展',
     '10. 初稿写作',
+  ];
+
+  const worldBuildingPhases = [
+    '1. 最小世界种子',
+    '2. 状态网扩张',
+    '3. 多线交织与回流',
+    '4. 密度迭代与克制',
   ];
 
   const handleSave = () => {
@@ -121,6 +129,27 @@ export function MethodologySettings() {
                       }`}
                     >
                       {step}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {methodologyId === 'world_building' && (
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">当前阶段（高密度世界构建）</label>
+                <div className="space-y-1.5">
+                  {worldBuildingPhases.map((phase, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setMethodologyStep(idx + 1)}
+                      className={`w-full p-2 rounded-lg text-left text-sm transition-colors ${
+                        methodologyStep === idx + 1
+                          ? 'bg-cinema-gold/20 text-cinema-gold'
+                          : 'bg-cinema-800 text-gray-400 hover:bg-cinema-700'
+                      }`}
+                    >
+                      {phase}
                     </button>
                   ))}
                 </div>
