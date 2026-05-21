@@ -1,6 +1,6 @@
 # StoryForge (草苔) v0.7.3 项目完成状态
 
-> 最后更新: 2026-05-20（v0.7.3 + 商业模式重构为功能订阅制 + 1:N Chapter↔Scene 架构完成 + SceneDividerNode 预留接口 + scene_commits 重命名）
+> 最后更新: 2026-05-21（v0.7.3 + 高密度状态世界构建法 + 商业模式重构为功能订阅制 + 1:N Chapter↔Scene 架构完成 + SceneDividerNode 预留接口 + scene_commits 重命名）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -100,6 +100,24 @@
 
 ---
 
+### v0.7.3+ 新增：高密度状态世界构建法（2026-05-21）
+
+> **核心理念**：源于 90 年代经典老游戏在极致资源约束下的结构智慧，用极少元素通过状态驱动、桥节点连接、事件回流与多功能重用，构建远大于实际篇幅的"活的世界"。
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 后端模块 | ✅ | `high_density_world_building.rs`：4 阶段完整实现 + `FromStr` 解析 + `Methodology` trait |
+| 阶段 1：最小世界种子 | ✅ | 高密度"世界切片" + 核心状态向量 + 3-5 个桥节点（每个至少连接 3 条叙事线） |
+| 阶段 2：状态网扩张 | ✅ | 主角群扩展 + 状态触发表 + 世界规则显式化 + 信息不对称矩阵 |
+| 阶段 3：多线交织与回流 | ✅ | 桥节点多线映射（正面/侧面/误解视角）+ 回流点规划 + 事件多功能重用 + 伏笔回响网络 |
+| 阶段 4：密度迭代与克制 | ✅ | 克制检查清单 + 未写出的世界 + 状态一致性审计 + 涌现性验证 + 重读价值优化 |
+| 前端设置面板 | ✅ | `MethodologySettings.tsx` 新增「高密度世界构建」选项 + 4 阶段选择 UI |
+| Agent Prompt 注入 | ✅ | `agents/service.rs` writer prompt 映射接入，AI 自动引用状态向量与桥节点 |
+| 输出 Schema | ✅ | 每阶段提供结构化 JSON Schema，规范 AI 输出 |
+| `MethodologyType` 注册 | ✅ | `mod.rs` 枚举新增 `HighDensityWorldBuilding`，`MethodologyEngine` 完整分支 |
+
+---
+
 ### v0.7.2 功能增强：存储同构化 + MCP 动态注册 + 聚合编辑 + 场景分隔节点 + LLM 取消（2026-05-19）
 
 #### 拆书分析存储同构化
@@ -157,7 +175,7 @@
 | Volume 合同 | ✅ | 卷级设定合同 |
 | Chapter 合同 | ✅ | 章节级设定与预期合同 |
 | Review 合同 | ✅ | 审阅与修订合同 |
-| CHAPTER_COMMIT 提交链 | ✅ | 写后真源分离，驱动 5 个 Projection Writer |
+| SCENE_COMMIT 提交链 | ✅ | 写后真源分离，驱动 5 个 Projection Writer |
 | StateProjectionWriter | ✅ | 解析 state_deltas 写入语义记忆 |
 | IndexProjectionWriter | ✅ | 解析 entity_deltas 写入实体记忆 |
 | SummaryProjectionWriter | ✅ | 自动生成章节摘要并持久化 |
@@ -287,6 +305,7 @@
 | 场景节拍表 (6 节拍) | ✅ | 100% | 开场→冲突→行动→转折→高潮→结局 |
 | 英雄之旅 (12 阶段) | ✅ | 100% | Campbell 经典叙事结构 |
 | 人物深度模型 (6 维) | ✅ | 100% | 性格/动机/关系/成长/语言/秘密 |
+| 高密度世界构建法 (4 阶段) | ✅ | 100% | 状态驱动/桥节点/事件回流/多功能重用 |
 | `AgentOrchestrator` | ✅ | 100% | Writer→Inspector→Writer 质量反馈循环 |
 | 单元测试 | ✅ | 100% | 34 tests 全部通过 |
 

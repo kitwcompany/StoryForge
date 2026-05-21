@@ -1,6 +1,9 @@
-# StoryForge (草苔) v5.6.2 功能清单
+# StoryForge (草苔) v0.7.3+ 功能清单
 
-> 按幕前幕后双界面架构整理，反映 v5.6.2 最新项目状态
+> 按幕前幕后双界面架构整理，反映 v0.7.3 最新项目状态
+>
+> **注意**：本文档为历史归档，部分早期功能描述可能未同步最新变更。
+> 完整最新功能请参考 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。
 
 ---
 
@@ -26,7 +29,7 @@
 | 自动保存 | ✅ | 2秒无操作后自动保存 |
 | 快捷键支持 | ✅ | F11 禅模式, Ctrl+Space AI, Ctrl+S 保存 |
 | 幕后切换 | ✅ | 一键切换到后台管理界面 |
-| 精简侧边栏 Dock | ✅ | 修订模式、批注、评论、古典评点、幕后切换 |
+| 精简侧边栏 Dock | ✅ | 3 按钮：修订模式、批注、幕后切换 |
 
 #### 2. 富文本编辑器 (RichTextEditor)
 **文件**: `src/frontstage/components/RichTextEditor.tsx`
@@ -42,12 +45,12 @@
 | 禅模式 | ✅ | F11 全屏沉浸式写作 |
 | 写作风格 | ✅ | 5种风格，后台设置统一管理 |
 | 右键上下文菜单 | ✅ | 剪切/复制/粘贴、修订模式、批注、评论、古典评点、全选 |
-| 文本内联批注 | ✅ | note/todo/warning/idea 高亮批注 |
-| 评论线程 | ✅ | 选中文本发起讨论，多轮回复 |
+| ~~文本内联批注~~ | 🗑️ | v4.1.0 已移除，改为幽灵文本/古典评点 |
+| ~~评论线程~~ | 🗑️ | v4.1.0 已移除，AI 反馈以评点/续写形式呈现 |
 | 修订模式 | ✅ | trackInsert/trackDelete 可视化变更追踪 |
 | 古典评点 | ✅ | AI 金圣叹风格段落点评 |
 | 角色卡片弹窗 | ✅ | 点击角色名弹出详情卡片 |
-| 底部 LLM 对话栏 | ✅ | 悬停显示，流式对话，模型状态灯 |
+| ~~底部 LLM 对话栏~~ | 🗑️ | v4.1.0 已移除，改为幽灵文本 + 萤火随行 |
 
 #### 3. 场景大纲 (SceneOutline)
 **文件**: `src/components/StoryTimeline.tsx`
@@ -411,10 +414,41 @@ Layer 1: Raw Sources (原始内容)
 - ✅ 记忆系统（Ingest/Query）
 - ✅ 沉浸式写作体验（幕前）
 
-### 注意事项
-- ⚠️ 向量检索使用内存实现，大规模数据性能待优化
-- ⚠️ 知识图谱可视化待实现
-- ⚠️ 部分前端 UI 需要进一步完善
+---
+
+## 🆕 v0.7.x 新功能补充（本文档未覆盖的后续更新）
+
+以下功能在本文档原始编写后陆续实现，详见 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)：
+
+### v0.7.0 - AI 三审 Pipeline + 角色动态状态 + 用量统计
+- **AI 三审 Pipeline** — Refine/Review/Finalize + 后处理（知识库/笔记/角色状态/风格分析）
+- **角色动态状态面板** — 6 字段动态追踪（位置/实力/身心状态/物品/事件），LLM 自动解析更新
+- **用量统计看板** — 全局/单故事 LLM 调用统计 + 最近 20 条调用明细
+- **幕前 Pipeline 指令** — `/` 菜单支持修稿/审稿/定稿直达 Pipeline
+- **场景进度看板** — execution_stage 彩色徽章 + 多色进度条
+
+### v0.7.2 - 存储同构化 + MCP 动态注册 + 聚合编辑
+- **拆书存储同构化** — `reference_*` → `narrative_*` 统一存储
+- **MCP 工具动态注册** — `CapabilityRegistry` 实时同步外部工具
+- **1:N 聚合编辑 Schema** — `scene_commits` 新增 `chapter_id` 外键
+- **SceneDividerNode** — TipTap 原子块节点，可视化场景边界
+- **LLM 调用取消** — `request_id` 级精确取消
+- **AppError 结构化 IPC** — 统一 `{ code, message, data }` 错误格式
+
+### v0.7.3 - 商业模式重构 + 1:N 架构完成
+- **功能订阅制** — 移除配额计量，改为 `has_feature_access` 功能开关（Free/Pro/Enterprise）
+- **1:N Chapter↔Scene 架构** — 废弃 `chapters.scene_id`，全链路改为 `scenes.chapter_id`
+- **SceneCommitService** — 提交粒度彻底对齐 Scene，`chapter_commits` → `scene_commits`
+- **SceneDividerNode 预留接口** — `SceneDividerRepository` + `scene_divider_nodes` 表就绪
+
+### v0.7.3+ - 高密度状态世界构建法
+- **第五种创作方法论** — `high_density_world_building.rs` 完整实现 4 阶段世界构建
+- **阶段 1：最小世界种子** — 高密度"世界切片" + 状态向量 + 桥节点
+- **阶段 2：状态网扩张** — 主角群扩展 + 状态触发表 + 信息不对称矩阵
+- **阶段 3：多线交织与回流** — 桥节点多线映射 + 回流点规划 + 事件多功能重用
+- **阶段 4：密度迭代与克制** — 克制检查 + 未写出世界 + 涌现性验证 + 重读价值优化
+- **前端集成** — `MethodologySettings.tsx` 新增选项 + 4 阶段选择 UI
+- **Agent 接入** — writer prompt 自动注入状态向量、桥节点、事件回流等核心概念
 
 ---
 

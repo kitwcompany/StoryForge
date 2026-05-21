@@ -6,7 +6,7 @@
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
-> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
+> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流、高密度状态世界构建法。让 AI 成为你的创作搭档，越写越懂你。
 >
 > **v0.7.0 最新更新（2026-05-15）**：AI 三审 Pipeline 系统（修稿 → 审稿 → 定稿 → 后处理）+ 角色动态状态面板（LLM 驱动实时更新）+ 用量统计看板 + 幕前 `/` 指令打通 Pipeline + Stories 场景进度看板 — 从"能创作"到"高质量创作"的完整质量管控闭环。
 >
@@ -133,7 +133,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **数据导出** - 支持 PDF、EPUB、Markdown 等多种格式，导出前可选 Anti-AI 体检
 - **模型映射与路由** - 为不同 Agent 独立配置 LLM 模型
 - **意图引擎** - 聊天栏自动解析用户意图并调度对应 Agent 执行
-- **创作方法论引擎** - 雪花法 / 场景节拍 / 英雄之旅 / 人物深度，自动注入创作约束
+- **创作方法论引擎** - 雪花法 / 场景节拍 / 英雄之旅 / 人物深度 / 高密度世界构建，自动注入创作约束
 - **StyleDNA 系统** - 六维定量风格模型，10 种经典作家 DNA，实时风格匹配
 - **自适应学习系统** - 记录用户反馈、挖掘偏好、动态调节生成参数
 - **创作工作流引擎** - 7 阶段全自动工作流（构思→大纲→场景→写作→审阅→迭代→入库）
@@ -158,7 +158,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 | 知识图谱 | - | ✅ 可视化 / 编辑 / 归档 |
 | 技能执行 | ✅ 快捷执行 | ✅ 技能工坊管理 |
 | 文本批注 | - | ✅ 场景级批注 |
-| 创作方法论 | - | ✅ 雪花法 / 节拍表 / 英雄之旅 / 人物深度 |
+| 创作方法论 | - | ✅ 雪花法 / 节拍表 / 英雄之旅 / 人物深度 / 高密度世界构建 |
 | StyleDNA | - | ✅ 风格选择 / 相似度分析 |
 | 工作流引擎 | - | ✅ 一键全自动创作 |
 | 自适应学习 | - | ✅ 反馈记录 / 偏好挖掘 |
@@ -222,7 +222,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 **Phase 2 - 方法论注入**
 - 创作方法论引擎：`MethodologyEngine` 自动将方法论约束注入 Writer 系统提示词
-- 四种经典方法论：雪花法（10 步）· 场景节拍表（6 节拍）· 英雄之旅（12 阶段）· 人物深度模型（6 维度）
+- 五种经典方法论：雪花法（10 步）· 场景节拍表（6 节拍）· 英雄之旅（12 阶段）· 人物深度模型（6 维度）· 高密度世界构建法（4 阶段）
 - `AgentOrchestrator` — Writer→Inspector→Writer 质量反馈循环（可配置阈值与最大循环数）
 
 **Phase 3 - 风格深度化**
@@ -279,8 +279,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ## 📊 项目状态概览
 
-**当前版本**: v0.7.2  
-**最后更新**: 2026-05-19  
+**当前版本**: v0.7.3  
+**最后更新**: 2026-05-21  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -406,7 +406,8 @@ v2-rust/
 │   │   │   │   ├── snowflake.rs
 │   │   │   │   ├── scene_structure.rs
 │   │   │   │   ├── hero_journey.rs
-│   │   │   │   └── character_depth.rs
+│   │   │   │   ├── character_depth.rs
+│   │   │   │   └── high_density_world_building.rs  # 高密度世界构建法 (v0.7.4)
 │   │   │   ├── style/                # StyleDNA 系统
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── dna.rs
@@ -570,7 +571,7 @@ v2-rust/
 | `QueryPipeline` | ✅ | 四阶段知识检索（CJK→图谱→预算→组装） |
 | `ContinuityEngine` | ✅ | 章节连续性追踪与伏笔回收 |
 | `ForeshadowingTracker` | ✅ | 伏笔埋设与回收追踪 |
-| `MethodologyEngine` | ✅ | 雪花法/节拍表/英雄之旅/人物深度 |
+| `MethodologyEngine` | ✅ | 雪花法/节拍表/英雄之旅/人物深度/高密度世界构建 |
 | `AgentOrchestrator` | ✅ | Writer→Inspector→Writer 质量闭环 |
 | `StyleDNA` | ✅ | 六维定量风格模型，10 种经典作家 DNA |
 | `StyleAnalyzer` | ✅ | 从文本提取风格指纹 |
@@ -659,7 +660,7 @@ v2-rust/
 | Volume 合同 | ✅ | 卷级设定合同，支持多卷结构 |
 | Chapter 合同 | ✅ | 章节级设定与预期合同 |
 | Review 合同 | ✅ | 审阅与修订合同，记录修改指令 |
-| CHAPTER_COMMIT 提交链 | ✅ | 写后真源提交，驱动 Projection Writer |
+| SCENE_COMMIT 提交链 | ✅ | 写后真源提交，驱动 Projection Writer |
 | StateProjectionWriter | ✅ | 解析 state_deltas 写入语义记忆 |
 | IndexProjectionWriter | ✅ | 解析 entity_deltas 写入实体记忆 |
 | SummaryProjectionWriter | ✅ | 自动生成章节摘要并持久化 |
@@ -784,6 +785,21 @@ v2-rust/
 | LLM 取消机制 | ✅ | `request_id` 级取消信号，`cancel_generation` 精确中断单条请求 |
 | AppError 结构化 IPC | ✅ | 统一 `{ code, message, data }` 错误格式，前端按 code 精准处理 |
 
+### 20. 高密度状态世界构建法 (v0.7.3+)
+
+> **核心理念**：源于 90 年代经典老游戏在极致资源约束下的结构智慧，用极少元素通过状态驱动、桥节点连接、事件回流构建远大于实际篇幅的"活的世界"。
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 后端方法论引擎 | ✅ | `high_density_world_building.rs`：4 阶段完整实现（Seed/StateExpansion/Convergence/DensityIteration） |
+| 阶段 1：最小世界种子 | ✅ | 设计高密度"世界切片"，定义核心状态向量与 3-5 个桥节点 |
+| 阶段 2：状态网扩张 | ✅ | 主角群扩展，状态触发表，世界规则显式化，信息不对称矩阵 |
+| 阶段 3：多线交织与回流 | ✅ | 桥节点多线映射，回流点规划，事件多功能重用，伏笔与回响网络 |
+| 阶段 4：密度迭代与克制 | ✅ | 克制检查清单，未写出的世界，状态一致性审计，涌现性验证，重读价值优化 |
+| 前端设置面板 | ✅ | `MethodologySettings.tsx` 新增「高密度世界构建」选项 + 4 阶段选择 UI |
+| Agent Prompt 注入 | ✅ | `agents/service.rs`  writer prompt 映射接入，AI 创作时自动引用状态向量与桥节点 |
+| 输出 Schema | ✅ | 每阶段提供结构化 JSON Schema，规范 AI 输出格式 |
+
 ---
 
 ## 📅 更新历史
@@ -803,6 +819,15 @@ v2-rust/
 - **全链路改为 `scenes.chapter_id`**：`ChapterRepository::create`/`update`/`get_by_story` 不再读写 `chapters.scene_id`；`lib.rs` `create_chapter` / `update_chapter` 通过 `SceneRepository::get_by_chapter` 查询关联场景进行聚合提交
 - **`SceneCommitService` 取代 `ChapterCommitService`**：提交粒度从 Chapter 彻底对齐到 Scene；`SceneCommitRepository` 全部 SQL 从 `chapter_commits` 重命名为 `scene_commits`（Migration 70）
 - **`SceneDividerNode` 功能预留接口**：`SceneDividerRepository`（`create`/`get_by_chapter`/`set_dividers`/`delete`）+ `scene_divider_nodes` 表（Migration 72）就绪，支持在章节编辑器中标记场景边界
+
+**高密度状态世界构建法（v0.7.3+）**
+- **新增第五种创作方法论**：`high_density_world_building.rs` 完整实现 4 阶段世界构建流程
+- **阶段 1 - 最小世界种子**：设计高密度"世界切片"，定义核心状态向量与 3-5 个桥节点，每个桥节点至少连接 3 条叙事线
+- **阶段 2 - 状态网扩张**：主角群扩展 + 状态触发表 + 世界规则显式化 + 信息不对称矩阵
+- **阶段 3 - 多线交织与回流**：桥节点多线映射（正面/侧面/误解视角），每 3-5 章一次回流，事件至少承担 3 种功能
+- **阶段 4 - 密度迭代与克制**：克制检查清单 + 未写出的世界 + 状态一致性审计 + 涌现性验证 + 重读价值优化
+- **前端集成**：`MethodologySettings.tsx` 新增「高密度世界构建」选项及 4 阶段选择 UI
+- **Agent 接入**：`agents/service.rs` writer prompt 映射接入，AI 创作时自动注入状态向量、桥节点、事件回流等核心概念
 
 **编译与测试**
 - `cargo check`：零错误
@@ -902,7 +927,7 @@ v2-rust/
 
 **Story System 合同驱动体系**
 - **四级合同架构**：`MASTER_SETTING`（故事级）/ `Volume`（卷级）/ `Chapter`（章节级）/ `Review`（审阅级）
-- **CHAPTER_COMMIT 提交链**：写后真源分离，每次章节保存生成 `ChapterCommit`，驱动 5 个 Projection Writer 自动更新 read-model
+- **SCENE_COMMIT 提交链**：写后真源分离，每次场景保存生成 `SceneCommit`，驱动 5 个 Projection Writer 自动更新 read-model
 - **5 个 Projection Writer**：State（状态变化）、Index（实体索引）、Summary（章节摘要）、Memory（事件记忆）、Vector（向量嵌入）
 - **ContractTree & RuntimeContract**：按层级查询合同树，动态合并生成运行时约束合同
 - **防幻觉三定律**：合同即法律、设定即物理、发明需识别
@@ -1287,7 +1312,7 @@ cd src-tauri && cargo tauri build
 - [x] **场景批注** - 场景级 note/todo/warning/idea
 - [x] **MCP 外部服务器** - 工具扩展
 - [x] **技能工坊** - 导入/执行/管理
-- [x] **创作方法论引擎** - 雪花法/节拍表/英雄之旅/人物深度
+- [x] **创作方法论引擎** - 雪花法/节拍表/英雄之旅/人物深度/高密度世界构建
 - [x] **StyleDNA 系统** - 六维风格模型 + 10 经典作家 DNA
 - [x] **自适应学习系统** - 反馈→偏好→生成→个性化
 - [x] **创作工作流引擎** - 7 阶段全自动闭环
@@ -1306,7 +1331,7 @@ cd src-tauri && cargo tauri build
 - [x] 内存模块 SQLite 持久化
 
 ### 已完成 (v6.0.0) ✅
-- [x] **Story System 合同驱动** - MASTER_SETTING/Volume/Chapter/Review 四级合同 + CHAPTER_COMMIT 提交链 + 5 个 Projection Writer
+- [x] **Story System 合同驱动** - MASTER_SETTING/Volume/Chapter/Review 四级合同 + SCENE_COMMIT 提交链 + 5 个 Projection Writer
 - [x] **三层记忆编排器** - Working/Episodic/Semantic 三层记忆，按任务类型动态分配预算
 - [x] **追读力评估系统** - Hook/Coolpoint/Micropayoff/Debt 四维度 + 综合评分与趋势图
 - [x] **43 体裁模板库** - 内置 43 个网文体裁模板，含核心基调/节奏策略/反模式/参考数据/典型结构

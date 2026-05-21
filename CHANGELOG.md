@@ -57,6 +57,43 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v0.7.3+] - 高密度状态世界构建法（2026-05-21）
+
+> **核心理念**：源于 90 年代经典老游戏在极致资源约束下的结构智慧。用极少元素，通过状态驱动、桥节点连接、事件回流与多功能重用，构建远大于实际篇幅的"活的世界"。
+
+### 🌍 新增第五种创作方法论
+
+#### 后端实现
+- **`high_density_world_building.rs`** — 新建方法论模块，定义 `WorldBuildingPhase` 枚举（Seed/StateExpansion/Convergence/DensityIteration）+ `HighDensityWorldBuildingMethodology` 实现 `Methodology` trait
+- **`FromStr` 解析** — 支持 `"seed"` / `"1"` / `"state_expansion"` / `"2"` / `"convergence"` / `"3"` / `"density_iteration"` / `"4"` 等多种阶段标识解析
+- **`MethodologyType` 注册** — `mod.rs` 新增 `HighDensityWorldBuilding` 变体，`name()` / `description()` / `build_prompt_extension()` / `list_available()` 完整分支
+- **`agents/service.rs` 接入** — writer prompt 映射新增 `"world_building"` → `MethodologyType::HighDensityWorldBuilding`
+
+#### 四阶段世界构建流程
+- **阶段 1：最小世界种子** — 设计高密度"世界切片"（锚点场景/地点/事件），定义核心状态向量（身份/资源/关系旗标/历史旗标/心理目标），创建 3-5 个桥节点（每个至少连接 3 条叙事线）
+- **阶段 2：状态网扩张** — 主角群扩展（每人独特初始状态但共享桥节点），列出"状态触发表"（资源匮乏+关系敌对→冲突等），世界规则显式化，信息不对称矩阵
+- **阶段 3：多线交织与回流** — 桥节点多线映射（正面/侧面/误解视角），每 3-5 章至少一次回流，事件多功能重用（叙事+世界构建+象征/驱动），伏笔与回响网络
+- **阶段 4：密度迭代与克制** — 克制检查清单（每引入新元素问能否被现有替代），"未写出的世界"留白审计，状态一致性审计，涌现性验证，重读价值优化
+
+#### 前端集成
+- **`MethodologySettings.tsx`** — `methodologies` 数组新增 `{ id: 'world_building', name: '高密度世界构建', description: '...' }` 选项
+- **阶段选择 UI** — 新增 `worldBuildingPhases` 数组（4 个阶段名称）+ `methodologyId === 'world_building'` 条件渲染阶段选择器
+- **保存逻辑** — `handleSave` 正确写入 `methodology_id` + `methodology_step`
+
+#### 输出 Schema
+每阶段提供结构化 JSON Schema，规范 AI 输出格式：
+- Seed：`{ seed: { anchor_scene, state_vectors[], bridge_nodes[] } }`
+- StateExpansion：`{ protagonists[], trigger_table[], world_rules[], information_asymmetry[] }`
+- Convergence：`{ bridge_perspectives[], convergence_points[], event_functions[], foreshadowing[] }`
+- DensityIteration：`{ restraint_check, unwritten_world, state_consistency[], emergence_validation, reread_value[] }`
+
+**编译与测试**
+- `cargo check`：零错误
+- `cargo test`：~225/225 通过
+- `npm run build`：通过
+
+---
+
 ## [v0.7.0] - AI 三审 Pipeline + 角色动态状态 + 用量统计 + 幕前指令升级（2026-05-15）
 
 ### 🏭 AI 三审 Pipeline 系统

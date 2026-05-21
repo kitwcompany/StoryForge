@@ -448,7 +448,7 @@ pub enum PriorityLevel {
 │     └─ Chapter (章节级设定与预期)         │
 │        └─ Review (审阅与修订合同)         │
 │                                         │
-│  CHAPTER_COMMIT (写后真源)               │
+│  SCENE_COMMIT (写后真源)                 │
 │  ├─ state_deltas_json                   │
 │  ├─ entity_deltas_json                  │
 │  ├─ accepted_events_json                │
@@ -720,10 +720,9 @@ v2-rust/
 → 幕前顶栏 🧠 图标更新
 ```
 
-### CHAPTER_COMMIT 投影流程 (v6.0.0)
+### SCENE_COMMIT 投影流程 (v6.0.0 → v0.7.3)
 ```
-章节保存 → ChapterCommitService::init_commit()
-→ ChapterCommitService::apply_commit()
+场景保存 → SceneCommitService::auto_commit()
 → StateProjectionWriter     → memory_items (category="state")
 → IndexProjectionWriter     → memory_items (category="entity")
 → SummaryProjectionWriter   → story_summaries
@@ -731,6 +730,7 @@ v2-rust/
 → VectorProjectionWriter    → LanceDB VectorRecord
 → projection_status_json 记录各 Writer 状态
 ```
+> **v0.7.3 变更**：`ChapterCommitService` 重命名为 `SceneCommitService`，`chapter_commits` 表重命名为 `scene_commits`（Migration 70），提交粒度从 Chapter 彻底对齐到 Scene。
 
 ---
 
