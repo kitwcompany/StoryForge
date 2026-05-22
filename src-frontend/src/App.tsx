@@ -19,6 +19,7 @@ import { Foreshadowing } from '@/pages/Foreshadowing';
 import { CreationWizard } from '@/pages/CreationWizard';
 import { StorySystem } from '@/pages/StorySystem';
 import { UsageStats } from '@/pages/UsageStats';
+import { WritingStats } from '@/pages/WritingStats';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -255,6 +256,7 @@ function App() {
       case 'foreshadowing': return <Foreshadowing />;
       case 'story-system': return <StorySystem />;
       case 'usage-stats': return <UsageStats />;
+      case 'writing-stats': return <WritingStats />;
       default: return <Dashboard />;
     }
   };

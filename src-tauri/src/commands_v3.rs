@@ -3109,3 +3109,17 @@ pub fn check_projection_health(
     engine.check_projection_health(&story_id, chapter_number)
         .map_err(AppError::internal)
 }
+
+// ==================== Analytics: Writing Statistics ====================
+
+#[command(rename_all = "snake_case")]
+pub fn get_writing_analytics(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<crate::analytics::WritingAnalytics, AppError> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    let scenes = repo.get_by_story(&story_id)
+        .map_err(AppError::from)?;
+    let engine = crate::analytics::AnalyticsEngine::new();
+    Ok(engine.analyze_writing_data(&story_id, &scenes))
+}

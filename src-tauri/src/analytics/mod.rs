@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use chrono::{Utc, NaiveDate};
 
@@ -6,7 +5,7 @@ use chrono::{Utc, NaiveDate};
 pub struct WritingAnalytics {
     pub story_id: String,
     pub total_words: i64,
-    pub total_chapters: i32,
+    pub total_scenes: i32,
     pub writing_streak: WritingStreak,
     pub productivity_score: f32,
     pub avg_words_per_day: f32,
@@ -26,21 +25,23 @@ impl AnalyticsEngine {
         Self
     }
 
+    /// 基于 Scene 架构的写作分析（v0.7.4）
+    /// 从 content 实时计算中文字数，以 updated_at 作为写作日期
     pub fn analyze_writing_data(
         &self,
         story_id: &str,
-        chapters: &[crate::db::Chapter],
+        scenes: &[crate::db::models_v3::Scene],
     ) -> WritingAnalytics {
-        let total_words: i64 = chapters
+        let total_words: i64 = scenes
             .iter()
-            .map(|c| c.word_count.unwrap_or(0) as i64)
+            .map(|s| crate::utils::text::TextUtils::chinese_word_count(s.content.as_deref().unwrap_or("")) as i64)
             .sum();
-        let total_chapters = chapters.len() as i32;
+        let total_scenes = scenes.len() as i32;
 
-        // Calculate writing streak from chapter creation dates
-        let mut dates: Vec<NaiveDate> = chapters
+        // Calculate writing streak from scene updated_at dates
+        let mut dates: Vec<NaiveDate> = scenes
             .iter()
-            .map(|c| c.created_at.date_naive())
+            .map(|s| s.updated_at.date_naive())
             .collect();
         dates.sort_unstable();
         dates.dedup();
@@ -100,7 +101,7 @@ impl AnalyticsEngine {
         WritingAnalytics {
             story_id: story_id.to_string(),
             total_words,
-            total_chapters,
+            total_scenes,
             writing_streak: WritingStreak {
                 current_streak,
                 longest_streak,

@@ -752,6 +752,7 @@ pub fn run() {
             commands_v3::get_character_scenes,
             commands_v3::get_character_by_name,
             commands_v3::check_projection_health,
+            commands_v3::get_writing_analytics,
             // Generic Workflow commands (v5.2.0)
             register_workflow,
             create_workflow_instance,

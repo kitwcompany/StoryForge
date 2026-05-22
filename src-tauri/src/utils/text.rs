@@ -6,6 +6,17 @@ impl TextUtils {
         text.split_whitespace().count()
     }
 
+    /// 中文-aware 字数统计：中文字符 + 英文单词
+    /// 与前端 FrontstageApp.tsx 逻辑保持一致
+    pub fn chinese_word_count(text: &str) -> usize {
+        let chinese_chars = text.chars().filter(|c| matches!(*c, '\u{4e00}'..='\u{9fff}')).count();
+        let english_words: usize = text
+            .split(|c: char| !c.is_ascii_alphabetic())
+            .filter(|s| !s.is_empty())
+            .count();
+        chinese_chars + english_words
+    }
+
     pub fn sentence_count(text: &str) -> usize {
         text.split(['.', '!', '?']).filter(|s| !s.trim().is_empty()).count()
     }

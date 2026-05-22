@@ -1086,6 +1086,11 @@ export const getRecentLlmCalls = (limit: number) =>
 export const getLlmCallStats = (storyId: string) =>
   loggedInvoke<{ count: number; total_tokens: number; total_cost: number }>('get_llm_call_stats', { story_id: storyId });
 
+// --- Writing Analytics ---
+
+export const getWritingAnalytics = (storyId: string) =>
+  loggedInvoke<import('@/types/v3').WritingAnalytics>('get_writing_analytics', { story_id: storyId });
+
 // --- Pipeline High-Level Commands ---
 
 export const runRefine = (storyId: string, draftId: string, userPrompt?: string) =>

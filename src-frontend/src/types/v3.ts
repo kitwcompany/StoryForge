@@ -655,3 +655,20 @@ export interface RetentionScore {
   access_count: number;
   estimated_retention_days: number;
 }
+
+// ==================== 写作统计 ====================
+
+export interface WritingStreak {
+  current_streak: number;
+  longest_streak: number;
+  last_writing_date: string | null;
+}
+
+export interface WritingAnalytics {
+  story_id: string;
+  total_words: number;
+  total_scenes: number;
+  writing_streak: WritingStreak;
+  productivity_score: number;
+  avg_words_per_day: number;
+}

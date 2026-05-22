@@ -270,6 +270,7 @@ export type ViewType =
   | 'creation-wizard'
   | 'story-system'
   | 'usage-stats'
+  | 'writing-stats'
   | 'settings';
 
 // ===== Intent Engine Types =====

@@ -7,7 +7,8 @@ import {
   Eye,
   ShieldCheck,
   BarChart3,
-  Globe
+  Globe,
+  PenLine
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -38,6 +39,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'foreshadowing', label: '伏笔看板', icon: Eye },
   { id: 'story-system', label: 'Story System', icon: ShieldCheck },
   { id: 'usage-stats', label: '用量统计', icon: BarChart3 },
+  { id: 'writing-stats', label: '写作统计', icon: PenLine },
   { id: 'settings', label: '设置', icon: Settings },
 ];
 
