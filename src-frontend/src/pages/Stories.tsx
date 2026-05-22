@@ -496,9 +496,10 @@ export function Stories() {
                     >
                       <option value="">选择创作方法论（可选）</option>
                       <option value="snowflake">雪花法</option>
-                      <option value="scene_beat">场景节拍</option>
+                      <option value="scene_structure">场景节拍</option>
                       <option value="hero_journey">英雄之旅</option>
                       <option value="character_depth">人物深度</option>
+                      <option value="world_building">高密度世界构建</option>
                     </select>
                     {editForm.methodology_id === 'snowflake' && (
                       <select
@@ -509,6 +510,24 @@ export function Stories() {
                         {Array.from({ length: 10 }, (_, i) => (
                           <option key={i + 1} value={i + 1}>
                             步骤 {i + 1}: {['一句话概括', '一段式概括', '人物概述', '一页纸大纲', '人物详细背景', '四页纸大纲', '人物完整档案', '场景清单', '场景扩展', '初稿写作'][i]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {editForm.methodology_id === 'world_building' && (
+                      <select
+                        value={editForm.methodology_step}
+                        onChange={(e) => setEditForm({ ...editForm, methodology_step: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                      >
+                        {[
+                          '1. 最小世界种子',
+                          '2. 状态网扩张',
+                          '3. 多线交织与回流',
+                          '4. 密度迭代与克制',
+                        ].map((phase, i) => (
+                          <option key={i + 1} value={i + 1}>
+                            阶段 {i + 1}: {phase}
                           </option>
                         ))}
                       </select>

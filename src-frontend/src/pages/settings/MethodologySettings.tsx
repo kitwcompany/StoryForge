@@ -23,7 +23,7 @@ export function MethodologySettings() {
   const methodologies = [
     { id: '', name: '无（自由创作）', description: '不指定特定方法论，AI 自由发挥' },
     { id: 'snowflake', name: '雪花法', description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者' },
-    { id: 'scene_beat', name: '场景节拍', description: '以场景为单位构建叙事节拍，适合重视节奏的作者' },
+    { id: 'scene_structure', name: '场景节拍', description: '以场景为单位构建叙事节拍，适合重视节奏的作者' },
     { id: 'hero_journey', name: '英雄之旅', description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事' },
     { id: 'character_depth', name: '人物深度', description: '以人物为核心驱动故事，适合重视角色塑造的作者' },
     { id: 'world_building', name: '高密度世界构建', description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说' },
@@ -55,7 +55,7 @@ export function MethodologySettings() {
       id: currentStory.id,
       updates: {
         methodology_id: methodologyId || undefined,
-        methodology_step: methodologyId === 'snowflake' ? methodologyStep : undefined,
+        methodology_step: (methodologyId === 'snowflake' || methodologyId === 'world_building') ? methodologyStep : undefined,
       },
     }, {
       onSuccess: () => {

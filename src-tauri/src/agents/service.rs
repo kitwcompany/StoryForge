@@ -847,7 +847,7 @@ impl AgentService {
                 use crate::creative_engine::methodology::{MethodologyConfig, MethodologyType, MethodologyEngine};
                 let method_type = match method_id.as_str() {
                     "snowflake" => Some(MethodologyType::Snowflake),
-                    "scene_structure" => Some(MethodologyType::SceneStructure),
+                    "scene_structure" | "scene_beat" => Some(MethodologyType::SceneStructure),
                     "hero_journey" => Some(MethodologyType::HeroJourney),
                     "character_depth" => Some(MethodologyType::CharacterDepth),
                     "world_building" => Some(MethodologyType::HighDensityWorldBuilding),
