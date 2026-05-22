@@ -187,7 +187,9 @@ test.describe('StoryForge 应用测试', () => {
 
       // 注入 mock Tauri API，模拟后端数据持久化
       await page.addInitScript(() => {
-        let mockContent = '';
+        // 使用 sessionStorage 跨页面刷新持久化 mock 内容
+        const STORAGE_KEY = '__e2e_mock_content__';
+        let mockContent = sessionStorage.getItem(STORAGE_KEY) || '';
         const mockChapter = {
           id: 'test-chapter-1',
           story_id: 'test-story-1',
@@ -202,6 +204,7 @@ test.describe('StoryForge 应用测试', () => {
               return [{ id: 'test-story-1', title: '测试故事' }];
             }
             if (cmd === 'get_story_chapters') {
+              mockContent = sessionStorage.getItem(STORAGE_KEY) || '';
               mockChapter.content = mockContent;
               return [mockChapter];
             }
@@ -209,12 +212,14 @@ test.describe('StoryForge 应用测试', () => {
               return [];
             }
             if (cmd === 'get_chapter') {
+              mockContent = sessionStorage.getItem(STORAGE_KEY) || '';
               mockChapter.content = mockContent;
               return mockChapter;
             }
             if (cmd === 'update_chapter') {
               mockContent = args?.content || '';
               mockChapter.content = mockContent;
+              sessionStorage.setItem(STORAGE_KEY, mockContent);
               return null;
             }
             if (cmd === 'notify_backstage_content_changed') {
@@ -230,7 +235,28 @@ test.describe('StoryForge 应用测试', () => {
               return { allowed: true, remaining: 10, daily_limit: 10, daily_used: 0 };
             }
             if (cmd === 'plugin:event|listen') {
-              return () => {};
+              return Math.random().toString(36).substring(2);
+            }
+            if (cmd === 'plugin:event|unlisten') {
+              return null;
+            }
+            if (cmd === 'get_story_characters') {
+              return [];
+            }
+            if (cmd === 'get_config') {
+              return { model: 'default', provider: 'mock', base_url: '', api_key: '', max_tokens: 4096, temperature: 0.8 };
+            }
+            if (cmd === 'check_model_status') {
+              return 'disconnected';
+            }
+            if (cmd === 'get_input_hint') {
+              return '';
+            }
+            if (cmd === 'get_ingest_jobs') {
+              return [];
+            }
+            if (cmd === 'record_feedback') {
+              return [];
             }
             // 其他命令静默返回 null，避免未定义错误阻断 UI
             return null;
@@ -240,6 +266,12 @@ test.describe('StoryForge 应用测试', () => {
             (window as any)[`__tauri_callback_${id}`] = callback;
             return id;
           }
+        };
+
+        // mock Tauri 事件插件内部对象，避免组件卸载时 unregisterListener 报错
+        (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+          unregisterListener: () => {},
+          registerListener: () => {}
         };
       });
 
