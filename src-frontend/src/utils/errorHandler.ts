@@ -135,6 +135,8 @@ function resolveUserFacingMessage(structured: StructuredError | null, fallback: 
       return { text: structured.message || '输入校验失败', action: 'none' };
     case 'NOT_FOUND':
       return { text: structured.message || '请求的资源不存在', action: 'none' };
+    case 'PREFLIGHT_FAILED':
+      return { text: structured.message || '写作前检查未通过，请先完善故事设定', action: 'none' };
     case 'NETWORK_OFFLINE':
       return { text: '网络异常，请检查网络连接', action: 'retry' };
     default:

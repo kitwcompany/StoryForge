@@ -96,10 +96,18 @@ impl AppError {
 
     /// 构造 IPC 响应对象
     pub fn to_response(&self) -> ErrorResponse {
+        let data = match self {
+            AppError::PreflightFailed { issues, .. } => {
+                let mut map = std::collections::HashMap::new();
+                map.insert("issues".to_string(), serde_json::json!(issues));
+                serde_json::to_value(map).ok()
+            }
+            _ => None,
+        };
         ErrorResponse {
             code: self.code().to_string(),
             message: self.message(),
-            data: None,
+            data,
         }
     }
 }

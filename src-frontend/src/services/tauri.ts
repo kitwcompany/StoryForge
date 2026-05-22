@@ -255,6 +255,16 @@ export interface SmartExecuteResult {
   messages: string[];
 }
 
+export interface PreflightResult {
+  ready: boolean;
+  missing_contracts: string[];
+  warnings: string[];
+  blocking_issues: string[];
+}
+
+export const checkPreflight = (storyId: string, chapterNumber: number) =>
+  loggedInvoke<PreflightResult>('check_preflight', { story_id: storyId, chapter_number: chapterNumber });
+
 export const smartExecute = (req: SmartExecuteRequest) =>
   loggedInvoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input, current_content: req.current_content, selected_text: req.selected_text });
 

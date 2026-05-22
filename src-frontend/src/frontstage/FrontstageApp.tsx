@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { X } from 'lucide-react';
-import { recordFeedback, smartExecute, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
+import { recordFeedback, smartExecute, checkPreflight, getInputHint, runRefine, runReview, runFinalize, getPipelineActiveDraft } from '@/services/tauri';
+import { parseStructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
@@ -815,6 +816,32 @@ const FrontstageApp: React.FC = () => {
       typewriterIntervalRef.current = null;
     }
 
+    // v0.7.5: 写作前预检，提前发现阻塞性问题
+    if (currentStory?.id && currentChapter?.chapter_number !== undefined) {
+      try {
+        const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
+        if (!preflight.ready) {
+          const issues = preflight.blocking_issues.length > 0
+            ? preflight.blocking_issues
+            : preflight.missing_contracts;
+          const firstIssue = issues[0] || '写作前检查未通过';
+          toast.error(
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
+            </div>,
+            { duration: 6000 }
+          );
+          setIsGenerating(false);
+          return;
+        }
+      } catch (e) {
+        frontstageLogger.warn('Preflight check failed silently', { error: e });
+        // 预检调用失败不阻断，让后端做最终检查
+      }
+    }
+
     setGeneratedText('');
     setIsGenerating(true);
     setGenerationStatus('正在续写...');
@@ -943,9 +970,21 @@ const FrontstageApp: React.FC = () => {
       if (timeoutId) clearTimeout(timeoutId);
       stopElapsedTimer();
       frontstageLogger.error('Generation request failed', { error });
+      const structured = parseStructuredError(error);
       const msg = error instanceof Error ? error.message : String(error);
       const isQuotaError = /quota|exhausted|limit|配额|用完|不足|次数已达/i.test(msg);
-      if (isQuotaError) {
+      if (structured?.code === 'PREFLIGHT_FAILED') {
+        const issues = (structured.data?.issues as string[]) || [];
+        const firstIssue = issues[0] || structured.message || '写作前检查未通过';
+        toast.error(
+          <div>
+            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+            <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
+          </div>,
+          { duration: 6000 }
+        );
+      } else if (isQuotaError) {
         setQuotaExhausted(true);
         toast.error('AI 创作配额已用完，请升级专业版或明日再试');
       } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
@@ -1082,6 +1121,30 @@ const FrontstageApp: React.FC = () => {
     const isBootstrap = isNovelCreationIntent(userInput);
     const timeoutSeconds = isBootstrap ? 600 : 90;
     const timeoutMs = timeoutSeconds * 1000;
+
+    // v0.7.5: 非 Bootstrap 请求先执行预检
+    if (!isBootstrap && currentStory?.id && currentChapter?.chapter_number !== undefined) {
+      try {
+        const preflight = await checkPreflight(currentStory.id, currentChapter.chapter_number);
+        if (!preflight.ready) {
+          const issues = preflight.blocking_issues.length > 0
+            ? preflight.blocking_issues
+            : preflight.missing_contracts;
+          const firstIssue = issues[0] || '写作前检查未通过';
+          toast.error(
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
+            </div>,
+            { duration: 6000 }
+          );
+          return;
+        }
+      } catch (e) {
+        frontstageLogger.warn('Preflight check failed silently', { error: e });
+      }
+    }
 
     setIsGenerating(true);
     setGenerationStatus(isBootstrap ? '正在创建新小说...' : '正在理解您的创作意图...');
@@ -1221,9 +1284,20 @@ const FrontstageApp: React.FC = () => {
       activeToastIdRef.current = null;
       currentToastPhaseRef.current = null;
       frontstageLogger.error('Smart execution failed', { error: e });
+      const structured = parseStructuredError(e);
       const msg = e?.message || String(e);
-      // 区分超时错误和其他错误
-      if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
+      if (structured?.code === 'PREFLIGHT_FAILED') {
+        const issues = (structured.data?.issues as string[]) || [];
+        const firstIssue = issues[0] || structured.message || '写作前检查未通过';
+        toast.error(
+          <div>
+            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
+            <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
+            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同</div>
+          </div>,
+          { duration: 6000 }
+        );
+      } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
         toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
       } else {
         toast.error(`执行失败: ${msg}`);

@@ -567,6 +567,7 @@ pub fn run() {
             execute_intent,
             record_feedback,
             // Smart orchestrator
+            check_preflight,
             smart_execute,
             analyze_story_structure,
             get_input_hint,
@@ -1724,6 +1725,17 @@ async fn execute_intent(
 ) -> Result<intent::IntentExecutionResult, String> {
     let executor = intent::IntentExecutor::new(app_handle);
     executor.execute(intent, story_id).await
+}
+
+/// 预检命令 - 写作前检查阻塞性问题
+#[tauri::command(rename_all = "snake_case")]
+fn check_preflight(
+    story_id: String,
+    chapter_number: i32,
+) -> Result<story_system::preflight::PreflightResult, String> {
+    let pool = get_pool().ok_or("[check_preflight] Database not initialized")?;
+    let checker = story_system::preflight::PreflightChecker::new();
+    Ok(checker.check(&pool, &story_id, chapter_number))
 }
 
 /// 智能执行命令 - 新一代意图理解与执行入口
