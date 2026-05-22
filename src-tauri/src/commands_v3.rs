@@ -39,14 +39,17 @@ pub async fn create_scene(
 
         })?;
     
+    // W2-F3: 提前记录 setting 字段是否变更（后续 move 后无法使用）
+    let has_setting_changes = setting_location.is_some()
+        || setting_time.is_some()
+        || setting_atmosphere.is_some();
+
     // 如果提供了额外字段，立即更新场景
     let has_extra = dramatic_goal.is_some()
         || external_pressure.is_some()
         || conflict_type.is_some()
         || characters_present.is_some()
-        || setting_location.is_some()
-        || setting_time.is_some()
-        || setting_atmosphere.is_some()
+        || has_setting_changes
         || content.is_some()
         || confidence_score.is_some();
     if has_extra {
@@ -74,6 +77,10 @@ pub async fn create_scene(
         let _ = crate::state_sync::StateSync::emit_scene_updated(
             &app_handle, &story_id, &scene.id, scene.title.as_deref(),
         );
+        // W2-F3: setting 字段变更同步触发 world_building 更新
+        if has_setting_changes {
+            let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
+        }
     }
 
     // OnSceneCreate hook
@@ -257,6 +264,10 @@ pub async fn update_scene(
     }
 
     if let Some(ref story_id) = story_id_opt {
+        // W2-F3: setting 字段变更同步触发 world_building 更新
+        if updates.setting_location.is_some() || updates.setting_time.is_some() || updates.setting_atmosphere.is_some() {
+            let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
+        }
         let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, story_id, &scene_id, updates.title.as_deref());
     }
     Ok(result)
@@ -278,6 +289,8 @@ pub async fn delete_scene(
 
         })?;
     if let Some(story_id) = story_id {
+        // W2-F3: 场景删除后同步触发 world_building 更新（清理无引用规则）
+        let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
         let _ = crate::state_sync::StateSync::emit_scene_deleted(&app_handle, &story_id, &scene_id);
     }
     Ok(result)

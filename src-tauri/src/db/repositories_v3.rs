@@ -1,7 +1,7 @@
 //! V3 架构 Repository 层
 #![allow(dead_code)]
 
-use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture};
+use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture, RuleType};
 use super::{WritingStyle, StudioConfig};
 use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
 use super::{SceneVersion, CreatorType, SceneAnnotation, TextAnnotation, StorySummary, ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage, CommentThreadWithMessages, AnchorType, ThreadStatus};
@@ -346,7 +346,23 @@ impl SceneRepository {
                 )?;
             }
         }
-        
+
+        // W2-F3: 世界-场景自动关联 — 场景 setting 变更同步到 world_building
+        if updates.setting_location.is_some() || updates.setting_time.is_some() || updates.setting_atmosphere.is_some() {
+            let story_id: String = tx.query_row(
+                "SELECT story_id FROM scenes WHERE id = ?1",
+                [id],
+                |row| row.get(0)
+            )?;
+            self.sync_scene_settings_to_world_building(
+                &tx,
+                &story_id,
+                updates.setting_location.as_deref(),
+                updates.setting_time.as_deref(),
+                updates.setting_atmosphere.as_deref(),
+            )?;
+        }
+
         tx.commit()?;
         Ok(count)
     }
@@ -356,7 +372,25 @@ impl SceneRepository {
         let tx = conn.transaction()?;
         // v0.7.3: 1:N 架构下，scene 通过 chapter_id 关联 chapter。
         // 删除 scene 时无需清理 chapter 表（chapter 不持有 scene_id 外键）。
+
+        // W2-F3: 获取 setting 信息用于世界构建清理
+        let (story_id, old_location, old_atmosphere): (String, Option<String>, Option<String>) =
+            tx.query_row(
+                "SELECT story_id, setting_location, setting_atmosphere FROM scenes WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            )?;
+
         let count = tx.execute("DELETE FROM scenes WHERE id = ?1", [id])?;
+
+        // W2-F3: 世界-场景自动关联 — 清理无引用的自动生成规则
+        self.cleanup_world_building_after_delete(
+            &tx,
+            &story_id,
+            old_location.as_deref(),
+            old_atmosphere.as_deref(),
+        )?;
+
         tx.commit()?;
         Ok(count)
     }
@@ -369,6 +403,183 @@ impl SceneRepository {
             params![id, new_sequence, now],
         )?;
         Ok(count)
+    }
+
+    // ==================== 世界-场景自动关联 (W2-F3) ====================
+
+    /// 将场景的 setting 信息同步到 world_building（"场景增世界增"）
+    fn sync_scene_settings_to_world_building(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        setting_location: Option<&str>,
+        setting_time: Option<&str>,
+        setting_atmosphere: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        if setting_location.is_none() && setting_time.is_none() && setting_atmosphere.is_none() {
+            return Ok(());
+        }
+
+        // 1. 获取或创建 world_building
+        let (wb_id, current_rules_json, current_history): (String, String, Option<String>) =
+            match tx.query_row(
+                "SELECT id, rules, history FROM world_buildings WHERE story_id = ?1",
+                [story_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
+            ).optional()? {
+                Some(row) => row,
+                None => {
+                    let id = Uuid::new_v4().to_string();
+                    let now = Local::now().to_rfc3339();
+                    tx.execute(
+                        "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![&id, story_id, "Auto-generated world building", "[]", "", "[]", &now, &now],
+                    )?;
+                    (id, "[]".to_string(), None)
+                }
+            };
+
+        let mut rules: Vec<WorldRule> = serde_json::from_str(&current_rules_json).unwrap_or_default();
+        let mut rules_changed = false;
+
+        // 2. setting_location -> Physical 规则
+        if let Some(loc) = setting_location {
+            let loc = loc.trim();
+            if !loc.is_empty() {
+                let exists = rules.iter().any(|r| r.name == loc && r.rule_type == RuleType::Physical);
+                if !exists {
+                    rules.push(WorldRule {
+                        id: Uuid::new_v4().to_string(),
+                        name: loc.to_string(),
+                        description: Some("(auto-generated from scene)".to_string()),
+                        rule_type: RuleType::Physical,
+                        importance: 5,
+                    });
+                    rules_changed = true;
+                }
+            }
+        }
+
+        // 3. setting_atmosphere -> Cultural 规则
+        if let Some(atm) = setting_atmosphere {
+            let atm = atm.trim();
+            if !atm.is_empty() {
+                let exists = rules.iter().any(|r| r.name == atm && r.rule_type == RuleType::Cultural);
+                if !exists {
+                    rules.push(WorldRule {
+                        id: Uuid::new_v4().to_string(),
+                        name: atm.to_string(),
+                        description: Some("(auto-generated from scene)".to_string()),
+                        rule_type: RuleType::Cultural,
+                        importance: 5,
+                    });
+                    rules_changed = true;
+                }
+            }
+        }
+
+        // 4. 保存 rules 变更
+        if rules_changed {
+            let rules_json = serde_json::to_string(&rules).unwrap_or_else(|_| "[]".to_string());
+            tx.execute(
+                "UPDATE world_buildings SET rules = ?1, updated_at = ?2 WHERE id = ?3",
+                params![rules_json, Local::now().to_rfc3339(), &wb_id],
+            )?;
+        }
+
+        // 5. setting_time -> 追加到 history（去重）
+        if let Some(time) = setting_time {
+            let time = time.trim();
+            if !time.is_empty() {
+                let fragment = format!("[时间设定] {}\n", time);
+                let new_history = match current_history {
+                    Some(ref h) if h.contains(&fragment) => h.clone(),
+                    Some(h) => format!("{}{}", h, fragment),
+                    None => fragment,
+                };
+                tx.execute(
+                    "UPDATE world_buildings SET history = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![new_history, Local::now().to_rfc3339(), &wb_id],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 场景删除后清理 world_building 中无引用的自动生成规则（"场景减世界减"）
+    fn cleanup_world_building_after_delete(
+        &self,
+        tx: &rusqlite::Transaction,
+        story_id: &str,
+        old_location: Option<&str>,
+        old_atmosphere: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        if old_location.is_none() && old_atmosphere.is_none() {
+            return Ok(());
+        }
+
+        let (wb_id_opt, rules_json): (Option<String>, String) = match tx.query_row(
+            "SELECT id, rules FROM world_buildings WHERE story_id = ?1",
+            [story_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
+        ).optional()? {
+            Some(row) => row,
+            None => return Ok(()),
+        };
+
+        let wb_id = match wb_id_opt {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+
+        let mut rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
+        let original_len = rules.len();
+
+        rules.retain(|r| {
+            // 只处理自动生成的规则
+            let is_auto = r.description.as_deref().unwrap_or("").contains("auto-generated");
+            if !is_auto {
+                return true;
+            }
+
+            let should_check = match r.rule_type {
+                RuleType::Physical => old_location.map(|loc| r.name == loc).unwrap_or(false),
+                RuleType::Cultural => old_atmosphere.map(|atm| r.name == atm).unwrap_or(false),
+                _ => false,
+            };
+
+            if !should_check {
+                return true;
+            }
+
+            // 检查是否还有其他场景引用该 setting
+            let column = match r.rule_type {
+                RuleType::Physical => "setting_location",
+                RuleType::Cultural => "setting_atmosphere",
+                _ => return true,
+            };
+
+            let still_used = tx.query_row(
+                &format!("SELECT 1 FROM scenes WHERE story_id = ?1 AND {} = ?2 LIMIT 1", column),
+                params![story_id, &r.name],
+                |_| Ok(true)
+            ).optional().unwrap_or(None).is_some();
+
+            // 如果仍被使用则保留，否则删除（retain 中 false 表示删除）
+            still_used
+        });
+
+        if rules.len() < original_len {
+            let rules_json = serde_json::to_string(&rules).unwrap_or_else(|_| "[]".to_string());
+            tx.execute(
+                "UPDATE world_buildings SET rules = ?1, updated_at = ?2 WHERE id = ?3",
+                params![rules_json, Local::now().to_rfc3339(), &wb_id],
+            )?;
+        }
+
+        Ok(())
     }
 }
 

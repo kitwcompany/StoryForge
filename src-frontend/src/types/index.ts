@@ -259,6 +259,7 @@ export type ViewType =
   | 'dashboard'
   | 'stories'
   | 'characters'
+  | 'world_building'
   | 'scenes'
   | 'knowledge-graph'
   | 'skills'

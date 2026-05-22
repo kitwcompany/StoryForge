@@ -8,6 +8,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
 import { Characters } from '@/pages/Characters';
 import { Scenes } from '@/pages/Scenes';
+import { WorldBuilding } from '@/pages/WorldBuilding';
 import { KnowledgeGraph } from '@/pages/KnowledgeGraph';
 import { Skills } from '@/pages/Skills';
 import { Mcp } from '@/pages/Mcp';
@@ -243,6 +244,7 @@ function App() {
       case 'dashboard': return <Dashboard />;
       case 'stories': return <Stories />;
       case 'characters': return <Characters />;
+      case 'world_building': return <WorldBuilding />;
       case 'scenes': return <Scenes />;
       case 'knowledge-graph': return <KnowledgeGraph />;
       case 'skills': return <Skills />;

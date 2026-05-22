@@ -4,10 +4,11 @@
 //! 这些 DNA 是人工精心构建的参考基线，后续可用 StyleAnalyzer 自动校准。
 
 use super::dna::*;
+use super::classic_styles_extended::*;
 
-/// 获取所有内置经典风格
+/// 获取所有内置经典风格（共 52 种）
 pub fn get_builtin_styles() -> Vec<StyleDNA> {
-    vec![
+    let mut styles = vec![
         jin_yong(),
         zhang_ailing(),
         hemingway(),
@@ -20,7 +21,9 @@ pub fn get_builtin_styles() -> Vec<StyleDNA> {
         romance_flowery(),
         proust(),
         marquez(),
-    ]
+    ];
+    styles.extend(get_extended_styles());
+    styles
 }
 
 /// 金庸风格
@@ -764,7 +767,7 @@ mod tests {
     #[test]
     fn test_builtin_styles_count() {
         let styles = get_builtin_styles();
-        assert_eq!(styles.len(), 12);
+        assert_eq!(styles.len(), 52);
     }
 
     #[test]

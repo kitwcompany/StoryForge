@@ -396,7 +396,7 @@ pub struct WorldRule {
     pub importance: i32, // 1-10
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RuleType {
     Magic,       // 魔法规则
     Technology,  // 科技规则

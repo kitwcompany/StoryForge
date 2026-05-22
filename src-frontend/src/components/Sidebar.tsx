@@ -6,7 +6,8 @@ import {
   ListChecks,
   Eye,
   ShieldCheck,
-  BarChart3
+  BarChart3,
+  Globe
 } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
@@ -27,6 +28,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
   { id: 'stories', label: '故事', icon: BookOpen },
   { id: 'characters', label: '角色', icon: Users },
+  { id: 'world_building', label: '世界构建', icon: Globe },
   { id: 'scenes', label: '场景', icon: Clapperboard },
   { id: 'knowledge-graph', label: '知识图谱', icon: Network },
   { id: 'skills', label: '技能', icon: Wand2 },

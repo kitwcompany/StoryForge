@@ -2,6 +2,42 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.4] - 世界构建页面 + 世界-场景自动关联（2026-05-22）
+
+### 🌍 幕后世界构建页面
+
+#### 新增 `WorldBuilding` backstage 页面
+- **文件**: `src-frontend/src/pages/WorldBuilding.tsx`
+- **功能**: 显式调整和设置小说的世界观
+  - 核心概念编辑（textarea + 800ms debounce 自动保存）
+  - 世界规则管理（增删改弹窗，8 种类型标签，1-10 重要性星级）
+  - 历史背景编辑（textarea + 自动保存）
+  - 文化体系管理（增删改弹窗，习俗/价值观标签展示）
+- **数据流**: 复用已有 `useWorldBuilding` / `useCreateWorldBuilding` / `useUpdateWorldBuilding` hooks
+- **空状态**: 未选择故事提示；无 world_building 数据时显示「初始化世界构建」按钮
+
+#### 路由与导航注册
+- `types/index.ts`: `ViewType` 扩展 `'world_building'`
+- `Sidebar.tsx`: `navItems` 新增「世界构建」（Globe 图标，位于「角色」与「场景」之间）
+- `App.tsx`: `renderView()` switch 注册 `<WorldBuilding />`
+
+### 🔗 世界-场景自动关联（场景增世界增，场景减世界减）
+
+#### `SceneRepository` 注入同步逻辑
+- `update()` — 场景 setting 字段变更时自动同步到 `world_building`:
+  - `setting_location` → 自动生成 `Physical` 类型 `WorldRule`（如不存在）
+  - `setting_atmosphere` → 自动生成 `Cultural` 类型 `WorldRule`（如不存在）
+  - `setting_time` → 去重追加到 `world_buildings.history`
+- `delete()` — 场景删除后检查其他场景是否仍引用相同 setting，如无引用则删除对应的 auto-generated 规则
+- 自动生成规则通过 `description` 中的 `(auto-generated from scene)` 标记，与用户手动规则区分
+
+#### 实时同步事件
+- `create_scene` / `update_scene` / `delete_scene` 命令在 setting 字段变更后追加 `emit_world_building_updated`，确保前端世界构建页面实时刷新
+
+**编译状态**: `cargo check` 零错误，`npm run build` 通过。
+
+---
+
 ## [v0.7.3+] - 数据库初始化闪退修复（2026-05-22）
 
 ### 🐛 修复：应用启动闪退

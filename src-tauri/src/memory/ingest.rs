@@ -64,7 +64,8 @@ pub struct ContentAnalysis {
 pub struct AnalyzedEntity {
     pub name: String,
     pub entity_type: String,
-    pub mentions: Vec<usize>, // 在文本中的位置
+    #[serde(default)]
+    pub mentions: Vec<serde_json::Value>, // LLM 可能返回字符串或数字，用 Value 兼容
     pub attributes: serde_json::Value,
 }
 
@@ -140,6 +141,32 @@ pub struct EventProfile {
     pub description: String,
     pub importance: i32,
     pub impact: String,
+}
+
+/// 从 LLM 响应中提取 JSON，处理 markdown 代码块、前导文字等常见格式问题
+fn extract_json(content: &str) -> Result<String, String> {
+    let trimmed = content.trim();
+    // 尝试提取 ```json ... ``` 或 ``` ... ``` 中的内容
+    if let Some(start) = trimmed.find("```") {
+        let after_start = &trimmed[start + 3..];
+        let code_start = if after_start.starts_with("json") || after_start.starts_with("JSON") {
+            after_start[4..].trim_start()
+        } else {
+            after_start.trim_start()
+        };
+        if let Some(end) = code_start.find("```") {
+            return Ok(code_start[..end].trim().to_string());
+        }
+    }
+    // fallback: 尝试找第一个 { 到最后一个 }
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            if end > start {
+                return Ok(trimmed[start..=end].to_string());
+            }
+        }
+    }
+    Err("No JSON object found in response".to_string())
 }
 
 impl IngestPipeline {
@@ -340,8 +367,11 @@ impl IngestPipeline {
         );
 
         let response = self.llm_service.generate(prompt, None, None).await?;
-        let analysis: ContentAnalysis = serde_json::from_str(&response.content)?;
-        
+        let json_str = extract_json(&response.content)
+            .map_err(|e| format!("[Ingest Step1] Failed to extract JSON from LLM response: {}. Raw response preview: {}", e, &response.content.chars().take(200).collect::<String>()))?;
+        let analysis: ContentAnalysis = serde_json::from_str(&json_str)
+            .map_err(|e| format!("[Ingest Step1] JSON parse error: {}. JSON preview: {}", e, &json_str.chars().take(300).collect::<String>()))?;
+
         Ok(analysis)
     }
 
@@ -395,8 +425,11 @@ impl IngestPipeline {
         );
 
         let response = self.llm_service.generate(prompt, None, None).await?;
-        let knowledge: GeneratedKnowledge = serde_json::from_str(&response.content)?;
-        
+        let json_str = extract_json(&response.content)
+            .map_err(|e| format!("[Ingest Step2] Failed to extract JSON from LLM response: {}. Raw response preview: {}", e, &response.content.chars().take(200).collect::<String>()))?;
+        let knowledge: GeneratedKnowledge = serde_json::from_str(&json_str)
+            .map_err(|e| format!("[Ingest Step2] JSON parse error: {}. JSON preview: {}", e, &json_str.chars().take(300).collect::<String>()))?;
+
         Ok(knowledge)
     }
 

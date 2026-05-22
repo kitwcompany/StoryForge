@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.7.3 项目完成状态
+# StoryForge (草苔) v0.7.4 项目完成状态
 
-> 最后更新: 2026-05-21（v0.7.3 + 高密度状态世界构建法 + 商业模式重构为功能订阅制 + 1:N Chapter↔Scene 架构完成 + SceneDividerNode 预留接口 + scene_commits 重命名）
+> 最后更新: 2026-05-22（v0.7.4 + 世界构建页面 + 世界-场景自动关联 + 数据库闪退修复 + 52 种 StyleDNA + 高密度状态世界构建法 + 商业模式重构为功能订阅制 + 1:N Chapter↔Scene 架构完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -115,6 +115,31 @@
 | Agent Prompt 注入 | ✅ | `agents/service.rs` writer prompt 映射接入，AI 自动引用状态向量与桥节点 |
 | 输出 Schema | ✅ | 每阶段提供结构化 JSON Schema，规范 AI 输出 |
 | `MethodologyType` 注册 | ✅ | `mod.rs` 枚举新增 `HighDensityWorldBuilding`，`MethodologyEngine` 完整分支 |
+
+---
+
+### v0.7.4 新增：世界构建页面 + 世界-场景自动关联（2026-05-22）
+
+> **核心理念**：世界与场景必须形成双向自动关联——场景包容在世界之内，由世界而来，不能脱离世界；遵循「场景增世界增，场景减世界减」的对应关系。
+
+#### 幕后世界构建页面
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `WorldBuilding.tsx` 页面 | ✅ | 核心概念编辑 / 世界规则管理 / 历史背景 / 文化体系 |
+| 核心概念编辑 | ✅ | textarea + 800ms debounce 自动保存 |
+| 世界规则管理 | ✅ | 增删改弹窗，8 种类型标签（魔法/科技/社会/物理/生物/历史/文化/自定义），1-10 重要性星级 |
+| 历史背景编辑 | ✅ | textarea + 自动保存 |
+| 文化体系管理 | ✅ | 增删改弹窗，习俗/价值观以标签展示 |
+| 空状态处理 | ✅ | 未选择故事提示；无数据时「初始化世界构建」按钮 |
+| 路由注册 | ✅ | `ViewType` 扩展 `'world_building'`，`Sidebar`/`App.tsx` 注册 |
+
+#### 世界-场景自动关联
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `SceneRepository::update` 同步 | ✅ | setting_location → 自动生成 Physical 规则；setting_atmosphere → 自动生成 Cultural 规则；setting_time → 去重追加 history |
+| `SceneRepository::delete` 清理 | ✅ | 检查其他场景是否仍引用相同 setting，无引用则删除 auto-generated 规则 |
+| 规则来源标记 | ✅ | `description` 包含 `(auto-generated from scene)`，与用户手动规则区分 |
+| 实时同步事件 | ✅ | `create_scene`/`update_scene`/`delete_scene` setting 变更后触发 `emit_world_building_updated` |
 
 ---
 
@@ -314,7 +339,7 @@
 | 功能模块 | 状态 | 完成度 | 备注 |
 |---------|------|--------|------|
 | `StyleDNA` 六维模型 | ✅ | 100% | 词汇/句法/修辞/视角/情感/对白 |
-| 10 种内置经典作家 DNA | ✅ | 100% | 金庸/张爱玲/海明威/村上春树/莫言/古典散文/现代极简/黑色侦探/武侠诗意/浪漫主义 |
+| 52 种内置经典作家 DNA | ✅ | 100% | 金庸/张爱玲/海明威/村上春树/莫言/普鲁斯特/马尔克斯/古典散文/现代极简/黑色侦探/武侠诗意/浪漫绮丽 + 中国文学12种/日本文学6种/欧美文学14种/类型文学8种 |
 | `StyleAnalyzer` | ✅ | 100% | 从文本提取 StyleDNA 指纹 |
 | `StyleChecker` | ✅ | 100% | 对比文本与目标 DNA 的相似度 |
 | `StyleDnaRepository` | ✅ | 100% | CRUD 操作 + 数据库迁移 |

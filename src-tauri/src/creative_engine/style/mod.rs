@@ -14,6 +14,7 @@ pub mod dna;
 pub mod blend;
 pub mod drift_checker;
 pub mod classic_styles;
+pub mod classic_styles_extended;
 pub mod metrics;
 pub mod evolution;
 
