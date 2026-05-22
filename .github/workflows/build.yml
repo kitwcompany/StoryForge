@@ -145,7 +145,7 @@ jobs:
   tauri-build:
     needs: [rust-check, frontend-check]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -159,6 +159,11 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles dmg
+    env:
+      # 加速 release 编译：增加 codegen-units 减少单编译单元工作量
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 256
+      # 禁用 LTO 进一步加速（默认已关闭，显式声明以防万一）
+      CARGO_PROFILE_RELEASE_LTO: false
 
     steps:
       - uses: actions/checkout@v4
