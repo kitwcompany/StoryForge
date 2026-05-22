@@ -2,6 +2,104 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.5] - 事件驱动创作增强中枢：6 个"有设计未集成"子系统全面落地（2026-05-22）
+
+> **核心理念**：将 `AutomationService` 从"Ghost 系统"升级为事件驱动的创作增强中枢，6 个先前仅存在于设计文档中的高级子系统首次真正融入小说创作核心流程。
+
+### 🎯 事件驱动架构升级
+
+#### 自动化事件覆盖全部关键生命周期
+- **`TriggerEvent` 扩展** — 新增 `SceneContentUpdated`、`SceneGenerationRequested`、`SceneGenerated`、`ChapterFinalized` 等事件变体
+- **`create_scene`** — 创建成功后触发 `TriggerEvent::SceneCreated`
+- **`update_scene`** — 更新成功后触发 `TriggerEvent::SceneContentUpdated`
+- **`finalize_draft`** — 定稿成功后触发 `TriggerEvent::ChapterFinalized`
+- **Handler 注册** — `evaluate_reading_power_on_update` / `evaluate_reading_power_on_finalize` 两个自动化触发器注册到 `AutomationService`
+
+### 📖 追读力自动评估集成
+
+#### 后端自动触发
+- **`update_scene()`** — 内容更新后自动调用 `ReadingPowerEvaluator::evaluate_chapter()`
+- **`finalize_draft()`** — 定稿完成后自动评估并保存追读力数据
+- **`ChapterReadingPowerRepository`** — 评估结果写入 `chapter_reading_power` 表
+
+#### 前端可操作化
+- **StorySystem "追读力"标签页** — 新增"重新评估"按钮，支持手动触发评估
+- **API 确认** — `evaluateReadingPower` 已注册到 `tauri.ts`
+
+### 🛡️ Writer Agent 预检集成
+
+#### 真实预检逻辑（替代存根）
+- **`PreflightChecker::check()`** — 实现 4 项真实检查：
+  - `MASTER_SETTING` 合同是否存在
+  - `CHAPTER` 合同是否存在（解析 JSON 提取 chapter_number）
+  - 角色列表是否非空
+  - 当前 scene 是否有 outline
+- **返回结构化结果** — `PreflightResult { ready, issues, blocking_issues }`
+
+#### Writer Agent 前拦截
+- **`agents/service.rs` `execute_writer_raw()`** — `build_writer_prompt` 之前调用 `PreflightChecker::check()`
+- **阻塞时返回** — `AppError::PreflightFailed { message, issues }`，前端可精准展示阻塞原因
+- **`AppError` 扩展** — 新增 `PreflightFailed` 变体，错误码 `PREFLIGHT_FAILED`
+
+### 🔍 语义检索自动注入 Writer Agent
+
+#### `kb_search` 集成到上下文构建
+- **`agents/commands.rs`** — `build_context` 之后、`build_writer_prompt` 之前，检查 `request.input` 长度 >= 10
+- **自动查询** — 调用 `kb_search`（hybrid 模式，top 5），将语义检索结果格式化为 "相关记忆检索" 段落
+- **注入位置** — 追加到 `context.scene_structure`，Writer Prompt 自动包含检索到的相关章节摘要
+
+### 📜 合同与提交链前端可操作化
+
+#### StorySystem "合同"标签页
+- **空状态时** — 显示"生成世界观合同"按钮，调用 `createMasterSetting`
+- **选择章节后** — 显示"生成章节合同"按钮，调用 `createChapterContract`
+
+#### StorySystem "提交链"标签页
+- **空状态时** — 显示"初始化提交"按钮，调用 `initChapterCommit`
+- **每条 commit 旁** — 添加"应用提交"按钮，调用 `applyChapterCommit`
+
+### 🔬 叙事审计 story-level 命令与前端面板
+
+#### 后端
+- **`audit_story` 命令** — 遍历 story 全部 scene/chapter，调用 `StoryStructureAuditor` 5 维度审计方法
+- **聚合报告** — 返回 `StoryAnalysisReport`，含各维度评分、发现问题列表、综合建议
+- **注册** — `lib.rs` `generate_handler!` 宏注册
+
+#### 前端
+- **StorySystem 新增"审计"标签页** — 显示"运行全面审计"按钮
+- **评分展示** — 5 维度进度条（伏笔/角色/场景/世界构建/大纲）
+- **问题列表** — 按严重程度分级（Error/Warning/Info）
+- **API** — `auditStory` 已注册到 `tauri.ts`
+
+### 🧬 风格进化接入审校反馈
+
+#### 后端
+- **`evolve_style_from_anti_ai_review` 命令** — 接收 `story_id` + `AntiAiReview`，调用 `StyleEvolutionEngine::evolve_from_reviews()`
+- **DNA 更新** — 计算 `StyleDnaDelta` 后写入 `style_dna` 表（`update_dna_json`）
+- **注册** — `lib.rs` `generate_handler!` 宏注册
+
+#### 前端
+- **Anti-AI 审校结果面板** — 新增"接受审校并进化风格"按钮
+- **状态管理** — `isEvolving` 状态 + `handleEvolveStyle` 处理函数
+- **API** — `evolveStyleFromAntiAiReview` 已注册到 `tauri.ts`
+
+### 🧹 废弃系统清理（Phase 4）
+
+#### WebSocket 协作服务器
+- **`lib.rs`** — WebSocket 服务器启动代码已注释掉，减少运行时资源占用
+- **`useCollaboration.ts`** — `connect()` 直接 toast 提示"协同编辑功能即将推出，敬请期待"，不再尝试连接
+- **模块标记** — `chat` / `collab` / `state` 模块声明旁标注 `RESERVED`
+
+#### StoryStateManager
+- **`state/manager.rs`** — 模块顶部添加 `RESERVED FOR FUTURE USE` 说明，与 `CanonicalStateManager` + `StateSync` 功能重叠，暂不维护
+
+#### Chat 模块
+- **`chat/mod.rs`** — 模块顶部添加 `RESERVED FOR FUTURE USE` 说明，有 DB 表但无命令暴露
+
+**编译状态**: `cargo check` 零错误，`npm run build` 通过。
+
+---
+
 ## [v0.7.4] - 世界构建页面 + 世界-场景自动关联（2026-05-22）
 
 ### 🌍 幕后世界构建页面

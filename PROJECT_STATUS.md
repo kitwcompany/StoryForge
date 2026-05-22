@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.7.4 项目完成状态
+# StoryForge (草苔) v0.7.5 项目完成状态
 
-> 最后更新: 2026-05-22（v0.7.4 + 世界构建页面 + 世界-场景自动关联 + 数据库闪退修复 + 52 种 StyleDNA + 高密度状态世界构建法 + 商业模式重构为功能订阅制 + 1:N Chapter↔Scene 架构完成）
+> 最后更新: 2026-05-22（v0.7.5 + 事件驱动创作增强中枢 + 6 个子系统全面落地 + 追读力自动评估 + Writer Agent 预检 + 语义检索注入 + 合同/提交链可操作化 + 叙事审计 + 风格进化 + 废弃系统清理）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -140,6 +140,70 @@
 | `SceneRepository::delete` 清理 | ✅ | 检查其他场景是否仍引用相同 setting，无引用则删除 auto-generated 规则 |
 | 规则来源标记 | ✅ | `description` 包含 `(auto-generated from scene)`，与用户手动规则区分 |
 | 实时同步事件 | ✅ | `create_scene`/`update_scene`/`delete_scene` setting 变更后触发 `emit_world_building_updated` |
+
+---
+
+### v0.7.5 事件驱动创作增强中枢：6 个"有设计未集成"子系统全面落地（2026-05-22）
+
+#### 事件驱动架构升级
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `TriggerEvent` 扩展 | ✅ | 新增 `SceneContentUpdated`/`SceneGenerationRequested`/`SceneGenerated`/`ChapterFinalized` |
+| `create_scene` 自动化触发 | ✅ | 成功后触发 `TriggerEvent::SceneCreated` |
+| `update_scene` 自动化触发 | ✅ | 成功后触发 `TriggerEvent::SceneContentUpdated` |
+| `finalize_draft` 自动化触发 | ✅ | 成功后触发 `TriggerEvent::ChapterFinalized` |
+| Handler 注册 | ✅ | `evaluate_reading_power_on_update` / `evaluate_reading_power_on_finalize` |
+
+#### 追读力自动评估
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `update_scene` 后自动评估 | ✅ | 调用 `ReadingPowerEvaluator::evaluate_chapter()` |
+| `finalize_draft` 后自动评估 | ✅ | 定稿完成后评估并保存 |
+| 前端"重新评估"按钮 | ✅ | StorySystem 追读力标签页手动触发 |
+
+#### Writer Agent 预检
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `PreflightChecker::check()` | ✅ | 4 项真实检查：合同/角色/大纲 |
+| `execute_writer_raw()` 拦截 | ✅ | `build_writer_prompt` 前调用，阻塞时返回 `PreflightFailed` |
+| `AppError::PreflightFailed` | ✅ | 错误码 `PREFLIGHT_FAILED`，含 `issues` 列表 |
+
+#### 语义检索自动注入
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `kb_search` 集成 | ✅ | `agents/commands.rs` 上下文构建后自动查询 |
+| 触发条件 | ✅ | `request.input` 长度 >= 10 |
+| 注入位置 | ✅ | 追加到 `context.scene_structure`，Writer Prompt 自动包含 |
+
+#### 合同/提交链前端可操作化
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| "生成世界观合同"按钮 | ✅ | StorySystem 合同标签页空状态时显示 |
+| "生成章节合同"按钮 | ✅ | 选择章节后显示 |
+| "初始化提交"按钮 | ✅ | 提交链标签页空状态时显示 |
+| "应用提交"按钮 | ✅ | 每条 commit 旁显示 |
+
+#### 叙事审计 story-level
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `audit_story` 命令 | ✅ | 遍历全作品，5 维度聚合审计 |
+| `StoryAnalysisReport` | ✅ | 含评分/问题列表/建议 |
+| 前端"审计"标签页 | ✅ | 运行按钮 + 5 维度进度条 + 问题分级列表 |
+
+#### 风格进化接入审校
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `evolve_style_from_anti_ai_review` | ✅ | 接收 `AntiAiReview`，计算 `StyleDnaDelta` |
+| DNA 写入 | ✅ | `update_dna_json` 更新 `style_dna` 表 |
+| 前端"接受审校并进化风格"按钮 | ✅ | Anti-AI 审校结果面板一键进化 |
+
+#### 废弃系统清理（Phase 4）
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| WebSocket 服务器 | ✅ | `lib.rs` 启动代码已注释，减少资源占用 |
+| 协作按钮 | ✅ | `useCollaboration.ts` 提示"即将推出"，不再连接 |
+| StoryStateManager | ✅ | 标记为 `RESERVED`，与 `CanonicalStateManager` 重叠 |
+| Chat 模块 | ✅ | 标记为 `RESERVED`，有 DB 表但无命令暴露 |
 
 ---
 
