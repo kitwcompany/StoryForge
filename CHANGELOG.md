@@ -2,6 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.6] - 系统性差距审计 + 自动补齐修复 + 事件系统强化（2026-05-23）
+
+### 🔧 场景大纲自动补齐修复
+- **`autoCreateSceneOutline` fallback** — 当 `currentScene` 为 null 时，自动创建临时 Scene 对象而非 panic，确保大纲生成流程不中断
+
+### 📋 系统性差距审计与修复计划
+- **`docs/plans/2026-05-23-systemic-gap-audit.md`** — 全面审计 14 个"有设计未集成"子系统，分类为 5 个健康等级（完全健康 / 轻微差距 / 显著差距 / 严重差距 / 有设计未集成）
+- **`docs/plans/2026-05-23-systemic-gap-fix-plan.md`** — 制定可执行的修复路线图，Phase 5.1~5.3 分步落地
+
+### 🧹 代码清理与架构同步
+- **删除废弃 `Chapters.tsx` 页面** — 362 行旧章节管理页面彻底移除，功能已迁移至 Scene 核心流程
+- **`CLAUDE.md` 升级** — 追加 Zero-Pause 连续执行层规范 + GitNexus 代码智能协议（影响分析、变更检测、符号重命名约束）
+- **Rust 后端模块同步**
+  - `memory/mod.rs` / `memory/orchestrator.rs` — 记忆编排器事件处理强化
+  - `state_sync/events.rs` / `state_sync/service.rs` — 状态同步事件扩展
+  - `story_system/mod.rs` — 故事系统模块接口更新
+  - `commands_v3.rs` / `lib.rs` — 命令注册与 handler 映射同步
+  - `subscription/commands.rs` — 订阅命令更新
+  - `updater/mod.rs` — 更新器模块清理冗余代码
+
+**编译状态**: `cargo check` 零错误，`npm run build` 通过。
+
+---
+
 ## [v0.7.5] - 事件驱动创作增强中枢：6 个"有设计未集成"子系统全面落地（2026-05-22）
 
 > **核心理念**：将 `AutomationService` 从"Ghost 系统"升级为事件驱动的创作增强中枢，6 个先前仅存在于设计文档中的高级子系统首次真正融入小说创作核心流程。
