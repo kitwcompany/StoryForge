@@ -151,6 +151,8 @@ impl SyncEvent {
             SyncEvent::PayoffLedgerUpdated { .. } => "payoffLedger",
             SyncEvent::IngestionCompleted { .. } => "ingestion",
             SyncEvent::DataRefresh { resource_type, .. } => resource_type.as_str(),
+            SyncEvent::SubscriptionChanged { .. } => "subscription",
+            SyncEvent::PayoffOverdue { .. } => "payoffOverdue",
         }
     }
 
@@ -176,6 +178,8 @@ impl SyncEvent {
             SyncEvent::PayoffLedgerUpdated { story_id, .. } => Some(story_id),
             SyncEvent::IngestionCompleted { story_id, .. } => Some(story_id),
             SyncEvent::DataRefresh { story_id, .. } => story_id.as_ref(),
+            SyncEvent::SubscriptionChanged { .. } => None,
+            SyncEvent::PayoffOverdue { story_id, .. } => Some(story_id),
         }
     }
 }
