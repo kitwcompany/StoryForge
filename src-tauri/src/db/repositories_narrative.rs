@@ -1,4 +1,4 @@
-//! v5.3.0: 统一叙事元素 Repository
+//! 统一叙事元素 Repository
 //!
 //! 操作 narrative_characters / narrative_scenes / narrative_world_buildings 表。
 //! 生产表（characters/scenes/world_buildings）和参考表（reference_characters/reference_scenes）

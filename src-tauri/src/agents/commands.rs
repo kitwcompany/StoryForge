@@ -252,8 +252,6 @@ pub async fn writer_agent_execute(
             crate::window::BackstageEvent::DataRefresh { entity: "stories".to_string() }
         );
     }
-
-    // v0.8.0: 触发 SceneGenerationRequested 事件
     if let Some(ref scene_id) = created_chapter_id {
         let _ = automation_service.trigger_event(
             crate::automation::triggers::TriggerEvent::SceneGenerationRequested {
@@ -307,8 +305,6 @@ pub async fn writer_agent_execute(
         Ok(workflow_result) => {
             log::info!("[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}", 
                 workflow_result.final_score, workflow_result.was_rewritten);
-            
-            // v0.8.0: 触发 SceneGenerated 事件
             if let Some(ref scene_id) = created_chapter_id {
                 let _ = automation_service.trigger_event(
                     crate::automation::triggers::TriggerEvent::SceneGenerated {
@@ -590,17 +586,6 @@ pub async fn auto_write(
     })
 }
 
-/// 取消自动续写
-#[command]
-pub async fn auto_write_cancel(task_id: String) -> Result<(), AppError> {
-    let mut handles = TASK_HANDLES.lock().unwrap();
-    if let Some(handle) = handles.remove(&task_id) {
-        handle.abort();
-        log::info!("[auto_write] Task {} cancelled by user", task_id);
-    }
-    Ok(())
-}
-
 // ==================== 文思泉涌：自动修改 ====================
 
 /// 自动修改请求
@@ -651,7 +636,7 @@ pub async fn auto_revise(
     let task_id = Uuid::new_v4().to_string();
 
     // 预估算文本长度用于配额检查
-    let text_len = match request.scope.as_str() {
+    let _text_len = match request.scope.as_str() {
         "selection" => request.selected_text.as_ref().map(|s| s.chars().count() as i32).unwrap_or(0),
         "chapter" | "scene" => {
             if let Some(ref sid) = request.chapter_id {
@@ -834,17 +819,6 @@ pub async fn auto_revise(
     })
 }
 
-/// 取消自动修改
-#[command]
-pub async fn auto_revise_cancel(task_id: String) -> Result<(), AppError> {
-    let mut handles = TASK_HANDLES.lock().unwrap();
-    if let Some(handle) = handles.remove(&task_id) {
-        handle.abort();
-        log::info!("[auto_revise] Task {} cancelled by user", task_id);
-    }
-    Ok(())
-}
-
 /// 构建Agent上下文
 ///
 /// 使用 ContextOptimizer (L0/L1/L2) 从数据库读取真实故事数据，
@@ -905,8 +879,6 @@ pub(crate) async fn build_agent_context(
             Err(e) => log::warn!("[build_agent_context] ForeshadowingTracker failed: {}", e),
         }
     }
-
-    // v0.8.0: 语义检索增强 — 根据用户输入智能检索相关知识
     if request.input.len() >= 10 {
         if let Some(store) = crate::VECTOR_STORE.get() {
             match crate::knowledge_base::kb_search(

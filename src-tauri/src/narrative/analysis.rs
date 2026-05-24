@@ -705,8 +705,6 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                 elapsed_seconds: 0,
                 metadata: None,
             });
-
-            // v5.4.0: 基于已提取的角色和场景，构建真实的知识图谱
             let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(ctx.pool.clone());
             let story_id = ctx.story_id.clone();
             let mut entity_id_map: HashMap<String, String> = HashMap::new();

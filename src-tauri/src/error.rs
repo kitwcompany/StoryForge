@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// 每个变体对应一种可恢复或不可恢复的错误场景，携带结构化上下文。
 #[derive(Debug, Clone, Deserialize)]
 pub enum AppError {
-    /// 功能需要订阅解锁（v0.7.3：商业模式从模型配额制改为功能订阅制）
+    /// 功能需要订阅解锁
     SubscriptionRequired {
         message: String,
         feature_id: String,

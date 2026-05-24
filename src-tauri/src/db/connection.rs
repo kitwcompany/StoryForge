@@ -108,7 +108,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         CREATE INDEX IF NOT EXISTS idx_chapters_number ON chapters(story_id, chapter_number);
         "#
     )?;
-    // Migration 17: 创建任务表和任务日志表 (v3.5.0)
+    // Migration 17: 创建任务表和任务日志表
     let task_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
     )?.query_map([], |row| {
@@ -175,7 +175,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
-    // Migration 28: 创建协作会话表 (v4.0 - 协同编辑持久化)
+    // Migration 28: 创建协作会话表（协同编辑持久化)
     let collab_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='collab_sessions'"
     )?.query_map([], |row| {
@@ -218,7 +218,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
-    // Migration 29: 创建小说初始化会话追踪表 (v4.2.0 - AI Director)
+    // Migration 29: 创建小说初始化会话追踪表
     let bootstrap_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='novel_bootstrap_sessions'"
     )?.query_map([], |row| {
@@ -247,7 +247,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
-    // Migration 39: 创建导出模板表 (v5.4.0 - 自定义导出模板)
+    // Migration 39: 创建导出模板表
     let export_template_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='export_templates'"
     )?.query_map([], |row| {
@@ -279,7 +279,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
-    // Migration 40: 创建 AI 操作历史表 (v5.4.0 - AI 操作历史与回滚)
+    // Migration 40: 创建 AI 操作历史表
     let ai_op_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_operations'"
     )?.query_map([], |row| {
@@ -329,7 +329,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
-    // Migration 38: 统一叙事元素表 (v5.3.0 - 创世-拆书同构架构)
+    // Migration 38: 统一叙事元素表
     let narrative_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_characters'"
     )?.query_map([], |row| {
@@ -448,7 +448,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             content TEXT,
             previous_scene_id TEXT,
             next_scene_id TEXT,
-            chapter_id TEXT,                -- v0.7.3: 1:N Chapter↔Scene 关联
+            chapter_id TEXT,                -- 1:N Chapter↔Scene 关联
             model_used TEXT,
             cost REAL,
             created_at TEXT NOT NULL,
@@ -524,6 +524,11 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             embedding BLOB,                 -- 向量嵌入（可选）
             first_seen TEXT NOT NULL,
             last_updated TEXT NOT NULL,
+            confidence_score REAL,          -- 置信度 (0-1)
+            access_count INTEGER DEFAULT 0, -- 访问计数（遗忘曲线）
+            last_accessed TEXT,             -- 最后访问时间
+            is_archived INTEGER DEFAULT 0,  -- 归档状态
+            archived_at TEXT,               -- 归档时间
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 
@@ -537,6 +542,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             strength REAL NOT NULL,         -- 0-1
             evidence TEXT,                  -- JSON: 场景ID列表
             first_seen TEXT NOT NULL,
+            confidence_score REAL,          -- 置信度 (0-1)
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
             FOREIGN KEY (source_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
             FOREIGN KEY (target_id) REFERENCES kg_entities(id) ON DELETE CASCADE
@@ -773,7 +779,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
 
 /// 数据库迁移
 fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
-    // Migration 1: 添加实体归档字段 (v3.2.0)
+    // Migration 1: 添加实体归档字段
     let columns: Vec<String> = conn.prepare(
         "PRAGMA table_info(kg_entities)"
     )?.query_map([], |row| {
@@ -800,7 +806,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         [],
     )?;
     
-    // Migration 2: 添加实体保留字段 (v3.1.0 - 如果缺失)
+    // Migration 2: 添加实体保留字段
     if !columns.iter().any(|c| c == "confidence_score") {
         conn.execute(
             "ALTER TABLE kg_entities ADD COLUMN confidence_score REAL",
@@ -820,7 +826,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 3: 创建场景批注表 (v3.2.0)
+    // Migration 3: 创建场景批注表
     let annotation_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_annotations'"
     )?.query_map([], |row| {
@@ -854,7 +860,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 4: 创建文本内联批注表 (v3.2.0)
+    // Migration 4: 创建文本内联批注表
     let text_annotation_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='text_annotations'"
     )?.query_map([], |row| {
@@ -890,7 +896,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 5: 创建变更追踪表 (v3.3.0)
+    // Migration 5: 创建变更追踪表
     let change_track_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='change_tracks'"
     )?.query_map([], |row| {
@@ -934,7 +940,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 5.1: 为旧版 change_tracks 添加 chapter_id (v3.3.0)
+    // Migration 5.1: 为旧版 change_tracks 添加 chapter_id
     let change_track_columns: Vec<String> = conn.prepare(
         "PRAGMA table_info(change_tracks)"
     )?.query_map([], |row| {
@@ -953,7 +959,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 6: 创建评论线程表 (v3.3.0)
+    // Migration 6: 创建评论线程表
     let comment_thread_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_threads'"
     )?.query_map([], |row| {
@@ -1007,7 +1013,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 7: 创建角色状态追踪表 (v4.0 - 智能化创作)
+    // Migration 7: 创建角色状态追踪表（智能化创作)
     let character_state_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='character_states'"
     )?.query_map([], |row| {
@@ -1042,7 +1048,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 8: 创建伏笔追踪表 (v4.0 - 智能化创作)
+    // Migration 8: 创建伏笔追踪表（智能化创作)
     let foreshadowing_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='foreshadowing_tracker'"
     )?.query_map([], |row| {
@@ -1075,7 +1081,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 9: 创建用户偏好表 (v4.0 - 自适应学习)
+    // Migration 9: 创建用户偏好表（自适应学习)
     let preference_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'"
     )?.query_map([], |row| {
@@ -1103,7 +1109,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 10: 创建风格 DNA 表 (v4.0 - 深度风格系统)
+    // Migration 10: 创建风格 DNA 表（深度风格系统)
     let style_dna_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='style_dnas'"
     )?.query_map([], |row| {
@@ -1130,7 +1136,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 11: 创建用户反馈日志表 (v4.0 - 自适应学习)
+    // Migration 11: 创建用户反馈日志表（自适应学习)
     let feedback_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback_log'"
     )?.query_map([], |row| {
@@ -1170,7 +1176,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 12: 创建订阅表 (v3.5.0 - Freemium 付费系统)
+    // Migration 12: 创建订阅表
     let subscription_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='subscriptions'"
     )?.query_map([], |row| {
@@ -1204,35 +1210,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 13: 创建 AI 使用配额表 (v3.5.0 - Freemium)
-    let quota_tables: Vec<String> = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'"
-    )?.query_map([], |row| {
-        let name: String = row.get(0)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
-
-    if quota_tables.is_empty() {
-        conn.execute(
-            "CREATE TABLE ai_usage_quota (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                tier TEXT NOT NULL DEFAULT 'free',
-                daily_limit INTEGER NOT NULL DEFAULT 10,
-                daily_used INTEGER NOT NULL DEFAULT 0,
-                quota_reset_at TEXT NOT NULL,
-                total_used INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE INDEX idx_quota_user ON ai_usage_quota(user_id)",
-            [],
-        )?;
-    }
-
-    // Migration 14: 创建 AI 调用日志表 (v3.5.0 - Freemium)
+    // Migration 14: 创建 AI 调用日志表
     let usage_log_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'"
     )?.query_map([], |row| {
@@ -1269,47 +1247,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 15: AI 使用配额表 V2 (v3.6.0 - 文思泉涌)
-    // 添加按功能区分和字数限制的新字段
-    let quota_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(ai_usage_quota)"
-    )?.query_map([], |row| {
-        let name: String = row.get(1)?;
-        Ok(name)
-    })?.collect::<Result<Vec<_>, _>>()?;
-
-    if !quota_columns.iter().any(|c| c == "auto_write_used") {
-        conn.execute(
-            "ALTER TABLE ai_usage_quota ADD COLUMN auto_write_used INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
-    }
-    if !quota_columns.iter().any(|c| c == "auto_write_limit") {
-        conn.execute(
-            "ALTER TABLE ai_usage_quota ADD COLUMN auto_write_limit INTEGER NOT NULL DEFAULT 10",
-            [],
-        )?;
-    }
-    if !quota_columns.iter().any(|c| c == "auto_revise_used") {
-        conn.execute(
-            "ALTER TABLE ai_usage_quota ADD COLUMN auto_revise_used INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
-    }
-    if !quota_columns.iter().any(|c| c == "auto_revise_limit") {
-        conn.execute(
-            "ALTER TABLE ai_usage_quota ADD COLUMN auto_revise_limit INTEGER NOT NULL DEFAULT 10",
-            [],
-        )?;
-    }
-    if !quota_columns.iter().any(|c| c == "max_chars_per_call") {
-        conn.execute(
-            "ALTER TABLE ai_usage_quota ADD COLUMN max_chars_per_call INTEGER NOT NULL DEFAULT 1000",
-            [],
-        )?;
-    }
-
-    // Migration 16: 创建拆书功能参考表 (v3.5.0)
+    // Migration 16: 创建拆书功能参考表
     let ref_book_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='reference_books'"
     )?.query_map([], |row| {
@@ -1467,7 +1405,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 21: 为 scenes 和 kg_relations 表添加 confidence_score 字段 (v3.5.3)
+    // Migration 21: 为 scenes 和 kg_relations 表添加 confidence_score 字段
     let scene_columns: Vec<String> = conn.prepare(
         "PRAGMA table_info(scenes)"
     )?.query_map([], |row| {
@@ -1496,7 +1434,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 22: 为 stories 表添加 methodology_id 和 methodology_step 字段 (v3.6.0)
+    // Migration 22: 为 stories 表添加 methodology_id 和 methodology_step 字段
     let story_columns_m22: Vec<String> = conn.prepare(
         "PRAGMA table_info(stories)"
     )?.query_map([], |row| {
@@ -1517,7 +1455,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 24: 扩展 foreshadowing_tracker 表 — Payoff Ledger 时间窗口与风险信号 (v3.6.0)
+    // Migration 24: 扩展 foreshadowing_tracker 表 — Payoff Ledger 时间窗口与风险信号
     let foreshadowing_columns_m24: Vec<String> = conn.prepare(
         "PRAGMA table_info(foreshadowing_tracker)"
     )?.query_map([], |row| {
@@ -1560,7 +1498,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 25: 为 scenes 表添加结构化大纲字段 (v3.6.0)
+    // Migration 25: 为 scenes 表添加结构化大纲字段
     let scene_columns_m25: Vec<String> = conn.prepare(
         "PRAGMA table_info(scenes)"
     )?.query_map([], |row| {
@@ -1587,7 +1525,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 26: 创建聊天会话和消息表 (v4.0 - 持久化聊天)
+    // Migration 26: 创建聊天会话和消息表（持久化聊天)
     let chat_session_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_sessions'"
     )?.query_map([], |row| {
@@ -1629,7 +1567,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 27: 创建故事运行状态表 (v4.0 - 持久化状态)
+    // Migration 27: 创建故事运行状态表（持久化状态)
     let story_state_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='story_runtime_states'"
     )?.query_map([], |row| {
@@ -1654,7 +1592,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 30: 创建故事风格混合配置表 (v4.4.0 - 3风格三角框架)
+    // Migration 30: 创建故事风格混合配置表
     let story_style_config_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='story_style_configs'"
     )?.query_map([], |row| {
@@ -1685,7 +1623,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 31: 为 scenes 表添加风格混合覆盖字段 (v4.4.0 - 章节级风格控制)
+    // Migration 31: 为 scenes 表添加风格混合覆盖字段
     let scene_columns_m31: Vec<String> = conn.prepare(
         "PRAGMA table_info(scenes)"
     )?.query_map([], |row| {
@@ -1700,7 +1638,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 32: 用户认证系统 (v4.5.0 - 多账号OAuth登录)
+    // Migration 32: 用户认证系统
     let auth_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
     )?.query_map([], |row| {
@@ -1764,7 +1702,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 33: subscriptions 表添加 real_user_id (v4.5.0)
+    // Migration 33: subscriptions 表添加 real_user_id
     let sub_columns: Vec<String> = conn.prepare(
         "PRAGMA table_info(subscriptions)"
     )?.query_map([], |row| {
@@ -1779,7 +1717,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 34: 创建故事大纲表 (v5.0.0 - 创世引擎)
+    // Migration 34: 创建故事大纲表
     let outline_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='story_outlines'"
     )?.query_map([], |row| {
@@ -1808,7 +1746,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 35: characters 表增强 + character_relationships 表 (v5.0.0 - 创世引擎)
+    // Migration 35: characters 表增强 + character_relationships 表
     let char_columns_m35: Vec<String> = conn.prepare(
         "PRAGMA table_info(characters)"
     )?.query_map([], |row| {
@@ -1868,7 +1806,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 36: scenes 表新增 foreshadowing_ids (v5.0.0 - 创世引擎)
+    // Migration 36: scenes 表新增 foreshadowing_ids
     let scene_columns_m36: Vec<String> = conn.prepare(
         "PRAGMA table_info(scenes)"
     )?.query_map([], |row| {
@@ -1883,7 +1821,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 37: Chapter↔Scene 双轨映射 (v5.1.0 - 幕前幕后自动关联)
+    // Migration 37: Chapter↔Scene 双轨映射
     let chapter_columns_m37: Vec<String> = conn.prepare(
         "PRAGMA table_info(chapters)"
     )?.query_map([], |row| {
@@ -1920,7 +1858,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 41: 创建 Workflow 实例持久化表 (v5.5.0 - Workflow 持久化)
+    // Migration 41: 创建 Workflow 实例持久化表
     let workflow_instance_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_instances'"
     )?.query_map([], |row| {
@@ -1954,7 +1892,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 42: 创建 Pending Vector Indexes 表 (v5.6.1 - SQLite 持久化替代 JSON)
+    // Migration 42: 创建 Pending Vector Indexes 表
     let pending_vector_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_vector_indexes'"
     )?.query_map([], |row| {
@@ -1977,7 +1915,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 43: 创建 story_metadata 表 (v5.6.4 - 后台自动化支撑)
+    // Migration 43: 创建 story_metadata 表
     let story_metadata_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='story_metadata'"
     )?.query_map([], |row| {
@@ -2003,7 +1941,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 44: 创建 scene_characters 表 (v5.6.4 - 场景角色关联)
+    // Migration 44: 创建 scene_characters 表
     let scene_characters_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_characters'"
     )?.query_map([], |row| {
@@ -2034,7 +1972,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 45: 创建 scene_character_actions 表 (v5.6.4 - 场景角色动作)
+    // Migration 45: 创建 scene_character_actions 表
     let scene_character_actions_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_character_actions'"
     )?.query_map([], |row| {
@@ -2066,7 +2004,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 46: 创建 plan_templates 表 (v5.6.4 - 计划模板持久化)
+    // Migration 46: 创建 plan_templates 表
     let plan_templates_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_templates'"
     )?.query_map([], |row| {
@@ -2092,7 +2030,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // ==================== v6.0.0: Story System 合同驱动体系 ====================
+    // ==================== Story System 合同驱动体系 ====================
 
     // Migration 47: 创建 story_contracts 表 — 合同真源
     let story_contract_tables: Vec<String> = conn.prepare(
@@ -2126,7 +2064,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 48: 创建 scene_commits 表 — Scene 提交链 (v0.7.3 从 chapter_commits 重命名)
+    // Migration 48: 创建 scene_commits 表 — Scene 提交链
     let scene_commit_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_commits'"
     )?.query_map([], |row| {
@@ -2412,7 +2350,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 56: 创建 ingest_jobs 表 — Ingest 作业追踪 (v6.0.1)
+    // Migration 56: 创建 ingest_jobs 表 — Ingest 作业追踪
     let ingest_jobs_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='ingest_jobs'"
     )?.query_map([], |row| {
@@ -2444,7 +2382,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 57: 创建 feature_usage_logs 表 — 功能使用度量 (v6.0.1)
+    // Migration 57: 创建 feature_usage_logs 表 — 功能使用度量
     let feature_usage_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='feature_usage_logs'"
     )?.query_map([], |row| {
@@ -2474,7 +2412,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // ==================== v7.0.0: Pipeline 管线体系（基于 Vela 学习借鉴）====================
+    // ==================== Pipeline 管线体系（基于 Vela 学习借鉴）====================
 
     // Migration 58: 创建 blueprints 表 — 章节蓝图/细纲
     let blueprint_tables: Vec<String> = conn.prepare(
@@ -2787,18 +2725,28 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     }
 
     // Migration 65: AI 使用配额表添加 offline_grace_used 字段 (W1-B6: 离线配额快照)
-    let quota_v3_columns: Vec<String> = conn.prepare(
-        "PRAGMA table_info(ai_usage_quota)"
+    // 注：配额系统已移除 (A1)，此迁移保留以兼容旧数据库，但跳过无表的情况
+    let quota_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'"
     )?.query_map([], |row| {
-        let name: String = row.get(1)?;
+        let name: String = row.get(0)?;
         Ok(name)
     })?.collect::<Result<Vec<_>, _>>()?;
 
-    if !quota_v3_columns.iter().any(|c| c == "offline_grace_used") {
-        conn.execute(
-            "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
+    if !quota_tables.is_empty() {
+        let quota_v3_columns: Vec<String> = conn.prepare(
+            "PRAGMA table_info(ai_usage_quota)"
+        )?.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        if !quota_v3_columns.iter().any(|c| c == "offline_grace_used") {
+            conn.execute(
+                "ALTER TABLE ai_usage_quota ADD COLUMN offline_grace_used INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
     }
 
     // Migration 66: 创建 style_snapshots 表 — StyleDNA 六维向量存储 (W3-B7)
@@ -2894,7 +2842,6 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     }
 
     // Migration 68: scene_commits (原 chapter_commits) 添加 chapter_id 字段 — 支持 1:N Chapter↔Scene 聚合提交 (W2-B8)
-    // v0.7.3: 兼容新旧表名。新数据库直接创建 scene_commits，旧数据库先存在 chapter_commits
     let scene_commit_exists: bool = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scene_commits'",
         [],
@@ -2969,7 +2916,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 70: chapter_commits 重命名为 scene_commits (v0.7.3 SCENE_COMMIT 语义对齐)
+    // Migration 70: chapter_commits 重命名为 scene_commits
     let has_old_table: bool = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='chapter_commits'",
         [],
@@ -3026,7 +2973,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
-    // Migration 71: 废弃 chapters.scene_id，完成 1:N 架构语义对齐 (v0.7.3)
+    // Migration 71: 废弃 chapters.scene_id，完成 1:N 架构语义对齐
     let chapter_columns_m71: Vec<String> = conn.prepare(
         "PRAGMA table_info(chapters)"
     )?.query_map([], |row| {
@@ -3049,7 +2996,7 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         tx.commit()?;
     }
 
-    // Migration 72: 创建 scene_divider_nodes 表 (v0.7.3 - SceneDividerNode 功能化预留接口)
+    // Migration 72: 创建 scene_divider_nodes 表
     let divider_tables: Vec<String> = conn.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_divider_nodes'"
     )?.query_map([], |row| {
@@ -3075,6 +3022,47 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX idx_scene_divider_chapter ON scene_divider_nodes(chapter_id)",
+            [],
+        )?;
+    }
+
+    // Migration 73: 创建 entity_mentions 表 — Cascade Rewriter 实体引用索引 (D1)
+    let mention_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_mentions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if mention_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE entity_mentions (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                start_pos INTEGER NOT NULL,
+                end_pos INTEGER NOT NULL,
+                mention_text TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_mentions_entity ON entity_mentions(entity_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_mentions_scene ON entity_mentions(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_mentions_story ON entity_mentions(story_id)",
             [],
         )?;
     }

@@ -96,7 +96,6 @@ const FrontstageApp: React.FC = () => {
   const [inlineSuggestion, setInlineSuggestion] = useState<{ instruction: string; targetText: string; category: string; targetParagraphIndex: number } | null>(null);
   const [showUpgradePanel, setShowUpgradePanel] = useState(false);
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
-  const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
 
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
@@ -1014,7 +1013,6 @@ const FrontstageApp: React.FC = () => {
       frontstageLogger.error('Generation request failed', { error });
       const structured = parseStructuredError(error);
       const msg = error instanceof Error ? error.message : String(error);
-      const isQuotaError = /quota|exhausted|limit|配额|用完|不足|次数已达/i.test(msg);
       if (structured?.code === 'PREFLIGHT_FAILED') {
         const issues = (structured.data?.issues as string[]) || [];
         const firstIssue = issues[0] || structured.message || '写作前检查未通过';
@@ -1037,9 +1035,6 @@ const FrontstageApp: React.FC = () => {
             { duration: 6000 }
           );
         }
-      } else if (isQuotaError) {
-        setQuotaExhausted(true);
-        toast.error('AI 创作配额已用完，请升级专业版或明日再试');
       } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
         toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
       } else {
@@ -1728,11 +1723,6 @@ const FrontstageApp: React.FC = () => {
               inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
               onClearInlineSuggestion={() => setInlineSuggestion(null)}
               subscription={subscription}
-              onQuotaExhausted={() => {
-                setQuotaExhausted(true);
-                setUpgradeTrigger('文思泉涌专业版');
-                setShowUpgradePanel(true);
-              }}
             />
           </main>
 
@@ -1772,7 +1762,6 @@ const FrontstageApp: React.FC = () => {
                 storyId={currentStory?.id}
                 chapterId={currentChapter?.id}
                 isPro={subscription?.isPro ?? false}
-                quotaText={subscription?.getQuotaText ? subscription.getQuotaText() : (subscription?.tier ? (subscription.isPro ? 'Pro · 无限' : `免费版`) : '加载中...')}
                 onShowUpgrade={(trigger) => {
                   setUpgradeTrigger(trigger);
                   setShowUpgradePanel(true);
@@ -1846,34 +1835,6 @@ const FrontstageApp: React.FC = () => {
         onInlineSuggestion={subscription.isPro ? handleInlineSuggestion : undefined}
         subscription={subscription}
       />
-
-      {/* 配额用尽提示 */}
-      {quotaExhausted && subscription.isFree && (
-        <div className="quota-exhausted-toast">
-          <p className="quota-exhausted-title">今日配额已用完</p>
-          <p className="quota-exhausted-message">
-            免费用户每日可使用 10 次 AI 创作。升级专业版，享受无限次文思泉涌。
-          </p>
-          <div className="quota-exhausted-actions">
-            <button
-              className="quota-exhausted-upgrade"
-              onClick={() => {
-                setQuotaExhausted(false);
-                setUpgradeTrigger('AI 创作配额');
-                setShowUpgradePanel(true);
-              }}
-            >
-              升级专业版
-            </button>
-            <button
-              className="quota-exhausted-dismiss"
-              onClick={() => setQuotaExhausted(false)}
-            >
-              我知道了
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* 付费引导面板 */}
       <UpgradePanel

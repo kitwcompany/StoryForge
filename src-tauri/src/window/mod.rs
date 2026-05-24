@@ -137,7 +137,7 @@ pub enum BackstageEvent {
     FrontstageFocused,
     /// 数据刷新通知
     DataRefresh { entity: String },
-    /// 导航到指定视图 (v5.0.0 - 创世引擎)
+    /// 导航到指定视图
     NavigateTo { view: String, highlight_story_id: Option<String>, open_panel: Option<String> },
 }
 

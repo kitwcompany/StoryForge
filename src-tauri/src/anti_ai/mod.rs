@@ -152,7 +152,7 @@ impl AntiAiReviewer {
         text: &str,
     ) -> DimensionResult {
         let mut issues = Vec::new();
-        let mut flagged = Vec::new();
+        let flagged = Vec::new();
         let mut suggestions = Vec::new();
 
         let ai_cliches = vec![
@@ -234,8 +234,8 @@ impl AntiAiReviewer {
         text: &str,
     ) -> DimensionResult {
         let mut issues = Vec::new();
-        let mut flagged = Vec::new();
-        let mut suggestions = Vec::new();
+        let flagged = Vec::new();
+        let suggestions = Vec::new();
 
         let sentences: Vec<&str> = text.split(|c| c == '。' || c == '！' || c == '？').collect();
 
@@ -300,7 +300,7 @@ impl AntiAiReviewer {
         _genre: Option<&str>,
     ) -> DimensionResult {
         let mut issues = Vec::new();
-        let mut flagged = Vec::new();
+        let flagged = Vec::new();
         let mut suggestions = Vec::new();
 
         let paragraphs: Vec<&str> = text.split('\n').filter(|s| !s.trim().is_empty()).collect();
@@ -438,8 +438,8 @@ impl AntiAiReviewer {
         text: &str,
     ) -> DimensionResult {
         let mut issues = Vec::new();
-        let mut flagged = Vec::new();
-        let mut suggestions = Vec::new();
+        let flagged = Vec::new();
+        let suggestions = Vec::new();
 
         // 提取对话内容（简化处理：引号内的内容）
         let mut dialogues = Vec::new();

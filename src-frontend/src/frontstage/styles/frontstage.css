@@ -2258,77 +2258,6 @@ body {
   opacity: 0.7;
 }
 
-/* ===== Quota Exhausted Toast (配额用尽提示) ===== */
-
-.quota-exhausted-toast {
-  position: fixed;
-  top: 80px;
-  right: 24px;
-  max-width: 320px;
-  background: var(--parchment);
-  border: 1px solid var(--terracotta);
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-  animation: hint-slide-in 0.4s ease-out;
-}
-
-.quota-exhausted-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--terracotta);
-  font-family: var(--font-serif);
-  margin-bottom: 6px;
-}
-
-.quota-exhausted-message {
-  font-size: 12px;
-  color: var(--stone-gray);
-  font-family: var(--font-sans);
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-
-.quota-exhausted-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.quota-exhausted-upgrade {
-  flex: 1;
-  padding: 8px 12px;
-  background: var(--terracotta);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 12px;
-  font-family: var(--font-sans);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.quota-exhausted-upgrade:hover {
-  background: var(--terracotta-dark);
-}
-
-.quota-exhausted-dismiss {
-  padding: 8px 12px;
-  background: transparent;
-  color: var(--stone-gray);
-  border: 1px solid var(--warm-sand);
-  border-radius: 8px;
-  font-size: 12px;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.quota-exhausted-dismiss:hover {
-  background: var(--warm-sand);
-}
-
 /* ===== Ghost Text 正文延续 ===== */
 .editor-ghost-continuation {
   max-width: 900px;
@@ -2625,18 +2554,6 @@ body {
 .wensi-tab:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.wensi-quota {
-  font-size: 11px;
-  color: var(--stone-gray);
-}
-
-.wensi-quota-text {
-  background: var(--parchment);
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-family: var(--font-sans);
 }
 
 .wensi-section {

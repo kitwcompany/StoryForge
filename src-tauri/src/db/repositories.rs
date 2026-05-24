@@ -123,8 +123,6 @@ impl StoryRepository {
             tx.rollback()?;
             return Ok(0);
         }
-
-        // v5.6.4 修复: 显式清理无外键约束或可能存在遗留的关联表数据
         // 即使外键约束已启用，也作为防御性编程添加显式 DELETE
         let _ = tx.execute("DELETE FROM story_metadata WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM foreshadowing_tracker WHERE story_id = ?1", [id]);
@@ -146,7 +144,7 @@ impl StoryRepository {
 
         tx.commit()?;
 
-        // v5.7 不变量断言: 删除 story 后，所有关联表不应存在孤儿数据
+        // 不变量断言: 删除 story 后，所有关联表不应存在孤儿数据
         // 仅在 debug 构建时检查，用于在开发和测试阶段快速发现级联删除遗漏
         #[cfg(debug_assertions)]
         {
@@ -349,17 +347,6 @@ impl CharacterRepository {
         Ok(count)
     }
 
-    pub fn batch_update_states(
-        &self,
-        updates: &[(String, CharacterState)],
-    ) -> Result<usize, rusqlite::Error> {
-        let mut total = 0;
-        for (character_id, state) in updates {
-            total += self.update_character_state(character_id, state)?;
-        }
-        Ok(total)
-    }
-
     pub fn get_character_state(
         &self,
         character_id: &str,
@@ -401,8 +388,6 @@ impl CharacterRepository {
             tx.rollback()?;
             return Ok(0);
         }
-
-        // v5.6.4 修复: 显式清理角色关联数据，消除幽灵数据
         let _ = tx.execute("DELETE FROM scene_characters WHERE character_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM scene_character_actions WHERE character_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM character_relationships WHERE source_character_id = ?1 OR target_character_id = ?1", [id]);
@@ -443,7 +428,7 @@ impl ChapterRepository {
         )?;
 
         // 2. 查找或创建关联的 Scene
-        let scene_id = match tx.query_row(
+        let _scene_id = match tx.query_row(
             "SELECT id FROM scenes WHERE story_id = ?1 AND sequence_number = ?2",
             params![&req.story_id, req.chapter_number],
             |row| row.get::<_, String>(0)
@@ -600,7 +585,7 @@ impl ChapterRepository {
 }
 
 
-// ==================== UserRepository (v4.5.0) ====================
+// ==================== UserRepository ====================
 
 use super::{User, OAuthAccount, Session, UserInfo};
 
@@ -632,52 +617,6 @@ impl UserRepository {
             created_at: now,
             updated_at: now,
         })
-    }
-
-    pub fn find_by_id(&self, id: &str) -> Result<Option<User>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, email, display_name, avatar_url, is_local_user, created_at, updated_at FROM users WHERE id = ?1"
-        )?;
-
-        let user = stmt.query_row([id], |row| {
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            Ok(User {
-                id: row.get(0)?,
-                email: row.get(1)?,
-                display_name: row.get(2)?,
-                avatar_url: row.get(3)?,
-                is_local_user: row.get::<_, i32>(4)? != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        }).optional()?;
-
-        Ok(user)
-    }
-
-    pub fn find_by_email(&self, email: &str) -> Result<Option<User>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, email, display_name, avatar_url, is_local_user, created_at, updated_at FROM users WHERE email = ?1"
-        )?;
-
-        let user = stmt.query_row([email], |row| {
-            let created_str: String = row.get(5)?;
-            let updated_str: String = row.get(6)?;
-            Ok(User {
-                id: row.get(0)?,
-                email: row.get(1)?,
-                display_name: row.get(2)?,
-                avatar_url: row.get(3)?,
-                is_local_user: row.get::<_, i32>(4)? != 0,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        }).optional()?;
-
-        Ok(user)
     }
 
     pub fn find_by_oauth(&self, provider: &str, provider_account_id: &str) -> Result<Option<User>, rusqlite::Error> {
@@ -748,43 +687,9 @@ impl UserRepository {
         })
     }
 
-    pub fn find_session_by_token(&self, token: &str) -> Result<Option<Session>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, token, expires_at, created_at FROM sessions WHERE token = ?1"
-        )?;
-
-        let session = stmt.query_row([token], |row| {
-            let expires_str: String = row.get(3)?;
-            let created_str: String = row.get(4)?;
-            Ok(Session {
-                id: row.get(0)?,
-                user_id: row.get(1)?,
-                token: row.get(2)?,
-                expires_at: expires_str.parse().unwrap_or_else(|_| Local::now()),
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        }).optional()?;
-
-        Ok(session)
-    }
-
     pub fn delete_session(&self, token: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let count = conn.execute("DELETE FROM sessions WHERE token = ?1", [token])?;
-        Ok(count)
-    }
-
-    pub fn delete_user_sessions(&self, user_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let count = conn.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id])?;
-        Ok(count)
-    }
-
-    pub fn cleanup_expired_sessions(&self) -> Result<usize, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let now = Local::now().to_rfc3339();
-        let count = conn.execute("DELETE FROM sessions WHERE expires_at < ?1", [now])?;
         Ok(count)
     }
 
@@ -889,35 +794,6 @@ impl GenesisRunRepository {
             "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs WHERE id = ?1"
         )?;
         let run = stmt.query_row([id], |row| {
-            let created_str: String = row.get(10)?;
-            let updated_str: String = row.get(11)?;
-            Ok(super::GenesisRun {
-                id: row.get(0)?,
-                story_id: row.get(1)?,
-                session_id: row.get(2)?,
-                premise: row.get(3)?,
-                status: row.get(4)?,
-                current_step: row.get(5)?,
-                current_step_number: row.get(6)?,
-                total_steps: row.get(7)?,
-                steps_json: row.get(8)?,
-                error_message: row.get(9)?,
-                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-            })
-        }).optional()?;
-        Ok(run)
-    }
-
-    pub fn get_by_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<super::GenesisRun>, rusqlite::Error> {
-        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, story_id, session_id, premise, status, current_step, current_step_number, total_steps, steps_json, error_message, created_at, updated_at FROM genesis_runs WHERE session_id = ?1 ORDER BY created_at DESC LIMIT 1"
-        )?;
-        let run = stmt.query_row([session_id], |row| {
             let created_str: String = row.get(10)?;
             let updated_str: String = row.get(11)?;
             Ok(super::GenesisRun {

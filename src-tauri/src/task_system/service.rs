@@ -10,6 +10,7 @@ use super::repository::TaskRepository;
 
 use crate::db::DbPool;
 use crate::error::AppError;
+use crate::state_sync::service::StateSync;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -123,6 +124,7 @@ impl<R: Runtime> TaskService<R> {
             "task_id": &task.id,
             "name": &task.name,
         }));
+        StateSync::emit_task_created(&self.app_handle, &task.id, &task.name);
 
         Ok(task)
     }
@@ -147,6 +149,8 @@ impl<R: Runtime> TaskService<R> {
                 log::error!("[TaskService] Failed to re-register scheduled task: {}", e);
             }
         }
+
+        StateSync::emit_task_updated(&self.app_handle, &task.id, &task.status.to_string());
 
         Ok(task)
     }
@@ -222,6 +226,7 @@ impl<R: Runtime> TaskService<R> {
             message: Some("任务已取消".to_string()),
         };
         let _ = self.app_handle.emit("task-status-changed", &event);
+        StateSync::emit_task_updated(&self.app_handle, id, "cancelled");
 
         Ok(())
     }
@@ -315,11 +320,13 @@ impl<R: Runtime> TaskService<R> {
                     if let Err(e) = ctx.complete(task_result.result_json) {
                         log::error!("[TaskService] Failed to complete task {}: {}", task_id, e);
                     }
+                    StateSync::emit_task_completed(&app_handle, task_id, true);
                 } else {
                     let err = task_result.error_message.unwrap_or_else(|| "Unknown error".to_string());
                     if let Err(e) = ctx.fail(&err) {
                         log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e);
                     }
+                    StateSync::emit_task_completed(&app_handle, task_id, false);
                 }
             }
             Err(e) => {
@@ -327,6 +334,7 @@ impl<R: Runtime> TaskService<R> {
                 if let Err(e2) = ctx.fail(&err_msg) {
                     log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e2);
                 }
+                StateSync::emit_task_completed(&app_handle, task_id, false);
             }
         }
 

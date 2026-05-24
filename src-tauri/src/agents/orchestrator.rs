@@ -67,7 +67,7 @@ pub struct WorkflowResult {
     pub was_rewritten: bool,
     /// 改写次数
     pub rewrite_count: u32,
-    /// 关联的 LLM request_id，供上层取消使用（v0.7.2）
+    /// 关联的 LLM request_id，供上层取消使用
     pub request_id: Option<String>,
 }
 
@@ -216,7 +216,6 @@ impl AgentOrchestrator {
         let mut was_rewritten = false;
 
         // 步骤1: Writer 生成初稿
-        // v5.3.1: 调用 execute_writer_raw 而不是 execute_task，切断递归链
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
         let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
         let request_id = writer_result.request_id.clone();
@@ -322,7 +321,6 @@ impl AgentOrchestrator {
 
             // 步骤3: Writer 改写
             self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), None);
-            // v5.4.0: 将初稿内容放入 selected_text，确保 build_writer_prompt 使用 writer_rewrite_template
             let mut rewrite_context = task.context.clone();
             rewrite_context.selected_text = Some(current_content.clone());
             let rewrite_task = AgentTask {

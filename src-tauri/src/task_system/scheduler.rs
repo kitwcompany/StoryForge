@@ -1,7 +1,7 @@
 //! Task Scheduler
 //!
 //! 基于 tokio::time 的任务调度器，参考 memoh-X CronPool 设计。
-//! v5.5.1: 引入 cron crate 支持标准 Cron 表达式（P1-13 修复）
+//! 引入 cron crate 支持标准 Cron 表达式
 
 use super::models::*;
 use std::collections::HashMap;

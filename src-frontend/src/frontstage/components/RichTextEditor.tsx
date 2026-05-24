@@ -91,15 +91,10 @@ interface RichTextEditorProps {
     tier: string;
     isPro: boolean;
     isFree: boolean;
-    dailyUsed: number;
-    dailyLimit: number;
-    hasQuota: () => Promise<boolean>;
     hasAutoWriteQuota?: (chars: number) => Promise<boolean>;
     hasAutoReviseQuota?: (chars: number) => Promise<boolean>;
     getQuotaText?: () => string;
   };
-  /** 配额用尽时的回调 */
-  onQuotaExhausted?: () => void;
 }
 
 export interface RichTextEditorRef {
@@ -141,7 +136,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     inlineSuggestion,
     onClearInlineSuggestion,
     subscription,
-    onQuotaExhausted,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());

@@ -407,7 +407,7 @@ export function Stories() {
     e.stopPropagation();
     setShowAiMenu(null);
     setCurrentStory(story);
-    setCurrentView('creation-wizard');
+    toast('向导创作功能即将上线，请使用「快速创作」');
   };
 
   if (isLoading) {

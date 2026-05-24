@@ -168,7 +168,7 @@ pub struct AppConfig {
     pub max_feedback_loops: u32,
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
-    /// OAuth 客户端配置 (v4.5.0)
+    /// OAuth 客户端配置
     #[serde(default)]
     pub auth_clients: Option<HashMap<String, crate::auth::OAuthClientConfig>>,
 }
@@ -530,7 +530,7 @@ impl AppConfig {
             Some(cfg) => cfg,
             None => {
                 let config_path = config_dir.join("config.json");
-                let mut config = if config_path.exists() {
+                let config = if config_path.exists() {
                     let content = fs::read_to_string(&config_path)?;
                     // 尝试解析完整 AppConfig；若失败（可能是新的 BootstrapConfig），使用默认
                     match serde_json::from_str::<AppConfig>(&content) {

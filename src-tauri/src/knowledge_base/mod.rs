@@ -1,8 +1,7 @@
 pub mod commands;
 
-use crate::vector::{LanceVectorStore, VectorRecord, SearchResult};
+use crate::vector::{LanceVectorStore, VectorRecord};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// 知识库导入结果
 #[derive(Debug, Clone, Serialize, Deserialize)]

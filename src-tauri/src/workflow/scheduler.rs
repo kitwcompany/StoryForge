@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 /// Workflow scheduler - manages task execution with an in-memory queue
-/// v5.4.0: 新增自动 drain 机制，任务入队后自动在后台执行
 pub struct WorkflowScheduler {
     queue: Arc<Mutex<VecDeque<String>>>,
     /// P2-17 修复: 正在执行的实例集合，防止并发执行
@@ -21,7 +20,6 @@ impl WorkflowScheduler {
 
     /// Queue a workflow instance for execution
     /// 入队后会自动触发后台执行（若当前没有正在执行的任务）
-    /// v5.6.1: 增加幂等检查，防止同一实例重复入队
     pub async fn schedule_execution(
         &self,
         instance_id: String,
@@ -48,7 +46,6 @@ impl WorkflowScheduler {
         Ok(())
     }
 
-    /// v5.4.0: 启动后台任务自动 drain 队列
     /// 应在应用初始化时调用一次，启动一个 tokio::spawn 循环
     pub fn start_auto_drain(
         &self,
@@ -191,8 +188,6 @@ impl WorkflowScheduler {
             if next_nodes.is_empty() {
                 break;
             }
-
-            // v5.4.0: 并行执行同一轮中的所有可执行节点
             // Phase 1: Mark all nodes as Running (mutable borrow)
             let mut node_clones = Vec::new();
             for node_id in &next_nodes {

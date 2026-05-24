@@ -1,10 +1,19 @@
-//! V3 架构数据模型
+//! 数据模型
 //! 
 //! 包含场景化叙事、知识图谱、工作室配置等新模型
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Local};
+
+// ==================== 通用类型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DynamicTrait {
+    #[serde(rename = "trait")]
+    pub trait_name: String,
+    pub confidence: f32,
+}
 
 // ==================== 场景模型 ====================
 
@@ -50,17 +59,17 @@ pub struct Scene {
     // 置信度评分 (0-1)
     pub confidence_score: Option<f32>,
     
-    // 风格混合覆盖 (v4.4.0 - 章节级风格控制)
+    // 风格混合覆盖
     pub style_blend_override: Option<String>,
     
-    // 关联伏笔ID列表 (v5.0.0 - 创世引擎)
+    // 关联伏笔ID列表
     pub foreshadowing_ids: Option<Vec<String>>,
     
-    // 关联的章节ID (v5.1.0 - Chapter↔Scene双轨映射)
+    // 关联的章节ID
     pub chapter_id: Option<String>,
 }
 
-/// 场景分隔节点 (v0.7.3 - 1:N Chapter↔Scene 连续编辑表面)
+/// 场景分隔节点
 ///
 /// 在 1:N 架构下，Chapter 的 content 是多个 Scene 的聚合视图。
 /// SceneDividerNode 标记 Scene 边界，支撑连续编辑表面上的 divider 插入/删除/重排。
@@ -335,7 +344,7 @@ pub struct StorySummary {
     pub updated_at: DateTime<Local>,
 }
 
-// ==================== 故事大纲模型 (v5.0.0 - 创世引擎) ====================
+// ==================== 故事大纲模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoryOutline {
@@ -358,7 +367,7 @@ pub struct StoryOutlineAct {
     pub estimated_scenes: i32,
 }
 
-// ==================== 角色关系模型 (v5.0.0 - 创世引擎) ====================
+// ==================== 角色关系模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterRelationship {
@@ -609,7 +618,7 @@ pub enum RelationType {
     Supersedes,   // 取代
     Contradicts,  // 矛盾
     
-    // 创世引擎关系 (v5.0.0)
+    // 创世引擎关系
     ParticipatesIn, // 角色参与场景
     SetUpIn,        // 伏笔在场景中埋设
 }
@@ -1034,7 +1043,7 @@ pub struct StyleSnapshot {
     pub computed_at: DateTime<Local>,
 }
 
-// ==================== 风格混合配置模型 (v4.4.0 - 3风格三角框架) ====================
+// ==================== 风格混合配置模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoryStyleConfig {

@@ -77,6 +77,10 @@ impl ScheduleType {
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
     BookDeconstruction, // 拆书分析
+    CascadeRewrite,     // 级联改写
+    AiGeneration,       // AI 长文本生成
+    PipelineReview,     // Pipeline 审校
+    Ingest,             // 知识图谱 Ingest
     Custom,             // 自定义
 }
 
@@ -84,6 +88,10 @@ impl fmt::Display for TaskType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TaskType::BookDeconstruction => write!(f, "book_deconstruction"),
+            TaskType::CascadeRewrite => write!(f, "cascade_rewrite"),
+            TaskType::AiGeneration => write!(f, "ai_generation"),
+            TaskType::PipelineReview => write!(f, "pipeline_review"),
+            TaskType::Ingest => write!(f, "ingest"),
             TaskType::Custom => write!(f, "custom"),
         }
     }
@@ -93,6 +101,10 @@ impl TaskType {
     pub fn from_str(s: &str) -> Self {
         match s {
             "book_deconstruction" => TaskType::BookDeconstruction,
+            "cascade_rewrite" => TaskType::CascadeRewrite,
+            "ai_generation" => TaskType::AiGeneration,
+            "pipeline_review" => TaskType::PipelineReview,
+            "ingest" => TaskType::Ingest,
             _ => TaskType::Custom,
         }
     }

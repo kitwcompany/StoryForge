@@ -121,8 +121,6 @@ impl CapabilityEvolutionEngine {
             record.capability_id, record.user_input, record.success
         );
         self.store.append(record);
-
-        // v5.6.4 修复: 每积累 5 条执行记录，自动触发一次能力进化
         let total_records = self.store.len();
         if total_records > 0 && total_records % 5 == 0 {
             let engine = self.clone();

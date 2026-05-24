@@ -47,9 +47,8 @@ import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, Worl
 import type { WizardCreationResult } from '@/types/index';
 import type { AppSettings } from '@/types/llm';
 import type {
-  Blueprint, CreateBlueprintRequest, UpdateBlueprintRequest,
-  Draft, Revision, PipelineReview, ReviewDimension, ReviewIssueItem,
-  PostProcessRun, PostProcessStep, LlmCall, RecordLlmCallRequest,
+  Draft, Revision, PipelineReview,
+  PostProcessRun, PostProcessStep, LlmCall,
   CharacterState,
   RefineResult, ReviewResult, PipelineResult
 } from '@/types/pipeline';
@@ -396,18 +395,6 @@ export const textSearchVectors = (storyId: string, query: string, top_k?: number
 export const hybridSearchVectors = (storyId: string, query: string, top_k?: number) =>
   loggedInvoke<VectorSearchResult[]>('hybrid_search_vectors', { story_id: storyId, query, top_k });
 
-// Writer Agent (正文助手)
-export const writerAgentExecute = (params: {
-  story_id: string;
-  chapter_number?: number;
-  current_content: string;
-  selected_text?: string;
-  instruction: string;
-}) =>
-  loggedInvoke<{ content: string; story_id?: string; chapter_id?: string; task_id: string }>('writer_agent_execute', { request: params });
-
-
-
 // Memory Compressor
 export const compressContent = (params: { story_id: string; content: string; target_ratio?: number }) =>
   loggedInvoke<AgentResult>('compress_content', params);
@@ -449,19 +436,7 @@ export interface SubscriptionStatus {
   user_id: string;
   tier: string;
   status: string;
-  daily_used: number;
-  daily_limit: number;
-  quota_resets_at: string;
   expires_at?: string;
-}
-
-export interface QuotaCheckResult {
-  allowed: boolean;
-  remaining: number;
-  daily_limit: number;
-  daily_used: number;
-  resets_at: string;
-  message?: string;
 }
 
 export const getSubscriptionStatus = () =>
@@ -472,24 +447,6 @@ export const devUpgradeSubscription = (tier: string) =>
 
 export const devDowngradeSubscription = () =>
   loggedInvoke<SubscriptionStatus>('dev_downgrade_subscription');
-
-// V2 Quota (按功能区分)
-export interface QuotaDetail {
-  auto_write_used: number;
-  auto_write_limit: number;
-  auto_revise_used: number;
-  auto_revise_limit: number;
-  max_chars_per_call: number;
-}
-
-export const getQuotaDetail = () =>
-  loggedInvoke<QuotaDetail>('get_quota_detail');
-
-export const checkAutoWriteQuota = (requestedChars: number) =>
-  loggedInvoke<QuotaCheckResult>('check_auto_write_quota', { requested_chars: requestedChars });
-
-export const checkAutoReviseQuota = (requestedChars: number) =>
-  loggedInvoke<QuotaCheckResult>('check_auto_revise_quota', { requested_chars: requestedChars });
 
 // ==================== 文思泉涌 ====================
 
@@ -995,151 +952,15 @@ export const evolveStyleFromAntiAiReview = (storyId: string, review: AntiAiRevie
 
 // ==================== v7.0.0: Pipeline 管线体系 ====================
 
-// --- Blueprint ---
-
-export const createBlueprint = (req: CreateBlueprintRequest) =>
-  loggedInvoke<Blueprint>('create_blueprint', { ...req });
-
-export const getStoryBlueprints = (storyId: string) =>
-  loggedInvoke<Blueprint[]>('get_story_blueprints', { story_id: storyId });
-
-export const getChapterBlueprint = (storyId: string, chapterNumber: number) =>
-  loggedInvoke<Blueprint | null>('get_chapter_blueprint', { story_id: storyId, chapter_number: chapterNumber });
-
-export const updateBlueprint = (blueprintId: string, req: UpdateBlueprintRequest) =>
-  loggedInvoke<number>('update_blueprint', { blueprint_id: blueprintId, ...req });
-
-export const deleteBlueprint = (blueprintId: string) =>
-  loggedInvoke<number>('delete_blueprint', { blueprint_id: blueprintId });
-
-// --- Draft ---
-
-export const createDraft = (params: {
-  story_id: string;
-  chapter_number: number;
-  version: number;
-  status: string;
-  source: string;
-  content: string;
-  word_count: number;
-  model_used?: string;
-  cost?: number;
-  metadata?: string;
-}) => loggedInvoke<Draft>('create_draft', params);
-
-export const getDraft = (draftId: string) =>
-  loggedInvoke<Draft | null>('get_draft', { draft_id: draftId });
+// --- Draft (保留前端查询) ---
 
 export const getStoryChapterDrafts = (storyId: string, chapterNumber: number) =>
   loggedInvoke<Draft[]>('get_story_chapter_drafts', { story_id: storyId, chapter_number: chapterNumber });
 
-export const getLatestDraft = (storyId: string, chapterNumber: number) =>
-  loggedInvoke<Draft | null>('get_latest_draft', { story_id: storyId, chapter_number: chapterNumber });
-
-export const getFinalizedDraft = (storyId: string, chapterNumber: number) =>
-  loggedInvoke<Draft | null>('get_finalized_draft', { story_id: storyId, chapter_number: chapterNumber });
-
-export const updateDraftStatus = (draftId: string, status: string) =>
-  loggedInvoke<number>('update_draft_status', { draft_id: draftId, status });
-
-export const updateDraftContent = (draftId: string, content: string, wordCount: number) =>
-  loggedInvoke<number>('update_draft_content', { draft_id: draftId, content, word_count: wordCount });
-
-export const deleteDraft = (draftId: string) =>
-  loggedInvoke<number>('delete_draft', { draft_id: draftId });
-
-// --- Revision ---
-
-export const createRevision = (params: {
-  story_id: string;
-  draft_id: string;
-  revision_index: number;
-  revision_type: string;
-  user_prompt?: string;
-  original_content: string;
-  revised_content: string;
-  word_count: number;
-  change_summary?: string;
-  model_used?: string;
-  cost?: number;
-  metadata?: string;
-}) => loggedInvoke<Revision>('create_revision', params);
-
-export const getDraftRevisions = (draftId: string) =>
-  loggedInvoke<Revision[]>('get_draft_revisions', { draft_id: draftId });
-
-export const getRevision = (revisionId: string) =>
-  loggedInvoke<Revision | null>('get_revision', { revision_id: revisionId });
-
-export const updateRevisionStatus = (revisionId: string, status: string) =>
-  loggedInvoke<number>('update_revision_status', { revision_id: revisionId, status });
-
-export const deleteRevision = (revisionId: string) =>
-  loggedInvoke<number>('delete_revision', { revision_id: revisionId });
-
-// --- Pipeline Review ---
-
-export const createPipelineReview = (params: {
-  story_id: string;
-  draft_id: string;
-  review_index: number;
-  content: string;
-  dimensions?: ReviewDimension[];
-  issues?: ReviewIssueItem[];
-  overall_score?: number;
-  review_focus?: string;
-  model_used?: string;
-  cost?: number;
-  metadata?: string;
-}) => loggedInvoke<PipelineReview>('create_pipeline_review', params);
-
-export const getDraftReviews = (draftId: string) =>
-  loggedInvoke<PipelineReview[]>('get_draft_reviews', { draft_id: draftId });
-
 export const getLatestPipelineReview = (draftId: string) =>
   loggedInvoke<PipelineReview | null>('get_latest_pipeline_review', { draft_id: draftId });
 
-export const deletePipelineReview = (reviewId: string) =>
-  loggedInvoke<number>('delete_pipeline_review', { review_id: reviewId });
-
-// --- Post Process ---
-
-export const createPostProcessRun = (params: {
-  story_id: string;
-  chapter_number: number;
-  source_label: string;
-  scope?: string;
-}) => loggedInvoke<PostProcessRun>('create_post_process_run', params);
-
-export const getPostProcessRun = (runId: string) =>
-  loggedInvoke<PostProcessRun | null>('get_post_process_run', { run_id: runId });
-
-export const getStoryChapterPostProcessRuns = (storyId: string, chapterNumber: number) =>
-  loggedInvoke<PostProcessRun[]>('get_story_chapter_post_process_runs', { story_id: storyId, chapter_number: chapterNumber });
-
-export const updatePostProcessRunStatus = (runId: string, status: string, errorMessage?: string) =>
-  loggedInvoke<number>('update_post_process_run_status', { run_id: runId, status, error_message: errorMessage });
-
-export const createPostProcessStep = (params: {
-  run_id: string;
-  step_key: string;
-  step_label: string;
-  critical: boolean;
-}) => loggedInvoke<PostProcessStep>('create_post_process_step', params);
-
-export const getPostProcessSteps = (runId: string) =>
-  loggedInvoke<PostProcessStep[]>('get_post_process_steps', { run_id: runId });
-
-export const updatePostProcessStepStatus = (stepId: string, status: string, logOutput?: string, errorMessage?: string) =>
-  loggedInvoke<number>('update_post_process_step_status', { step_id: stepId, status, log_output: logOutput, error_message: errorMessage });
-
-export const deletePostProcessRun = (runId: string) =>
-  loggedInvoke<number>('delete_post_process_run', { run_id: runId });
-
-// --- LLM Call ---
-
-export const recordLlmCall = (req: RecordLlmCallRequest, totalTokens: number, durationMs: number, promptPreview?: string, metadata?: string) =>
-  loggedInvoke<LlmCall>('record_llm_call', { ...req, total_tokens: totalTokens, duration_ms: durationMs, prompt_preview: promptPreview, metadata });
+// --- LLM Call (保留前端查询) ---
 
 export const getStoryLlmCalls = (storyId: string, limit: number) =>
   loggedInvoke<LlmCall[]>('get_story_llm_calls', { story_id: storyId, limit });
@@ -1188,12 +1009,6 @@ export const getPostProcessStatus = (runId: string) =>
 
 export const updateCharacterState = (characterId: string, state: CharacterState) =>
   loggedInvoke<number>('update_character_state', { character_id: characterId, state });
-
-export const batchUpdateCharacterStates = (updates: Array<{ character_id: string; state: CharacterState }>) =>
-  loggedInvoke<number>('batch_update_character_states', { updates: updates.map(u => [u.character_id, u.state]) });
-
-export const getCharacterState = (characterId: string) =>
-  loggedInvoke<CharacterState | null>('get_character_state', { character_id: characterId });
 
 // --- Genesis Pipeline (W3-F1) ---
 

@@ -1,4 +1,4 @@
-//! V3 架构 Tauri 命令
+//! Tauri 命令
 
 use crate::db::*;
 use crate::error::AppError;
@@ -31,11 +31,11 @@ pub async fn create_scene(
     app_handle: AppHandle,
     automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<Scene, AppError> {
-    log::info!("[commands_v3] {} called: story_id={}", "create_scene", story_id);
+    log::info!("[story_commands] {} called: story_id={}", "create_scene", story_id);
     let repo = SceneRepository::new(pool.inner().clone());
     let scene = repo.create(&story_id, sequence_number, title.as_deref())
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_scene", e);
+            log::error!("[story_commands] {} failed: {}", "create_scene", e);
             AppError::from(e)
 
         })?;
@@ -101,8 +101,6 @@ pub async fn create_scene(
     }
 
     let _ = crate::state_sync::StateSync::emit_scene_created(&app_handle, &story_id, &scene.id, scene.title.as_deref());
-
-    // v0.8.0: 触发自动化事件
     let _ = automation_service.trigger_event(
         crate::automation::triggers::TriggerEvent::SceneCreated {
             story_id: story_id.clone(),
@@ -141,13 +139,13 @@ pub async fn update_scene(
     app_handle: AppHandle,
     automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<usize, AppError> {
-    log::info!("[commands_v3] {} called: scene_id={}", "update_scene", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "update_scene", scene_id);
     let repo = SceneRepository::new(pool.inner().clone());
     // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id);
     let result = repo.update(&scene_id, &updates)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "update_scene", e);
+            log::error!("[story_commands] {} failed: {}", "update_scene", e);
             AppError::from(e)
 
         })?;
@@ -178,8 +176,6 @@ pub async fn update_scene(
                     let content_for_vector = content.clone();
                     let app_handle_for_sync = app_handle_clone.clone();
                     let llm_service = LlmService::new(app_handle_clone.clone());
-
-                    // v5.6.2 修复: 将 ingest 放在独立作用域中，避免 Box<dyn Error> 跨越 await 导致 Send 失败
                     let ingest_result = {
                         let pipeline = IngestPipeline::new(llm_service)
                             .with_pool(pool_clone.clone())
@@ -201,42 +197,38 @@ pub async fn update_scene(
 
                     if let Some(ingest_result) = ingest_result {
                         let kg_repo = KnowledgeGraphRepository::new(pool_clone.clone());
-                        let mut saved_entities = 0usize;
-                        let mut saved_relations = 0usize;
+                        // 批量保存实体（保留 Ingest Pipeline 分配的 ID，冲突时更新）
+                        let saved_entities = kg_repo.save_entities_batch(&ingest_result.entities).unwrap_or(0);
+                        let saved_relations = kg_repo.save_relations_batch(&ingest_result.relations).unwrap_or(0);
 
-                        // 保存实体
+                        // D1 Phase 4: 提取实体引用索引（entity_mentions）
+                        let mention_repo = crate::creative_engine::cascade_rewriter::EntityMentionRepository::new(pool_clone.clone());
+                        let _ = mention_repo.delete_by_scene(&scene_id_clone);
+                        let content_for_search = content_for_vector.clone();
+                        let now = chrono::Utc::now().to_rfc3339();
                         for entity in &ingest_result.entities {
-                            if let Ok(_) = kg_repo.create_entity(
-                                &story_id,
-                                &entity.name,
-                                &entity.entity_type.to_string(),
-                                &entity.attributes,
-                                entity.embedding.clone(),
-                            ) {
-                                saved_entities += 1;
-                            }
-                        }
-
-                        // 建立关系映射
-                        let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result.entities
-                            .iter()
-                            .map(|e| (e.name.clone(), e.id.clone()))
-                            .collect();
-
-                        for relation in &ingest_result.relations {
-                            if let (Some(source_id), Some(target_id)) = (
-                                entity_name_to_id.get(&relation.source_id),
-                                entity_name_to_id.get(&relation.target_id),
-                            ) {
-                                if let Ok(_) = kg_repo.create_relation(
-                                    &story_id,
-                                    source_id,
-                                    target_id,
-                                    &relation.relation_type.to_string(),
-                                    relation.strength,
-                                ) {
-                                    saved_relations += 1;
+                            let entity_name = &entity.name;
+                            let mut start = 0usize;
+                            while let Some(pos) = content_for_search[start..].find(entity_name) {
+                                let absolute_pos = start + pos;
+                                let end_pos = absolute_pos + entity_name.len();
+                                let mention = crate::creative_engine::cascade_rewriter::models::EntityMention {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    story_id: story_id.clone(),
+                                    scene_id: scene_id_clone.clone(),
+                                    entity_id: entity.id.clone(),
+                                    entity_type: entity.entity_type.to_string(),
+                                    start_pos: absolute_pos as i32,
+                                    end_pos: end_pos as i32,
+                                    mention_text: entity_name.clone(),
+                                    confidence: 1.0,
+                                    created_at: now.clone(),
+                                    updated_at: now.clone(),
+                                };
+                                if let Err(e) = mention_repo.create(&mention) {
+                                    log::warn!("[AutoIngest] Failed to create entity mention for {} in scene {}: {}", entity_name, scene_id_clone, e);
                                 }
+                                start = end_pos;
                             }
                         }
 
@@ -246,16 +238,12 @@ pub async fn update_scene(
                             saved_entities,
                             saved_relations
                         );
-
-                        // v5.6.4 修复: Scene Ingest 完成后发射同步事件，确保幕后知识图谱自动刷新
                         let _ = crate::state_sync::StateSync::emit_ingestion_completed(
                             &app_handle_for_sync, &story_id, "scene"
                         );
                         let _ = crate::state_sync::StateSync::emit_data_refresh(
                             &app_handle_for_sync, Some(&story_id), "knowledgeGraph"
                         );
-
-                        // v5.6.2 修复: Scene 更新后同步写入向量存储，支持语义搜索
                         if let Some(store) = crate::VECTOR_STORE.get() {
                             match crate::embeddings::embed_text_async(content_for_vector.clone()).await {
                                 Ok(embedding) => {
@@ -290,8 +278,6 @@ pub async fn update_scene(
             let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
         }
         let _ = crate::state_sync::StateSync::emit_scene_updated(&app_handle, story_id, &scene_id, updates.title.as_deref());
-
-        // v0.8.0: 触发自动化事件
         let word_count = updates.content.as_ref().map(|c| c.split_whitespace().count()).unwrap_or(0);
         let _ = automation_service.trigger_event(
             crate::automation::triggers::TriggerEvent::SceneContentUpdated {
@@ -310,12 +296,12 @@ pub async fn delete_scene(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
-    log::info!("[commands_v3] {} called: scene_id={}", "delete_scene", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "delete_scene", scene_id);
     let repo = SceneRepository::new(pool.inner().clone());
     let story_id = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id);
     let result = repo.delete(&scene_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "delete_scene", e);
+            log::error!("[story_commands] {} failed: {}", "delete_scene", e);
             AppError::from(e)
 
         })?;
@@ -354,14 +340,15 @@ pub async fn create_world_building(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<WorldBuilding, AppError> {
-    log::info!("[commands_v3] {} called: story_id={}", "create_world_building", story_id);
+    log::info!("[story_commands] {} called: story_id={}", "create_world_building", story_id);
     let repo = WorldBuildingRepository::new(pool.inner().clone());
     let wb = repo.create(&story_id, &concept)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_world_building", e);
+            log::error!("[story_commands] {} failed: {}", "create_world_building", e);
             AppError::from(e)
 
         })?;
+    let _ = crate::state_sync::StateSync::emit_world_building_created(&app_handle, &story_id, &wb.id);
     let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
     Ok(wb)
 }
@@ -386,35 +373,124 @@ pub async fn update_world_building(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
-    log::info!("[commands_v3] {} called: id={}", "update_world_building", id);
+    log::info!("[story_commands] {} called: id={}", "update_world_building", id);
     let repo = WorldBuildingRepository::new(pool.inner().clone());
+    let old_wb = repo.get_by_id(&id).ok().flatten();
     let result = repo.update(&id, concept.as_deref(), rules.as_deref(), history.as_deref(), cultures.as_deref())
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "update_world_building", e);
+            log::error!("[story_commands] {} failed: {}", "update_world_building", e);
             AppError::from(e)
 
         })?;
 
     // OnWorldBuildingUpdate hook
-    let story_id_for_sync = pool.inner().get().ok().and_then(|c| {
-        c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
-            row.get::<_, String>(0)
-        }).ok()
-    });
+    let story_id_for_sync = old_wb.as_ref().map(|wb| wb.story_id.clone())
+        .or_else(|| pool.inner().get().ok().and_then(|c| {
+            c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
+                row.get::<_, String>(0)
+            }).ok()
+        }));
     if let Some(ref story_id) = story_id_for_sync {
         let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
-    if let Some(story_id) = story_id_for_sync {
+    if let Some(story_id) = story_id_for_sync.clone() {
         if let Some(manager) = crate::SKILL_MANAGER.get() {
             if let Ok(skill_manager) = manager.lock() {
                 let world_building_id = id.clone();
                 let skill_manager = skill_manager.clone();
+                let story_id_for_hook = story_id.clone();
                 tauri::async_runtime::spawn(async move {
-                    let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                    let context = crate::agents::AgentContext::minimal(story_id_for_hook, String::new());
                     let data = serde_json::json!({ "world_building_id": world_building_id });
                     let _ = skill_manager.execute_hooks(crate::skills::HookEvent::OnWorldBuildingUpdate, &context, data).await;
                     log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnWorldBuildingUpdate);
                 });
+            }
+        }
+
+        // D1 Phase 4: 世界观敏感字段变更触发级联改写
+        if let Some(ref old) = old_wb {
+            let mut changed_fields = Vec::new();
+            let mut before_map = serde_json::Map::new();
+            let mut after_map = serde_json::Map::new();
+
+            if let Some(ref new_val) = concept {
+                if &old.concept != new_val {
+                    changed_fields.push("concept".to_string());
+                    before_map.insert("concept".to_string(), serde_json::json!(old.concept));
+                    after_map.insert("concept".to_string(), serde_json::json!(new_val));
+                }
+            }
+            if let Some(ref new_val) = history {
+                if old.history.as_ref() != Some(new_val) {
+                    changed_fields.push("history".to_string());
+                    before_map.insert("history".to_string(), serde_json::json!(old.history));
+                    after_map.insert("history".to_string(), serde_json::json!(new_val));
+                }
+            }
+            if let Some(ref new_val) = rules {
+                let old_rules_json = serde_json::to_string(&old.rules).unwrap_or_default();
+                let new_rules_json = serde_json::to_string(new_val).unwrap_or_default();
+                if old_rules_json != new_rules_json {
+                    changed_fields.push("rules".to_string());
+                    before_map.insert("rules".to_string(), serde_json::json!(old.rules));
+                    after_map.insert("rules".to_string(), serde_json::json!(new_val));
+                }
+            }
+            if let Some(ref new_val) = cultures {
+                let old_cultures_json = serde_json::to_string(&old.cultures).unwrap_or_default();
+                let new_cultures_json = serde_json::to_string(new_val).unwrap_or_default();
+                if old_cultures_json != new_cultures_json {
+                    changed_fields.push("cultures".to_string());
+                    before_map.insert("cultures".to_string(), serde_json::json!(old.cultures));
+                    after_map.insert("cultures".to_string(), serde_json::json!(new_val));
+                }
+            }
+
+            if !changed_fields.is_empty() {
+                before_map.insert("id".to_string(), serde_json::json!(old.id));
+                after_map.insert("id".to_string(), serde_json::json!(old.id));
+
+                let before_json = serde_json::to_string(&before_map).unwrap_or_default();
+                let after_json = serde_json::to_string(&after_map).unwrap_or_default();
+
+                let change_event = crate::creative_engine::cascade_rewriter::models::EntityChangeEvent {
+                    story_id: story_id.clone(),
+                    entity_id: id.clone(),
+                    entity_type: "world_building".to_string(),
+                    entity_name: old.concept.clone(),
+                    change_type: crate::creative_engine::cascade_rewriter::models::ChangeType::AttributeModified,
+                    before_json,
+                    after_json,
+                    changed_fields,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                };
+
+                let payload = crate::creative_engine::cascade_rewriter::models::CascadeTaskPayload {
+                    story_id: story_id.clone(),
+                    change_events: vec![change_event],
+                };
+
+                let payload_json = serde_json::to_string(&payload).unwrap_or_default();
+
+                let req = crate::task_system::models::CreateTaskRequest {
+                    name: format!("级联改写: {}", old.concept),
+                    description: Some(format!("因世界观 {} 的设定变更触发的场景级联改写", old.concept)),
+                    task_type: "cascade_rewrite".to_string(),
+                    schedule_type: "once".to_string(),
+                    cron_pattern: None,
+                    payload: Some(payload_json),
+                    enabled: Some(true),
+                    max_retries: Some(3),
+                    heartbeat_timeout_seconds: Some(300),
+                };
+
+                if let Some(task_service) = app_handle.try_state::<crate::task_system::service::TaskService>() {
+                    match task_service.create_task(req) {
+                        Ok(task) => log::info!("[CascadeRewrite] Created task {} for world_building {}", task.id, id),
+                        Err(e) => log::warn!("[CascadeRewrite] Failed to create task for world_building {}: {}", id, e),
+                    }
+                }
             }
         }
     }
@@ -428,7 +504,7 @@ pub async fn delete_world_building(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<usize, AppError> {
-    log::info!("[commands_v3] {} called: id={}", "delete_world_building", id);
+    log::info!("[story_commands] {} called: id={}", "delete_world_building", id);
     let repo = WorldBuildingRepository::new(pool.inner().clone());
     // 先查询 story_id 用于同步事件（删除后无法获取）
     let story_id_opt = pool.inner().get().ok().and_then(|c| {
@@ -437,10 +513,11 @@ pub async fn delete_world_building(
         }).ok()
     });
     let result = repo.delete(&id).map_err(|e| {
-        log::error!("[commands_v3] {} failed: {}", "delete_world_building", e);
+        log::error!("[story_commands] {} failed: {}", "delete_world_building", e);
         e.to_string()
     })?;
     if let Some(ref story_id) = story_id_opt {
+        let _ = crate::state_sync::StateSync::emit_world_building_deleted(&app_handle, story_id, &id);
         let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
     Ok(result)
@@ -574,16 +651,15 @@ pub async fn create_entity(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<Entity, AppError> {
-    log::info!("[commands_v3] {} called: story_id={}, name={}, entity_type={}", "create_entity", story_id, name, entity_type);
+    log::info!("[story_commands] {} called: story_id={}, name={}, entity_type={}", "create_entity", story_id, name, entity_type);
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     // EVENT_REQUIRED
     let result = repo.create_entity(&story_id, &name, &entity_type, &attributes, None)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_entity", e);
+            log::error!("[story_commands] {} failed: {}", "create_entity", e);
             AppError::from(e)
 
         })?;
-    // v5.6.4 修复: KG 实体创建后发射同步事件，确保前端图谱自动刷新
     let _ = crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
     Ok(result)
 }
@@ -599,11 +675,11 @@ pub async fn update_entity(
     use crate::embeddings::{embed_entity_async, EntityEmbeddingRequest};
     use std::collections::HashMap;
 
-    log::info!("[commands_v3] {} called: entity_id={}", "update_entity", entity_id);
+    log::info!("[story_commands] {} called: entity_id={}", "update_entity", entity_id);
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     let existing = repo.get_entity_by_id(&entity_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "update_entity", e);
+            log::error!("[story_commands] {} failed: {}", "update_entity", e);
             AppError::from(e)
 
         })?
@@ -703,15 +779,17 @@ pub async fn create_scene_annotation(
     content: String,
     annotation_type: String,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<SceneAnnotation, AppError> {
-    log::info!("[commands_v3] {} called: scene_id={}", "create_scene_annotation", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "create_scene_annotation", scene_id);
     let repo = SceneAnnotationRepository::new(pool.inner().clone());
-    repo.create_annotation(&scene_id, &story_id, &content, &annotation_type)
+    let annotation = repo.create_annotation(&scene_id, &story_id, &content, &annotation_type)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_scene_annotation", e);
+            log::error!("[story_commands] {} failed: {}", "create_scene_annotation", e);
             AppError::from(e)
-
-        })
+        })?;
+    let _ = crate::state_sync::StateSync::emit_annotation_created(&app_handle, &story_id, &annotation.id, &scene_id);
+    Ok(annotation)
 }
 
 #[command(rename_all = "snake_case")]
@@ -749,10 +827,28 @@ pub async fn update_scene_annotation(
 pub async fn resolve_scene_annotation(
     annotation_id: String,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<usize, AppError> {
     let repo = SceneAnnotationRepository::new(pool.inner().clone());
-    repo.resolve_annotation(&annotation_id)
-        .map_err(AppError::from)
+    // 先查询 story_id 和 scene_id 用于同步事件
+    let meta_opt = pool.inner().get().ok().and_then(|c| {
+        c.query_row(
+            "SELECT story_id, scene_id FROM scene_annotations WHERE id = ?",
+            [&annotation_id],
+            |row| {
+                let story_id: String = row.get(0)?;
+                let scene_id: String = row.get(1)?;
+                Ok((story_id, scene_id))
+            },
+        )
+        .ok()
+    });
+    let result = repo.resolve_annotation(&annotation_id).map_err(AppError::from)?;
+    if let Some((story_id, scene_id)) = meta_opt {
+        let _ = crate::state_sync::StateSync::emit_annotation_resolved(
+            &app_handle, &story_id, &annotation_id, &scene_id);
+    }
+    Ok(result)
 }
 
 #[command(rename_all = "snake_case")]
@@ -788,11 +884,11 @@ pub async fn create_text_annotation(
     to_pos: i32,
     pool: State<'_, DbPool>,
 ) -> Result<TextAnnotation, AppError> {
-    log::info!("[commands_v3] {} called: story_id={}, scene_id={:?}, chapter_id={:?}", "create_text_annotation", story_id, scene_id, chapter_id);
+    log::info!("[story_commands] {} called: story_id={}, scene_id={:?}, chapter_id={:?}", "create_text_annotation", story_id, scene_id, chapter_id);
     let repo = TextAnnotationRepository::new(pool.inner().clone());
     repo.create_annotation(&story_id, scene_id.as_deref(), chapter_id.as_deref(), &content, &annotation_type, from_pos, to_pos)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_text_annotation", e);
+            log::error!("[story_commands] {} failed: {}", "create_text_annotation", e);
             AppError::from(e)
 
         })
@@ -872,38 +968,31 @@ pub async fn generate_paragraph_commentaries(
     use crate::agents::AgentContext;
     use crate::agents::commentator::CommentatorAgent;
 
-    log::info!("[commands_v3] {} called: story_id={}", "generate_paragraph_commentaries", story_id);
-    let context = AgentContext {
-        story_id,
-        story_title,
-        genre,
-        tone: "中性".to_string(),
-        pacing: "正常".to_string(),
-        chapter_number: 1,
-        characters: vec![],
-        previous_chapters: vec![],
-        current_content: None,
-        selected_text: None,
-        world_rules: None,
-        scene_structure: None,
-        methodology_id: None,
-        methodology_step: None,
-        style_dna_id: None,
-        style_blend: None,
-        memory_pack: None,
+    log::info!("[story_commands] {} called: story_id={}", "generate_paragraph_commentaries", story_id);
+    let pool = app_handle.state::<crate::db::DbPool>();
+    let builder = crate::creative_engine::StoryContextBuilder::new(pool.inner().clone());
+    let mut context = match builder.build_quick(&story_id) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            log::warn!("[story_commands] StoryContextBuilder failed: {}, falling back to minimal", e);
+            AgentContext::minimal(story_id.clone(), String::new())
+        }
     };
+    // 覆盖从数据库读取的标题/题材（调用方可能传入覆盖值）
+    context.story_title = story_title;
+    context.genre = genre;
 
     let llm_service = LlmService::new(app_handle);
     let agent = CommentatorAgent::new(llm_service);
     let commentaries = agent.comment_on_text(&context, &text).await
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "generate_paragraph_commentaries", e);
+            log::error!("[story_commands] {} failed: {}", "generate_paragraph_commentaries", e);
             AppError::from(e)
 
         })?;
 
     serde_json::to_string(&commentaries).map_err(|e| {
-        log::error!("[commands_v3] {} serialization failed: {}", "generate_paragraph_commentaries", e);
+        log::error!("[story_commands] {} serialization failed: {}", "generate_paragraph_commentaries", e);
         AppError::from(e)
     })
 }
@@ -921,7 +1010,7 @@ pub async fn compress_content(
     use crate::agents::commands::ExecuteAgentRequest;
     use std::collections::HashMap;
 
-    log::info!("[commands_v3] {} called: story_id={}", "compress_content", story_id);
+    log::info!("[story_commands] {} called: story_id={}", "compress_content", story_id);
     let parameters = target_ratio.map(|r| {
         let mut map = HashMap::new();
         map.insert("target_ratio".to_string(), serde_json::json!(r));
@@ -948,7 +1037,7 @@ pub async fn compress_content(
 
     let service = AgentService::new(app_handle);
     service.execute_task(task).await.map_err(|e| {
-        log::error!("[commands_v3] {} failed: {}", "compress_content", e);
+        log::error!("[story_commands] {} failed: {}", "compress_content", e);
         e
     })
 }
@@ -965,11 +1054,11 @@ pub async fn compress_scene(
     use crate::db::repositories_v3::SceneRepository;
     use std::collections::HashMap;
 
-    log::info!("[commands_v3] {} called: scene_id={}", "compress_scene", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "compress_scene", scene_id);
     let scene_repo = SceneRepository::new(pool.inner().clone());
     let scene = scene_repo.get_by_id(&scene_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} scene lookup failed: {}", "compress_scene", e);
+            log::error!("[story_commands] {} scene lookup failed: {}", "compress_scene", e);
             AppError::from(e)
 
         })?
@@ -1006,7 +1095,7 @@ pub async fn compress_scene(
 
     let service = AgentService::new(app_handle);
     service.execute_task(task).await.map_err(|e| {
-        log::error!("[commands_v3] {} failed: {}", "compress_scene", e);
+        log::error!("[story_commands] {} failed: {}", "compress_scene", e);
         e
     })
 }
@@ -1023,17 +1112,17 @@ pub async fn distill_story_knowledge(
     use crate::agents::commands::ExecuteAgentRequest;
     use crate::db::repositories_v3::{KnowledgeGraphRepository, StorySummaryRepository};
 
-    log::info!("[commands_v3] {} called: story_id={}", "distill_story_knowledge", story_id);
+    log::info!("[story_commands] {} called: story_id={}", "distill_story_knowledge", story_id);
     let kg_repo = KnowledgeGraphRepository::new(pool.inner().clone());
     let entities = kg_repo.get_entities_by_story(&story_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} entity query failed: {}", "distill_story_knowledge", e);
+            log::error!("[story_commands] {} entity query failed: {}", "distill_story_knowledge", e);
             AppError::from(e)
 
         })?;
     let relations = kg_repo.get_relations_by_story(&story_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} relation query failed: {}", "distill_story_knowledge", e);
+            log::error!("[story_commands] {} relation query failed: {}", "distill_story_knowledge", e);
             AppError::from(e)
 
         })?;
@@ -1081,10 +1170,10 @@ pub async fn distill_story_knowledge(
 
     let service = AgentService::new(app_handle);
     let result = service.execute_task(task).await.map_err(|e| {
-        log::error!("[commands_v3] {} LLM task failed: {}", "distill_story_knowledge", e);
+        log::error!("[story_commands] {} LLM task failed: {}", "distill_story_knowledge", e);
         e
     })?;
-    log::info!("[commands_v3] {} LLM task completed", "distill_story_knowledge");
+    log::info!("[story_commands] {} LLM task completed", "distill_story_knowledge");
 
     let summary_repo = StorySummaryRepository::new(pool.inner().clone());
     // 如果已存在同类型摘要，则更新；否则创建
@@ -1305,22 +1394,22 @@ pub async fn create_story_with_wizard(
     automation_service: State<'_, crate::automation::service::AutomationService>,
 ) -> Result<WizardCreationResult, AppError> {
     // 1. 创建故事
-    log::info!("[commands_v3] {} called: title={}", "create_story_with_wizard", title);
+    log::info!("[story_commands] {} called: title={}", "create_story_with_wizard", title);
     let story_repo = StoryRepository::new(pool.inner().clone());
     let story = story_repo.create(CreateStoryRequest { title, description, genre, style_dna_id: None })
         .map_err(|e| {
-            log::error!("[commands_v3] {} story creation failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} story creation failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?;
     let story_id = story.id.clone();
-    log::info!("[commands_v3] {} step 1 completed: story_id={}", "create_story_with_wizard", story_id);
+    log::info!("[story_commands] {} step 1 completed: story_id={}", "create_story_with_wizard", story_id);
     
     // 2. 创建世界观
     let wb_repo = WorldBuildingRepository::new(pool.inner().clone());
     let wb = wb_repo.create(&story_id, &world_building.concept)
         .map_err(|e| {
-            log::error!("[commands_v3] {} world building creation failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} world building creation failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?;
@@ -1330,10 +1419,10 @@ pub async fn create_story_with_wizard(
         Some(&world_building.history),
         Some(&world_building.cultures)
     ).map_err(|e| {
-        log::error!("[commands_v3] {} world building update failed: {}", "create_story_with_wizard", e);
+        log::error!("[story_commands] {} world building update failed: {}", "create_story_with_wizard", e);
         e.to_string()
     })?;
-    log::info!("[commands_v3] {} step 2 completed", "create_story_with_wizard");
+    log::info!("[story_commands] {} step 2 completed", "create_story_with_wizard");
     
     // 3. 创建角色
     let char_repo = CharacterRepository::new(pool.inner().clone());
@@ -1353,13 +1442,13 @@ pub async fn create_story_with_wizard(
         
         created_chars.push(char);
     }
-    log::info!("[commands_v3] {} step 3 completed: {} characters", "create_story_with_wizard", created_chars.len());
+    log::info!("[story_commands] {} step 3 completed: {} characters", "create_story_with_wizard", created_chars.len());
     
     // 4. 创建文字风格
     let ws_repo = WritingStyleRepository::new(pool.inner().clone());
     let ws = ws_repo.create(&story_id, Some(&writing_style.name))
         .map_err(|e| {
-            log::error!("[commands_v3] {} writing style creation failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} writing style creation failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?;
@@ -1374,20 +1463,20 @@ pub async fn create_story_with_wizard(
         custom_rules: Some(vec![]),
     };
     ws_repo.update(&ws.id, &ws_update).map_err(|e| {
-        log::error!("[commands_v3] {} writing style update failed: {}", "create_story_with_wizard", e);
+        log::error!("[story_commands] {} writing style update failed: {}", "create_story_with_wizard", e);
         e.to_string()
     })?;
-    log::info!("[commands_v3] {} step 4 completed", "create_story_with_wizard");
+    log::info!("[story_commands] {} step 4 completed", "create_story_with_wizard");
     
     // 5. 创建首个场景
     let scene_repo = SceneRepository::new(pool.inner().clone());
     let scene = scene_repo.create(&story_id, 1, Some(&first_scene.title))
         .map_err(|e| {
-            log::error!("[commands_v3] {} scene creation failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} scene creation failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?;
-    log::info!("[commands_v3] {} step 5 completed: scene_id={}", "create_story_with_wizard", scene.id);
+    log::info!("[story_commands] {} step 5 completed: scene_id={}", "create_story_with_wizard", scene.id);
     
     let conflict_type = first_scene.conflict_type.parse().ok();
     let char_ids: Vec<String> = created_chars.iter().map(|c| c.id.clone()).collect();
@@ -1433,11 +1522,11 @@ pub async fn create_story_with_wizard(
     
     let ingest_result = pipeline.ingest(&ingest_content).await
         .map_err(|e| {
-            log::error!("[commands_v3] {} ingest failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} ingest failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?;
-    log::info!("[commands_v3] {} step 6 completed: {} entities, {} relations", "create_story_with_wizard", ingest_result.entities.len(), ingest_result.relations.len());
+    log::info!("[story_commands] {} step 6 completed: {} entities, {} relations", "create_story_with_wizard", ingest_result.entities.len(), ingest_result.relations.len());
     
     // 保存 Ingest 结果到知识图谱
     let kg_repo = KnowledgeGraphRepository::new(pool.inner().clone());
@@ -1447,7 +1536,7 @@ pub async fn create_story_with_wizard(
     for entity in &ingest_result.entities {
         kg_repo.create_entity(&story_id, &entity.name, &entity.entity_type.to_string(), &entity.attributes, entity.embedding.clone())
             .map_err(|e| {
-                log::error!("[commands_v3] {} KG entity save failed: {}", "create_story_with_wizard", e);
+                log::error!("[story_commands] {} KG entity save failed: {}", "create_story_with_wizard", e);
                 AppError::from(e)
 
             })?;
@@ -1464,7 +1553,7 @@ pub async fn create_story_with_wizard(
         if let (Some(source_id), Some(target_id)) = (entity_name_to_id.get(&relation.source_id), entity_name_to_id.get(&relation.target_id)) {
             kg_repo.create_relation(&story_id, source_id, target_id, &relation.relation_type.to_string(), relation.strength)
                 .map_err(|e| {
-                    log::error!("[commands_v3] {} KG relation save failed: {}", "create_story_with_wizard", e);
+                    log::error!("[story_commands] {} KG relation save failed: {}", "create_story_with_wizard", e);
                     AppError::from(e)
 
                 })?;
@@ -1475,7 +1564,7 @@ pub async fn create_story_with_wizard(
     // 重新获取完整的世界观（因为 update 返回的是 usize）
     let final_wb = wb_repo.get_by_story(&story_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} final WB query failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} final WB query failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?
@@ -1483,13 +1572,13 @@ pub async fn create_story_with_wizard(
     
     let final_ws = ws_repo.get_by_story(&story_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} final WS query failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} final WS query failed: {}", "create_story_with_wizard", e);
             AppError::from(e)
 
         })?
         .ok_or("Writing style not found")?;
     
-    log::info!("[commands_v3] {} completed successfully", "create_story_with_wizard");
+    log::info!("[story_commands] {} completed successfully", "create_story_with_wizard");
 
     // P0-2 修复: 发射同步事件，确保幕后界面自动刷新新创建的内容
     let _ = crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, &story.title);
@@ -1499,7 +1588,7 @@ pub async fn create_story_with_wizard(
     if let Err(e) = automation_service.trigger_event(crate::automation::triggers::TriggerEvent::StoryCreated {
         story_id: story_id.clone()
     }).await {
-        log::warn!("[commands_v3] Failed to trigger story created automation: {}", e);
+        log::warn!("[story_commands] Failed to trigger story created automation: {}", e);
     }
 
     // 触发自动化事件：角色创建完成（为每个创建的角色）
@@ -1508,7 +1597,7 @@ pub async fn create_story_with_wizard(
             story_id: story_id.clone(),
             character_id: character.id.clone()
         }).await {
-            log::warn!("[commands_v3] Failed to trigger character created automation for {}: {}", character.id, e);
+            log::warn!("[story_commands] Failed to trigger character created automation for {}: {}", character.id, e);
         }
     }
     
@@ -1517,7 +1606,7 @@ pub async fn create_story_with_wizard(
         world_building: final_wb,
         writing_style: final_ws,
         first_scene: scene_repo.get_by_id(&scene.id).map_err(|e| {
-            log::error!("[commands_v3] {} final scene query failed: {}", "create_story_with_wizard", e);
+            log::error!("[story_commands] {} final scene query failed: {}", "create_story_with_wizard", e);
             e.to_string()
         })?.ok_or("Scene not found")?,
         characters: created_chars,
@@ -1795,7 +1884,7 @@ pub async fn track_change(
     use crate::db::models_v3::{ChangeTrack, ChangeType};
     use crate::db::repositories_v3::ChangeTrackRepository;
 
-    log::info!("[commands_v3] {} called: scene_id={:?}, chapter_id={:?}", "track_change", scene_id, chapter_id);
+    log::info!("[story_commands] {} called: scene_id={:?}, chapter_id={:?}", "track_change", scene_id, chapter_id);
     let ct = match change_type.as_str() {
         "Delete" => ChangeType::Delete,
         "Format" => ChangeType::Format,
@@ -1815,7 +1904,7 @@ pub async fn track_change(
     let repo = ChangeTrackRepository::new(pool.inner().clone());
     repo.create(&track)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "track_change", e);
+            log::error!("[story_commands] {} failed: {}", "track_change", e);
             AppError::from(e)
 
         })
@@ -1829,11 +1918,11 @@ pub async fn accept_change(
     use crate::db::models_v3::ChangeStatus;
     use crate::db::repositories_v3::ChangeTrackRepository;
 
-    log::info!("[commands_v3] {} called: change_id={}", "accept_change", change_id);
+    log::info!("[story_commands] {} called: change_id={}", "accept_change", change_id);
     let repo = ChangeTrackRepository::new(pool.inner().clone());
     let result = repo.update_status(&change_id, ChangeStatus::Accepted)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "accept_change", e);
+            log::error!("[story_commands] {} failed: {}", "accept_change", e);
             AppError::from(e)
 
         })?;
@@ -1856,11 +1945,11 @@ pub async fn reject_change(
     use crate::db::models_v3::ChangeStatus;
     use crate::db::repositories_v3::ChangeTrackRepository;
 
-    log::info!("[commands_v3] {} called: change_id={}", "reject_change", change_id);
+    log::info!("[story_commands] {} called: change_id={}", "reject_change", change_id);
     let repo = ChangeTrackRepository::new(pool.inner().clone());
     let result = repo.update_status(&change_id, ChangeStatus::Rejected)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "reject_change", e);
+            log::error!("[story_commands] {} failed: {}", "reject_change", e);
             AppError::from(e)
 
         })?;
@@ -1966,7 +2055,7 @@ pub async fn create_comment_thread(
     use crate::db::models_v3::{CommentThread, AnchorType};
     use crate::db::repositories_v3::CommentThreadRepository;
 
-    log::info!("[commands_v3] {} called: scene_id={:?}, chapter_id={:?}", "create_comment_thread", scene_id, chapter_id);
+    log::info!("[story_commands] {} called: scene_id={:?}, chapter_id={:?}", "create_comment_thread", scene_id, chapter_id);
     let at = match anchor_type.as_str() {
         "SceneLevel" => AnchorType::SceneLevel,
         _ => AnchorType::TextRange,
@@ -1985,7 +2074,7 @@ pub async fn create_comment_thread(
     let repo = CommentThreadRepository::new(pool.inner().clone());
     repo.create_thread(&thread)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_comment_thread", e);
+            log::error!("[story_commands] {} failed: {}", "create_comment_thread", e);
             AppError::from(e)
 
         })
@@ -2003,7 +2092,7 @@ pub async fn add_comment_message(
     use chrono::Local;
     use uuid::Uuid;
 
-    log::info!("[commands_v3] {} called: thread_id={}", "add_comment_message", thread_id);
+    log::info!("[story_commands] {} called: thread_id={}", "add_comment_message", thread_id);
     let message = CommentMessage {
         id: Uuid::new_v4().to_string(),
         thread_id,
@@ -2016,7 +2105,7 @@ pub async fn add_comment_message(
     let repo = CommentThreadRepository::new(pool.inner().clone());
     repo.add_message(&message)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "add_comment_message", e);
+            log::error!("[story_commands] {} failed: {}", "add_comment_message", e);
             AppError::from(e)
 
         })
@@ -2090,7 +2179,7 @@ pub async fn run_creation_workflow(
     use crate::creative_engine::workflow::{CreationWorkflowEngine, CreationMode};
     use crate::agents::service::AgentService;
 
-    log::info!("[commands_v3] {} called: story_id={}, mode={}", "run_creation_workflow", story_id, mode);
+    log::info!("[story_commands] {} called: story_id={}, mode={}", "run_creation_workflow", story_id, mode);
     let mode = match mode.as_str() {
         "ai_only" => CreationMode::AiOnly,
         "human_first" | "human_draft_ai_polish" => CreationMode::HumanDraftAiPolish,
@@ -2103,7 +2192,7 @@ pub async fn run_creation_workflow(
 
     match engine.execute_full_workflow(&config, &initial_input).await {
         Ok(result) => {
-            log::info!("[commands_v3] {} completed: success={}", "run_creation_workflow", result.success);
+            log::info!("[story_commands] {} completed: success={}", "run_creation_workflow", result.success);
             let json = serde_json::json!({
                 "success": result.success,
                 "current_phase": result.current_phase,
@@ -2115,7 +2204,7 @@ pub async fn run_creation_workflow(
             Ok(json)
         }
         Err(e) => {
-            log::error!("[commands_v3] {} failed: {}", "run_creation_workflow", e);
+            log::error!("[story_commands] {} failed: {}", "run_creation_workflow", e);
             Err(e)
         }
     }
@@ -2238,11 +2327,11 @@ pub async fn create_foreshadowing(
     app_handle: AppHandle,
 ) -> Result<String, AppError> {
     use crate::creative_engine::foreshadowing::ForeshadowingTracker;
-    log::info!("[commands_v3] {} called: story_id={}", "create_foreshadowing", story_id);
+    log::info!("[story_commands] {} called: story_id={}", "create_foreshadowing", story_id);
     let tracker = ForeshadowingTracker::new(pool.inner().clone());
     let result = tracker.add_foreshadowing(&story_id, &content, setup_scene_id.as_deref(), importance)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "create_foreshadowing", e);
+            log::error!("[story_commands] {} failed: {}", "create_foreshadowing", e);
             AppError::from(e)
 
         });
@@ -2429,11 +2518,11 @@ pub async fn generate_scene_outline(
     use crate::db::repositories_v3::SceneRepository;
     use std::collections::HashMap;
 
-    log::info!("[commands_v3] {} called: scene_id={}", "generate_scene_outline", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "generate_scene_outline", scene_id);
     let scene_repo = SceneRepository::new(pool.inner().clone());
     let scene = scene_repo.get_by_id(&scene_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} scene lookup failed: {}", "generate_scene_outline", e);
+            log::error!("[story_commands] {} scene lookup failed: {}", "generate_scene_outline", e);
             AppError::from(e)
 
         })?
@@ -2480,10 +2569,10 @@ pub async fn generate_scene_outline(
 
     let service = AgentService::new(app_handle);
     let result = service.execute_task(task).await.map_err(|e| {
-        log::error!("[commands_v3] {} LLM task failed: {}", "generate_scene_outline", e);
+        log::error!("[story_commands] {} LLM task failed: {}", "generate_scene_outline", e);
         e
     })?;
-    log::info!("[commands_v3] {} completed successfully", "generate_scene_outline");
+    log::info!("[story_commands] {} completed successfully", "generate_scene_outline");
 
     // 保存大纲到数据库
     let _ = scene_repo.update(&scene_id, &crate::db::repositories_v3::SceneUpdate {
@@ -2506,11 +2595,11 @@ pub async fn generate_scene_draft(
     use crate::db::repositories_v3::SceneRepository;
     use std::collections::HashMap;
 
-    log::info!("[commands_v3] {} called: scene_id={}", "generate_scene_draft", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "generate_scene_draft", scene_id);
     let scene_repo = SceneRepository::new(pool.inner().clone());
     let scene = scene_repo.get_by_id(&scene_id)
         .map_err(|e| {
-            log::error!("[commands_v3] {} scene lookup failed: {}", "generate_scene_draft", e);
+            log::error!("[story_commands] {} scene lookup failed: {}", "generate_scene_draft", e);
             AppError::from(e)
 
         })?
@@ -2568,10 +2657,10 @@ pub async fn generate_scene_draft(
         app_handle.clone(),
     );
     let workflow_result = orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await.map_err(|e| {
-        log::error!("[commands_v3] {} LLM task failed: {}", "generate_scene_draft", e);
+        log::error!("[story_commands] {} LLM task failed: {}", "generate_scene_draft", e);
         e
     })?;
-    log::info!("[commands_v3] {} completed successfully", "generate_scene_draft");
+    log::info!("[story_commands] {} completed successfully", "generate_scene_draft");
 
     // 保存草稿到数据库
     let _ = scene_repo.update(&scene_id, &crate::db::repositories_v3::SceneUpdate {
@@ -2591,7 +2680,7 @@ pub async fn generate_scene_draft(
 }
 
 
-// ==================== 风格混合命令 (v4.4.0 - 3风格三角框架) ====================
+// ==================== 风格混合命令 ====================
 
 #[command(rename_all = "snake_case")]
 pub async fn get_story_style_blend(
@@ -2629,7 +2718,7 @@ pub async fn set_story_style_blend(
     use crate::db::repositories_v3::StoryStyleConfigRepository;
     use crate::creative_engine::style::blend::StyleBlendConfig;
 
-    log::info!("[commands_v3] {} called: story_id={}, name={}", "set_story_style_blend", story_id, name);
+    log::info!("[story_commands] {} called: story_id={}, name={}", "set_story_style_blend", story_id, name);
     // 验证 JSON 格式
     let blend: StyleBlendConfig = serde_json::from_str(&blend_json)
         .map_err(|e| format!("混合配置格式错误: {}", e))?;
@@ -2649,13 +2738,13 @@ pub async fn set_story_style_blend(
         // 更新现有配置
         repo.update(&existing_config.id, Some(&name), Some(&blend_json))
             .map_err(|e| {
-                log::error!("[commands_v3] {} update failed: {}", "set_story_style_blend", e);
+                log::error!("[story_commands] {} update failed: {}", "set_story_style_blend", e);
                 AppError::from(e)
 
             })?;
         repo.set_active(&story_id, &existing_config.id)
             .map_err(|e| {
-                log::error!("[commands_v3] {} set_active failed: {}", "set_story_style_blend", e);
+                log::error!("[story_commands] {} set_active failed: {}", "set_story_style_blend", e);
                 AppError::from(e)
 
             })?;
@@ -2672,18 +2761,18 @@ pub async fn set_story_style_blend(
         // 创建新配置并设为 active
         let config = repo.create(&story_id, &name, &blend_json)
             .map_err(|e| {
-                log::error!("[commands_v3] {} create failed: {}", "set_story_style_blend", e);
+                log::error!("[story_commands] {} create failed: {}", "set_story_style_blend", e);
                 AppError::from(e)
 
             })?;
         repo.set_active(&story_id, &config.id)
             .map_err(|e| {
-                log::error!("[commands_v3] {} set_active failed: {}", "set_story_style_blend", e);
+                log::error!("[story_commands] {} set_active failed: {}", "set_story_style_blend", e);
                 AppError::from(e)
 
             })?;
         
-        log::info!("[commands_v3] {} created new config", "set_story_style_blend");
+        log::info!("[story_commands] {} created new config", "set_story_style_blend");
         Ok(serde_json::json!({
             "id": config.id,
             "story_id": story_id,
@@ -2705,7 +2794,7 @@ pub async fn update_scene_style_blend(
     use crate::db::repositories_v3::SceneUpdate;
     use crate::creative_engine::style::blend::StyleBlendConfig;
 
-    log::info!("[commands_v3] {} called: scene_id={}", "update_scene_style_blend", scene_id);
+    log::info!("[story_commands] {} called: scene_id={}", "update_scene_style_blend", scene_id);
     // 验证 JSON 格式（如果提供了）
     if let Some(ref json) = blend_override {
         let _: StyleBlendConfig = serde_json::from_str(json)
@@ -2719,12 +2808,12 @@ pub async fn update_scene_style_blend(
     };
     repo.update(&scene_id, &updates)
         .map_err(|e| {
-            log::error!("[commands_v3] {} failed: {}", "update_scene_style_blend", e);
+            log::error!("[story_commands] {} failed: {}", "update_scene_style_blend", e);
             AppError::from(e)
 
         })?;
     
-    log::info!("[commands_v3] {} completed successfully", "update_scene_style_blend");
+    log::info!("[story_commands] {} completed successfully", "update_scene_style_blend");
     Ok(())
 }
 
@@ -2802,7 +2891,7 @@ pub async fn check_style_drift(
 }
 
 
-// ==================== 创世引擎命令 (v5.0.0) ====================
+// ==================== 创世引擎命令 ====================
 
 #[command(rename_all = "snake_case")]
 pub async fn get_story_outline(
@@ -2853,7 +2942,7 @@ pub async fn create_character_relationship(
     app_handle: AppHandle,
 ) -> Result<serde_json::Value, AppError> {
     use crate::db::repositories_v3::CharacterRelationshipRepository;
-    log::info!("[commands_v3] {} called: story_id={}", "create_character_relationship", story_id);
+    log::info!("[story_commands] {} called: story_id={}", "create_character_relationship", story_id);
     let repo = CharacterRelationshipRepository::new(pool.inner().clone());
     let relationship = repo.create(
         &story_id,
@@ -2863,7 +2952,7 @@ pub async fn create_character_relationship(
         description.as_deref(),
         dynamic.as_deref(),
     ).map_err(|e| {
-        log::error!("[commands_v3] {} failed: {}", "create_character_relationship", e);
+        log::error!("[story_commands] {} failed: {}", "create_character_relationship", e);
         e.to_string()
     })?;
 
@@ -2893,7 +2982,7 @@ pub async fn update_character_relationship(
     app_handle: AppHandle,
 ) -> Result<(), AppError> {
     use crate::db::repositories_v3::CharacterRelationshipRepository;
-    log::info!("[commands_v3] {} called: relationship_id={}", "update_character_relationship", relationship_id);
+    log::info!("[story_commands] {} called: relationship_id={}", "update_character_relationship", relationship_id);
     let repo = CharacterRelationshipRepository::new(pool.inner().clone());
     repo.update(
         &relationship_id,
@@ -2901,7 +2990,7 @@ pub async fn update_character_relationship(
         description.as_deref(),
         dynamic.as_deref(),
     ).map_err(|e| {
-        log::error!("[commands_v3] {} failed: {}", "update_character_relationship", e);
+        log::error!("[story_commands] {} failed: {}", "update_character_relationship", e);
         e.to_string()
     })?;
 
@@ -2926,7 +3015,7 @@ pub async fn delete_character_relationship(
     app_handle: AppHandle,
 ) -> Result<(), AppError> {
     use crate::db::repositories_v3::CharacterRelationshipRepository;
-    log::info!("[commands_v3] {} called: relationship_id={}", "delete_character_relationship", relationship_id);
+    log::info!("[story_commands] {} called: relationship_id={}", "delete_character_relationship", relationship_id);
 
     // 先查询 story_id 用于同步事件（删除后无法获取）
     let conn = pool.inner().get().map_err(AppError::from)?;
@@ -2938,7 +3027,7 @@ pub async fn delete_character_relationship(
 
     let repo = CharacterRelationshipRepository::new(pool.inner().clone());
     repo.delete(&relationship_id).map_err(|e| {
-        log::error!("[commands_v3] {} failed: {}", "delete_character_relationship", e);
+        log::error!("[story_commands] {} failed: {}", "delete_character_relationship", e);
         e.to_string()
     })?;
 
@@ -2972,94 +3061,7 @@ pub async fn get_character_relationships(
     })).collect())
 }
 
-// ==================== 场景-角色关联 Commands ====================
-
-#[tauri::command]
-pub fn get_scene_characters(
-    pool: tauri::State<crate::db::DbPool>,
-    scene_id: String,
-) -> Result<Vec<serde_json::Value>, AppError> {
-    use crate::db::repositories_v3::SceneCharacterRepository;
-    let repo = SceneCharacterRepository::new(pool.inner().clone());
-    let scene_characters = repo.get_characters_in_scene(&scene_id).map_err(AppError::from)?;
-
-    Ok(scene_characters.into_iter().map(|sc| serde_json::json!({
-        "id": sc.id,
-        "scene_id": sc.scene_id,
-        "character_id": sc.character_id,
-        "character_name": sc.character_name,
-        "created_at": sc.created_at,
-    })).collect())
-}
-
-#[tauri::command]
-pub fn add_scene_character(
-    pool: tauri::State<crate::db::DbPool>,
-    scene_id: String,
-    character_id: String,
-) -> Result<serde_json::Value, AppError> {
-    use crate::db::repositories_v3::SceneCharacterRepository;
-    let repo = SceneCharacterRepository::new(pool.inner().clone());
-    let scene_character = repo.add_character_to_scene(&scene_id, &character_id).map_err(AppError::from)?;
-
-    Ok(serde_json::json!({
-        "id": scene_character.id,
-        "scene_id": scene_character.scene_id,
-        "character_id": scene_character.character_id,
-        "character_name": scene_character.character_name,
-        "created_at": scene_character.created_at,
-    }))
-}
-
-#[tauri::command]
-pub fn remove_scene_character(
-    pool: tauri::State<crate::db::DbPool>,
-    scene_id: String,
-    character_id: String,
-) -> Result<usize, AppError> {
-    use crate::db::repositories_v3::SceneCharacterRepository;
-    let repo = SceneCharacterRepository::new(pool.inner().clone());
-    repo.remove_character_from_scene(&scene_id, &character_id).map_err(AppError::from)
-}
-
-#[tauri::command]
-pub fn set_scene_characters(
-    pool: tauri::State<crate::db::DbPool>,
-    scene_id: String,
-    character_ids: Vec<String>,
-) -> Result<Vec<serde_json::Value>, AppError> {
-    use crate::db::repositories_v3::SceneCharacterRepository;
-    let repo = SceneCharacterRepository::new(pool.inner().clone());
-    let scene_characters = repo.set_scene_characters(&scene_id, &character_ids).map_err(AppError::from)?;
-
-    Ok(scene_characters.into_iter().map(|sc| serde_json::json!({
-        "id": sc.id,
-        "scene_id": sc.scene_id,
-        "character_id": sc.character_id,
-        "character_name": sc.character_name,
-        "created_at": sc.created_at,
-    })).collect())
-}
-
-#[tauri::command]
-pub fn get_character_scenes(
-    pool: tauri::State<crate::db::DbPool>,
-    character_id: String,
-) -> Result<Vec<serde_json::Value>, AppError> {
-    use crate::db::repositories_v3::SceneCharacterRepository;
-    let repo = SceneCharacterRepository::new(pool.inner().clone());
-    let scene_characters = repo.get_scenes_for_character(&character_id).map_err(AppError::from)?;
-
-    Ok(scene_characters.into_iter().map(|sc| serde_json::json!({
-        "id": sc.id,
-        "scene_id": sc.scene_id,
-        "character_id": sc.character_id,
-        "character_name": sc.character_name,
-        "created_at": sc.created_at,
-    })).collect())
-}
-
-// ==================== Character Quick View (v6.0.1) ====================
+// ==================== Character Quick View ====================
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CharacterQuickView {
@@ -3153,4 +3155,71 @@ pub fn get_writing_analytics(
         .map_err(AppError::from)?;
     let engine = crate::analytics::AnalyticsEngine::new();
     Ok(engine.analyze_writing_data(&story_id, &scenes))
+}
+
+// ==================== 角色状态命令 ====================
+
+#[command(rename_all = "snake_case")]
+pub async fn update_character_state(
+    character_id: String,
+    state: CharacterState,
+    pool: State<'_, DbPool>,
+) -> Result<usize, AppError> {
+    let repo = CharacterRepository::new(pool.inner().clone());
+    repo.update_character_state(&character_id, &state).map_err(AppError::from)
+}
+
+// ==================== Cascade Rewriter 命令 ====================
+
+/// 手动触发级联改写任务
+#[command(rename_all = "snake_case")]
+pub async fn trigger_cascade_rewrite(
+    story_id: String,
+    entity_id: String,
+    entity_type: String,
+    before_json: String,
+    after_json: String,
+    changed_fields: Vec<String>,
+    _pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<String, AppError> {
+    use crate::creative_engine::cascade_rewriter::models::{CascadeTaskPayload, ChangeType, EntityChangeEvent};
+    use crate::task_system::models::CreateTaskRequest;
+    use crate::task_system::service::TaskService;
+
+    let change_event = EntityChangeEvent {
+        story_id: story_id.clone(),
+        entity_id: entity_id.clone(),
+        entity_type: entity_type.clone(),
+        entity_name: entity_id.clone(), // TODO: resolve entity name from KG
+        change_type: ChangeType::AttributeModified,
+        before_json,
+        after_json,
+        changed_fields,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+
+    let payload = CascadeTaskPayload {
+        story_id: story_id.clone(),
+        change_events: vec![change_event],
+    };
+
+    let payload_json = serde_json::to_string(&payload).map_err(|e| AppError::internal(format!("序列化失败: {}", e)))?;
+
+    let req = CreateTaskRequest {
+        name: format!("级联改写: {}", entity_id),
+        description: Some(format!("因 {} 变更触发的场景级联改写", entity_type)),
+        task_type: "cascade_rewrite".to_string(),
+        schedule_type: "once".to_string(),
+        cron_pattern: None,
+        payload: Some(payload_json),
+        enabled: Some(true),
+        max_retries: Some(1),
+        heartbeat_timeout_seconds: Some(300),
+    };
+
+    let task_service: State<TaskService> = app_handle.state();
+    let task = task_service.create_task(req)?;
+
+    Ok(task.id)
 }

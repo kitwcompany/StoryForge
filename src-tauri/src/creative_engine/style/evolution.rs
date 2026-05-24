@@ -102,7 +102,7 @@ impl StyleEvolutionEngine {
     /// 综合应用 Anti-AI Review 和 Pipeline Review 的反馈
     pub fn evolve_from_reviews(
         &self,
-        base: &StyleDNA,
+        _base: &StyleDNA,
         anti_ai: Option<&AntiAiReview>,
         pipeline: Option<&ReviewResult>,
     ) -> StyleDnaDelta {

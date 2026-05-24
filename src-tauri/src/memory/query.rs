@@ -100,7 +100,7 @@ impl QueryPipeline {
         }
     }
 
-    /// 四阶段查询检索（v5.4.0: 融合语义搜索）
+    /// 四阶段查询检索（融合语义搜索）
     pub async fn query(
         &self,
         query: &str,

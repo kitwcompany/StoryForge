@@ -1,5 +1,5 @@
 use super::types::*;
-use crate::db::{DbPool, PostProcessRepository, BlueprintRepository, CharacterRepository, CharacterState};
+use crate::db::{DbPool, BlueprintRepository, CharacterRepository, CharacterState};
 use crate::llm::LlmService;
 
 /// 构建定稿后处理步骤列表

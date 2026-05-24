@@ -1,6 +1,6 @@
 //! Authentication Module — 多账号OAuth登录系统
 //!
-//! v4.5.0: 支持 Google / GitHub OAuth2 登录
+//! 支持 Google / GitHub OAuth2 登录
 //! 微信/QQ 预留框架（二期补充）
 
 use serde::{Deserialize, Serialize};

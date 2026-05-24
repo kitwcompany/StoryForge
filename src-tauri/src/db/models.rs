@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Local};
+use super::models_v3::DynamicTrait;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Story {
@@ -28,7 +29,7 @@ pub struct Character {
     pub gender: Option<String>,
     pub age: Option<i32>,
     pub dynamic_traits: Vec<DynamicTrait>,
-    // --- 动态状态字段 (v7.0.0 - Pipeline 管线体系) ---
+    // --- 动态状态字段 ---
     pub cs_location: Option<String>,
     pub cs_power_level: Option<String>,
     pub cs_physical_state: Option<String>,
@@ -39,13 +40,6 @@ pub struct Character {
     pub cs_json: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DynamicTrait {
-    #[serde(rename = "trait")]
-    pub trait_name: String,
-    pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,7 +99,7 @@ pub struct CreateChapterRequest {
     pub content: Option<String>,
 }
 
-// ==================== Auth Models (v4.5.0) ====================
+// ==================== Auth Models ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -149,21 +143,7 @@ pub struct UserInfo {
     pub avatar_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OAuthUrlResponse {
-    pub auth_url: String,
-    pub state: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthConfig {
-    pub google_enabled: bool,
-    pub github_enabled: bool,
-    pub wechat_enabled: bool,
-    pub qq_enabled: bool,
-}
-
-// ==================== Export Template Models (v5.4.0) ====================
+// ==================== Export Template Models ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportTemplate {
@@ -185,7 +165,7 @@ pub struct CreateExportTemplateRequest {
     pub template_content: String,
 }
 
-// ==================== AI Operation History Models (v5.4.0) ====================
+// ==================== AI Operation History Models ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiOperation {
@@ -218,7 +198,7 @@ pub struct CreateAiOperationRequest {
     pub metadata: Option<String>,
 }
 
-// ==================== Story System Models (v6.0.0) ====================
+// ==================== Story System Models ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoryContract {
@@ -361,7 +341,7 @@ pub struct GenreProfile {
     pub created_at: DateTime<Local>,
 }
 
-// ==================== Pipeline 模型 (v7.0.0) ====================
+// ==================== Pipeline 模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blueprint {

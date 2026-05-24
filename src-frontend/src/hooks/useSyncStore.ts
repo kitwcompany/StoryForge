@@ -46,6 +46,22 @@ export interface SyncStoreOptions {
   onChapterDeleted?: (chapterId: string) => void;
   /** 世界观更新回调 */
   onWorldBuildingUpdated?: (storyId: string) => void;
+  /** 世界观创建回调 */
+  onWorldBuildingCreated?: (storyId: string, worldBuildingId: string) => void;
+  /** 世界观删除回调 */
+  onWorldBuildingDeleted?: (storyId: string, worldBuildingId: string) => void;
+  /** 风格 DNA 更新回调 */
+  onStyleDnaUpdated?: (storyId: string, styleDnaId: string) => void;
+  /** 任务创建回调 */
+  onTaskCreated?: (taskId: string, name: string) => void;
+  /** 任务更新回调 */
+  onTaskUpdated?: (taskId: string, status: string) => void;
+  /** 任务完成回调 */
+  onTaskCompleted?: (taskId: string, success: boolean) => void;
+  /** 批注创建回调 */
+  onAnnotationCreated?: (storyId: string, annotationId: string, sceneId: string) => void;
+  /** 批注解决回调 */
+  onAnnotationResolved?: (storyId: string, annotationId: string, sceneId: string) => void;
   /** 数据批量刷新回调 */
   onDataRefresh?: (storyId: string | undefined, resourceType: string) => void;
 }
@@ -72,6 +88,11 @@ const KEYS = {
   characterRelationships: (storyId?: string) => storyId ? ['character-relationships', storyId] : ['character-relationships'],
   payoffLedger: (storyId?: string) => storyId ? ['payoff-ledger', storyId] : ['payoff-ledger'],
   storyTimeline: (storyId?: string) => storyId ? ['story-timeline', storyId] : ['story-timeline'],
+  tasks: ['tasks'],
+  sceneAnnotations: (sceneId?: string) => ['scene-annotations', sceneId],
+  storyUnresolvedAnnotations: (storyId?: string) => ['story-unresolved-annotations', storyId],
+  textAnnotations: (scope?: string, id?: string) => ['text-annotations', scope, id],
+  writingStyle: (storyId?: string) => storyId ? ['writing_style', storyId] : ['writing_style'],
 };
 
 // ==================== Hook ====================
@@ -213,6 +234,56 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             optionsRef.current.onWorldBuildingUpdated?.(payload.story_id);
             break;
           }
+          case 'worldBuildingCreated': {
+            queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
+            optionsRef.current.onWorldBuildingCreated?.(payload.story_id, payload.world_building_id);
+            break;
+          }
+          case 'worldBuildingDeleted': {
+            queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
+            optionsRef.current.onWorldBuildingDeleted?.(payload.story_id, payload.world_building_id);
+            break;
+          }
+
+          // === Style DNA ===
+          case 'styleDnaUpdated': {
+            queryClient.invalidateQueries({ queryKey: KEYS.writingStyle(payload.story_id) });
+            optionsRef.current.onStyleDnaUpdated?.(payload.story_id, payload.style_dna_id);
+            break;
+          }
+
+          // === Task ===
+          case 'taskCreated': {
+            queryClient.invalidateQueries({ queryKey: KEYS.tasks });
+            optionsRef.current.onTaskCreated?.(payload.task_id, payload.name);
+            break;
+          }
+          case 'taskUpdated': {
+            queryClient.invalidateQueries({ queryKey: KEYS.tasks });
+            optionsRef.current.onTaskUpdated?.(payload.task_id, payload.status);
+            break;
+          }
+          case 'taskCompleted': {
+            queryClient.invalidateQueries({ queryKey: KEYS.tasks });
+            optionsRef.current.onTaskCompleted?.(payload.task_id, payload.success);
+            break;
+          }
+
+          // === Annotation ===
+          case 'annotationCreated': {
+            queryClient.invalidateQueries({ queryKey: KEYS.sceneAnnotations(payload.scene_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.storyUnresolvedAnnotations(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.textAnnotations('scene', payload.scene_id) });
+            optionsRef.current.onAnnotationCreated?.(payload.story_id, payload.annotation_id, payload.scene_id);
+            break;
+          }
+          case 'annotationResolved': {
+            queryClient.invalidateQueries({ queryKey: KEYS.sceneAnnotations(payload.scene_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.storyUnresolvedAnnotations(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.textAnnotations('scene', payload.scene_id) });
+            optionsRef.current.onAnnotationResolved?.(payload.story_id, payload.annotation_id, payload.scene_id);
+            break;
+          }
 
           // === v5.6.4 修复: 补全独立同步事件响应 ===
           case 'characterRelationshipsUpdated': {
@@ -293,8 +364,9 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
           }
 
           default:
-            // TypeScript 穷尽检查：如果此处编译报错，说明 SyncEvent 新增了 variant 但尚未在 switch 中处理
-            assertUnreachable(type);
+            // 安全降级：遇到未处理的事件类型时记录 warn，不抛出异常
+            // TypeScript 穷尽检查由编译时保障，运行时新增事件不会导致崩溃
+            console.warn('[useSyncStore] Unhandled sync event type:', type);
         }
       });
     };

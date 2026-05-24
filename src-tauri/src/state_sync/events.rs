@@ -90,6 +90,46 @@ pub enum SyncEvent {
     WorldBuildingUpdated {
         story_id: String,
     },
+    WorldBuildingCreated {
+        story_id: String,
+        world_building_id: String,
+    },
+    WorldBuildingDeleted {
+        story_id: String,
+        world_building_id: String,
+    },
+
+    // === Style DNA 事件 ===
+    StyleDnaUpdated {
+        story_id: String,
+        style_dna_id: String,
+    },
+
+    // === Task 事件 ===
+    TaskCreated {
+        task_id: String,
+        name: String,
+    },
+    TaskUpdated {
+        task_id: String,
+        status: String,
+    },
+    TaskCompleted {
+        task_id: String,
+        success: bool,
+    },
+
+    // === Annotation 事件 ===
+    AnnotationCreated {
+        story_id: String,
+        annotation_id: String,
+        scene_id: String,
+    },
+    AnnotationResolved {
+        story_id: String,
+        annotation_id: String,
+        scene_id: String,
+    },
 
     // === 角色关系事件 ===
     CharacterRelationshipsUpdated {
@@ -146,7 +186,15 @@ impl SyncEvent {
             SyncEvent::ChapterCreated { .. } |
             SyncEvent::ChapterUpdated { .. } |
             SyncEvent::ChapterDeleted { .. } => "chapters",
-            SyncEvent::WorldBuildingUpdated { .. } => "worldBuilding",
+            SyncEvent::WorldBuildingUpdated { .. } |
+            SyncEvent::WorldBuildingCreated { .. } |
+            SyncEvent::WorldBuildingDeleted { .. } => "worldBuilding",
+            SyncEvent::StyleDnaUpdated { .. } => "styleDna",
+            SyncEvent::TaskCreated { .. } |
+            SyncEvent::TaskUpdated { .. } |
+            SyncEvent::TaskCompleted { .. } => "tasks",
+            SyncEvent::AnnotationCreated { .. } |
+            SyncEvent::AnnotationResolved { .. } => "annotations",
             SyncEvent::CharacterRelationshipsUpdated { .. } => "characterRelationships",
             SyncEvent::PayoffLedgerUpdated { .. } => "payoffLedger",
             SyncEvent::IngestionCompleted { .. } => "ingestion",
@@ -174,6 +222,14 @@ impl SyncEvent {
             SyncEvent::ChapterUpdated { story_id, .. } => Some(story_id),
             SyncEvent::ChapterDeleted { story_id, .. } => Some(story_id),
             SyncEvent::WorldBuildingUpdated { story_id, .. } => Some(story_id),
+            SyncEvent::WorldBuildingCreated { story_id, .. } => Some(story_id),
+            SyncEvent::WorldBuildingDeleted { story_id, .. } => Some(story_id),
+            SyncEvent::StyleDnaUpdated { story_id, .. } => Some(story_id),
+            SyncEvent::TaskCreated { .. } => None,
+            SyncEvent::TaskUpdated { .. } => None,
+            SyncEvent::TaskCompleted { .. } => None,
+            SyncEvent::AnnotationCreated { story_id, .. } => Some(story_id),
+            SyncEvent::AnnotationResolved { story_id, .. } => Some(story_id),
             SyncEvent::CharacterRelationshipsUpdated { story_id, .. } => Some(story_id),
             SyncEvent::PayoffLedgerUpdated { story_id, .. } => Some(story_id),
             SyncEvent::IngestionCompleted { story_id, .. } => Some(story_id),

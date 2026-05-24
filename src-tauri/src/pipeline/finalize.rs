@@ -158,8 +158,6 @@ pub async fn finalize_draft(
 
         callbacks.log("[定稿] 后处理完成");
         callbacks.progress("finalize", 1.0);
-
-        // v0.8.0: 触发 ChapterFinalized 事件
         if let Some(automation_service) = app_handle.try_state::<crate::automation::service::AutomationService>() {
             let _ = automation_service.trigger_event(
                 crate::automation::triggers::TriggerEvent::ChapterFinalized {

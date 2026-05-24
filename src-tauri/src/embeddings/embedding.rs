@@ -251,7 +251,6 @@ pub fn embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>, Box<dyn std::err
 
 /// 异步版本：优先使用语义嵌入提供者，回退到 FNV-1a
 pub async fn embed_text_async(text: String) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-    // v5.4.0: 尝试使用全局语义嵌入提供者
     if let Some(provider_arc) = super::provider::global_provider() {
         let provider = provider_arc.lock().await;
         match provider.embed(vec![text.clone()]).await {

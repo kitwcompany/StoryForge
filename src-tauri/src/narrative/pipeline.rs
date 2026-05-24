@@ -131,7 +131,6 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
     ///
     /// 按顺序执行所有步骤，每个步骤完成后更新进度。
     /// 如果某个步骤失败，可以选择继续（跳过）或中断。
-    /// v5.4.0: 支持取消机制
     pub async fn execute(
         &self,
         ctx: &mut Context,
@@ -143,8 +142,6 @@ impl<Context: StepContext + Send> NarrativePipelineExecutor<Context> {
         for (idx, step) in self.steps.iter().enumerate() {
             let step_num = idx + 1;
             ctx.set_current_step(step.name());
-
-            // v5.4.0: 检查取消标志
             if let Some(ref flag) = self.cancel_flag {
                 if flag.load(Ordering::Relaxed) {
                     log::info!("[NarrativePipeline] Pipeline 已取消，中断执行");

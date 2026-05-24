@@ -1,6 +1,6 @@
-//! Novel Bootstrap Workflow - 向后兼容类型定义 (v5.4.0)
+//! Novel Bootstrap Workflow - 向后兼容类型定义
 //!
-//! 旧版 NovelBootstrapWorkflow 实现已在 v5.3.0 迁移到 narrative/genesis.rs。
+//! 旧版 NovelBootstrapWorkflow 实现已迁移到 narrative/genesis.rs。
 //! 本文件仅保留公共类型定义，供向后兼容的进度事件发射使用。
 
 use serde::{Deserialize, Serialize};

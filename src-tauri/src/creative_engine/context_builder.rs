@@ -213,53 +213,6 @@ impl StoryContextBuilder {
         self.build(story_id, Some(scene_number), current_content, None)
     }
 
-    /// 异步构建，使用 QueryPipeline 根据当前内容智能检索相关知识
-    ///
-    /// 这是 StoryContextBuilder 的增强版本，在基础上下文之上，
-    /// 通过四阶段查询管线（CJK分词→图谱扩展→预算控制→上下文组装）
-    /// 动态检索与当前写作内容最相关的记忆和实体。
-    pub async fn build_with_query(
-        &self,
-        story_id: &str,
-        scene_number: Option<i32>,
-        current_content: Option<String>,
-        selected_text: Option<String>,
-    ) -> Result<AgentContext, AppError> {
-        let mut context = self.build(story_id, scene_number, current_content.clone(), selected_text)?;
-
-        let query_text = current_content.unwrap_or_default();
-        if query_text.len() < 10 {
-            // 内容太短，不需要查询
-            return Ok(context);
-        }
-
-        use crate::memory::query::{QueryPipeline, DbVectorStore, BudgetConfig};
-        use crate::db::repositories_v3::KnowledgeGraphRepository;
-
-        let pipeline = QueryPipeline::new(BudgetConfig::default());
-        let vector_store = DbVectorStore::new(self.pool.clone());
-        let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
-
-        match pipeline.query(&query_text, story_id, &vector_store, &kg_repo).await {
-            Ok(result) => {
-                if !result.context.is_empty() {
-                    // 将 QueryPipeline 结果合并到 scene_structure 中
-                    let enhanced = format!(
-                        "{}\n\n【相关记忆检索】\n{}",
-                        context.scene_structure.unwrap_or_default(),
-                        result.context
-                    );
-                    context.scene_structure = Some(enhanced);
-                }
-            }
-            Err(e) => {
-                log::warn!("[StoryContextBuilder] QueryPipeline 查询失败: {}, 使用基础上下文", e);
-            }
-        }
-
-        Ok(context)
-    }
-
     // ==================== 数据获取 ====================
 
     fn fetch_story(&self, story_id: &str) -> Result<Story, String> {
@@ -367,7 +320,7 @@ impl StoryContextBuilder {
         Ok(results)
     }
 
-    /// 获取风格混合配置（v4.4.0）
+    /// 获取风格混合配置
     /// 
     /// 优先检查 scene 级别的 override，否则回退到 story 级别的 active 配置
     fn fetch_style_blend(

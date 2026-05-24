@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::memory::orchestrator::MemoryPack;
 
 pub mod commands;
+pub mod executor;
 pub mod service;
 pub mod novel_creation;
 pub mod memory_compressor;
@@ -62,7 +63,7 @@ pub struct AgentContext {
     pub methodology_id: Option<String>,  // 创作方法论ID（如 snowflake, scene_structure）
     pub methodology_step: Option<String>, // 方法论当前步骤
     pub style_dna_id: Option<String>,    // 风格DNA ID（向后兼容）
-    pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置（v4.4.0）
+    pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置
     /// 三层记忆包（Wave 3: MemoryPack 注入 AgentContext）
     #[serde(default)]
     pub memory_pack: Option<MemoryPack>,
@@ -90,7 +91,7 @@ pub struct AgentResult {
     pub content: String,
     pub score: Option<f32>,  // 0.0 - 1.0
     pub suggestions: Vec<String>,
-    /// 关联的 LLM request_id，供上层取消使用（v0.7.2）
+    /// 关联的 LLM request_id，供上层取消使用
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
 }

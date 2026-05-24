@@ -6,7 +6,7 @@
 use super::service::{init_llm_service, LlmService};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
-use tauri::{command, AppHandle};
+use tauri::{command, AppHandle, State};
 
 /// 生成请求
 #[derive(Debug, Deserialize)]
@@ -108,3 +108,48 @@ pub fn init_llm(app_handle: AppHandle) -> Result<(), AppError> {
     log::info!("[LLM] Service initialized");
     Ok(())
 }
+
+// ==================== LLM Call 统计命令 ====================
+
+use crate::db::{DbPool, LlmCall, LlmCallRepository};
+
+/// 获取故事的 LLM 调用记录
+#[command(rename_all = "snake_case")]
+pub async fn get_story_llm_calls(
+    story_id: String,
+    limit: i64,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<LlmCall>, AppError> {
+    let repo = LlmCallRepository::new(pool.inner().clone());
+    repo.get_by_story(&story_id, limit).map_err(AppError::from)
+}
+
+/// 获取最近的 LLM 调用记录
+#[command(rename_all = "snake_case")]
+pub async fn get_recent_llm_calls(
+    limit: i64,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<LlmCall>, AppError> {
+    let repo = LlmCallRepository::new(pool.inner().clone());
+    repo.get_recent(limit).map_err(AppError::from)
+}
+
+/// LLM 调用统计
+#[derive(serde::Serialize)]
+pub struct LlmCallStats {
+    pub count: i64,
+    pub total_tokens: i64,
+    pub total_cost: f64,
+}
+
+/// 获取故事的 LLM 调用统计
+#[command(rename_all = "snake_case")]
+pub async fn get_llm_call_stats(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<LlmCallStats, AppError> {
+    let repo = LlmCallRepository::new(pool.inner().clone());
+    let (count, total_tokens, total_cost) = repo.get_stats_by_story(&story_id).map_err(AppError::from)?;
+    Ok(LlmCallStats { count, total_tokens, total_cost })
+}
+

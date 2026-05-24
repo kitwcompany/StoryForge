@@ -21,8 +21,7 @@ pub mod orchestrator;
 
 pub use tokenizer::CJKTokenizer;
 pub use orchestrator::{
-    MemoryOrchestrator, MemoryPack, MemoryEntry, MemoryItemDto,
-    MemoryWarning, MemoryStats, MemoryBudget, MEMORY_PRIORITY,
+    MemoryOrchestrator, MemoryPack, MemoryItemDto,
 };
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
@@ -44,6 +43,7 @@ impl ShortTermMemory {
     /// 从数据库记录构建 AgentContext
     pub fn build_context(
         &self,
+        pool: &crate::db::DbPool,
         story: &Story,
         chapters: &[Chapter],
         characters: &[Character],
@@ -82,6 +82,36 @@ impl ShortTermMemory {
             })
             .collect();
 
+        // 组装 MemoryPack
+        let memory_pack = {
+            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(pool.clone());
+            match orchestrator.build_memory_pack(
+                &story.id,
+                target_chapter_number as i32,
+                "write",
+                None,
+            ) {
+                Ok(mut pack) => {
+                    for chapter in &previous_chapters {
+                        pack.working_memory.push(crate::memory::orchestrator::MemoryEntry {
+                            layer: "working".to_string(),
+                            source: "previous_chapter".to_string(),
+                            chapter: chapter.number as i32,
+                            content: serde_json::json!({
+                                "title": chapter.title,
+                                "summary": chapter.summary
+                            }),
+                        });
+                    }
+                    Some(pack)
+                }
+                Err(e) => {
+                    log::warn!("[ShortTermMemory] MemoryPack build failed: {}, continuing without", e);
+                    None
+                }
+            }
+        };
+
         AgentContext {
             story_id: story.id.clone(),
             story_title: story.title.clone(),
@@ -99,7 +129,7 @@ impl ShortTermMemory {
             methodology_step: None,
             style_dna_id: None,
             style_blend: None,
-            memory_pack: None,
+            memory_pack,
         }
     }
 

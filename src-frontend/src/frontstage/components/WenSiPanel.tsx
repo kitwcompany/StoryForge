@@ -4,7 +4,7 @@
  * 集成在 RichTextEditor 底部输入栏上方，提供：
  * - 自动续写：循环调用 WriterAgent，显示实时进度
  * - 自动修改：基于故事设定的全文/选中修改
- * - 配额状态显示
+ * - 功能状态显示
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -19,7 +19,6 @@ export interface WenSiPanelProps {
   storyId?: string;
   chapterId?: string;
   isPro: boolean;
-  quotaText: string;
   onShowUpgrade: (trigger: string) => void;
   hasAutoWriteQuota: (chars: number) => Promise<boolean>;
   hasAutoReviseQuota: (chars: number) => Promise<boolean>;
@@ -35,7 +34,6 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   storyId,
   chapterId,
   isPro,
-  quotaText,
   onShowUpgrade,
   hasAutoWriteQuota,
   hasAutoReviseQuota,
@@ -129,8 +127,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         (event) => {
           setIsAutoWriting(false);
           const msg = event.payload;
-          if (msg.includes('配额') || msg.includes('次数已用完') || msg.includes('quota')) {
-            onShowUpgrade('自动续写配额已用完');
+          if (msg.includes('feature_locked') || msg.includes('pro_required')) {
+            onShowUpgrade('自动续写需专业版');
           } else {
             toast.error(`自动续写出错：${msg}`);
           }
@@ -209,8 +207,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         (event) => {
           setIsAutoRevising(false);
           const msg = event.payload;
-          if (msg.includes('配额') || msg.includes('次数已用完') || msg.includes('quota')) {
-            onShowUpgrade('自动修改配额已用完');
+          if (msg.includes('feature_locked') || msg.includes('pro_required')) {
+            onShowUpgrade('自动修改需专业版');
           } else {
             toast.error(`自动修改出错：${msg}`);
           }
@@ -233,7 +231,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     const requested = Math.min(charsPerLoop, targetChars);
     const allowed = await hasAutoWriteQuota(requested);
     if (!allowed) {
-      onShowUpgrade('自动续写配额已用完');
+      onShowUpgrade('自动续写需专业版');
       return;
     }
     try {
@@ -249,8 +247,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       toast.success('自动续写已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
-      if (msg.includes('配额') || msg.includes('次数已用完')) {
-        onShowUpgrade('自动续写配额已用完');
+      if (msg.includes('feature_locked') || msg.includes('pro_required')) {
+        onShowUpgrade('自动续写需专业版');
       } else {
         toast.error(`启动失败：${msg}`);
       }
@@ -281,7 +279,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     const textLen = (selectedText || editorContent || '').length;
     const allowed = await hasAutoReviseQuota(textLen);
     if (!allowed) {
-      onShowUpgrade('自动修改配额已用完');
+      onShowUpgrade('自动修改需专业版');
       return;
     }
     try {
@@ -298,8 +296,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       toast.success('自动修改已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
-      if (msg.includes('配额') || msg.includes('次数已用完')) {
-        onShowUpgrade('自动修改配额已用完');
+      if (msg.includes('feature_locked') || msg.includes('pro_required')) {
+        onShowUpgrade('自动修改需专业版');
       } else {
         toast.error(`启动失败：${msg}`);
       }
@@ -367,9 +365,6 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             <MessageSquare className="w-3.5 h-3.5" />
             <span>自由指令</span>
           </button>
-        </div>
-        <div className="wensi-quota" title="今日配额">
-          <span className="wensi-quota-text">{quotaText}</span>
         </div>
       </div>
 

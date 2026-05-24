@@ -124,8 +124,6 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 .map(|c| c.book_deconstruction_concurrency)
                 .unwrap_or(3)
         };
-
-        // v5.3.0: 使用新的 AnalysisPipeline 替代 BookAnalyzer
         // 转换 TextChunk 类型
         let narrative_chunks: Vec<crate::narrative::analysis::TextChunk> = chunks.iter().map(|c| {
             crate::narrative::analysis::TextChunk {
@@ -183,7 +181,6 @@ impl TaskExecutor for BookDeconstructionExecutor {
 
         if pipeline_result.is_ok() {
             log::info!("[BookDeconstructionExecutor] Pipeline completed for book {}", book_id);
-            // v5.4.0: 发射 pipeline-complete 事件，通知前端 Analysis 完成
             let _ = self.app_handle.emit("pipeline-complete", crate::narrative::progress::PipelineCompleteEvent {
                 pipeline_id: task.id.clone(),
                 pipeline_type: crate::narrative::progress::PipelineType::Analysis,
@@ -297,7 +294,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
     }
 }
 
-// ==================== v5.3.0: 结果转换器 ====================
+// ==================== 结果转换器 ====================
 /// 将 NarrativeBundle 转换为 BookAnalysisResult（兼容旧接口）
 fn convert_bundle_to_analysis_result(bundle: &crate::narrative::elements::NarrativeBundle) -> BookAnalysisResult {
     use chrono::Local;

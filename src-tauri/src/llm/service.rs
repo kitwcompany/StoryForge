@@ -179,7 +179,7 @@ impl LlmService {
         result
     }
 
-    /// 同步生成文本，支持上下文描述（v5.2.3: 进度消息更具体）
+    /// 同步生成文本，支持上下文描述
     pub async fn generate_with_context(
         &self,
         prompt: String,
@@ -191,7 +191,7 @@ impl LlmService {
         result
     }
 
-    /// 同步生成文本，支持上下文描述 + Pipeline步骤上下文（v5.2.4: 让进度消息显示当前步骤）
+    /// 同步生成文本，支持上下文描述 + Pipeline步骤上下文
     pub async fn generate_with_context_and_pipeline(
         &self,
         prompt: String,

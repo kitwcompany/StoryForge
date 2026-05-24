@@ -89,7 +89,7 @@ pub struct AgentEvent {
     pub stage: AgentStage,
     pub message: String,
     pub progress: f32, // 0.0 - 1.0
-    /// 关联的 LLM request_id，供上层取消使用（v0.7.2）
+    /// 关联的 LLM request_id，供上层取消使用
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
 }
@@ -127,7 +127,6 @@ impl AgentService {
     }
 
     /// 从用户指令中提取明确的题材要求
-    /// v5.4.0: 当用户指令中包含具体题材时，优先使用指令中的题材而非 story.genre
     fn extract_genre_from_instruction(instruction: &str) -> Option<String> {
         let lower = instruction.to_lowercase();
         // 常见题材关键词映射（按匹配长度降序，避免"玄幻"匹配"都市玄幻"时丢失前缀）
@@ -262,7 +261,7 @@ impl AgentService {
 
     /// 为Agent生成内容，优先使用映射的模型
     /// 免费版限制 max_tokens 以控制成本与质量
-    /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID（v0.7.2）
+    /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID
     async fn generate_for_agent(
         &self,
         task: &AgentTask,
@@ -329,9 +328,7 @@ impl AgentService {
     }
 
     /// 原始 Writer 生成 — 只生成内容，不进入闭环
-    /// v5.3.1: 提取为独立方法，供 AgentOrchestrator 和 Bootstrap 直接调用，防止递归
     pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, AppError> {
-        // v0.8.0: 写前预检
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let checker = crate::story_system::preflight::PreflightChecker::new();
         let preflight = checker.check(
@@ -407,8 +404,6 @@ impl AgentService {
             );
             return Err(AppError::internal("AI 返回了空内容，请检查模型配置或重试"));
         }
-        
-        // v5.4.0: 去除与 current_content 重复的前缀，防止 LLM 返回完整文本导致前端"重复输出"
         let mut content = response.content;
         if let Some(ref current) = task.context.current_content {
             if !current.is_empty() && current != "无" {
@@ -420,7 +415,6 @@ impl AgentService {
                         "[execute_writer_raw] Removed duplicate prefix (len={}) from LLM output, remaining len={}",
                         current_trimmed.len(), content.len()
                     );
-                    // v5.4.1 修复：截断后检查内容是否为空
                     if content.trim().is_empty() {
                         log::error!(
                             "[AgentService::execute_writer_raw] Content became empty after prefix removal. story_id={}, chapter_number={}",
@@ -773,7 +767,6 @@ impl AgentService {
         emit_and_yield("正在准备模板变量...", 0.155);
         let mut vars = HashMap::new();
         vars.insert("story_title".to_string(), ctx.story_title.clone());
-        // v5.4.0: 检测 task.input 中是否包含明确的题材要求，如果与 ctx.genre 不一致，优先使用 instruction 中的题材
         let effective_genre = Self::extract_genre_from_instruction(&task.input)
             .unwrap_or_else(|| ctx.genre.clone());
         if effective_genre != ctx.genre {

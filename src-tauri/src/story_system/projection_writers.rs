@@ -11,7 +11,7 @@ use crate::db::{
     DbPool, MemoryItemRepository, StorySummaryRepository,
 };
 use crate::vector::lancedb_store::{LanceVectorStore, VectorRecord};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// 投影写入器 trait
 pub trait ProjectionWriter {
@@ -288,7 +288,7 @@ impl ProjectionWriter for VectorProjectionWriter {
 
     fn apply(
         &self,
-        story_id: &str,
+        _story_id: &str,
         chapter_number: i32,
         commit_json: &str,
     ) -> Result<bool, String> {
@@ -307,7 +307,7 @@ impl ProjectionWriter for VectorProjectionWriter {
 
         let text = format!("第{}章: {}", chapter_number, summary);
 
-        let embedding = match crate::embeddings::embedding::embed_text(&text) {
+        let _embedding = match crate::embeddings::embedding::embed_text(&text) {
             Ok(emb) => emb,
             Err(e) => {
                 return Err(format!("生成嵌入向量失败: {}", e));

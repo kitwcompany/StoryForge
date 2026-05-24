@@ -25,7 +25,7 @@ impl AnalyticsEngine {
         Self
     }
 
-    /// 基于 Scene 架构的写作分析（v0.7.4）
+    /// 基于 Scene 架构的写作分析
     /// 从 content 实时计算中文字数，以 updated_at 作为写作日期
     pub fn analyze_writing_data(
         &self,

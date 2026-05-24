@@ -107,6 +107,15 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
     }
   };
 
+  const handleRetry = async () => {
+    try {
+      await triggerMutation.mutateAsync(task.id);
+      toast.success('任务已重试');
+    } catch (e) {
+      toast.error(`重试失败: ${e}`);
+    }
+  };
+
   return (
     <div className="border-b border-cinema-800 last:border-b-0">
       <div
@@ -171,6 +180,14 @@ function TaskRow({ task, onToggleExpand, isExpanded }: { task: Task; onToggleExp
             >
               <Square className="w-3.5 h-3.5" />
             </button>
+          ) : task.status === 'failed' ? (
+            <button
+              onClick={handleRetry}
+              className="p-1.5 rounded hover:bg-yellow-500/20 text-gray-400 hover:text-yellow-400 transition-colors"
+              title="重试"
+            >
+              <Play className="w-3.5 h-3.5" />
+            </button>
           ) : (
             <button
               onClick={handleTrigger}
@@ -219,6 +236,45 @@ function TaskDetail({ task }: { task: Task }) {
       {task.error_message && (
         <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400">
           {task.error_message}
+        </div>
+      )}
+
+      {/* Result Preview */}
+      {task.result && (
+        <div className="mt-3">
+          <h4 className="text-xs font-medium text-gray-400 mb-1">执行结果</h4>
+          {(() => {
+            try {
+              const parsed = JSON.parse(task.result);
+              if (typeof parsed.overall_score === 'number') {
+                const score = Math.round(parsed.overall_score * 100);
+                return (
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-xs text-gray-500">审稿评分:</span>
+                    <span className={cn(
+                      'text-sm font-bold',
+                      score >= 80 ? 'text-green-400' : score >= 60 ? 'text-yellow-400' : 'text-red-400'
+                    )}>
+                      {score}%
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            } catch {
+              return null;
+            }
+          })()}
+          <div className="max-h-40 overflow-y-auto p-2 bg-cinema-900 rounded border border-cinema-700">
+            <pre className="text-[10px] text-gray-400 whitespace-pre-wrap break-all">{(() => {
+              try {
+                const parsed = JSON.parse(task.result);
+                return JSON.stringify(parsed, null, 2);
+              } catch {
+                return task.result;
+              }
+            })()}</pre>
+          </div>
         </div>
       )}
 
@@ -343,6 +399,18 @@ export function Tasks() {
               <option value="daily">每天</option>
               <option value="weekly">每周</option>
               <option value="cron">定时 (cron)</option>
+            </select>
+            <select
+              value={newTask.task_type}
+              onChange={(e) => setNewTask({ ...newTask, task_type: e.target.value })}
+              className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white focus:outline-none focus:border-cinema-gold"
+            >
+              <option value="custom">自定义</option>
+              <option value="cascade_rewrite">级联改写</option>
+              <option value="book_deconstruction">拆书分析</option>
+              <option value="ai_generation">AI 生成</option>
+              <option value="pipeline_review">Pipeline 审校</option>
+              <option value="ingest">知识图谱 Ingest</option>
             </select>
             <input
               type="text"

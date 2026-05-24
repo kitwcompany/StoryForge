@@ -1,7 +1,7 @@
 //! Plan Template Learning - 计划模板学习
 //!
 //! Records successful execution plans and reuses them for similar requests.
-//! v5.6.4 修复: 支持 SQLite 持久化，重启后学习成果不丢失。
+//! 支持 SQLite 持久化，重启后学习成果不丢失。
 
 use serde::{Deserialize, Serialize};
 use super::ExecutionPlan;

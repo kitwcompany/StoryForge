@@ -5,17 +5,15 @@ pub mod finalize;
 pub mod post_process;
 pub mod commands;
 pub mod style_analysis;
+pub mod executor;
 
-pub use types::*;
 pub use refine::refine_draft;
 pub use review::review_draft;
 pub use finalize::finalize_draft;
-pub use post_process::{build_finalize_steps, run_post_process, run_post_process_step};
+pub use post_process::{build_finalize_steps, run_post_process_step};
 
-use crate::db::{DbPool, DraftRepository, DraftStatus, RevisionRepository, RevisionStatus, PipelineReviewRepository, PostProcessRepository, PostProcessStatus, PostProcessStep, StepStatus};
+use crate::db::{DbPool, DraftRepository, DraftStatus, RevisionRepository, RevisionStatus, PipelineReviewRepository, PostProcessRepository};
 use crate::error::AppError;
-use crate::llm::LlmService;
-use tauri::AppHandle;
 
 /// 管线编排器 — 提供高级管线操作
 pub struct PipelineOrchestrator {

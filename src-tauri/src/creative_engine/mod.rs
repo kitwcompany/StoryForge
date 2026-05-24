@@ -11,5 +11,6 @@ pub mod methodology;
 pub mod style;
 pub mod adaptive;
 pub mod workflow;
+pub mod cascade_rewriter;
 
 pub use context_builder::StoryContextBuilder;

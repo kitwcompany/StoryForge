@@ -1,4 +1,4 @@
-//! V3 架构 Repository 层
+//! Repository 层
 #![allow(dead_code)]
 
 use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture, RuleType};
@@ -370,7 +370,6 @@ impl SceneRepository {
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         let mut conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
-        // v0.7.3: 1:N 架构下，scene 通过 chapter_id 关联 chapter。
         // 删除 scene 时无需清理 chapter 表（chapter 不持有 scene_id 外键）。
 
         // W2-F3: 获取 setting 信息用于世界构建清理
@@ -852,23 +851,55 @@ impl WorldBuildingRepository {
         })
     }
 
+    pub fn get_by_id(&self, id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, concept, rules, history, cultures, created_at, updated_at
+             FROM world_buildings WHERE id = ?1"
+        )?;
+
+        let wb = stmt.query_row([id], |row| {
+            let rules_json: String = row.get(3)?;
+            let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
+
+            let cultures_json: String = row.get(5)?;
+            let cultures: Vec<Culture> = serde_json::from_str(&cultures_json).unwrap_or_default();
+
+            let created_str: String = row.get(6)?;
+            let updated_str: String = row.get(7)?;
+
+            Ok(WorldBuilding {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                concept: row.get(2)?,
+                rules,
+                history: row.get(4)?,
+                cultures,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(wb)
+    }
+
     pub fn get_by_story(&self, story_id: &str) -> Result<Option<WorldBuilding>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, concept, rules, history, cultures, created_at, updated_at 
+            "SELECT id, story_id, concept, rules, history, cultures, created_at, updated_at
              FROM world_buildings WHERE story_id = ?1"
         )?;
 
         let wb = stmt.query_row([story_id], |row| {
             let rules_json: String = row.get(3)?;
             let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
-            
+
             let cultures_json: String = row.get(5)?;
             let cultures: Vec<Culture> = serde_json::from_str(&cultures_json).unwrap_or_default();
-            
+
             let created_str: String = row.get(6)?;
             let updated_str: String = row.get(7)?;
-            
+
             Ok(WorldBuilding {
                 id: row.get(0)?,
                 story_id: row.get(1)?,
@@ -2487,7 +2518,7 @@ impl CommentThreadRepository {
 }
 
 
-// ==================== StoryStyleConfig Repository (v4.4.0 - 风格混合配置) ====================
+// ==================== StoryStyleConfig Repository ====================
 
 pub struct StoryStyleConfigRepository {
     pool: DbPool,
@@ -3153,7 +3184,7 @@ impl UserPreferenceRepository {
 }
 
 
-// ==================== Story Outline Repository (v5.0.0 - 创世引擎) ====================
+// ==================== Story Outline Repository ====================
 
 pub struct StoryOutlineRepository {
     pool: DbPool,
@@ -3242,7 +3273,7 @@ impl StoryOutlineRepository {
     }
 }
 
-// ==================== Character Relationship Repository (v5.0.0 - 创世引擎) ====================
+// ==================== Character Relationship Repository ====================
 
 pub struct CharacterRelationshipRepository {
     pool: DbPool,
@@ -3531,7 +3562,7 @@ impl SceneCharacterRepository {
     }
 }
 
-// ==================== SceneDividerNode Repository (v0.7.3) ====================
+// ==================== SceneDividerNode Repository ====================
 
 pub struct SceneDividerRepository {
     pool: DbPool,

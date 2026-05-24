@@ -413,6 +413,32 @@ impl ContextOptimizer {
             }
         }
 
+        // 组装 MemoryPack（三层记忆）
+        let memory_pack = {
+            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
+            match orchestrator.build_memory_pack(story_id, chapter_number as i32, "write", None) {
+                Ok(mut pack) => {
+                    // 将前文摘要吸收进 working_memory
+                    for chapter in &l1.recent_chapters {
+                        pack.working_memory.push(crate::memory::orchestrator::MemoryEntry {
+                            layer: "working".to_string(),
+                            source: "previous_chapter".to_string(),
+                            chapter: chapter.number as i32,
+                            content: serde_json::json!({
+                                "title": chapter.title,
+                                "summary": chapter.summary
+                            }),
+                        });
+                    }
+                    Some(pack)
+                }
+                Err(e) => {
+                    log::warn!("[ContextOptimizer] MemoryPack build failed: {}, continuing without", e);
+                    None
+                }
+            }
+        };
+
         // 组装为 AgentContext
         let mut agent_ctx = AgentContext {
             story_id: story_id.to_string(),
@@ -435,7 +461,7 @@ impl ContextOptimizer {
             methodology_step: l0.methodology_step,
             style_dna_id: l0.style_dna_id,
             style_blend: l0.style_blend,
-            memory_pack: None,
+            memory_pack,
         };
 
         // 将 L2 结果追加到 scene_structure 或 world_rules 中
@@ -810,7 +836,7 @@ impl ContextOptimizer {
             return Ok("无前文章节可供检查".to_string());
         }
 
-        let mut issues: Vec<String> = Vec::new();
+        let issues: Vec<String> = Vec::new();
 
         // 简单的启发式检查
         // 1. 检查角色名一致性

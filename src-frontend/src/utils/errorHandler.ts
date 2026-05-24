@@ -121,8 +121,8 @@ function resolveUserFacingMessage(structured: StructuredError | null, fallback: 
   }
 
   switch (structured.code) {
-    case 'QUOTA_EXCEEDED':
-      return { text: structured.message || '今日配额已用完', action: 'upgrade' };
+    case 'FEATURE_LOCKED':
+      return { text: structured.message || '此功能需专业版', action: 'upgrade' };
     case 'LLM_TIMEOUT':
       return { text: structured.message || '模型响应超时，请检查模型配置或网络', action: 'check_model' };
     case 'DB_LOCKED':
