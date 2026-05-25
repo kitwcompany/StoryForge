@@ -2,6 +2,28 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.7] - 后端预检自动补齐 + 统一后台活动提示系统（2026-05-25）
+
+### 🛡️ 后端预检自动补齐
+- **`execute_writer_raw` 自我修复** — 当 `PreflightChecker` 发现缺少 `MASTER_SETTING` / `CHAPTER` 合同或场景大纲时，不再直接返回 `PREFLIGHT_FAILED` 错误，而是自动调用 `AutoContractBuilder::auto_fill` 补齐缺失要素
+- **补齐后重检** — 自动补齐完成后重新运行 `PreflightChecker::check()`，只有通过后才继续写作流程
+- **事件通知** — 补齐过程中发射 `agent-stage-update` 事件，前端可感知"正在自动补齐"状态
+- **全覆盖** — 所有后端写作入口（`smart_execute`、`auto_write`、`auto_revise`、`generate_scene_draft`、`workflow WriteChapter/Revise`）均受益
+
+### 💓 统一后台活动提示系统
+- **`backendActivityStore` (Zustand)** — 新增统一后台活动状态管理 Store，支持注册/更新/完成/失败/清理活动，按类别优先级自动选择"最重要"的活动作为 `primaryActivity`
+- **`useBackendActivityListener` Hook** — 统一监听 6 类后台事件（`contract-auto-progress`、`orchestrator-step`、`agent-stage-update`、`smart-execute-progress`、`pipeline-progress`、`plan-executor-step`），将分散的进度事件聚合为单一活动状态流
+- **`FrontstageBottomBar` 增强** — 底部状态栏新增心跳脉冲动画（`Activity` 图标 + `animate-ping` 扩散圈）、进度条、多任务计数（`+N`）、类别标签（补齐/编排/流水线/续写/修改），让用户持续感知后台智能平台状态
+- **大阶段 Toast 提示** — `FrontstageApp` 订阅 store，当 `primaryActivity` 发生阶段变化时自动触发 toast（`📋 补齐` / `📦 流水线` / `⚙️ 编排` / `💭 智能执行`）
+- **`WenSiPanel` 同步** — 自动续写/修改的进度（`auto-write-progress-*` / `auto-revise-progress-*`）同步到统一 store，主界面也能感知
+
+### 🔧 版本同步
+- **`tauri.conf.json`** — 版本号从 `0.7.5` 同步为 `0.7.7`
+
+**编译状态**: `cargo check` 零错误，前端 `tsc --noEmit` 通过。
+
+---
+
 ## [v0.7.6] - 系统性差距审计 + 自动补齐修复 + 事件系统强化（2026-05-23）
 
 ### 🔧 场景大纲自动补齐修复

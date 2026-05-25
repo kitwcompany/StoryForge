@@ -1,7 +1,33 @@
-# StoryForge (草苔) v0.7.6 项目完成状态
+# StoryForge (草苔) v0.7.7 项目完成状态
 
-> 最后更新: 2026-05-23（v0.7.6 + 系统性差距审计 + 自动补齐修复 + 事件系统强化 + 废弃页面清理 + GitNexus 代码智能协议落地）
+> 最后更新: 2026-05-25（v0.7.7 + 后端预检自动补齐 + 统一后台活动提示系统）
 > GitHub: https://github.com/91zgaoge/StoryForge
+
+---
+
+## ✅ 已完成功能
+
+### v0.7.7 后端预检自动补齐 + 统一后台活动提示系统（2026-05-25）
+
+#### 后端预检自动补齐
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `execute_writer_raw` 自我修复 | ✅ | 预检失败时自动调用 `AutoContractBuilder::auto_fill`，补齐缺失合同/大纲后重新预检 |
+| 所有写作入口覆盖 | ✅ | `smart_execute` / `auto_write` / `auto_revise` / `generate_scene_draft` / Workflow 均受益 |
+| 事件通知 | ✅ | 补齐过程中发射 `agent-stage-update`，前端可感知进度 |
+
+#### 统一后台活动提示系统
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `backendActivityStore` (Zustand) | ✅ | 统一聚合所有后台活动状态，按优先级选择 `primaryActivity` |
+| `useBackendActivityListener` Hook | ✅ | 统一监听 6 类后台进度事件，聚合为单一状态流 |
+| `FrontstageBottomBar` 心跳UI | ✅ | 脉冲动画 + 进度条 + 多任务计数 + 类别标签 |
+| 大阶段 Toast 提示 | ✅ | 阶段变化时自动 toast（补齐/流水线/编排/智能执行） |
+| `WenSiPanel` 进度同步 | ✅ | 自动续写/修改进度同步到统一 store |
+
+---
+
+### v0.7.6 系统性差距审计 + 自动补齐修复 + 事件系统强化（2026-05-23）
 
 ---
 
