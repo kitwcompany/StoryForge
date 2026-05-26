@@ -50,7 +50,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   const [autoWriteTaskId, setAutoWriteTaskId] = useState<string | null>(null);
   const [targetChars, setTargetChars] = useState(5000);
   const [charsPerLoop, setCharsPerLoop] = useState(1000);
-  const [progress, setProgress] = useState({ current: 0, target: 0, percentage: 0, loop: 0 });
+  const [progress, setProgress] = useState({ current: 0, target: 0, percentage: 0, loop: 0, styleScore: 0, driftDetails: [] as string[] });
 
   // 自动修改状态
   const [isAutoRevising, setIsAutoRevising] = useState(false);
@@ -84,6 +84,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         percentage: number;
         current_loop: number;
         status: string;
+        style_score: number;
+        drift_details: string[];
       }>(`auto-write-progress-${autoWriteTaskId}`, (event) => {
         const p = event.payload;
         setProgress({
@@ -91,6 +93,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           target: p.target_chars,
           percentage: p.percentage,
           loop: p.current_loop,
+          styleScore: p.style_score,
+          driftDetails: p.drift_details,
         });
         // v0.7.7: 同步到统一后台活动 store
         const store = useBackendActivityStore.getState();
@@ -292,7 +296,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       });
       setAutoWriteTaskId(result.task_id);
       setIsAutoWriting(true);
-      setProgress({ current: 0, target: targetChars, percentage: 0, loop: 0 });
+      setProgress({ current: 0, target: targetChars, percentage: 0, loop: 0, styleScore: 0, driftDetails: [] });
       toast.success('自动续写已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -508,7 +512,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             />
           </div>
 
-          {/* 进度条 */}
+          {/* 进度条 + 风格分数 */}
           {isAutoWriting && (
             <div className="wensi-progress-area">
               <div className="wensi-progress-bar-bg">
@@ -519,7 +523,17 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
               </div>
               <div className="wensi-progress-text">
                 {progress.percentage}% · {progress.current}/{progress.target} 字 · 第 {progress.loop} 轮
+                {progress.styleScore > 0 && (
+                  <span style={{ marginLeft: 8, color: progress.styleScore >= 0.7 ? '#4caf50' : progress.styleScore >= 0.5 ? '#ff9800' : '#f44336' }}>
+                    风格一致: {(progress.styleScore * 100).toFixed(0)}%
+                  </span>
+                )}
               </div>
+              {progress.driftDetails.length > 0 && (
+                <div style={{ fontSize: 11, color: '#c45c3e', marginTop: 2 }}>
+                  漂移: {progress.driftDetails.join('、')}
+                </div>
+              )}
             </div>
           )}
 

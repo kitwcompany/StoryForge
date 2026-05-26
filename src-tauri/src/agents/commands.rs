@@ -385,6 +385,9 @@ pub struct AutoWriteProgressEvent {
     pub percentage: i32,
     pub current_loop: i32,
     pub status: String,
+    // v0.7.8: 风格一致性评分
+    pub style_score: f32,
+    pub drift_details: Vec<String>,
 }
 
 /// 开始自动续写（循环调用 WriterAgent，直到达到目标字数或用户取消）
@@ -483,30 +486,83 @@ pub async fn auto_write(
                 tier: Some(get_user_tier_sync(&app_handle_clone)),
             };
 
-            // v0.7.8: 跨段风格漂移检测 — 如果上一段风格偏离严重，加强约束
-            let style_drift_warning = if loop_count > 0 {
+            // v0.7.8: 跨段风格漂移检测 — 多维度（句长/四字格/虚词/标志性词汇）
+            let (style_drift_warning, loop_style_score, loop_drift_details) = if loop_count > 0 {
                 if let Some(ref fp) = fingerprint {
                     let recent = accumulated_content.chars().rev().take(500).collect::<String>();
                     let recent_fp = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&recent);
+
+                    let mut drift_parts = Vec::new();
+                    let mut warnings = Vec::new();
+
+                    // 1. 句长偏离
                     let len_diff = (recent_fp.syntax.avg_sentence_length - fp.syntax.avg_sentence_length).abs();
-                    let deviation = if fp.syntax.avg_sentence_length > 0.0 {
+                    let len_deviation = if fp.syntax.avg_sentence_length > 0.0 {
                         len_diff / fp.syntax.avg_sentence_length
                     } else { 0.0 };
-                    if deviation > 0.35 {
+                    if len_deviation > 0.30 {
+                        drift_parts.push(format!("句长偏离 {:.0}%", len_deviation * 100.0));
+                        warnings.push(format!("平均句长约 {:.0} 字", fp.syntax.avg_sentence_length));
+                    }
+
+                    // 2. 四字格密度偏离
+                    let four_char_diff = (recent_fp.vocabulary.four_char_density - fp.vocabulary.four_char_density).abs();
+                    if four_char_diff > 3.0 {
+                        drift_parts.push(format!("四字格密度偏离 {:.1}%", four_char_diff));
+                        warnings.push(format!("四字格密度 {:.0}%", fp.vocabulary.four_char_density));
+                    }
+
+                    // 3. 虚词偏好偏离 — 前5虚词重叠率
+                    let ref_fw: std::collections::HashSet<&String> = fp.vocabulary.function_words.iter().map(|(w, _)| w).collect();
+                    let recent_fw: std::collections::HashSet<&String> = recent_fp.vocabulary.function_words.iter().map(|(w, _)| w).collect();
+                    if !ref_fw.is_empty() {
+                        let overlap = ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32;
+                        if overlap < 0.5 {
+                            drift_parts.push(format!("虚词偏好偏离（重叠率 {:.0}%）", overlap * 100.0));
+                            let preferred = fp.vocabulary.function_words.iter().take(3).map(|(w, _)| w.as_str()).collect::<Vec<_>>().join("、");
+                            warnings.push(format!("多用虚词：{}", preferred));
+                        }
+                    }
+
+                    // 4. 标志性词汇偏离
+                    let ref_sw: std::collections::HashSet<&String> = fp.vocabulary.signature_words.iter().map(|(w, _)| w).collect();
+                    let recent_sw: std::collections::HashSet<&String> = recent_fp.vocabulary.signature_words.iter().map(|(w, _)| w).collect();
+                    if !ref_sw.is_empty() {
+                        let overlap = ref_sw.intersection(&recent_sw).count() as f32 / ref_sw.len() as f32;
+                        if overlap < 0.3 {
+                            drift_parts.push(format!("标志性词汇偏离（重叠率 {:.0}%）", overlap * 100.0));
+                        }
+                    }
+
+                    let warning_text = if drift_parts.len() >= 2 {
                         Some(format!(
-                            "\n\n【警告】上一段风格偏离 {:.0}%，本次续写请特别注意保持平均句长约 {:.0} 字、四字格密度 {:.0}%。",
-                            deviation * 100.0,
+                            "\n\n【警告】上一段风格 {}，本次续写请特别注意：{}。",
+                            drift_parts.join("、"),
+                            warnings.join("、")
+                        ))
+                    } else if len_deviation > 0.35 {
+                        Some(format!(
+                            "\n\n【警告】上一段句长偏离 {:.0}%，本次续写请特别注意保持平均句长约 {:.0} 字、四字格密度 {:.0}%。",
+                            len_deviation * 100.0,
                             fp.syntax.avg_sentence_length,
                             fp.vocabulary.four_char_density
                         ))
                     } else {
                         None
-                    }
+                    };
+
+                    let score = (1.0 - len_deviation).clamp(0.0, 1.0) * 0.4
+                        + (1.0 - four_char_diff / 20.0).clamp(0.0, 1.0) * 0.35
+                        + if !ref_fw.is_empty() {
+                            (ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32).clamp(0.0, 1.0)
+                        } else { 0.5 } * 0.25;
+
+                    (warning_text, score.clamp(0.0, 1.0), drift_parts)
                 } else {
-                    None
+                    (None, 0.0, Vec::new())
                 }
             } else {
-                None
+                (None, 0.0, Vec::new())
             };
 
             let mut config = crate::agents::orchestrator::WorkflowConfig::default();
@@ -522,12 +578,21 @@ pub async fn auto_write(
                 Ok(workflow_result) => {
                     let mut generated = workflow_result.final_content;
 
-                    // v0.7.8: 后处理风格对齐（虚词替换）
+                    // v0.7.8: 后处理风格对齐（虚词替换 + 四字格密度补偿）
                     if let Some(ref fp) = fingerprint {
                         generated = crate::utils::style_align::StyleAligner::align(
                             &generated,
                             &fp.vocabulary.temporal_quality,
                         );
+
+                        // 四字格密度补偿：如果生成内容密度低于参考 30% 以上，注入四字词
+                        let generated_fp = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&generated);
+                        if generated_fp.vocabulary.four_char_density < fp.vocabulary.four_char_density * 0.7 {
+                            generated = crate::utils::style_align::StyleAligner::inject_four_char(
+                                &generated,
+                                &fp.vocabulary.signature_words,
+                            );
+                        }
                     }
 
                     let generated_len = generated.chars().count() as i32;
@@ -544,7 +609,7 @@ pub async fn auto_write(
                     };
                     let _ = crate::window::WindowManager::send_to_frontstage(&app_handle_clone, event);
 
-                    // 推送进度事件
+                    // 推送进度事件（含风格分数）
                     let percentage = ((total_written as f32 / target_chars as f32) * 100.0) as i32;
                     let progress = AutoWriteProgressEvent {
                         task_id: task_id_clone.clone(),
@@ -553,6 +618,8 @@ pub async fn auto_write(
                         percentage,
                         current_loop: loop_count,
                         status: "writing".to_string(),
+                        style_score: loop_style_score,
+                        drift_details: loop_drift_details.clone(),
                     };
                     let _ = app_handle_clone.emit(&format!("auto-write-progress-{}", task_id_clone), progress);
                 }
@@ -572,6 +639,8 @@ pub async fn auto_write(
             percentage: 100,
             current_loop: loop_count,
             status: "completed".to_string(),
+            style_score: 0.0,
+            drift_details: Vec::new(),
         });
 
         // 保存最终内容到数据库
