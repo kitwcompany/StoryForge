@@ -526,7 +526,37 @@ impl AgentService {
                 }
             }
         }
-        
+
+        // v0.7.8: 风格一致性快速检查（ fingerprint 存在时）
+        if let Some(ref fingerprint) = task.context.style_fingerprint {
+            let fp_text = fingerprint.to_prompt_section();
+            let style_check = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&content
+            );
+            let len_diff = (style_check.syntax.avg_sentence_length - fingerprint.syntax.avg_sentence_length).abs();
+            let len_deviation = if fingerprint.syntax.avg_sentence_length > 0.0 {
+                len_diff / fingerprint.syntax.avg_sentence_length
+            } else { 0.0 };
+
+            if len_deviation > 0.3 {
+                suggestions.push(format!(
+                    "[风格] 句长偏离 {:.0}%：实际平均 {:.0} 字 vs 参考 {:.0} 字",
+                    len_deviation * 100.0,
+                    style_check.syntax.avg_sentence_length,
+                    fingerprint.syntax.avg_sentence_length
+                ));
+                log::warn!("[StyleCheck] Sentence length drift: {:.0}%", len_deviation * 100.0);
+            }
+
+            let four_char_diff = (style_check.vocabulary.four_char_density - fingerprint.vocabulary.four_char_density).abs();
+            if four_char_diff > 5.0 {
+                suggestions.push(format!(
+                    "[风格] 四字格密度偏离：实际 {:.1}% vs 参考 {:.1}%",
+                    style_check.vocabulary.four_char_density,
+                    fingerprint.vocabulary.four_char_density
+                ));
+            }
+        }
+
         Ok(AgentResult {
             content,
             score: Some(score),

@@ -287,6 +287,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         chapter_id: chapterId,
         target_chars: targetChars,
         chars_per_loop: charsPerLoop,
+        reference_text: referenceText || undefined,
+        style_weight: styleWeight,
       });
       setAutoWriteTaskId(result.task_id);
       setIsAutoWriting(true);

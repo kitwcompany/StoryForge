@@ -357,7 +357,15 @@ pub struct AutoWriteRequest {
     pub chapter_id: String,
     pub target_chars: i32,
     pub chars_per_loop: i32,
+    /// 外部参考文本（可选），用于风格指纹提取
+    #[serde(default)]
+    pub reference_text: Option<String>,
+    /// 风格权重 0-100（0=叙事优先，100=风格优先）
+    #[serde(default = "default_style_weight")]
+    pub style_weight: i32,
 }
+
+fn default_style_weight() -> i32 { 50 }
 
 /// 自动续写响应
 #[derive(Debug, Serialize)]
@@ -403,6 +411,20 @@ pub async fn auto_write(
     let chapter_id = request.chapter_id.clone();
     let target_chars = request.target_chars;
     let chars_per_loop = request.chars_per_loop;
+    let reference_text = request.reference_text.clone();
+    let style_weight = (request.style_weight as f32 / 100.0).clamp(0.0, 1.0);
+
+    // v0.7.8: 预计算风格指纹（从参考文本或当前内容）
+    let fingerprint_source = reference_text
+        .as_ref()
+        .filter(|t| !t.is_empty())
+        .cloned()
+        .unwrap_or_else(|| current_content.clone());
+    let fingerprint = if fingerprint_source.chars().count() > 50 {
+        Some(crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&fingerprint_source))
+    } else {
+        None
+    };
 
     // 在后台执行循环续写
     let handle = tokio::spawn(async move {
@@ -421,8 +443,16 @@ pub async fn auto_write(
             let remaining = target_chars - total_written;
             let this_loop_chars = chars_per_loop.min(remaining);
 
-            // 构建续写 prompt
-            let instruction = format!("请继续续写以下内容，续写约 {} 字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。", this_loop_chars);
+            // v0.7.8: 构建增强续写 prompt（注入风格指纹）
+            let instruction = if let Some(ref fp) = fingerprint {
+                format!(
+                    "请继续续写以下内容，续写约 {} 字。\n\n【风格约束】\n{}\n\n请直接输出续写内容，不要重复前文。",
+                    this_loop_chars,
+                    fp.to_prompt_section()
+                )
+            } else {
+                format!("请继续续写以下内容，续写约 {} 字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。", this_loop_chars)
+            };
 
             let mut context = build_agent_context(
                 &app_handle_clone,
@@ -437,23 +467,69 @@ pub async fn auto_write(
 
             // 注入当前已积累的上下文内容
             context.current_content = Some(accumulated_content.clone());
+            // 注入预计算的风格指纹
+            context.style_fingerprint = fingerprint.clone();
 
             let task = AgentTask {
                 id: Uuid::new_v4().to_string(),
                 agent_type: AgentType::Writer,
                 context,
                 input: instruction,
-                parameters: std::collections::HashMap::new(),
+                parameters: {
+                    let mut p = std::collections::HashMap::new();
+                    p.insert("style_weight".to_string(), serde_json::json!(style_weight));
+                    p
+                },
                 tier: Some(get_user_tier_sync(&app_handle_clone)),
             };
 
-            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+            // v0.7.8: 跨段风格漂移检测 — 如果上一段风格偏离严重，加强约束
+            let style_drift_warning = if loop_count > 0 {
+                if let Some(ref fp) = fingerprint {
+                    let recent = accumulated_content.chars().rev().take(500).collect::<String>();
+                    let recent_fp = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&recent);
+                    let len_diff = (recent_fp.syntax.avg_sentence_length - fp.syntax.avg_sentence_length).abs();
+                    let deviation = if fp.syntax.avg_sentence_length > 0.0 {
+                        len_diff / fp.syntax.avg_sentence_length
+                    } else { 0.0 };
+                    if deviation > 0.35 {
+                        Some(format!(
+                            "\n\n【警告】上一段风格偏离 {:.0}%，本次续写请特别注意保持平均句长约 {:.0} 字、四字格密度 {:.0}%。",
+                            deviation * 100.0,
+                            fp.syntax.avg_sentence_length,
+                            fp.vocabulary.four_char_density
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let mut config = crate::agents::orchestrator::WorkflowConfig::default();
+            config.style_weight = style_weight;
+            config.narrative_weight = 1.0 - style_weight;
+
+            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
                 service.clone(),
+                config,
                 app_handle_clone.clone(),
             );
             match orchestrator.generate(task, crate::agents::orchestrator::GenerationMode::Full).await {
                 Ok(workflow_result) => {
-                    let generated = workflow_result.final_content;
+                    let mut generated = workflow_result.final_content;
+
+                    // v0.7.8: 后处理风格对齐（虚词替换）
+                    if let Some(ref fp) = fingerprint {
+                        generated = crate::utils::style_align::StyleAligner::align(
+                            &generated,
+                            &fp.vocabulary.temporal_quality,
+                        );
+                    }
+
                     let generated_len = generated.chars().count() as i32;
                     total_written += generated_len;
                     loop_count += 1;

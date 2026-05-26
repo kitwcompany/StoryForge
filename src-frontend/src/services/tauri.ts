@@ -455,6 +455,8 @@ export const autoWrite = (params: {
   chapter_id: string;
   target_chars: number;
   chars_per_loop: number;
+  reference_text?: string;
+  style_weight?: number;
 }) =>
   loggedInvoke<{ task_id: string; actual_chars: number; loops: number; status: string }>('auto_write', { request: params });
 
