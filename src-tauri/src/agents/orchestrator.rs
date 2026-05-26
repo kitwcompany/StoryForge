@@ -232,9 +232,18 @@ impl AgentOrchestrator {
 
         // 步骤1: Writer 生成初稿
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
-        let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
-        let request_id = writer_result.request_id.clone();
-        let mut current_content = writer_result.content.clone();
+
+        // v0.7.8: 3 候选并行生成选优（续写场景且有风格指纹时启用）
+        let (writer_result, request_id, mut current_content) =
+            if task.context.style_fingerprint.is_some() || task.context.current_content.as_ref().map(|c| c.len() > 100).unwrap_or(false) {
+                let (r, req_id, content) = self.generate_candidates(&task, 3).await?;
+                (r, Some(req_id), content)
+            } else {
+                let result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
+                let req_id = result.request_id.clone();
+                let content = result.content.clone();
+                (result, req_id, content)
+            };
 
         steps.push(WorkflowStepResult {
             step_type: WorkflowStepType::Generation,
@@ -547,6 +556,134 @@ impl AgentOrchestrator {
 
         feedback.push_str("\n请根据以上反馈改写内容，重点解决指出的问题，同时保持原文的优点。");
         feedback
+    }
+
+    /// v0.7.8: 并行生成 N 个候选，用风格指纹打分选优
+    ///
+    /// 每个候选使用不同的 temperature 产生多样性：
+    /// - 候选1: base_temp * 0.9 (更保守，接近训练分布)
+    /// - 候选2: base_temp * 1.0 (基准)
+    /// - 候选3: base_temp * 1.1 (更发散，探索性)
+    async fn generate_candidates(
+        &self,
+        task: &AgentTask,
+        count: usize,
+    ) -> Result<(AgentResult, String, String), AppError> {
+        let temps = [0.75_f32, 0.9_f32, 1.05_f32];
+        let mut tasks = Vec::with_capacity(count);
+
+        for i in 0..count {
+            let mut candidate_task = task.clone();
+            candidate_task.id = format!("{}-candidate-{}", task.id, i);
+            candidate_task.parameters.insert(
+                "temperature_override".to_string(),
+                serde_json::json!(temps.get(i).copied().unwrap_or(0.9)),
+            );
+            tasks.push(candidate_task);
+        }
+
+        log::info!("[Orchestrator] Generating {} candidates for task {}", count, task.id);
+
+        // 并行执行所有候选
+        let results: Vec<Result<AgentResult, AppError>> = futures::future::join_all(
+            tasks.into_iter().map(|t| self.service.execute_writer_raw(t))
+        ).await;
+
+        // 获取参考指纹（从预计算或 current_content 提取）
+        let reference_fp = task.context.style_fingerprint.clone().or_else(|| {
+            task.context.current_content.as_ref().and_then(|c| {
+                let cleaned = c.trim().trim_start_matches("...").trim_start();
+                let cleaned = if cleaned.starts_with('(') && cleaned.contains("已省略)") {
+                    cleaned.split_once('\n').map(|(_, rest)| rest).unwrap_or(cleaned).trim_start()
+                } else {
+                    cleaned
+                };
+                if cleaned.len() > 50 {
+                    Some(crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(cleaned))
+                } else {
+                    None
+                }
+            })
+        });
+
+        // 评分并选优
+        let mut best_idx = 0_usize;
+        let mut best_score = -1.0_f32;
+        let mut candidates: Vec<(AgentResult, f32)> = Vec::with_capacity(count);
+
+        for (i, result) in results.into_iter().enumerate() {
+            match result {
+                Ok(agent_result) => {
+                    let score = if let Some(ref ref_fp) = reference_fp {
+                        Self::score_candidate_style(&agent_result.content, ref_fp)
+                    } else {
+                        agent_result.score.unwrap_or(0.5)
+                    };
+                    candidates.push((agent_result, score));
+                    if score > best_score {
+                        best_score = score;
+                        best_idx = i;
+                    }
+                    log::info!("[Orchestrator] Candidate {} style_score={:.2}", i, score);
+                }
+                Err(e) => {
+                    log::warn!("[Orchestrator] Candidate {} failed: {}", i, e);
+                }
+            }
+        }
+
+        if candidates.is_empty() {
+            return Err(AppError::internal("所有候选生成均失败"));
+        }
+
+        let best = candidates.swap_remove(best_idx);
+        log::info!(
+            "[Orchestrator] Selected candidate {} with score {:.2} (from {} valid)",
+            best_idx, best_score, candidates.len() + 1
+        );
+
+        let req_id = best.0.request_id.clone().unwrap_or_default();
+        let content = best.0.content.clone();
+        Ok((best.0, req_id, content))
+    }
+
+    /// 用风格指纹对候选文本打分（0-1，越高越匹配）
+    fn score_candidate_style(
+        text: &str,
+        reference: &crate::creative_engine::style::fingerprint::StyleFingerprint,
+    ) -> f32 {
+        let candidate = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(text);
+
+        // 句长匹配度 (0-1)
+        let len_match = if reference.syntax.avg_sentence_length > 0.0 {
+            let diff = (candidate.syntax.avg_sentence_length - reference.syntax.avg_sentence_length).abs();
+            let ratio = diff / reference.syntax.avg_sentence_length;
+            (1.0 - ratio).clamp(0.0, 1.0)
+        } else {
+            0.5
+        };
+
+        // 四字格密度匹配度 (0-1)
+        let four_char_match = {
+            let diff = (candidate.vocabulary.four_char_density - reference.vocabulary.four_char_density).abs();
+            (1.0 - diff / 20.0).clamp(0.0, 1.0) // 20% 为最大容忍偏离
+        };
+
+        // 虚词偏好匹配度 — 计算前5虚词的重叠率
+        let function_word_match = {
+            let ref_top: std::collections::HashSet<&String> = reference.vocabulary.function_words.iter().map(|(w, _)| w).collect();
+            let cand_top: std::collections::HashSet<&String> = candidate.vocabulary.function_words.iter().map(|(w, _)| w).collect();
+            if !ref_top.is_empty() {
+                let overlap = ref_top.intersection(&cand_top).count() as f32;
+                overlap / ref_top.len() as f32
+            } else {
+                0.5
+            }
+        };
+
+        // 加权综合（句长 40% + 四字格 35% + 虚词 25%）
+        let score = len_match * 0.4 + four_char_match * 0.35 + function_word_match * 0.25;
+        score.clamp(0.0, 1.0)
     }
 
     /// 获取质检报告摘要

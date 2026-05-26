@@ -961,7 +961,7 @@ const FrontstageApp: React.FC = () => {
       });
 
       const result = await Promise.race([
-        smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText() }),
+        smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText(), style_weight: 50 }),
         timeoutPromise,
       ]);
       if (timeoutId) clearTimeout(timeoutId);
@@ -1298,7 +1298,7 @@ const FrontstageApp: React.FC = () => {
 
     try {
       const result = await Promise.race([
-        smartExecute({ user_input: userInput, current_content: editorRef.current?.getText() }),
+        smartExecute({ user_input: userInput, current_content: editorRef.current?.getText(), style_weight: 50 }),
         timeoutPromise,
       ]);
 

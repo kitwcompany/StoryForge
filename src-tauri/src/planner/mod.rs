@@ -80,6 +80,8 @@ pub struct PlanContext {
     pub mcp_tools_available: Vec<String>,
     // W3-F3: 支持选中文本（Inline Suggestion 统一路径）
     pub selected_text: Option<String>,
+    // v0.7.8: 风格权重（0-100，默认50）
+    pub style_weight: i32,
 }
 
 /// 计划生成器

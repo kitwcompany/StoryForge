@@ -428,18 +428,18 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在加载用户偏好...", 0.28);
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在查询用户反馈历史...", 0.281);
-        let (max_tokens, temperature) = {
+        let (max_tokens, mut temperature) = {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let generator = crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
             self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在计算生成策略...", 0.285);
             match generator.build_strategy_with_context(
-                &task.context.story_id, 
+                &task.context.story_id,
                 Some(user_temperature),
                 story_progress,
                 scene_stage,
             ) {
                 Ok(strategy) => {
-                    log::info!("[AgentService] Adaptive strategy for story {}: progress={:?}, stage={:?}, base_temp={}, adjusted_temp={}, max_tokens={}", 
+                    log::info!("[AgentService] Adaptive strategy for story {}: progress={:?}, stage={:?}, base_temp={}, adjusted_temp={}, max_tokens={}",
                         task.context.story_id, story_progress, scene_stage, user_temperature, strategy.temperature, strategy.max_tokens);
                     self.emit_event(&task.id, task.agent_type, AgentStage::Generating, &format!("生成策略已构建: temperature={:.2}, max_tokens={}", strategy.temperature, strategy.max_tokens), 0.3);
                     (Some(strategy.max_tokens), Some(strategy.temperature))
@@ -451,6 +451,12 @@ impl AgentService {
                 }
             }
         };
+
+        // v0.7.8: 支持 temperature override（用于候选生成多样性）
+        if let Some(override_val) = task.parameters.get("temperature_override").and_then(|v| v.as_f64()) {
+            temperature = Some(override_val as f32);
+            log::info!("[AgentService] Temperature override: {}", override_val);
+        }
         
         let request_id = uuid::Uuid::new_v4().to_string();
         let (req_id, response) = self.generate_for_agent(
@@ -1045,9 +1051,19 @@ impl AgentService {
             Some(fingerprint.to_prompt_section())
         } else if let Some(ref content) = ctx.current_content {
             // 如果没有预计算的 fingerprint，从当前内容实时提取
-            let trimmed = content.trim();
-            if trimmed.len() > 100 && trimmed != "无" {
-                let fingerprint = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(trimmed);
+            // v0.7.8: 过滤掉 PlanContext 截断前缀 "...(前N字已省略)\n"
+            let cleaned = content
+                .trim()
+                .trim_start_matches("...")
+                .trim_start();
+            // 去掉 "(前xxx字已省略)" 前缀行
+            let cleaned = if cleaned.starts_with('(') && cleaned.contains("已省略)") {
+                cleaned.split_once('\n').map(|(_, rest)| rest).unwrap_or(cleaned).trim_start()
+            } else {
+                cleaned
+            };
+            if cleaned.len() > 100 && cleaned != "无" {
+                let fingerprint = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(cleaned);
                 let section = fingerprint.to_prompt_section();
                 if !section.is_empty() {
                     Some(section)

@@ -24,8 +24,10 @@ pub fn check_preflight(
 pub async fn smart_execute(
     user_input: String,
     current_content: Option<String>,
+    style_weight: Option<i32>,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, String> {
+    let style_weight = style_weight.unwrap_or(50);
     use tauri::Emitter;
 
     let pool = get_pool().ok_or("[smart_execute] Database not initialized")?;
@@ -405,6 +407,7 @@ pub async fn smart_execute(
             style_dna_info: style_dna_info.clone(),
             mcp_tools_available: mcp_tools_available.clone(),
             selected_text: None,
+            style_weight,
         }).await;
         return Ok(result);
     }
@@ -438,6 +441,7 @@ pub async fn smart_execute(
         style_dna_info,
         mcp_tools_available,
         selected_text: None,
+        style_weight,
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）

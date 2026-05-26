@@ -245,6 +245,7 @@ export interface SmartExecuteRequest {
   user_input: string;
   current_content?: string;
   selected_text?: string;
+  style_weight?: number;
 }
 
 export interface SmartExecuteResult {

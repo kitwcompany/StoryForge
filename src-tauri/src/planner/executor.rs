@@ -472,8 +472,13 @@ impl PlanExecutor {
             .or_else(|| plan_context.current_content_preview.clone());
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
-        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+        let sw = (plan_context.style_weight as f32 / 100.0).clamp(0.0, 1.0);
+        let mut config = crate::agents::orchestrator::WorkflowConfig::default();
+        config.style_weight = sw;
+        config.narrative_weight = 1.0 - sw;
+        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
             service,
+            config,
             self.app_handle.clone(),
         );
         let selected_text = plan_context.selected_text.clone();
