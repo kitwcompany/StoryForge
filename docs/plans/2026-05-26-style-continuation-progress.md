@@ -89,9 +89,11 @@
 |--------|------|------|---------|
 | P2 | ~~3 候选选优~~ | ✅ 已完成 — Orchestrator::generate_candidates 并行生成 + fingerprint 打分 | — |
 | P2 | ~~smart_execute 接入指纹~~ | ✅ 已完成 — style_weight 传递 + build_writer_prompt fallback 过滤截断前缀 | — |
-| P2 | **跨段一致性校验增强** | 当前只检测句长偏离，未检测词汇偏好、虚词模式等 | 1h |
-| P2 | **StyleAligner 四字格密度补偿** | `inject_four_char` 当前为空实现，需要同义词库支持 | 2h |
-| P3 | **前端风格分数显示** | WenSiPanel 未显示生成后的 style_score / drift_details | 1h |
+| P2 | ~~跨段一致性校验增强~~ | ✅ 已完成 — 4 维度检测（句长/四字格/虚词/标志性词汇）+ 综合评分 | — |
+| P2 | ~~StyleAligner 四字格密度补偿~~ | ✅ 已完成 — 25 组映射 + 每段最多 8 处替换 + 密度低于 70% 触发 | — |
+| P3 | ~~前端风格分数显示~~ | ✅ 已完成 — WenSiPanel 进度条下方显示风格一致度 + 漂移详情 | — |
+
+**全部完成 ✅**
 
 ---
 
