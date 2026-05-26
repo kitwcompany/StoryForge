@@ -87,11 +87,11 @@
 
 | 优先级 | 内容 | 原因 | 估计工时 |
 |--------|------|------|---------|
-| P2 | **3 候选选优** | generate 方法不支持种子变化 + 并行调用需要重构 execute_writer_raw | 2h |
+| P2 | ~~3 候选选优~~ | ✅ 已完成 — Orchestrator::generate_candidates 并行生成 + fingerprint 打分 | — |
+| P2 | ~~smart_execute 接入指纹~~ | ✅ 已完成 — style_weight 传递 + build_writer_prompt fallback 过滤截断前缀 | — |
 | P2 | **跨段一致性校验增强** | 当前只检测句长偏离，未检测词汇偏好、虚词模式等 | 1h |
 | P2 | **StyleAligner 四字格密度补偿** | `inject_four_char` 当前为空实现，需要同义词库支持 | 2h |
 | P3 | **前端风格分数显示** | WenSiPanel 未显示生成后的 style_score / drift_details | 1h |
-| P3 | **smart_execute 接入指纹** | Ctrl+Enter 续写走 smart_execute 路径，未接入 fingerprint | 1h |
 
 ---
 
