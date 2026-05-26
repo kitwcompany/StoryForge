@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
 /// 更新信息
@@ -24,6 +24,14 @@ pub struct CheckUpdateResult {
     pub current_version: String,
     pub latest_version: Option<String>,
     pub update_info: Option<UpdateInfo>,
+}
+
+/// 下载进度事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+    pub percentage: f32,
 }
 
 /// 检查是否有可用更新
@@ -71,7 +79,7 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
     }
 }
 
-/// 下载并安装更新
+/// 下载并安装更新（带进度事件）
 #[tauri::command]
 pub async fn install_update(app_handle: AppHandle) -> Result<(), String> {
     let updater = app_handle
@@ -82,14 +90,30 @@ pub async fn install_update(app_handle: AppHandle) -> Result<(), String> {
         Ok(Some(update)) => {
             log::info!("[Updater] Downloading update: {}", update.version);
 
-            // 下载并安装更新
+            let app = app_handle.clone();
+
+            // 下载并安装更新，带进度回调
             update
-                .download_and_install(|_chunk_length, _content_length| {
-                    // 可以在这里发送进度事件到前端
-                }, || {
-                    // 下载完成回调
-                    log::info!("[Updater] Download completed");
-                })
+                .download_and_install(
+                    |chunk_length, content_length| {
+                        let total = content_length.unwrap_or(0);
+                        let percentage = if total > 0 {
+                            (chunk_length as f32 / total as f32 * 100.0).min(100.0)
+                        } else {
+                            0.0
+                        };
+                        let progress = UpdateDownloadProgress {
+                            downloaded: chunk_length as u64,
+                            total: content_length,
+                            percentage,
+                        };
+                        let _ = app.emit("update-download-progress", progress);
+                    },
+                    || {
+                        log::info!("[Updater] Download completed");
+                        let _ = app.emit("update-download-complete", ());
+                    },
+                )
                 .await
                 .map_err(|e| format!("Failed to install update: {}", e))?;
 
@@ -106,4 +130,3 @@ pub async fn install_update(app_handle: AppHandle) -> Result<(), String> {
 pub fn get_current_version(app_handle: AppHandle) -> String {
     app_handle.package_info().version.to_string()
 }
-

@@ -79,6 +79,7 @@ function App() {
     latestVersion,
     updateInfo,
     isInstalling,
+    downloadProgress,
     error,
     checkUpdate,
     installUpdate,
@@ -271,6 +272,7 @@ function App() {
           latestVersion={latestVersion}
           updateInfo={updateInfo}
           isInstalling={isInstalling}
+          downloadProgress={downloadProgress}
           error={error}
           onInstall={installUpdate}
           onDismiss={dismissUpdate}

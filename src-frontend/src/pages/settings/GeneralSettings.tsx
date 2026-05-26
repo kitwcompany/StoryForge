@@ -69,6 +69,8 @@ export function GeneralSettings() {
     latestVersion,
     isChecking,
     isInstalling,
+    downloadProgress,
+    error,
     checkUpdate,
     installUpdate,
   } = useUpdater(false);
@@ -174,7 +176,7 @@ export function GeneralSettings() {
     <div className="space-y-6">
       {/* 版本信息 */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-terracotta to-terracotta/60 flex items-center justify-center">
@@ -183,10 +185,18 @@ export function GeneralSettings() {
               <div>
                 <h3 className="text-lg font-medium text-white">StoryForge (草苔)</h3>
                 <p className="text-gray-400">当前版本: v{currentVersion}</p>
-                {hasUpdate && (
+                {hasUpdate && !isInstalling && (
                   <p className="text-terracotta text-sm">
                     新版本可用: v{latestVersion}
                   </p>
+                )}
+                {isInstalling && downloadProgress && (
+                  <p className="text-cinema-gold text-sm">
+                    正在下载 v{latestVersion}… {downloadProgress.percentage.toFixed(0)}%
+                  </p>
+                )}
+                {error && (
+                  <p className="text-red-400 text-sm">{error}</p>
                 )}
               </div>
             </div>
@@ -200,7 +210,7 @@ export function GeneralSettings() {
                   {isInstalling ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      安装中...
+                      更新中…
                     </>
                   ) : (
                     <>
@@ -218,7 +228,7 @@ export function GeneralSettings() {
                   {isChecking ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      检查中...
+                      检查中…
                     </>
                   ) : (
                     <>
@@ -230,6 +240,24 @@ export function GeneralSettings() {
               )}
             </div>
           </div>
+
+          {/* 下载进度条 */}
+          {isInstalling && downloadProgress && (
+            <div className="space-y-1">
+              <div className="h-2 bg-cinema-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-terracotta rounded-full transition-all duration-300"
+                  style={{ width: `${downloadProgress.percentage}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>下载更新包</span>
+                {downloadProgress.total && downloadProgress.total > 0 && (
+                  <span>{formatBytes(downloadProgress.downloaded)} / {formatBytes(downloadProgress.total)}</span>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -580,4 +608,12 @@ export function GeneralSettings() {
       </Card>
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }

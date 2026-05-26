@@ -215,11 +215,12 @@ jobs:
 
       - name: Build Tauri app (PR)
         if: github.event_name == 'pull_request'
-        uses: tauri-apps/tauri-action@action-v0.6.2
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
+          includeUpdaterJson: true
 
       - name: Get version from package.json
         id: get_version
@@ -232,44 +233,55 @@ jobs:
 
       - name: Build Tauri app and release (nightly)
         if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-        uses: tauri-apps/tauri-action@action-v0.6.2
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v${{ steps.get_version.outputs.version }}-nightly
           releaseName: 'StoryForge v${{ steps.get_version.outputs.version }} Nightly'
           releaseBody: |
-            🌿 StoryForge (草苔) v${{ steps.get_version.outputs.version }} 最新构建版本
+            ## 新增
+            - Nightly 自动构建版本
 
-            此版本为自动构建产物，包含三个平台的安装包：
-            - Windows (.msi / .exe)
-            - macOS (.dmg / .app)
-            - Linux (.deb / .AppImage / .rpm)
+            ## 注意
+            - 此版本为自动构建产物，可能包含未测试的改动
+            - 建议仅用于测试目的
 
             构建时间: ${{ github.event.head_commit.timestamp }}
             提交: ${{ github.sha }}
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
+          includeUpdaterJson: true
+          updaterJsonKeepUniversal: true
 
       - name: Build Tauri app and release (stable)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: tauri-apps/tauri-action@action-v0.6.2
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'StoryForge ${{ github.ref_name }}'
           releaseBody: |
-            🌿 StoryForge (草苔) ${{ github.ref_name }} 正式版
+            ## 新增
+            - 详见 CHANGELOG.md
+
+            ## 修复
+            - 详见 CHANGELOG.md
+
+            ## 注意
+            - 升级前建议导出当前工作室配置作为备份
 
             包含三个平台的安装包：
-            - Windows (.msi / .exe)
-            - macOS (.dmg / .app)
-            - Linux (.deb / .AppImage / .rpm)
+            - Windows (.msi)
+            - macOS (.dmg)
+            - Linux (.deb)
 
             构建时间: ${{ github.event.head_commit.timestamp }}
             提交: ${{ github.sha }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+          includeUpdaterJson: true
+          updaterJsonKeepUniversal: true
