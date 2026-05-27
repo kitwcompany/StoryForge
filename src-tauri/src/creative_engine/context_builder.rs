@@ -196,6 +196,7 @@ impl StoryContextBuilder {
             style_blend,
             style_fingerprint: None,
             memory_pack,
+            memory_context: None,
         })
     }
 

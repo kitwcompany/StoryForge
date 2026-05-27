@@ -131,6 +131,7 @@ impl ShortTermMemory {
             style_blend: None,
             style_fingerprint: None,
             memory_pack,
+            memory_context: None,
         }
     }
 

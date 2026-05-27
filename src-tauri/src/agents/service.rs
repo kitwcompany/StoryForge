@@ -881,7 +881,16 @@ impl AgentService {
         vars.insert("pacing".to_string(), ctx.pacing.clone());
         vars.insert("characters".to_string(), ctx.format_characters());
         // W3-B1: MemoryPack 注入提示词 — 如果存在 memory_pack，使用结构化记忆替代传统前文摘要
-        let previous_chapters_text = if let Some(ref pack) = ctx.memory_pack {
+        // v0.8.0: 优先使用 memory_context（含路由分数和理由），回退到 memory_pack
+        let previous_chapters_text = if let Some(ref mem_ctx) = ctx.memory_context {
+            if !mem_ctx.injected_memories.is_empty() {
+                Self::format_memory_context(mem_ctx)
+            } else if let Some(ref pack) = ctx.memory_pack {
+                Self::format_memory_pack_for_prompt(pack)
+            } else {
+                ctx.format_previous_chapters()
+            }
+        } else if let Some(ref pack) = ctx.memory_pack {
             Self::format_memory_pack_for_prompt(pack)
         } else {
             ctx.format_previous_chapters()
@@ -1257,6 +1266,101 @@ impl AgentService {
     }
 
     /// W3-B1: 将 MemoryPack 格式化为提示词可用的记忆上下文文本
+    // v0.8.0: MemoryContext 格式化 — 支持带分数和理由的记忆注入
+    fn format_memory_context(ctx: &super::MemoryContext) -> String {
+        let mut parts = Vec::new();
+
+        if !ctx.injected_memories.is_empty() {
+            // Working Memory
+            let working: Vec<_> = ctx.injected_memories.iter()
+                .filter(|e| e.entry.layer == "working")
+                .collect();
+            if !working.is_empty() {
+                parts.push("【工作记忆】".to_string());
+                for scored in working {
+                    let content_str = match &scored.entry.content {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let display = if content_str.chars().count() > 300 {
+                        format!("{}...", content_str.chars().take(300).collect::<String>())
+                    } else {
+                        content_str
+                    };
+                    parts.push(format!(
+                        "- [{}] {} (相关度: {:.0}%, 理由: {})",
+                        scored.entry.source, display, scored.relevance_score, scored.reason
+                    ));
+                }
+            }
+
+            // Episodic Memory
+            let episodic: Vec<_> = ctx.injected_memories.iter()
+                .filter(|e| e.entry.layer == "episodic")
+                .collect();
+            if !episodic.is_empty() {
+                parts.push(String::new());
+                parts.push("【情景记忆】".to_string());
+                for scored in episodic {
+                    let content_str = match &scored.entry.content {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let display = if content_str.chars().count() > 200 {
+                        format!("{}...", content_str.chars().take(200).collect::<String>())
+                    } else {
+                        content_str
+                    };
+                    parts.push(format!(
+                        "- [{}] {} (相关度: {:.0}%, 理由: {})",
+                        scored.entry.source, display, scored.relevance_score, scored.reason
+                    ));
+                }
+            }
+
+            // Semantic Memory
+            let semantic: Vec<_> = ctx.injected_memories.iter()
+                .filter(|e| e.entry.layer == "semantic")
+                .collect();
+            if !semantic.is_empty() {
+                parts.push(String::new());
+                parts.push("【语义记忆】".to_string());
+                for scored in semantic.iter().take(20) {
+                    let content_str = match &scored.entry.content {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    let display = if content_str.chars().count() > 200 {
+                        format!("{}...", content_str.chars().take(200).collect::<String>())
+                    } else {
+                        content_str
+                    };
+                    parts.push(format!(
+                        "- [{}] {} (相关度: {:.0}%, 理由: {})",
+                        scored.entry.source, display, scored.relevance_score, scored.reason
+                    ));
+                }
+            }
+        }
+
+        // 记忆一致性报告（如果存在）
+        if let Some(ref report) = ctx.consistency_report {
+            if !report.conflicts.is_empty() {
+                parts.push(String::new());
+                parts.push(format!("【记忆一致性警告】评分: {:.0}%", report.memory_score * 100.0));
+                for conflict in &report.conflicts {
+                    parts.push(format!("- {}", conflict));
+                }
+            }
+        }
+
+        if parts.is_empty() {
+            "暂无记忆".to_string()
+        } else {
+            parts.join("\n")
+        }
+    }
+
     fn format_memory_pack_for_prompt(pack: &crate::memory::orchestrator::MemoryPack) -> String {
         let mut parts = Vec::new();
 

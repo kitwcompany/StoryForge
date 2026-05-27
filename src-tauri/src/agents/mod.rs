@@ -70,6 +70,9 @@ pub struct AgentContext {
     /// 三层记忆包（Wave 3: MemoryPack 注入 AgentContext）
     #[serde(default)]
     pub memory_pack: Option<MemoryPack>,
+    /// v0.8.0: 记忆上下文（混合路由后的结构化记忆 + 一致性报告）
+    #[serde(default)]
+    pub memory_context: Option<MemoryContext>,
 }
 
 /// 角色信息
@@ -99,6 +102,62 @@ pub struct AgentResult {
     pub request_id: Option<String>,
 }
 
+// ==================== v0.8.0: 记忆融合基础设施 ====================
+
+/// 任务级记忆上下文 — 贯穿创作任务全生命周期
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemoryContext {
+    /// 本次注入的记忆（由 MemoryRouter 生成）
+    pub injected_memories: Vec<ScoredMemoryEntry>,
+    /// 记忆一致性报告（由 Inspector 生成）
+    pub consistency_report: Option<MemoryConsistencyReport>,
+    /// 待写入记忆系统的更新队列
+    pub update_queue: Vec<MemoryUpdate>,
+    /// 路由策略
+    pub strategy: RoutingStrategy,
+}
+
+/// 带相关度评分的记忆条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoredMemoryEntry {
+    pub entry: crate::memory::orchestrator::MemoryEntry,
+    pub relevance_score: f32,     // 0-100
+    pub reason: String,           // 注入理由
+}
+
+/// 记忆一致性报告
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConsistencyReport {
+    pub memory_score: f32,        // 0-1
+    pub conflicts: Vec<String>,   // 冲突描述列表
+}
+
+/// 待写入记忆系统的更新
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryUpdate {
+    pub layer: MemoryLayer,
+    pub content: String,
+    pub source_chapter: i32,
+    pub entity_refs: Vec<String>,
+}
+
+/// 记忆层类型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MemoryLayer {
+    Working,
+    Episodic,
+    Semantic,
+}
+
+/// 路由策略
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum RoutingStrategy {
+    #[default]
+    Adaptive,
+    Fast,
+    Precise,
+}
+
 // ==================== 辅助函数 ====================
 
 impl AgentContext {
@@ -123,6 +182,7 @@ impl AgentContext {
             style_blend: None,
             style_fingerprint: None,
             memory_pack: None,
+            memory_context: None,
         }
     }
     

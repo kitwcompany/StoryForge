@@ -100,6 +100,7 @@ pub async fn execute_skill(
             style_blend: None,
             style_fingerprint: None,
             memory_pack: None,
+            memory_context: None,
         }
     };
 

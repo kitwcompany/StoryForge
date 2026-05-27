@@ -463,6 +463,7 @@ impl ContextOptimizer {
             style_blend: l0.style_blend,
             style_fingerprint: None,
             memory_pack,
+            memory_context: None,
         };
 
         // 将 L2 结果追加到 scene_structure 或 world_rules 中
