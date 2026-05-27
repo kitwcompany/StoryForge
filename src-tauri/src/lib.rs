@@ -508,6 +508,11 @@ pub fn run() {
                 });
             }
 
+            // v0.8.0: 启动记忆健康守护进程
+            if let Some(pool) = get_pool() {
+                crate::memory::health_daemon::spawn_daemon(pool, app.handle().clone());
+            }
+
             Ok(())
         })
         .invoke_handler(include!("handlers.rs"))

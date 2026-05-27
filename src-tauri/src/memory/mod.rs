@@ -19,6 +19,7 @@ pub mod hybrid_search;
 pub mod retention;
 pub mod orchestrator;
 pub mod writer;
+pub mod health_daemon;
 
 pub use tokenizer::CJKTokenizer;
 pub use orchestrator::{
