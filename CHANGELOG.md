@@ -2,6 +2,37 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.8] - 记忆无处不在 + 续写风格指纹加固 + 自动更新增强（2026-05-26）
+
+### 🧠 记忆无处不在 — 记忆系统与创作流程深度融合
+- **章节号正确传递** — `auto_write` / `smart_execute` / `PlanExecutor` 均使用当前场景的 `sequence_number` 作为章节号，修复了记忆上下文永远按第1章构建的问题
+- **MemoryContext 基础设施** — `AgentContext` 新增 `memory_context` 字段，支持带相关度评分的结构化记忆注入（`ScoredMemoryEntry`），`format_memory_context` 显示分数和注入理由
+- **Inspector 第7维「记忆一致性」** — 质检 prompt 新增角色状态一致性(30分)、伏笔回收状态(25分)、世界观规则遵守(25分)、时间线连续性(20分)四子维度
+- **MemoryWriter 自动写入** — 定稿后自动生成内容摘要，更新 `scene_commits.summary_text` 并创建 `memory_items`，`Orchestrator::generate()` 和 `auto_write` 每轮后自动触发
+- **MemoryHealthDaemon** — 每小时运行一次，自动归档遗忘实体，发射 `memory-health-report` 事件到前端
+- **完整记忆读写闭环** — 读（章节号正确传递 + MemoryContext 注入）→ 校验（Inspector 第7维）→ 写（MemoryWriter 自动压缩）→ 维护（HealthDaemon 定时归档）
+
+### ✍️ 续写功能风格指纹加固
+- **风格指纹引擎** — 从任意参考文本提取句长分布、四字格密度、虚词频率、标志性词汇、锚点片段等量化特征
+- **Writer prompt 自动注入** — 实时从 `current_content` 提取指纹注入 system prompt，支持外部参考文本 + `style_weight` 调节
+- **Inspector 第6维「风格一致性评分」** — 句长(25%) + 词汇(25%) + 虚词(15%) + 四字格(15%) + 语感(20%) 五子维度
+- **Orchestrator 双轨平衡** — `style_score` + `narrative_score` 分别评分，低于阈值自动调节权重
+- **3 候选并行生成选优** — temperature 0.75/0.90/1.05 产生多样性，指纹打分选最优（句长40% + 四字格35% + 虚词25%）
+- **跨段一致性 4 维度漂移检测** — 句长偏离、四字格密度偏离、虚词偏好偏离、标志性词汇偏离
+- **后处理替换层** — 虚词对齐（19组映射）+ 四字格密度补偿（25组二字→四字映射，密度低于70%触发）
+- **前端 WenSiPanel 增强** — 参考文本输入 + 风格-叙事平衡滑块 + 实时风格分数显示（绿/橙/红三色）
+
+### 🔄 自动更新系统增强
+- **检测间隔缩短** — 24h → 4h
+- **后台静默下载** — 下载进度可视化
+- **结构化更新日志** — 新增/修复/注意分类
+- **CI 配置增量更新** — delta patch
+- **CI artifact 上传** — PR / nightly / stable 三种构建场景均上传 .dmg/.deb/.msi
+
+**编译状态**: `cargo check` 零错误，`cargo test` 通过，前端 `tsc --noEmit` 通过，E2E 通过。
+
+---
+
 ## [v0.7.7] - 后端预检自动补齐 + 统一后台活动提示系统（2026-05-25）
 
 ### 🛡️ 后端预检自动补齐
