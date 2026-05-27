@@ -18,6 +18,7 @@ pub mod multi_agent;
 pub mod hybrid_search;
 pub mod retention;
 pub mod orchestrator;
+pub mod writer;
 
 pub use tokenizer::CJKTokenizer;
 pub use orchestrator::{

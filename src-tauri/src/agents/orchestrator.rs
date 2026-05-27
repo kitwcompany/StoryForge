@@ -167,6 +167,21 @@ impl AgentOrchestrator {
             GenerationMode::Full => self.execute_full(task.clone()).await,
         };
 
+        // v0.8.0: 自动写入记忆（创作完成后）
+        if let Ok(ref workflow_result) = result {
+            let pool = self.app_handle.state::<crate::db::DbPool>();
+            let writer = crate::memory::writer::MemoryWriter::new(pool.inner().clone());
+            let story_id = task.context.story_id.clone();
+            let chapter_number = task.context.chapter_number as i32;
+            let content = workflow_result.final_content.clone();
+            tauri::async_runtime::spawn(async move {
+                match writer.write(&story_id, chapter_number, &content).await {
+                    Ok(_) => log::info!("[AgentOrchestrator] Memory updated for story {}", story_id),
+                    Err(e) => log::warn!("[AgentOrchestrator] Memory write failed: {}", e),
+                }
+            });
+        }
+
         // AfterAiWrite hook (only on success)
         if let Ok(ref workflow_result) = result {
             if let Some(manager) = crate::SKILL_MANAGER.get() {

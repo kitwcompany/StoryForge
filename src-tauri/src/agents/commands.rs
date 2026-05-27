@@ -627,6 +627,19 @@ pub async fn auto_write(
                         drift_details: loop_drift_details.clone(),
                     };
                     let _ = app_handle_clone.emit(&format!("auto-write-progress-{}", task_id_clone), progress);
+
+                    // v0.8.0: 自动更新记忆（每轮续写后）
+                    let pool_mem = app_handle_clone.state::<DbPool>();
+                    let writer = crate::memory::writer::MemoryWriter::new(pool_mem.inner().clone());
+                    let sid = story_id.clone();
+                    let seq = scene_sequence as i32;
+                    let acc = accumulated_content.clone();
+                    tokio::spawn(async move {
+                        match writer.write(&sid, seq, &acc).await {
+                            Ok(_) => log::info!("[auto_write] Memory updated for loop {}", loop_count),
+                            Err(e) => log::warn!("[auto_write] Memory write failed: {}", e),
+                        }
+                    });
                 }
                 Err(e) => {
                     log::error!("[auto_write] Loop {} failed: {}", loop_count, e);
