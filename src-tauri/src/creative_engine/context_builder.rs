@@ -3,10 +3,10 @@
 //! 从数据库中读取真实故事数据，为 Agent 提供完整的创作上下文。
 //! 解决 intent.rs 中硬编码 "未命名作品"/"小说"/"中性" 的问题。
 
-use crate::agents::{AgentContext, CharacterInfo, ChapterSummary};
+use crate::agents::{AgentContext, AgentMemoryContext, CharacterInfo, ChapterSummary, NarrativeContext, StoryContext, StyleContext, WorldContext};
 use crate::db::{DbPool, Story, Character};
 use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories_v3::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
+use crate::db::repositories::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
 use crate::error::AppError;
 
 /// 知识图谱实体摘要（用于注入提示词）
@@ -174,29 +174,39 @@ impl StoryContextBuilder {
         };
 
         Ok(AgentContext {
-            story_id: story_id.to_string(),
-            story_title: story.title,
-            genre: story.genre.unwrap_or_else(|| "小说".to_string()),
-            tone: style.as_ref().and_then(|s| s.tone.clone())
-                .or(story.tone)
-                .unwrap_or_else(|| "中性".to_string()),
-            pacing: style.as_ref().and_then(|s| s.pacing.clone())
-                .or(story.pacing)
-                .unwrap_or_else(|| "正常".to_string()),
-            chapter_number: scene_number.map(|n| n.max(0) as u32).unwrap_or(1),
-            characters: character_infos,
-            previous_chapters,
-            current_content,
-            selected_text,
-            world_rules: world_rules_text,
-            scene_structure: scene_structure_text,
-            methodology_id: None,
-            methodology_step: None,
-            style_dna_id: story.style_dna_id,
-            style_blend,
-            style_fingerprint: None,
-            memory_pack,
-            memory_context: None,
+            story: StoryContext {
+                story_id: story_id.to_string(),
+                story_title: story.title,
+                genre: story.genre.unwrap_or_else(|| "小说".to_string()),
+                tone: style.as_ref().and_then(|s| s.tone.clone())
+                    .or(story.tone)
+                    .unwrap_or_else(|| "中性".to_string()),
+                pacing: style.as_ref().and_then(|s| s.pacing.clone())
+                    .or(story.pacing)
+                    .unwrap_or_else(|| "正常".to_string()),
+            },
+            narrative: NarrativeContext {
+                chapter_number: scene_number.map(|n| n.max(0) as u32).unwrap_or(1),
+                characters: character_infos,
+                previous_chapters,
+                current_content,
+                selected_text,
+            },
+            style: StyleContext {
+                style_dna_id: story.style_dna_id,
+                style_blend,
+                style_fingerprint: None,
+            },
+            world: WorldContext {
+                world_rules: world_rules_text,
+                scene_structure: scene_structure_text,
+                methodology_id: None,
+                methodology_step: None,
+            },
+            memory: AgentMemoryContext {
+                memory_pack,
+                memory: None,
+            },
         })
     }
 
@@ -234,7 +244,7 @@ impl StoryContextBuilder {
         &self,
         story_id: &str,
         scene_number: Option<i32>,
-    ) -> Result<Vec<crate::db::models_v3::Scene>, String> {
+    ) -> Result<Vec<crate::db::models::Scene>, String> {
         let repo = SceneRepository::new(self.pool.clone());
         let all_scenes = repo.get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
@@ -257,7 +267,7 @@ impl StoryContextBuilder {
         &self,
         story_id: &str,
         scene_number: i32,
-    ) -> Result<crate::db::models_v3::Scene, String> {
+    ) -> Result<crate::db::models::Scene, String> {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = repo.get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))?;
@@ -286,14 +296,14 @@ impl StoryContextBuilder {
     fn fetch_writing_style(
         &self,
         story_id: &str,
-    ) -> Result<Option<crate::db::models_v3::WritingStyle>, String> {
+    ) -> Result<Option<crate::db::models::WritingStyle>, String> {
         let repo = WritingStyleRepository::new(self.pool.clone());
         repo.get_by_story(story_id)
             .map_err(|e| format!("获取文风失败: {}", e))
     }
 
     fn fetch_relevant_entities(&self, story_id: &str, limit: usize) -> Result<Vec<RelevantEntity>, String> {
-        use crate::db::repositories_v3::KnowledgeGraphRepository;
+        use crate::db::repositories::KnowledgeGraphRepository;
 
         let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
         let entities = kg_repo.get_entities_by_story(story_id)
@@ -329,9 +339,9 @@ impl StoryContextBuilder {
         &self,
         story_id: &str,
         _scene_number: Option<i32>,
-        current_scene: Option<&crate::db::models_v3::Scene>,
+        current_scene: Option<&crate::db::models::Scene>,
     ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
-        use crate::db::repositories_v3::StoryStyleConfigRepository;
+        use crate::db::repositories::StoryStyleConfigRepository;
         use crate::creative_engine::style::blend::StyleBlendConfig;
 
         // 1. 检查 scene 级别的 override
@@ -370,7 +380,7 @@ impl StoryContextBuilder {
 
     /// 格式化场景结构为系统提示词可用文本
     fn format_scene_structure(
-        scene: Option<&crate::db::models_v3::Scene>,
+        scene: Option<&crate::db::models::Scene>,
         relevant_entities: &[RelevantEntity],
     ) -> Option<String> {
         let mut parts = Vec::new();
@@ -438,14 +448,14 @@ mod tests {
 
     #[test]
     fn test_format_scene_structure() {
-        let scene = crate::db::models_v3::Scene {
+        let scene = crate::db::models::Scene {
             id: "s1".to_string(),
             story_id: "story1".to_string(),
             sequence_number: 3,
             title: Some("决战".to_string()),
             dramatic_goal: Some("主角必须击败反派".to_string()),
             external_pressure: Some("时间限制：日出前".to_string()),
-            conflict_type: Some(crate::db::models_v3::ConflictType::ManVsMan),
+            conflict_type: Some(crate::db::models::ConflictType::ManVsMan),
             characters_present: vec!["张三".to_string(), "李四".to_string()],
             character_conflicts: vec![],
             content: None,

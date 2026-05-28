@@ -3,7 +3,7 @@
 //! 提供 Diff 预览数据的查询，以及接受/拒绝改写片段的应用接口。
 
 use super::models::{CascadeTaskResult, RewriteSegment, UserDecision};
-use crate::db::repositories_v3::{SceneRepository, SceneUpdate};
+use crate::db::repositories::{SceneRepository, SceneUpdate};
 use crate::db::DbPool;
 use crate::error::AppError;
 use tauri::{command, AppHandle, State};

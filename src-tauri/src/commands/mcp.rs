@@ -2,11 +2,16 @@
 
 use crate::mcp::{McpClient, McpServerConfig};
 use crate::error::AppError;
+use crate::db::DbPool;
+use tauri::State;
 use crate::MCP_CONNECTIONS;
 use crate::BUILTIN_MCP_SERVER;
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<crate::mcp::McpTool>, AppError> {
+pub async fn connect_mcp_server(
+    config: McpServerConfig,
+    _pool: State<'_, DbPool>,
+) -> Result<Vec<crate::mcp::McpTool>, AppError> {
     let mut client = McpClient::new(config.clone());
     client.connect().await.map_err(AppError::from)?;
     let tools = client.get_tools().clone();
@@ -29,7 +34,12 @@ pub async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<crate::mc
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn call_mcp_tool(server_id: String, tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, AppError> {
+pub async fn call_mcp_tool(
+    server_id: String,
+    tool_name: String,
+    arguments: serde_json::Value,
+    _pool: State<'_, DbPool>,
+) -> Result<serde_json::Value, AppError> {
     let mut connections = MCP_CONNECTIONS.lock().await;
     let client = connections.get_mut(&server_id)
         .ok_or_else(|| AppError::internal(format!("MCP server {} not connected", server_id)))?;
@@ -38,7 +48,10 @@ pub async fn call_mcp_tool(server_id: String, tool_name: String, arguments: serd
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn disconnect_mcp_server(server_id: String) -> Result<(), AppError> {
+pub async fn disconnect_mcp_server(
+    server_id: String,
+    _pool: State<'_, DbPool>,
+) -> Result<(), AppError> {
     {
         let mut connections = MCP_CONNECTIONS.lock().await;
         if let Some(mut client) = connections.remove(&server_id) {
@@ -62,7 +75,9 @@ pub async fn disconnect_mcp_server(server_id: String) -> Result<(), AppError> {
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, AppError> {
+pub async fn get_mcp_connections(
+    _pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, AppError> {
     let connections = MCP_CONNECTIONS.lock().await;
     let result: Vec<serde_json::Value> = connections.iter()
         .map(|(id, client)| {
@@ -78,7 +93,9 @@ pub async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, AppError> {
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn list_mcp_tools() -> Result<Vec<crate::mcp::McpTool>, String> {
+pub async fn list_mcp_tools(
+    _pool: State<'_, DbPool>,
+) -> Result<Vec<crate::mcp::McpTool>, AppError> {
     // 1. 收集内置工具（含动态注册的）
     let server = BUILTIN_MCP_SERVER.lock().await;
     let mut all_tools = server.get_tools();
@@ -99,7 +116,11 @@ pub async fn list_mcp_tools() -> Result<Vec<crate::mcp::McpTool>, String> {
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn execute_mcp_tool(tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+pub async fn execute_mcp_tool(
+    tool_name: String,
+    arguments: serde_json::Value,
+    _pool: State<'_, DbPool>,
+) -> Result<serde_json::Value, AppError> {
     // W2-B8: 统一入口 — 支持内置工具和外部工具
     // 如果 tool_name 以 mcp.{server_id}. 开头，路由到外部连接
     if let Some(rest) = tool_name.strip_prefix("mcp.") {
@@ -109,18 +130,18 @@ pub async fn execute_mcp_tool(tool_name: String, arguments: serde_json::Value) -
             let actual_tool_name = parts[1];
             let mut connections = MCP_CONNECTIONS.lock().await;
             let client = connections.get_mut(server_id)
-                .ok_or_else(|| format!("MCP server {} not connected", server_id))?;
+                .ok_or_else(|| AppError::internal(format!("MCP server {} not connected", server_id)))?;
             let result = client.call_tool(actual_tool_name, arguments).await
-                .map_err(|e| format!("MCP tool call failed: {}", e))?;
+                .map_err(|e| AppError::internal(format!("MCP tool call failed: {}", e)))?;
             return Ok(result);
         }
     }
 
     // 否则作为内置工具执行（使用全局实例）
     let server = BUILTIN_MCP_SERVER.lock().await;
-    server.start().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
+    server.start().await.map_err(AppError::from)?;
     let result = server.execute_tool(&tool_name, arguments).await
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     Ok(result)
 }
@@ -131,7 +152,10 @@ pub async fn execute_mcp_tool(tool_name: String, arguments: serde_json::Value) -
 /// 注意：此命令仅将工具注册到 CapabilityRegistry，使其可被 PlanGenerator 发现和调度。
 /// 实际执行 handler 仍需在 mcp/server.rs 中实现并硬编码注册到 McpServer。
 #[tauri::command(rename_all = "snake_case")]
-pub async fn register_mcp_tool(tool: crate::mcp::McpTool) -> Result<(), String> {
+pub async fn register_mcp_tool(
+    tool: crate::mcp::McpTool,
+    _pool: State<'_, DbPool>,
+) -> Result<(), AppError> {
     let mut registry = crate::capabilities::get_capability_registry();
     let cap = crate::capabilities::Capability::from_mcp_tool("builtin", &tool);
     registry.register(cap);
@@ -143,7 +167,10 @@ pub async fn register_mcp_tool(tool: crate::mcp::McpTool) -> Result<(), String> 
 
 /// 动态注销内置 MCP 工具（W2-B8）
 #[tauri::command(rename_all = "snake_case")]
-pub async fn unregister_mcp_tool(tool_name: String) -> Result<(), String> {
+pub async fn unregister_mcp_tool(
+    tool_name: String,
+    _pool: State<'_, DbPool>,
+) -> Result<(), AppError> {
     // 1. 从 CapabilityRegistry 注销
     let mut registry = crate::capabilities::get_capability_registry();
     let cap_id = format!("mcp.builtin.{}", tool_name);
@@ -152,4 +179,3 @@ pub async fn unregister_mcp_tool(tool_name: String) -> Result<(), String> {
     log::info!("[MCP] Dynamically unregistered built-in tool: {}", tool_name);
     Ok(())
 }
-

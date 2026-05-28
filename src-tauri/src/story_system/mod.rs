@@ -476,7 +476,7 @@ impl SceneCommitService {
 
         match pipeline.ingest(&ingest_content).await {
             Ok(result) => {
-                let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(self.pool.clone());
+                let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(self.pool.clone());
                 let entity_count = result.entities.len();
                 let relation_count = result.relations.len();
                 match kg_repo.save_entities_batch(&result.entities) {

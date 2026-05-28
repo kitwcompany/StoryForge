@@ -311,7 +311,7 @@ impl AgentService {
             let prompt_tokens = Some((prompt.chars().count() as i32) / 2);
             let _ = service.log_ai_usage(
                 &user_id,
-                Some(&task.context.story_id),
+                Some(&task.context.story.story_id),
                 None,
                 agent_type.agent_id(),
                 Some(&task.input),
@@ -333,8 +333,8 @@ impl AgentService {
         let checker = crate::story_system::preflight::PreflightChecker::new();
         let preflight = checker.check(
             pool.inner(),
-            &task.context.story_id,
-            task.context.chapter_number as i32,
+            &task.context.story.story_id,
+            task.context.narrative.chapter_number as i32,
         );
         if !preflight.ready {
             let is_missing_contracts = preflight.missing_contracts.iter().any(|c| c == "MASTER_SETTING" || c.starts_with("CHAPTER_"));
@@ -342,7 +342,7 @@ impl AgentService {
 
             if is_missing_contracts || is_missing_outline {
                 log::info!("[AgentService] Preflight failed for story {} chapter {}, attempting auto-fill",
-                    task.context.story_id, task.context.chapter_number);
+                    task.context.story.story_id, task.context.narrative.chapter_number);
 
                 let _ = self.app_handle.emit("agent-stage-update", serde_json::json!({
                     "agent_type": "Writer",
@@ -357,15 +357,15 @@ impl AgentService {
                     self.app_handle.clone(),
                 );
 
-                let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
-                let target_scene_id = scene_repo.get_by_story(&task.context.story_id)
+                let scene_repo = crate::db::repositories::SceneRepository::new(pool.inner().clone());
+                let target_scene_id = scene_repo.get_by_story(&task.context.story.story_id)
                     .ok()
-                    .and_then(|scenes| scenes.into_iter().find(|s| s.sequence_number == task.context.chapter_number as i32))
+                    .and_then(|scenes| scenes.into_iter().find(|s| s.sequence_number == task.context.narrative.chapter_number as i32))
                     .map(|s| s.id);
 
                 match builder.auto_fill(
-                    &task.context.story_id,
-                    task.context.chapter_number as i32,
+                    &task.context.story.story_id,
+                    task.context.narrative.chapter_number as i32,
                     target_scene_id.as_deref(),
                 ).await {
                     Ok((created_master, created_chapter, created_outline)) => {
@@ -375,8 +375,8 @@ impl AgentService {
 
                             let preflight_after = checker.check(
                                 pool.inner(),
-                                &task.context.story_id,
-                                task.context.chapter_number as i32,
+                                &task.context.story.story_id,
+                                task.context.narrative.chapter_number as i32,
                             );
                             if !preflight_after.ready {
                                 return Err(AppError::preflight_failed(
@@ -433,14 +433,14 @@ impl AgentService {
             let generator = crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
             self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "正在计算生成策略...", 0.285);
             match generator.build_strategy_with_context(
-                &task.context.story_id,
+                &task.context.story.story_id,
                 Some(user_temperature),
                 story_progress,
                 scene_stage,
             ) {
                 Ok(strategy) => {
                     log::info!("[AgentService] Adaptive strategy for story {}: progress={:?}, stage={:?}, base_temp={}, adjusted_temp={}, max_tokens={}",
-                        task.context.story_id, story_progress, scene_stage, user_temperature, strategy.temperature, strategy.max_tokens);
+                        task.context.story.story_id, story_progress, scene_stage, user_temperature, strategy.temperature, strategy.max_tokens);
                     self.emit_event(&task.id, task.agent_type, AgentStage::Generating, &format!("生成策略已构建: temperature={:.2}, max_tokens={}", strategy.temperature, strategy.max_tokens), 0.3);
                     (Some(strategy.max_tokens), Some(strategy.temperature))
                 }
@@ -471,12 +471,12 @@ impl AgentService {
         if response.content.trim().is_empty() {
             log::error!(
                 "[AgentService::execute_writer_raw] LLM returned empty content. story_id={}, chapter_number={}, instruction_len={}",
-                task.context.story_id, task.context.chapter_number, task.input.len()
+                task.context.story.story_id, task.context.narrative.chapter_number, task.input.len()
             );
             return Err(AppError::internal("AI 返回了空内容，请检查模型配置或重试"));
         }
         let mut content = response.content;
-        if let Some(ref current) = task.context.current_content {
+        if let Some(ref current) = task.context.narrative.current_content {
             if !current.is_empty() && current != "无" {
                 let current_trimmed = current.trim();
                 let content_trimmed = content.trim();
@@ -489,7 +489,7 @@ impl AgentService {
                     if content.trim().is_empty() {
                         log::error!(
                             "[AgentService::execute_writer_raw] Content became empty after prefix removal. story_id={}, chapter_number={}",
-                            task.context.story_id, task.context.chapter_number
+                            task.context.story.story_id, task.context.narrative.chapter_number
                         );
                         return Err(AppError::internal("AI 返回的内容与已有文本完全重复，请重试"));
                     }
@@ -509,12 +509,12 @@ impl AgentService {
         
         {
             let pool = self.app_handle.state::<crate::db::DbPool>();
-            let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
-            if let Ok(scenes) = scene_repo.get_by_story(&task.context.story_id) {
-                let target_scene = scenes.iter().find(|s| s.sequence_number == task.context.chapter_number as i32);
+            let scene_repo = crate::db::repositories::SceneRepository::new(pool.inner().clone());
+            if let Ok(scenes) = scene_repo.get_by_story(&task.context.story.story_id) {
+                let target_scene = scenes.iter().find(|s| s.sequence_number == task.context.narrative.chapter_number as i32);
                 if let Some(scene) = target_scene {
                     let continuity = crate::creative_engine::continuity::ContinuityEngine::new(pool.inner().clone());
-                    match continuity.check_scene_continuity(&task.context.story_id, &scene.id, &content) {
+                    match continuity.check_scene_continuity(&task.context.story.story_id, &scene.id, &content) {
                         Ok(check) if !check.is_valid => {
                             for issue in check.issues {
                                 let msg = format!("[{}] {}", match issue.severity {
@@ -534,7 +534,7 @@ impl AgentService {
         }
 
         // v0.7.8: 风格一致性快速检查（ fingerprint 存在时）
-        if let Some(ref fingerprint) = task.context.style_fingerprint {
+        if let Some(ref fingerprint) = task.context.style.style_fingerprint {
             let fp_text = fingerprint.to_prompt_section();
             let style_check = crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&content
             );
@@ -705,8 +705,8 @@ impl AgentService {
 6. 如果没有值得点评之处， commentary 可为空字符串
 
 请直接输出 JSON，不要添加 markdown 代码块标记。"#,
-            ctx.story_title,
-            ctx.genre,
+            ctx.story.story_title,
+            ctx.story.genre,
             task.input
         );
         
@@ -755,10 +755,10 @@ impl AgentService {
 4. 使用第三人称客观叙述
 
 请直接输出压缩后的摘要，不要添加解释。"#,
-            ctx.story_title,
-            ctx.genre,
-            ctx.tone,
-            ctx.pacing,
+            ctx.story.story_title,
+            ctx.story.genre,
+            ctx.story.tone,
+            ctx.story.pacing,
             ratio_pct,
             task.input
         );
@@ -817,10 +817,10 @@ impl AgentService {
 5. 输出条理清晰，使用Markdown格式，总长度控制在800字以内
 
 请直接输出蒸馏后的摘要。"#,
-            ctx.story_title,
-            ctx.genre,
-            ctx.tone,
-            ctx.pacing,
+            ctx.story.story_title,
+            ctx.story.genre,
+            ctx.story.tone,
+            ctx.story.pacing,
             task.input
         );
         
@@ -845,7 +845,7 @@ impl AgentService {
         use std::collections::HashMap;
 
         let ctx = &task.context;
-        let has_selection = ctx.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+        let has_selection = ctx.narrative.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
         let is_pro = tier != SubscriptionTier::Free;
         let at = task.agent_type;
         let tid = task.id.clone();
@@ -867,39 +867,39 @@ impl AgentService {
 
         emit_and_yield("正在准备模板变量...", 0.155);
         let mut vars = HashMap::new();
-        vars.insert("story_title".to_string(), ctx.story_title.clone());
+        vars.insert("story_title".to_string(), ctx.story.story_title.clone());
         let effective_genre = Self::extract_genre_from_instruction(&task.input)
-            .unwrap_or_else(|| ctx.genre.clone());
-        if effective_genre != ctx.genre {
+            .unwrap_or_else(|| ctx.story.genre.clone());
+        if effective_genre != ctx.story.genre {
             log::info!(
                 "[build_writer_prompt] Genre override: instruction hints '{}' vs story genre '{}', using '{}'",
-                effective_genre, ctx.genre, effective_genre
+                effective_genre, ctx.story.genre, effective_genre
             );
         }
         vars.insert("genre".to_string(), effective_genre);
-        vars.insert("tone".to_string(), ctx.tone.clone());
-        vars.insert("pacing".to_string(), ctx.pacing.clone());
+        vars.insert("tone".to_string(), ctx.story.tone.clone());
+        vars.insert("pacing".to_string(), ctx.story.pacing.clone());
         vars.insert("characters".to_string(), ctx.format_characters());
         // W3-B1: MemoryPack 注入提示词 — 如果存在 memory_pack，使用结构化记忆替代传统前文摘要
         // v0.8.0: 优先使用 memory_context（含路由分数和理由），回退到 memory_pack
-        let previous_chapters_text = if let Some(ref mem_ctx) = ctx.memory_context {
+        let previous_chapters_text = if let Some(ref mem_ctx) = ctx.memory.memory {
             if !mem_ctx.injected_memories.is_empty() {
                 Self::format_memory_context(mem_ctx)
-            } else if let Some(ref pack) = ctx.memory_pack {
+            } else if let Some(ref pack) = ctx.memory.memory_pack {
                 Self::format_memory_pack_for_prompt(pack)
             } else {
                 ctx.format_previous_chapters()
             }
-        } else if let Some(ref pack) = ctx.memory_pack {
+        } else if let Some(ref pack) = ctx.memory.memory_pack {
             Self::format_memory_pack_for_prompt(pack)
         } else {
             ctx.format_previous_chapters()
         };
         vars.insert("previous_chapters".to_string(), previous_chapters_text);
-        vars.insert("current_content".to_string(), ctx.current_content.clone().unwrap_or_else(|| "无".to_string()));
+        vars.insert("current_content".to_string(), ctx.narrative.current_content.clone().unwrap_or_else(|| "无".to_string()));
         vars.insert("instruction".to_string(), task.input.clone());
-        vars.insert("world_rules".to_string(), ctx.world_rules.clone().unwrap_or_default());
-        vars.insert("scene_structure".to_string(), ctx.scene_structure.clone().unwrap_or_default());
+        vars.insert("world_rules".to_string(), ctx.world.world_rules.clone().unwrap_or_default());
+        vars.insert("scene_structure".to_string(), ctx.world.scene_structure.clone().unwrap_or_default());
         tokio::task::yield_now().await;
 
         emit_and_yield("正在渲染系统提示词...", 0.16);
@@ -961,7 +961,7 @@ impl AgentService {
         // 注入创作方法论扩展（仅专业版）
         if is_pro {
             emit_and_yield("正在加载创作方法论...", 0.17);
-            if let Some(ref method_id) = ctx.methodology_id {
+            if let Some(ref method_id) = ctx.world.methodology_id {
                 use crate::creative_engine::methodology::{MethodologyConfig, MethodologyType, MethodologyEngine};
                 let method_type = match method_id.as_str() {
                     "snowflake" => Some(MethodologyType::Snowflake),
@@ -975,7 +975,7 @@ impl AgentService {
                     let config = MethodologyConfig {
                         methodology_type: mt,
                         is_active: true,
-                        current_step: ctx.methodology_step.clone(),
+                        current_step: ctx.world.methodology_step.clone(),
                         custom_params: serde_json::json!({}),
                     };
                     let extension = MethodologyEngine::build_prompt_extension(&config);
@@ -989,9 +989,9 @@ impl AgentService {
 
             // 注入风格（混合优先，单一 DNA 回退，仅专业版）
             emit_and_yield("正在加载风格 DNA...", 0.175);
-            if let Some(ref blend) = ctx.style_blend {
+            if let Some(ref blend) = ctx.style.style_blend {
                 use crate::db::DbPool;
-                use crate::db::repositories_v3::StyleDnaRepository;
+                use crate::db::repositories::StyleDnaRepository;
                 use crate::creative_engine::style::dna::StyleDNA;
                 use tauri::Manager;
 
@@ -1012,9 +1012,9 @@ impl AgentService {
                         system_prompt.push_str(&extension);
                     }
                 }
-            } else if let Some(ref style_id) = ctx.style_dna_id {
+            } else if let Some(ref style_id) = ctx.style.style_dna_id {
                 use crate::db::DbPool;
-                use crate::db::repositories_v3::StyleDnaRepository;
+                use crate::db::repositories::StyleDnaRepository;
                 use crate::creative_engine::style::dna::StyleDNA;
                 use tauri::Manager;
 
@@ -1041,7 +1041,7 @@ impl AgentService {
 
                 let pool = self.app_handle.state::<DbPool>();
                 let personalizer = PromptPersonalizer::new(pool.inner().clone());
-                if let Ok(extension) = personalizer.build_prompt_extension(&ctx.story_id) {
+                if let Ok(extension) = personalizer.build_prompt_extension(&ctx.story.story_id) {
                     if !extension.is_empty() {
                         system_prompt.push_str("\n\n");
                         system_prompt.push_str(&extension);
@@ -1056,9 +1056,9 @@ impl AgentService {
         // fingerprint 提供基于实际文本的量化约束（句长分布、N-gram 白名单、锚点片段），
         // 比 StyleDNA 的定性描述更精确，用于续写时严格保持语言风格一致。
         emit_and_yield("正在提取风格指纹...", 0.176);
-        let fingerprint_text = if let Some(ref fingerprint) = ctx.style_fingerprint {
+        let fingerprint_text = if let Some(ref fingerprint) = ctx.style.style_fingerprint {
             Some(fingerprint.to_prompt_section())
-        } else if let Some(ref content) = ctx.current_content {
+        } else if let Some(ref content) = ctx.narrative.current_content {
             // 如果没有预计算的 fingerprint，从当前内容实时提取
             // v0.7.8: 过滤掉 PlanContext 截断前缀 "...(前N字已省略)\n"
             let cleaned = content
@@ -1089,7 +1089,7 @@ impl AgentService {
         if let Some(ref section) = fingerprint_text {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(section);
-            log::info!("[build_writer_prompt] Injected style fingerprint for story {}", ctx.story_id);
+            log::info!("[build_writer_prompt] Injected style fingerprint for story {}", ctx.story.story_id);
         }
         tokio::task::yield_now().await;
 
@@ -1105,7 +1105,7 @@ impl AgentService {
             emit_and_yield("正在读取故事与场景数据...", 0.187);
             tokio::task::yield_now().await;
 
-            if let Ok(snapshot) = cs_manager.get_snapshot(&ctx.story_id).await {
+            if let Ok(snapshot) = cs_manager.get_snapshot(&ctx.story.story_id).await {
                 emit_and_yield("正在注入叙事阶段指导...", 0.188);
                 system_prompt.push_str("\n\n【叙事阶段指导】\n");
                 system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
@@ -1159,7 +1159,7 @@ impl AgentService {
 
         emit_and_yield("正在组装最终提示词...", 0.195);
         let user_prompt = if has_selection {
-            vars.insert("selected_text".to_string(), ctx.selected_text.clone().unwrap_or_default());
+            vars.insert("selected_text".to_string(), ctx.narrative.selected_text.clone().unwrap_or_default());
             TemplateEngine::render_with_conditions(
                 PromptLibrary::writer_rewrite_template(),
                 &vars
@@ -1182,8 +1182,8 @@ impl AgentService {
 
         let ctx = &task.context;
         let mut vars = HashMap::new();
-        vars.insert("story_title".to_string(), ctx.story_title.clone());
-        vars.insert("genre".to_string(), ctx.genre.clone());
+        vars.insert("story_title".to_string(), ctx.story.story_title.clone());
+        vars.insert("genre".to_string(), ctx.story.genre.clone());
         vars.insert("characters".to_string(), ctx.format_characters());
         vars.insert("content".to_string(), task.input.clone());
 

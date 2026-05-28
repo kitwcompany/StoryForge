@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::db::{DbPool, CreateStoryRequest};
 use crate::error::AppError;
 use crate::db::repositories::{StoryRepository};
-use crate::db::repositories_v3::{SceneRepository, SceneUpdate};
+use crate::db::repositories::{SceneRepository, SceneUpdate};
 use crate::subscription::{SubscriptionService, SubscriptionTier};
 use crate::state_sync::StateSync;
 
@@ -272,8 +272,8 @@ pub async fn writer_agent_execute(
         },
     ).await?;
 
-    context.current_content = Some(request.current_content);
-    context.selected_text = request.selected_text;
+    context.narrative.current_content = Some(request.current_content);
+    context.narrative.selected_text = request.selected_text;
 
     let tier = get_user_tier_sync(&app_handle);
     let task = AgentTask {
@@ -474,9 +474,9 @@ pub async fn auto_write(
             ).await.unwrap_or_else(|_| super::AgentContext::minimal(story_id.clone(), String::new()));
 
             // 注入当前已积累的上下文内容
-            context.current_content = Some(accumulated_content.clone());
+            context.narrative.current_content = Some(accumulated_content.clone());
             // 注入预计算的风格指纹
-            context.style_fingerprint = fingerprint.clone();
+            context.style.style_fingerprint = fingerprint.clone();
 
             let task = AgentTask {
                 id: Uuid::new_v4().to_string(),
@@ -694,7 +694,7 @@ pub async fn auto_write(
 
             match pipeline.ingest(&ingest_content).await {
                 Ok(ingest_result) => {
-                    let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool_for_ingest);
+                    let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(pool_for_ingest);
                     let mut saved_entities = 0usize;
                     let mut saved_relations = 0usize;
 
@@ -1037,7 +1037,7 @@ pub(crate) async fn build_agent_context(
         match tracker.get_writing_hints(&story_id, 5) {
             Ok(hints) if !hints.is_empty() => {
                 let hints_text = format!("\n\n【伏笔提醒】\n{}", hints.join("\n"));
-                context.world_rules = Some(context.world_rules.unwrap_or_default() + &hints_text);
+                context.world.world_rules = Some(context.world.world_rules.unwrap_or_default() + &hints_text);
                 log::info!("[build_agent_context] Injected {} foreshadowing hints", hints.len());
             }
             Ok(_) => {}
@@ -1060,8 +1060,8 @@ pub(crate) async fn build_agent_context(
                         .map(|r| format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text))
                         .collect();
                     let semantic_text = format!("\n\n【相关记忆检索】\n{}", lines.join("\n"));
-                    context.scene_structure = Some(
-                        context.scene_structure.unwrap_or_default() + &semantic_text
+                    context.world.scene_structure = Some(
+                        context.world.scene_structure.unwrap_or_default() + &semantic_text
                     );
                     log::info!("[build_agent_context] Injected {} semantic search results", results.len());
                 }
@@ -1077,18 +1077,18 @@ pub(crate) async fn build_agent_context(
     {
         let story_repo = crate::db::repositories::StoryRepository::new(pool.inner().clone());
         if let Ok(Some(story)) = story_repo.get_by_id(&story_id) {
-            context.style_dna_id = story.style_dna_id;
-            if context.style_dna_id.is_some() {
-                log::info!("[build_agent_context] Using style_dna_id: {:?}", context.style_dna_id);
+            context.style.style_dna_id = story.style_dna_id;
+            if context.style.style_dna_id.is_some() {
+                log::info!("[build_agent_context] Using style_dna_id: {:?}", context.style.style_dna_id);
             }
             // 注入方法论配置
-            context.methodology_id = story.methodology_id.clone();
-            context.methodology_step = story.methodology_step.map(|s| s.to_string());
-            if context.methodology_id.is_some() {
+            context.world.methodology_id = story.methodology_id.clone();
+            context.world.methodology_step = story.methodology_step.map(|s| s.to_string());
+            if context.world.methodology_id.is_some() {
                 log::info!(
                     "[build_agent_context] Using methodology_id: {:?}, step: {:?}",
-                    context.methodology_id,
-                    context.methodology_step
+                    context.world.methodology_id,
+                    context.world.methodology_step
                 );
             }
         }
@@ -1101,7 +1101,7 @@ pub(crate) async fn build_agent_context(
             Ok(snapshot) => {
                 // 追加世界观事实和伏笔到 world_rules
                 let mut world_parts = Vec::new();
-                if let Some(ref existing) = context.world_rules {
+                if let Some(ref existing) = context.world.world_rules {
                     world_parts.push(existing.clone());
                 }
 
@@ -1127,12 +1127,12 @@ pub(crate) async fn build_agent_context(
                 }
 
                 if world_parts.len() > 1 {
-                    context.world_rules = Some(world_parts.join("\n"));
+                    context.world.world_rules = Some(world_parts.join("\n"));
                 }
 
                 // 追加叙事阶段和时间线到 scene_structure
                 let mut scene_parts = Vec::new();
-                if let Some(ref existing) = context.scene_structure {
+                if let Some(ref existing) = context.world.scene_structure {
                     scene_parts.push(existing.clone());
                 }
 
@@ -1152,7 +1152,7 @@ pub(crate) async fn build_agent_context(
                     scene_parts.push(format!("【活跃冲突】\n{}", conflicts.join("\n")));
                 }
 
-                context.scene_structure = Some(scene_parts.join("\n"));
+                context.world.scene_structure = Some(scene_parts.join("\n"));
 
                 log::info!(
                     "[build_agent_context] CanonicalState injected: phase={}, facts={}, pending={}, overdue={}",

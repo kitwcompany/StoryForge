@@ -5,7 +5,7 @@
 //! Step 2: 生成 - 基于分析结果生成结构化知识
 
 use crate::llm::LlmService;
-use crate::db::models_v3::{Entity, EntityType, Relation, RelationType};
+use crate::db::models::{Entity, EntityType, Relation, RelationType};
 use crate::db::DbPool;
 use crate::embeddings::{embed_entity, EntityEmbeddingRequest};
 use serde::{Deserialize, Serialize};

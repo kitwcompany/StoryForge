@@ -10,7 +10,7 @@ use super::repository::*;
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::db::{CreateCharacterRequest, CreateStoryRequest, StoryRepository};
-use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository};
+use crate::db::repositories::{SceneRepository, WorldBuildingRepository};
 use crate::db::repositories_narrative::{NarrativeCharacterRepository, NarrativeSceneRepository, NarrativeWorldBuildingRepository};
 use crate::llm::LlmService;
 use crate::narrative::elements::{ElementSource, ElementStatus};
@@ -497,7 +497,7 @@ impl BookDeconstructionService {
                 .map_err(AppError::from)?;
             // 保存 summary 为 content
             if scene.summary.is_some() {
-                use crate::db::repositories_v3::SceneUpdate;
+                use crate::db::repositories::SceneUpdate;
                 let _ = scene_repo.update(
                     &created.id,
                     &SceneUpdate {

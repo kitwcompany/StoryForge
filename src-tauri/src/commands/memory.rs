@@ -1,17 +1,20 @@
 //! Memory commands
 
-use crate::get_pool;
+use tauri::State;
+use crate::db::DbPool;
+use crate::error::AppError;
 
 // ==================== Memory Commands ====================
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn build_memory_pack(
+    pool: State<'_, DbPool>,
     story_id: String,
     chapter_number: i32,
     task_type: String,
     outline: Option<String>,
-) -> Result<crate::memory::MemoryPack, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+) -> Result<crate::memory::MemoryPack, AppError> {
+    let pool = pool.inner().clone();
     let orchestrator = crate::memory::MemoryOrchestrator::new(pool.clone());
     let mut pack = orchestrator.build_memory_pack(&story_id, chapter_number, &task_type, outline.as_deref())?;
 
@@ -53,15 +56,16 @@ pub fn build_memory_pack(
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_memory_items(story_id: String) -> Result<Vec<crate::db::MemoryItem>, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub fn get_memory_items(pool: State<'_, DbPool>, story_id: String) -> Result<Vec<crate::db::MemoryItem>, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::MemoryItemRepository::new(pool);
-    repo.get_active_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
+    repo.get_active_by_story(&story_id).map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn create_memory_item(
+    pool: State<'_, DbPool>,
     story_id: String,
     category: String,
     subject: Option<String>,
@@ -69,11 +73,10 @@ pub fn create_memory_item(
     value: Option<String>,
     source_chapter: Option<i32>,
     confidence: f32,
-) -> Result<crate::db::MemoryItem, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+) -> Result<crate::db::MemoryItem, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::MemoryItemRepository::new(pool);
     repo.create(&story_id, &category, subject.as_deref(), field.as_deref(),
         value.as_deref(), source_chapter, confidence
-    ).map_err(|e| crate::error::AppError::from(e).to_string())
+    ).map_err(AppError::from)
 }
-

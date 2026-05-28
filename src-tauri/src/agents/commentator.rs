@@ -78,8 +78,8 @@ impl CommentatorAgent {
 5. 直接输出点评内容，不要加引号或解释
 
 点评："#,
-            context.story_title,
-            context.genre,
+            context.story.story_title,
+            context.story.genre,
             prev_text,
             paragraph_text
         );

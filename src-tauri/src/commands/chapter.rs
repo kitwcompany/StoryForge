@@ -1,34 +1,55 @@
 //! Chapter commands
 
-use crate::db::{ChapterRepository, SceneRepository, CreateChapterRequest};
+use crate::db::{ChapterRepository, SceneRepository, CreateChapterRequest, DbPool};
 use tauri::AppHandle;
+use tauri::State;
 use std::time::{Instant, Duration};
-use crate::get_pool;
+use crate::error::AppError;
 use crate::CHAPTER_COMMIT_DEBOUNCE;
 use crate::CHAPTER_COMMIT_DEBOUNCE_SECONDS;
 use crate::VECTOR_STORE;
 use crate::SKILL_MANAGER;
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_story_chapters(story_id: String) -> Result<Vec<crate::db::Chapter>, String> {
-    crate::db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
+pub fn get_story_chapters(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::Chapter>, AppError> {
+    crate::db::ChapterRepository::new(pool.inner().clone())
+        .get_by_story(&story_id)
+        .map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_chapter(id: String) -> Result<Option<crate::db::Chapter>, String> {
-    crate::db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_id(&id).map_err(|e| crate::error::AppError::from(e).to_string())
+pub fn get_chapter(
+    id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<crate::db::Chapter>, AppError> {
+    crate::db::ChapterRepository::new(pool.inner().clone())
+        .get_by_id(&id)
+        .map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle, automation_service: tauri::State<crate::automation::service::AutomationService>) -> Result<(), String> {
-    let repo = crate::db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
+pub fn update_chapter(
+    id: String,
+    title: Option<String>,
+    outline: Option<String>,
+    content: Option<String>,
+    word_count: Option<i32>,
+    pool: State<'_, DbPool>,
+    app: AppHandle,
+    automation_service: tauri::State<crate::automation::service::AutomationService>,
+) -> Result<(), AppError> {
+    let pool = pool.inner().clone();
+    let repo = crate::db::ChapterRepository::new(pool.clone());
     // 先查询 story_id 和 chapter_number（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let chapter_info = repo.get_by_id(&id).ok().flatten();
     let story_id_opt = chapter_info.as_ref().map(|c| c.story_id.clone());
     let chapter_number = chapter_info.map(|c| c.chapter_number).unwrap_or(0);
-    let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(|e| crate::error::AppError::from(e).to_string());
+    let result = repo.update(&id, title.clone(), outline, content, word_count).map_err(AppError::from);
     if result.is_ok() {
         let _ = crate::window::WindowManager::send_to_frontstage(&app, crate::window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
         if let Some(ref story_id) = story_id_opt {
@@ -51,81 +72,81 @@ pub fn update_chapter(id: String, title: Option<String>, outline: Option<String>
             let story_id_for_payoff = story_id.clone();
             let chapter_number_for_payoff = chapter_number;
             let app_handle_for_payoff = app.clone();
-            let pool_for_payoff = get_pool();
+            let pool_for_payoff = pool.clone();
             tauri::async_runtime::spawn(async move {
-                if let Some(pool) = pool_for_payoff {
-                    let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(pool);
-                    match ledger.detect_overdue(&story_id_for_payoff, chapter_number_for_payoff) {
-                        Ok(overdue) if !overdue.is_empty() => {
-                            log::info!("[PayoffLedger] {} overdue payoffs detected for story {}", overdue.len(), story_id_for_payoff);
-                            let _ = crate::state_sync::StateSync::emit_payoff_overdue(
-                                &app_handle_for_payoff, &story_id_for_payoff, &overdue
-                            );
-                        }
-                        _ => {}
+                let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(pool_for_payoff);
+                match ledger.detect_overdue(&story_id_for_payoff, chapter_number_for_payoff) {
+                    Ok(overdue) if !overdue.is_empty() => {
+                        log::info!("[PayoffLedger] {} overdue payoffs detected for story {}", overdue.len(), story_id_for_payoff);
+                        let _ = crate::state_sync::StateSync::emit_payoff_overdue(
+                            &app_handle_for_payoff, &story_id_for_payoff, &overdue
+                        );
                     }
+                    _ => {}
                 }
             });
         }
         // W4-B9: 保存后自动触发 chapter commit（30s debounce），替代独立的 auto_ingest
         // apply_commit 已吸收 vector + kg ingest 功能，避免重复工作
-        if let Some(pool) = get_pool() {
-            let chapter_id = id.clone();
-            let app_handle = app.clone();
-            let scheduled_time = Instant::now();
-            {
-                let mut debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
-                debounce.insert(chapter_id.clone(), scheduled_time);
-                // 清理超过 24 小时的过期条目，防止内存泄漏
-                const MAX_DEBOUNCE_AGE_HOURS: u64 = 24;
-                debounce.retain(|_, last_time| {
-                    Instant::now().duration_since(*last_time) < Duration::from_secs(MAX_DEBOUNCE_AGE_HOURS * 3600)
-                });
-            }
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(CHAPTER_COMMIT_DEBOUNCE_SECONDS)).await;
-                let should_commit = {
-                    let debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
-                    debounce.get(&chapter_id).map(|t| *t == scheduled_time).unwrap_or(false)
-                };
-                if should_commit {
-                    let repo = crate::db::ChapterRepository::new(pool.clone());
-                    let scene_repo = crate::db::SceneRepository::new(pool.clone());
-                    if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
-                        let scene_id = scene_repo.get_by_chapter(&chapter_id)
-                            .ok()
-                            .and_then(|scenes| scenes.into_iter().next())
-                            .map(|s| s.id);
-                        let service = crate::story_system::SceneCommitService::new(pool);
-                        let store = VECTOR_STORE.get();
-                        if let Err(e) = service.auto_commit(
-                            &chapter.story_id,
-                            scene_id.as_deref(),
-                            Some(&chapter_id),
-                            chapter.chapter_number,
-                            chapter.content.as_deref(),
-                            Some(app_handle),
-                            store,
-                        ).await {
-                            log::warn!("[update_chapter] auto_commit failed for chapter {}: {}", chapter_id, e);
-                        }
-                    }
-                } else {
-                    log::info!("[update_chapter] auto_commit skipped for chapter {} (debounced)", chapter_id);
-                }
+        let chapter_id = id.clone();
+        let app_handle = app.clone();
+        let scheduled_time = Instant::now();
+        {
+            let mut debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
+            debounce.insert(chapter_id.clone(), scheduled_time);
+            // 清理超过 24 小时的过期条目，防止内存泄漏
+            const MAX_DEBOUNCE_AGE_HOURS: u64 = 24;
+            debounce.retain(|_, last_time| {
+                Instant::now().duration_since(*last_time) < Duration::from_secs(MAX_DEBOUNCE_AGE_HOURS * 3600)
             });
         }
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(CHAPTER_COMMIT_DEBOUNCE_SECONDS)).await;
+            let should_commit = {
+                let debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
+                debounce.get(&chapter_id).map(|t| *t == scheduled_time).unwrap_or(false)
+            };
+            if should_commit {
+                let repo = crate::db::ChapterRepository::new(pool.clone());
+                let scene_repo = crate::db::SceneRepository::new(pool.clone());
+                if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
+                    let scene_id = scene_repo.get_by_chapter(&chapter_id)
+                        .ok()
+                        .and_then(|scenes| scenes.into_iter().next())
+                        .map(|s| s.id);
+                    let service = crate::story_system::SceneCommitService::new(pool);
+                    let store = VECTOR_STORE.get();
+                    if let Err(e) = service.auto_commit(
+                        &chapter.story_id,
+                        scene_id.as_deref(),
+                        Some(&chapter_id),
+                        chapter.chapter_number,
+                        chapter.content.as_deref(),
+                        Some(app_handle),
+                        store,
+                    ).await {
+                        log::warn!("[update_chapter] auto_commit failed for chapter {}: {}", chapter_id, e);
+                    }
+                }
+            } else {
+                log::info!("[update_chapter] auto_commit skipped for chapter {} (debounced)", chapter_id);
+            }
+        });
     }
     result.map(|_| ())
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_chapter(id: String, app: AppHandle) -> Result<(), String> {
-    let repo = crate::db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
+pub fn delete_chapter(
+    id: String,
+    pool: State<'_, DbPool>,
+    app: AppHandle,
+) -> Result<(), AppError> {
+    let repo = crate::db::ChapterRepository::new(pool.inner().clone());
     // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    repo.delete(&id).map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt {
         let _ = crate::state_sync::StateSync::emit_chapter_deleted(&app, &id, &story_id);
     }
@@ -140,10 +161,11 @@ pub fn create_chapter(
     title: Option<String>,
     outline: Option<String>,
     content: Option<String>,
+    pool: State<'_, DbPool>,
     app: AppHandle,
     automation_service: tauri::State<crate::automation::service::AutomationService>
-) -> Result<crate::db::Chapter, String> {
-    let pool = get_pool().ok_or("DB not initialized")?;
+) -> Result<crate::db::Chapter, AppError> {
+    let pool = pool.inner().clone();
     let repo = ChapterRepository::new(pool.clone());
 
     // 如果该 chapter_number 已存在，直接返回已有章节（幂等）
@@ -155,7 +177,7 @@ pub fn create_chapter(
     }
 
     let req = CreateChapterRequest { story_id: story_id.clone(), chapter_number, title: title.clone(), outline, content };
-    let chapter = repo.create(req).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    let chapter = repo.create(req).map_err(AppError::from)?;
 
     // AfterChapterSave hook
     if let Some(manager) = SKILL_MANAGER.get() {

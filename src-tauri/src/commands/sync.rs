@@ -1,12 +1,13 @@
 //! Sync commands
 
 use tauri::{Manager, AppHandle, Emitter};
+use crate::error::AppError;
 
 // ===== 幕前/幕后通信命令 =====
 
 /// 通知 backstage 内容已变更
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), crate::error::AppError> {
+pub fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), AppError> {
     let event = crate::window::BackstageEvent::ContentChanged { text, chapter_id };
     crate::window::WindowManager::send_to_backstage(&app, event)
 }
@@ -14,7 +15,7 @@ pub fn notify_backstage_content_changed(text: String, chapter_id: String, app: A
 
 /// 通知 backstage 请求生成内容
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), crate::error::AppError> {
+pub fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), AppError> {
     let event = crate::window::BackstageEvent::GenerationRequested { chapter_id, context };
     crate::window::WindowManager::send_to_backstage(&app, event)
 }
@@ -22,7 +23,7 @@ pub fn notify_backstage_generation_requested(chapter_id: String, context: String
 
 /// 通知 frontstage 内容已变更
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), crate::error::AppError> {
+pub fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), AppError> {
     let event = crate::window::FrontstageEvent::ContentUpdate { text, chapter_id };
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
@@ -30,7 +31,7 @@ pub fn notify_frontstage_content_changed(text: String, chapter_id: String, app: 
 
 /// 通知 frontstage 数据已刷新（幕后创建/修改了故事、章节等）
 #[tauri::command(rename_all = "snake_case")]
-pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), crate::error::AppError> {
+pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), AppError> {
     let event = crate::window::FrontstageEvent::DataRefresh { entity };
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
@@ -38,10 +39,10 @@ pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<
 
 /// 显示 backstage 窗口
 #[tauri::command(rename_all = "snake_case")]
-pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), String> {
+pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), AppError> {
     let window = if let Some(window) = app.get_webview_window("backstage") {
-        window.show().map_err(|e| crate::error::AppError::from(e).to_string())?;
-        window.set_focus().map_err(|e| crate::error::AppError::from(e).to_string())?;
+        window.show().map_err(AppError::from)?;
+        window.set_focus().map_err(AppError::from)?;
         window
     } else {
         // 窗口可能被关闭，重新创建
@@ -54,9 +55,9 @@ pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), St
         .inner_size(1200.0, 800.0)
         .center()
         .build()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
-        window.show().map_err(|e| crate::error::AppError::from(e).to_string())?;
-        window.set_focus().map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
+        window.show().map_err(AppError::from)?;
+        window.set_focus().map_err(AppError::from)?;
         window
     };
     // 方法：微调窗口大小再恢复 + 双重维度触发 + JS强制重排 + 延迟事件
@@ -152,7 +153,7 @@ pub fn show_backstage(app: AppHandle, story_id: Option<String>) -> Result<(), St
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn cancel_genesis_pipeline(session_id: String) -> Result<bool, String> {
+pub fn cancel_genesis_pipeline(session_id: String) -> Result<bool, AppError> {
     let cancelled = crate::narrative::pipeline::cancel_pipeline(&session_id);
     if cancelled {
         log::info!("[cancel_genesis_pipeline] Pipeline {} 已标记为取消", session_id);

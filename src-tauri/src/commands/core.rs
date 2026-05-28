@@ -1,10 +1,12 @@
 //! Core commands
 
-use tauri::{Manager, AppHandle};
+use tauri::{Manager, AppHandle, State};
 use crate::ChatMessageItem;
+use crate::db::DbPool;
+use crate::error::AppError;
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn health_check() -> Result<serde_json::Value, String> {
+pub fn health_check(_pool: State<'_, DbPool>) -> Result<serde_json::Value, AppError> {
     Ok(serde_json::json!({
         "status": "ok",
         "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -15,17 +17,18 @@ pub fn health_check() -> Result<serde_json::Value, String> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn chat_completion(
+    _pool: State<'_, DbPool>,
     base_url: String,
     api_key: Option<String>,
     model: String,
     messages: Vec<ChatMessageItem>,
     max_tokens: i32,
     temperature: f32,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     let mut request = client
         .post(format!("{}/chat/completions", base_url))
@@ -48,25 +51,25 @@ pub async fn chat_completion(
         "stream": false,
     });
 
-    let response = request.json(&body).send().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
+    let response = request.json(&body).send().await.map_err(AppError::from)?;
     let status = response.status();
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("HTTP {}: {}", status, text));
+        return Err(AppError::internal(format!("HTTP {}: {}", status, text)));
     }
 
-    let data: serde_json::Value = response.json().await.map_err(|e| crate::error::AppError::from(e).to_string())?;
+    let data: serde_json::Value = response.json().await.map_err(AppError::from)?;
     Ok(data)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn check_model_status(app_handle: AppHandle) -> Result<String, String> {
+pub async fn check_model_status(_pool: State<'_, DbPool>, app_handle: AppHandle) -> Result<String, AppError> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to get app dir: {}", e))?;
-    let config = crate::config::AppConfig::load(&app_dir).map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(|e| AppError::internal(format!("Failed to get app dir: {}", e)))?;
+    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
     let active_profile_id = config.active_llm_profile.as_deref()
         .or(config.llm_profiles.values().find(|p| p.is_default).map(|p| p.id.as_str()))
         .or(config.llm_profiles.keys().next().map(|s| s.as_str()))
@@ -94,7 +97,7 @@ pub async fn check_model_status(app_handle: AppHandle) -> Result<String, String>
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     let api_key_ref = if api_key.is_empty() { None } else { Some(api_key.as_str()) };
 
@@ -135,4 +138,3 @@ pub async fn check_model_status(app_handle: AppHandle) -> Result<String, String>
 
     Ok("disconnected".to_string())
 }
-

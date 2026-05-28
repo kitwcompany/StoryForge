@@ -37,6 +37,14 @@ export default defineConfig(async () => ({
         main: path.resolve(__dirname, 'index.html'),
         frontstage: path.resolve(__dirname, 'frontstage.html'),
       },
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'editor-vendor': ['@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-bubble-menu', '@tiptap/extension-floating-menu', '@tiptap/extension-highlight', '@tiptap/extension-placeholder', '@tiptap/extension-underline', '@monaco-editor/react'],
+          'ui-vendor': ['framer-motion', 'lucide-react', 'react-hot-toast'],
+          'data-vendor': ['@tanstack/react-query', 'zustand'],
+        },
+      },
     },
   },
 }))

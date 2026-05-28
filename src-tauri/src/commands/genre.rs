@@ -1,27 +1,30 @@
 //! Genre commands
 
-use crate::get_pool;
+use tauri::State;
+use crate::db::DbPool;
+use crate::error::AppError;
 
 // ==================== Genre Profile Commands ====================
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_genre_profiles() -> Result<Vec<crate::db::GenreProfile>, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub fn get_genre_profiles(pool: State<'_, DbPool>) -> Result<Vec<crate::db::GenreProfile>, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::GenreProfileRepository::new(pool);
-    repo.get_all().map_err(|e| crate::error::AppError::from(e).to_string())
+    repo.get_all().map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_genre_profile(genre_name: String) -> Result<Option<crate::db::GenreProfile>, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub fn get_genre_profile(pool: State<'_, DbPool>, genre_name: String) -> Result<Option<crate::db::GenreProfile>, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::GenreProfileRepository::new(pool);
-    repo.get_by_name(&genre_name).map_err(|e| crate::error::AppError::from(e).to_string())
+    repo.get_by_name(&genre_name).map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn save_genre_profile(
+    pool: State<'_, DbPool>,
     id: Option<String>,
     genre_name: String,
     canonical_name: String,
@@ -30,8 +33,8 @@ pub fn save_genre_profile(
     pacing_strategy: Option<String>,
     anti_patterns_json: Option<String>,
     reference_tables_json: Option<String>,
-) -> Result<crate::db::GenreProfile, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+) -> Result<crate::db::GenreProfile, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::GenreProfileRepository::new(pool);
 
     if let Some(existing_id) = id {
@@ -45,10 +48,10 @@ pub fn save_genre_profile(
             pacing_strategy.as_deref(),
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
-        ).map_err(|e| crate::error::AppError::from(e).to_string())?;
+        ).map_err(AppError::from)?;
         repo.get_by_id(&existing_id)
-            .map_err(|e| crate::error::AppError::from(e).to_string())?
-            .ok_or_else(|| "更新后未找到记录".to_string())
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::not_found("GenreProfile", &existing_id))
     } else {
         // 创建新记录（is_builtin = 0）
         repo.create(
@@ -59,21 +62,20 @@ pub fn save_genre_profile(
             pacing_strategy.as_deref(),
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
-        ).map_err(|e| crate::error::AppError::from(e).to_string())
+        ).map_err(AppError::from)
     }
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_genre_profile(id: String) -> Result<usize, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub fn delete_genre_profile(pool: State<'_, DbPool>, id: String) -> Result<usize, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::GenreProfileRepository::new(pool);
     // 只允许删除非内置体裁
     if let Ok(Some(profile)) = repo.get_by_id(&id) {
         if profile.is_builtin {
-            return Err("内置体裁不可删除".to_string());
+            return Err(AppError::validation_failed("内置体裁不可删除", None::<String>));
         }
     }
-    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())
+    repo.delete(&id).map_err(AppError::from)
 }
-

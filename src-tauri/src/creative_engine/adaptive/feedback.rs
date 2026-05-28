@@ -5,7 +5,7 @@
 
 use crate::db::DbPool;
 use crate::error::AppError;
-use crate::db::repositories_v3::UserFeedbackRepository;
+use crate::db::repositories::UserFeedbackRepository;
 
 /// 反馈事件
 #[derive(Debug, Clone)]
@@ -39,22 +39,22 @@ impl FeedbackType {
     }
 }
 
-impl From<crate::db::models_v3::FeedbackType> for FeedbackType {
-    fn from(ft: crate::db::models_v3::FeedbackType) -> Self {
+impl From<crate::db::models::FeedbackType> for FeedbackType {
+    fn from(ft: crate::db::models::FeedbackType) -> Self {
         match ft {
-            crate::db::models_v3::FeedbackType::Accept => FeedbackType::Accept,
-            crate::db::models_v3::FeedbackType::Reject => FeedbackType::Reject,
-            crate::db::models_v3::FeedbackType::Modify => FeedbackType::Modify,
+            crate::db::models::FeedbackType::Accept => FeedbackType::Accept,
+            crate::db::models::FeedbackType::Reject => FeedbackType::Reject,
+            crate::db::models::FeedbackType::Modify => FeedbackType::Modify,
         }
     }
 }
 
-impl From<FeedbackType> for crate::db::models_v3::FeedbackType {
+impl From<FeedbackType> for crate::db::models::FeedbackType {
     fn from(ft: FeedbackType) -> Self {
         match ft {
-            FeedbackType::Accept => crate::db::models_v3::FeedbackType::Accept,
-            FeedbackType::Reject => crate::db::models_v3::FeedbackType::Reject,
-            FeedbackType::Modify => crate::db::models_v3::FeedbackType::Modify,
+            FeedbackType::Accept => crate::db::models::FeedbackType::Accept,
+            FeedbackType::Reject => crate::db::models::FeedbackType::Reject,
+            FeedbackType::Modify => crate::db::models::FeedbackType::Modify,
         }
     }
 }
@@ -189,8 +189,8 @@ pub struct FeedbackStats {
     pub modify: i64,
 }
 
-impl From<crate::db::repositories_v3::FeedbackStats> for FeedbackStats {
-    fn from(s: crate::db::repositories_v3::FeedbackStats) -> Self {
+impl From<crate::db::repositories::FeedbackStats> for FeedbackStats {
+    fn from(s: crate::db::repositories::FeedbackStats) -> Self {
         Self {
             accept: s.accept,
             reject: s.reject,
@@ -212,9 +212,9 @@ mod tests {
 
     #[test]
     fn test_feedback_type_roundtrip() {
-        let db_type = crate::db::models_v3::FeedbackType::Accept;
+        let db_type = crate::db::models::FeedbackType::Accept;
         let local_type: FeedbackType = db_type.into();
-        let back: crate::db::models_v3::FeedbackType = local_type.into();
-        assert_eq!(back, crate::db::models_v3::FeedbackType::Accept);
+        let back: crate::db::models::FeedbackType = local_type.into();
+        assert_eq!(back, crate::db::models::FeedbackType::Accept);
     }
 }

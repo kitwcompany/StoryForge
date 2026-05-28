@@ -1,7 +1,7 @@
 //! Agent System - 智能代理系统
 //!
 //! 提供创作辅助的智能Agent框架
-//! 
+//!
 //! ## Agent类型
 //! - Writer: 写作助手 - 生成和改写内容
 //! - Inspector: 质检员 - 检查内容质量
@@ -31,10 +31,10 @@ pub mod context_optimizer;
 pub trait Agent: Send + Sync {
     /// Agent名称
     fn name(&self) -> &str;
-    
+
     /// Agent描述
     fn description(&self) -> &str;
-    
+
     /// 执行Agent任务
     async fn execute(
         &self,
@@ -43,36 +43,89 @@ pub trait Agent: Send + Sync {
     ) -> Result<AgentResult, Box<dyn std::error::Error>>;
 }
 
-// ==================== 数据结构 ====================
+// ==================== 子上下文结构 ====================
 
-/// Agent执行上下文
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentContext {
+/// 故事元数据上下文
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StoryContext {
+    #[serde(default)]
     pub story_id: String,
+    #[serde(default)]
     pub story_title: String,
+    #[serde(default)]
     pub genre: String,       // 题材
+    #[serde(default)]
     pub tone: String,        // 文风
+    #[serde(default)]
     pub pacing: String,      // 节奏
+}
+
+/// 叙事内容上下文
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NarrativeContext {
+    #[serde(default)]
     pub chapter_number: u32,
+    #[serde(default)]
     pub characters: Vec<CharacterInfo>,
+    #[serde(default)]
     pub previous_chapters: Vec<ChapterSummary>,
+    #[serde(default)]
     pub current_content: Option<String>, // 当前章节全文（已过滤元信息，保留纯内容）
+    #[serde(default)]
     pub selected_text: Option<String>,   // 用户选中的文本
-    pub world_rules: Option<String>,     // 世界观规则（注入系统提示词）
-    pub scene_structure: Option<String>, // 场景结构（注入系统提示词）
-    pub methodology_id: Option<String>,  // 创作方法论ID（如 snowflake, scene_structure）
-    pub methodology_step: Option<String>, // 方法论当前步骤
+}
+
+/// 风格配置上下文
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StyleContext {
+    #[serde(default)]
     pub style_dna_id: Option<String>,    // 风格DNA ID（向后兼容）
+    #[serde(default)]
     pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置
     /// 风格指纹（v0.7.8: 续写加固 — 从参考文本提取的量化风格约束）
     #[serde(default)]
     pub style_fingerprint: Option<crate::creative_engine::style::fingerprint::StyleFingerprint>,
+}
+
+/// 世界观与方法论上下文
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorldContext {
+    #[serde(default)]
+    pub world_rules: Option<String>,     // 世界观规则（注入系统提示词）
+    #[serde(default)]
+    pub scene_structure: Option<String>, // 场景结构（注入系统提示词）
+    #[serde(default)]
+    pub methodology_id: Option<String>,  // 创作方法论ID（如 snowflake, scene_structure）
+    #[serde(default)]
+    pub methodology_step: Option<String>, // 方法论当前步骤
+}
+
+/// 记忆上下文
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentMemoryContext {
     /// 三层记忆包（Wave 3: MemoryPack 注入 AgentContext）
     #[serde(default)]
     pub memory_pack: Option<MemoryPack>,
     /// v0.8.0: 记忆上下文（混合路由后的结构化记忆 + 一致性报告）
     #[serde(default)]
-    pub memory_context: Option<MemoryContext>,
+    pub memory: Option<MemoryContext>,
+}
+
+// ==================== 主上下文结构 ====================
+
+/// Agent执行上下文
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentContext {
+    #[serde(default)]
+    pub story: StoryContext,
+    #[serde(default)]
+    pub narrative: NarrativeContext,
+    #[serde(default)]
+    pub style: StyleContext,
+    #[serde(default)]
+    pub world: WorldContext,
+    #[serde(default)]
+    pub memory: AgentMemoryContext,
 }
 
 /// 角色信息
@@ -164,47 +217,57 @@ impl AgentContext {
     /// 创建最小上下文（用于测试）
     pub fn minimal(story_id: String, _input: String) -> Self {
         Self {
-            story_id,
-            story_title: "未命名作品".to_string(),
-            genre: "小说".to_string(),
-            tone: "中性".to_string(),
-            pacing: "正常".to_string(),
-            chapter_number: 1,
-            characters: vec![],
-            previous_chapters: vec![],
-            current_content: None,
-            selected_text: None,
-            world_rules: None,
-            scene_structure: None,
-            methodology_id: None,
-            methodology_step: None,
-            style_dna_id: None,
-            style_blend: None,
-            style_fingerprint: None,
-            memory_pack: None,
-            memory_context: None,
+            story: StoryContext {
+                story_id,
+                story_title: "未命名作品".to_string(),
+                genre: "小说".to_string(),
+                tone: "中性".to_string(),
+                pacing: "正常".to_string(),
+            },
+            narrative: NarrativeContext {
+                chapter_number: 1,
+                characters: vec![],
+                previous_chapters: vec![],
+                current_content: None,
+                selected_text: None,
+            },
+            style: StyleContext {
+                style_dna_id: None,
+                style_blend: None,
+                style_fingerprint: None,
+            },
+            world: WorldContext {
+                world_rules: None,
+                scene_structure: None,
+                methodology_id: None,
+                methodology_step: None,
+            },
+            memory: AgentMemoryContext {
+                memory_pack: None,
+                memory: None,
+            },
         }
     }
-    
+
     /// 构建角色描述字符串
     pub fn format_characters(&self) -> String {
-        if self.characters.is_empty() {
+        if self.narrative.characters.is_empty() {
             "暂无角色信息".to_string()
         } else {
-            self.characters
+            self.narrative.characters
                 .iter()
                 .map(|c| format!("{}（{}）: {}", c.name, c.role, c.personality))
                 .collect::<Vec<_>>()
                 .join("\n")
         }
     }
-    
+
     /// 构建前文摘要
     pub fn format_previous_chapters(&self) -> String {
-        if self.previous_chapters.is_empty() {
+        if self.narrative.previous_chapters.is_empty() {
             "这是第一章".to_string()
         } else {
-            self.previous_chapters
+            self.narrative.previous_chapters
                 .iter()
                 .map(|c| format!("第{}章 {}: {}", c.number, c.title, c.summary))
                 .collect::<Vec<_>>()
@@ -233,7 +296,7 @@ impl AgentResult {
             request_id: None,
         }
     }
-    
+
     /// 是否高质量
     pub fn is_high_quality(&self) -> bool {
         self.score.map(|s| s >= 0.8).unwrap_or(true)

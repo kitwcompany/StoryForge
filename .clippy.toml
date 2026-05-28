@@ -1,0 +1,2 @@
+avoid-breaking-exported-api = false
+doc-valid-idents = ["WebView", "WebKit", "Tauri", "SQLite", "LLM", "AI", "GPU", "CSS", "HTML", "JSON", "URL", "API", "MCP", "DOM", "IP", "TCP", "TLS", "WASM", "React", "TanStack", "Zustand", "TipTap", "Framer", "Motion", "LanceDB", "GitHub"]

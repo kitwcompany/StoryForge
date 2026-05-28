@@ -8,7 +8,7 @@
 use super::AgentResult;
 use super::service::{AgentService, AgentTask, AgentType};
 use crate::db::DbPool;
-use crate::db::repositories_v3::StyleDnaRepository;
+use crate::db::repositories::StyleDnaRepository;
 use crate::creative_engine::style::{StyleChecker, StyleDNA};
 use crate::error::AppError;
 use tauri::{AppHandle, Emitter, Manager};
@@ -149,8 +149,8 @@ impl AgentOrchestrator {
         // BeforeAiWrite hook
         if let Some(manager) = crate::SKILL_MANAGER.get() {
             if let Ok(skill_manager) = manager.lock() {
-                let story_id = task.context.story_id.clone();
-                let chapter_number = task.context.chapter_number;
+                let story_id = task.context.story.story_id.clone();
+                let chapter_number = task.context.narrative.chapter_number;
                 let input = task.input.clone();
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
@@ -171,8 +171,8 @@ impl AgentOrchestrator {
         if let Ok(ref workflow_result) = result {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let writer = crate::memory::writer::MemoryWriter::new(pool.inner().clone());
-            let story_id = task.context.story_id.clone();
-            let chapter_number = task.context.chapter_number as i32;
+            let story_id = task.context.story.story_id.clone();
+            let chapter_number = task.context.narrative.chapter_number as i32;
             let content = workflow_result.final_content.clone();
             tauri::async_runtime::spawn(async move {
                 match writer.write(&story_id, chapter_number, &content).await {
@@ -186,8 +186,8 @@ impl AgentOrchestrator {
         if let Ok(ref workflow_result) = result {
             if let Some(manager) = crate::SKILL_MANAGER.get() {
                 if let Ok(skill_manager) = manager.lock() {
-                    let story_id = task.context.story_id.clone();
-                    let chapter_number = task.context.chapter_number;
+                    let story_id = task.context.story.story_id.clone();
+                    let chapter_number = task.context.narrative.chapter_number;
                     let content = workflow_result.final_content.clone();
                     let score_val = workflow_result.final_score;
                     let skill_manager = skill_manager.clone();
@@ -250,7 +250,7 @@ impl AgentOrchestrator {
 
         // v0.7.8: 3 候选并行生成选优（续写场景且有风格指纹时启用）
         let (writer_result, request_id, mut current_content) =
-            if task.context.style_fingerprint.is_some() || task.context.current_content.as_ref().map(|c| c.len() > 100).unwrap_or(false) {
+            if task.context.style.style_fingerprint.is_some() || task.context.narrative.current_content.as_ref().map(|c| c.len() > 100).unwrap_or(false) {
                 let (r, req_id, content) = self.generate_candidates(&task, 3).await?;
                 (r, Some(req_id), content)
             } else {
@@ -294,7 +294,7 @@ impl AgentOrchestrator {
                 + narrative_score * self.config.narrative_weight;
 
             // StyleChecker 验证（保留原有逻辑作为兜底）
-            if let Some(ref blend) = task.context.style_blend {
+            if let Some(ref blend) = task.context.style.style_blend {
                 let pool = self.app_handle.state::<DbPool>();
                 {
                     let dna_repo = StyleDnaRepository::new(pool.inner().clone());
@@ -313,7 +313,7 @@ impl AgentOrchestrator {
                         }
                     }
                 }
-            } else if let Some(ref style_id) = task.context.style_dna_id {
+            } else if let Some(ref style_id) = task.context.style.style_dna_id {
                 let pool = self.app_handle.state::<DbPool>();
                 {
                     let repo = StyleDnaRepository::new(pool.inner().clone());
@@ -375,7 +375,7 @@ impl AgentOrchestrator {
             // 步骤3: Writer 改写
             self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), None);
             let mut rewrite_context = task.context.clone();
-            rewrite_context.selected_text = Some(current_content.clone());
+            rewrite_context.narrative.selected_text = Some(current_content.clone());
             let rewrite_task = AgentTask {
                 id: format!("{}-rewrite-{}", task.id, loop_idx),
                 agent_type: AgentType::Writer,
@@ -639,8 +639,8 @@ impl AgentOrchestrator {
         ).await;
 
         // 获取参考指纹（从预计算或 current_content 提取）
-        let reference_fp = task.context.style_fingerprint.clone().or_else(|| {
-            task.context.current_content.as_ref().and_then(|c| {
+        let reference_fp = task.context.style.style_fingerprint.clone().or_else(|| {
+            task.context.narrative.current_content.as_ref().and_then(|c| {
                 let cleaned = c.trim().trim_start_matches("...").trim_start();
                 let cleaned = if cleaned.starts_with('(') && cleaned.contains("已省略)") {
                     cleaned.split_once('\n').map(|(_, rest)| rest).unwrap_or(cleaned).trim_start()

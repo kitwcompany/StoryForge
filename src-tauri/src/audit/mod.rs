@@ -5,7 +5,7 @@
 
 use crate::db::DbPool;
 use crate::error::AppError;
-use crate::db::repositories_v3::{SceneRepository, StyleDnaRepository};
+use crate::db::repositories::{SceneRepository, StyleDnaRepository};
 use crate::db::repositories::StoryRepository;
 use crate::creative_engine::continuity::{ContinuityEngine, Severity as ContinuitySeverity};
 use crate::creative_engine::style::{StyleChecker, StyleAnalyzer, dna::StyleDNA};

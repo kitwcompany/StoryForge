@@ -8,7 +8,7 @@
 //! - 四阶段查询检索管线
 //! - 多助手独立会话
 
-use crate::agents::{AgentContext, ChapterSummary, CharacterInfo};
+use crate::agents::{AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext, StoryContext, StyleContext, WorldContext};
 use crate::db::{Chapter, Character, Story};
 
 pub mod tokenizer;
@@ -115,25 +115,35 @@ impl ShortTermMemory {
         };
 
         AgentContext {
-            story_id: story.id.clone(),
-            story_title: story.title.clone(),
-            genre: story.genre.clone().unwrap_or_else(|| "general".to_string()),
-            tone: story.tone.clone().unwrap_or_else(|| "neutral".to_string()),
-            pacing: story.pacing.clone().unwrap_or_else(|| "medium".to_string()),
-            chapter_number: target_chapter_number,
-            previous_chapters,
-            characters: character_infos,
-            current_content: None,
-            selected_text: None,
-            world_rules: None,
-            scene_structure: None,
-            methodology_id: None,
-            methodology_step: None,
-            style_dna_id: None,
-            style_blend: None,
-            style_fingerprint: None,
-            memory_pack,
-            memory_context: None,
+            story: StoryContext {
+                story_id: story.id.clone(),
+                story_title: story.title.clone(),
+                genre: story.genre.clone().unwrap_or_else(|| "general".to_string()),
+                tone: story.tone.clone().unwrap_or_else(|| "neutral".to_string()),
+                pacing: story.pacing.clone().unwrap_or_else(|| "medium".to_string()),
+            },
+            narrative: NarrativeContext {
+                chapter_number: target_chapter_number,
+                previous_chapters,
+                characters: character_infos,
+                current_content: None,
+                selected_text: None,
+            },
+            style: StyleContext {
+                style_dna_id: None,
+                style_blend: None,
+                style_fingerprint: None,
+            },
+            world: WorldContext {
+                world_rules: None,
+                scene_structure: None,
+                methodology_id: None,
+                methodology_step: None,
+            },
+            memory: AgentMemoryContext {
+                memory_pack,
+                memory: None,
+            },
         }
     }
 

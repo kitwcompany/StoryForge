@@ -5,8 +5,8 @@
 
 use crate::db::DbPool;
 use crate::db::repositories::{CharacterRepository};
-use crate::db::repositories_v3::{SceneRepository, KnowledgeGraphRepository};
-use crate::db::models_v3::{EntityType, RelationType};
+use crate::db::repositories::{SceneRepository, KnowledgeGraphRepository};
+use crate::db::models::{EntityType, RelationType};
 use std::collections::HashMap;
 
 /// 角色当前状态
@@ -114,7 +114,7 @@ impl ContinuityEngine {
         let entities = kg_repo.get_entities_by_story(story_id)
             .map_err(|e| format!("获取实体失败: {}", e))?;
 
-        let entity_map: HashMap<String, crate::db::models_v3::Entity> = entities.into_iter()
+        let entity_map: HashMap<String, crate::db::models::Entity> = entities.into_iter()
             .filter(|e| matches!(e.entity_type, EntityType::Character))
             .map(|e| (e.name.clone(), e))
             .collect();
@@ -239,7 +239,7 @@ impl ContinuityEngine {
     ) -> Result<Vec<ConsistencyIssue>, String> {
         let mut issues = Vec::new();
 
-        let wb_repo = crate::db::repositories_v3::WorldBuildingRepository::new(self.pool.clone());
+        let wb_repo = crate::db::repositories::WorldBuildingRepository::new(self.pool.clone());
         let world_building = match wb_repo.get_by_story(story_id) {
             Ok(Some(wb)) => wb,
             _ => return Ok(issues),

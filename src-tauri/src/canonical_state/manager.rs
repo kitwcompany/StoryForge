@@ -6,7 +6,7 @@ use super::*;
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository, KnowledgeGraphRepository};
+use crate::db::repositories::{SceneRepository, WorldBuildingRepository, KnowledgeGraphRepository};
 use rusqlite::params;
 
 pub struct CanonicalStateManager {
@@ -247,7 +247,7 @@ impl CanonicalStateManager {
         Ok(facts)
     }
 
-    fn build_timeline(&self, scenes: &[crate::db::models_v3::Scene]) -> Vec<TimelineEvent> {
+    fn build_timeline(&self, scenes: &[crate::db::models::Scene]) -> Vec<TimelineEvent> {
         scenes
             .iter()
             .map(|s| TimelineEvent {
@@ -266,7 +266,7 @@ impl CanonicalStateManager {
     fn fetch_active_conflicts(
         &self,
         story_id: &str,
-        scenes: &[crate::db::models_v3::Scene],
+        scenes: &[crate::db::models::Scene],
     ) -> Result<Vec<Conflict>, AppError> {
         let mut conflicts = Vec::new();
 
@@ -363,7 +363,7 @@ impl CanonicalStateManager {
 
     fn calculate_narrative_phase(
         total_scenes: i32,
-        scenes: &[crate::db::models_v3::Scene],
+        scenes: &[crate::db::models::Scene],
         has_overdue: bool,
         pending_payoffs: &[PayoffRef],
     ) -> NarrativePhase {

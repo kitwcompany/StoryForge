@@ -37,7 +37,7 @@ impl MemoryHealthDaemon {
         &self,
         app_handle: &tauri::AppHandle,
     ) -> Result<(), String> {
-        use crate::db::repositories_v3::{KnowledgeGraphRepository, StoryRepository};
+        use crate::db::repositories::{KnowledgeGraphRepository, StoryRepository};
         use crate::memory::retention::RetentionManager;
 
         log::info!("[MemoryHealthDaemon] Running health check...");

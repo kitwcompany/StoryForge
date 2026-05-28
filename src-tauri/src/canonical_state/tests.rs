@@ -3,7 +3,7 @@
 use super::*;
 use crate::db::connection::create_test_pool;
 use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository};
+use crate::db::repositories::{SceneRepository, WorldBuildingRepository};
 use crate::db::{CreateStoryRequest, CreateCharacterRequest};
 
 fn block_on<F>(f: F) -> F::Output
@@ -213,7 +213,7 @@ fn test_narrative_phase_climax_detection() {
     for i in 1..=35 {
         let mut scene = scene_repo.create(&story.id, i, Some(&format!("场景{}", i))).unwrap();
         if i > 32 {
-            use crate::db::repositories_v3::SceneUpdate;
+            use crate::db::repositories::SceneUpdate;
             let long_content = "这是一段非常长的内容，超过了1000个字符的限制，因此需要多次重复以确保内容长度达到要求。".repeat(25);
             let _ = scene_repo.update(&scene.id, &SceneUpdate {
                 content: Some(long_content.clone()),

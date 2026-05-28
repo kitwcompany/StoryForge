@@ -11,7 +11,7 @@
 
 use crate::db::DbPool;
 use crate::db::repositories::{CharacterRepository};
-use crate::db::repositories_v3::{SceneRepository, StoryOutlineRepository, WorldBuildingRepository};
+use crate::db::repositories::{SceneRepository, StoryOutlineRepository, WorldBuildingRepository};
 use crate::creative_engine::foreshadowing::ForeshadowingTracker;
 use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};

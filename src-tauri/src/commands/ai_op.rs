@@ -1,25 +1,26 @@
 //! Ai Op commands
 
 use crate::db::ChapterRepository;
-use tauri::{AppHandle, Emitter};
-use crate::get_pool;
+use tauri::{AppHandle, Emitter, State};
+use crate::db::DbPool;
+use crate::error::AppError;
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn list_ai_operations(story_id: String) -> Result<Vec<crate::db::AiOperation>, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub async fn list_ai_operations(pool: State<'_, DbPool>, story_id: String) -> Result<Vec<crate::db::AiOperation>, AppError> {
+    let pool = pool.inner().clone();
     let repo = crate::db::AiOperationRepository::new(pool);
-    repo.get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
+    repo.get_by_story(&story_id).map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Result<(), String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub async fn rollback_ai_operation(pool: State<'_, DbPool>, operation_id: String, app: AppHandle) -> Result<(), AppError> {
+    let pool = pool.inner().clone();
     let op_repo = crate::db::AiOperationRepository::new(pool.clone());
     let chapter_repo = ChapterRepository::new(pool.clone());
 
     let operation = op_repo.get_by_id(&operation_id)
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .map_err(AppError::from)?
         .ok_or("Operation not found")?;
 
     // Only support rollback for chapter content operations that have previous_content
@@ -31,11 +32,11 @@ pub async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Resu
 
     // Restore previous content
     chapter_repo.update(&chapter_id, None, None, Some(prev_content), None)
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     // Mark operation as rolled back
     op_repo.update_status(&operation_id, "rolled_back")
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     // Emit sync event
     let _ = app.emit("sync-event", serde_json::json!({
@@ -46,4 +47,3 @@ pub async fn rollback_ai_operation(operation_id: String, app: AppHandle) -> Resu
 
     Ok(())
 }
-

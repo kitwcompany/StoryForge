@@ -3,7 +3,7 @@
 //! 当预检发现缺少世界观合同、章节合同或场景大纲时，根据已有故事内容自动调用 LLM 生成并保存。
 
 use crate::db::{DbPool, StoryRepository, CharacterRepository, ChapterRepository, WorldBuildingRepository};
-use crate::db::repositories_v3::{SceneRepository, SceneUpdate};
+use crate::db::repositories::{SceneRepository, SceneUpdate};
 use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -388,7 +388,7 @@ impl AutoContractBuilder {
         &self,
         story_id: &str,
         scene_id: &str,
-        scene: &crate::db::models_v3::Scene,
+        scene: &crate::db::models::Scene,
     ) -> Result<(), String> {
         let story_repo = StoryRepository::new(self.pool.clone());
         let story = story_repo.get_by_id(story_id)

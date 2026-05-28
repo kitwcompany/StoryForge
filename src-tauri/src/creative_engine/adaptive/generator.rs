@@ -7,7 +7,7 @@
 
 use crate::db::DbPool;
 use crate::error::AppError;
-use crate::db::repositories_v3::UserPreferenceRepository;
+use crate::db::repositories::UserPreferenceRepository;
 
 /// 生成策略
 #[derive(Debug, Clone)]
@@ -187,7 +187,7 @@ impl AdaptiveGenerator {
         }
     }
 
-    fn apply_dialogue_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models_v3::UserPreference) {
+    fn apply_dialogue_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models::UserPreference) {
         match pref.preference_key.as_str() {
             "dialogue_ratio" => {
                 match pref.preference_value.as_str() {
@@ -216,7 +216,7 @@ impl AdaptiveGenerator {
         }
     }
 
-    fn apply_content_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models_v3::UserPreference) {
+    fn apply_content_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models::UserPreference) {
         match pref.preference_key.as_str() {
             "description_ratio" => {
                 match pref.preference_value.as_str() {
@@ -257,7 +257,7 @@ impl AdaptiveGenerator {
         }
     }
 
-    fn apply_pacing_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models_v3::UserPreference) {
+    fn apply_pacing_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models::UserPreference) {
         match pref.preference_key.as_str() {
             "sentence_length" => {
                 match pref.preference_value.as_str() {
@@ -288,7 +288,7 @@ impl AdaptiveGenerator {
         }
     }
 
-    fn apply_style_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models_v3::UserPreference) {
+    fn apply_style_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models::UserPreference) {
         match pref.preference_key.as_str() {
             "overall_satisfaction" => {
                 match pref.preference_value.as_str() {

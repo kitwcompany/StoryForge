@@ -343,7 +343,7 @@ async fn run_style_analysis(
     _llm_service: &LlmService,
 ) -> Result<(), PipelineError> {
     use crate::pipeline::style_analysis;
-    use crate::db::repositories_v3::{WritingStyleRepository, WritingStyleUpdate};
+    use crate::db::repositories::{WritingStyleRepository, WritingStyleUpdate};
 
     // 检查是否应触发
     let should_trigger = style_analysis::should_trigger_style_analysis(story_id, pool)

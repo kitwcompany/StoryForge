@@ -9,9 +9,9 @@ use crate::llm::LlmService;
 use crate::llm::service::PipelineContext as LlmPipelineContext;
 use crate::db::{DbPool, CreateStoryRequest, CreateCharacterRequest};
 use crate::db::repositories::{StoryRepository, CharacterRepository, ChapterRepository};
-use crate::db::repositories_v3::{WorldBuildingRepository, SceneRepository, StoryOutlineRepository, CharacterRelationshipRepository, KnowledgeGraphRepository};
-use crate::db::repositories_v3::SceneUpdate;
-use crate::db::models_v3::{RuleType, ConflictType};
+use crate::db::repositories::{WorldBuildingRepository, SceneRepository, StoryOutlineRepository, CharacterRelationshipRepository, KnowledgeGraphRepository};
+use crate::db::repositories::SceneUpdate;
+use crate::db::models::{RuleType, ConflictType};
 use super::elements::*;
 use super::pipeline::*;
 use super::progress::*;
@@ -367,7 +367,7 @@ impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
             let world_building = repo.create(&ctx.story_id, &wb.concept)
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
-            let rules: Vec<crate::db::models_v3::WorldRule> = wb.rules.iter().map(|r| crate::db::models_v3::WorldRule {
+            let rules: Vec<crate::db::models::WorldRule> = wb.rules.iter().map(|r| crate::db::models::WorldRule {
                 id: Uuid::new_v4().to_string(),
                 name: r.name.clone(),
                 description: Some(r.description.clone()),

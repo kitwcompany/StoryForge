@@ -27,6 +27,7 @@ import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import { useWorkflowNodes } from '@/hooks/useWorkflowNodes';
+import { useWebViewRedrawFix } from '@/hooks/useWebViewRedrawFix';
 import { LoginModal } from '@/pages/Login';
 import { useAppStore } from '@/stores/appStore';
 import type { ViewType, Story } from '@/types';
@@ -39,6 +40,11 @@ function App() {
   const currentStory = useAppStore((state) => state.currentStory);
   useEffect(() => {
     if (currentStory?.id) {
+      // Cancel stale requests before invalidating to prevent race conditions
+      queryClient.cancelQueries({ queryKey: ['characters', currentStory.id] });
+      queryClient.cancelQueries({ queryKey: ['scenes', currentStory.id] });
+      queryClient.cancelQueries({ queryKey: ['chapters', currentStory.id] });
+      // Batch invalidate related queries to reduce IPC waterfall
       queryClient.invalidateQueries({ queryKey: ['characters', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['scenes', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['chapters', currentStory.id] });
@@ -69,8 +75,8 @@ function App() {
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   // W2-F2: 从 local state 迁移到 Zustand store，替代 DOM CustomEvent 通信
   const isLoginOpen = useAppStore((state) => state.isLoginModalOpen);
-  // W2-F3: 用 DOM ref 替代 renderKey 反模式，避免 React remount
-  const mainRef = useRef<HTMLElement>(null);
+  // W2-F3: WebView 重绘修复 — 封装 DOM hack 为可复用 hook
+  const { mainRef, forceRedraw } = useWebViewRedrawFix();
 
   // 自动更新检测
   const {
@@ -183,25 +189,6 @@ function App() {
           setTimeout(() => handleWindowShown(retries - 1), 500);
         }
       }
-    };
-
-    // v5.2.0 / W2-F3: 用 DOM 操作触发 GPU 重绘，避免 renderKey 反模式
-    const forceRedraw = () => {
-      const trigger = (el: HTMLElement | null) => {
-        if (!el) return;
-        // 极短的 opacity 抖动强制 WebView2 compositor 刷新
-        el.style.opacity = '0.99';
-        requestAnimationFrame(() => {
-          el.style.opacity = '';
-        });
-      };
-      window.dispatchEvent(new Event('resize'));
-      window.dispatchEvent(new Event('scroll'));
-      trigger(mainRef.current);
-      setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-        trigger(mainRef.current);
-      }, 300);
     };
 
     // 组件 mount 时执行一次

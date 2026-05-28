@@ -7,10 +7,10 @@
 //!
 //! 目标：在有限的上下文窗口内，为 Agent 提供最相关、最紧凑的上下文。
 
-use super::{AgentContext, CharacterInfo, ChapterSummary};
+use super::{AgentContext, AgentMemoryContext, CharacterInfo, ChapterSummary, NarrativeContext, StoryContext, StyleContext, WorldContext};
 use crate::db::DbPool;
 use crate::db::repositories::{StoryRepository, CharacterRepository};
-use crate::db::repositories_v3::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
+use crate::db::repositories::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
 use crate::db::repositories_pipeline::{BlueprintRepository, DraftRepository};
 use serde::{Deserialize, Serialize};
 
@@ -441,29 +441,39 @@ impl ContextOptimizer {
 
         // 组装为 AgentContext
         let mut agent_ctx = AgentContext {
-            story_id: story_id.to_string(),
-            story_title: l0.story_title,
-            genre: l0.genre,
-            tone: l0.tone,
-            pacing: l0.pacing,
-            chapter_number,
-            characters: l1.character_cards.iter().map(|c| CharacterInfo {
-                name: c.name.clone(),
-                personality: c.personality.clone(),
-                role: c.role.clone(),
-            }).collect(),
-            previous_chapters: l1.recent_chapters,
-            current_content: current_content.clone(),
-            selected_text: selected_text.clone(),
-            world_rules: l1.world_rules,
-            scene_structure: l1.scene_structure,
-            methodology_id: l0.methodology_id,
-            methodology_step: l0.methodology_step,
-            style_dna_id: l0.style_dna_id,
-            style_blend: l0.style_blend,
-            style_fingerprint: None,
-            memory_pack,
-            memory_context: None,
+            story: StoryContext {
+                story_id: story_id.to_string(),
+                story_title: l0.story_title,
+                genre: l0.genre,
+                tone: l0.tone,
+                pacing: l0.pacing,
+            },
+            narrative: NarrativeContext {
+                chapter_number,
+                characters: l1.character_cards.iter().map(|c| CharacterInfo {
+                    name: c.name.clone(),
+                    personality: c.personality.clone(),
+                    role: c.role.clone(),
+                }).collect(),
+                previous_chapters: l1.recent_chapters,
+                current_content: current_content.clone(),
+                selected_text: selected_text.clone(),
+            },
+            style: StyleContext {
+                style_dna_id: l0.style_dna_id,
+                style_blend: l0.style_blend,
+                style_fingerprint: None,
+            },
+            world: WorldContext {
+                world_rules: l1.world_rules,
+                scene_structure: l1.scene_structure,
+                methodology_id: l0.methodology_id,
+                methodology_step: l0.methodology_step,
+            },
+            memory: AgentMemoryContext {
+                memory_pack,
+                memory: None,
+            },
         };
 
         // 将 L2 结果追加到 scene_structure 或 world_rules 中
@@ -476,11 +486,11 @@ impl ContextOptimizer {
 
             let enhanced = format!(
                 "{}\n\n【动态检索结果】\n{}",
-                agent_ctx.scene_structure.clone().unwrap_or_default(),
+                agent_ctx.world.scene_structure.clone().unwrap_or_default(),
                 l2_text
             );
             if !enhanced.trim().is_empty() {
-                agent_ctx.scene_structure = Some(enhanced);
+                agent_ctx.world.scene_structure = Some(enhanced);
             }
         }
 
@@ -495,9 +505,9 @@ impl ContextOptimizer {
                 bp.key_events.join(", "),
                 bp.suspense_hook.as_ref().map(|h| format!("悬念: {}\n", h)).unwrap_or_default()
             );
-            agent_ctx.world_rules = Some(format!(
+            agent_ctx.world.world_rules = Some(format!(
                 "{}\n\n{}",
-                agent_ctx.world_rules.unwrap_or_default(),
+                agent_ctx.world.world_rules.unwrap_or_default(),
                 bp_text
             ).trim().to_string());
         }
@@ -523,7 +533,7 @@ impl ContextOptimizer {
             .ok_or_else(|| "故事不存在".to_string())
     }
 
-    fn fetch_writing_style(&self, story_id: &str) -> Result<Option<crate::db::models_v3::WritingStyle>, String> {
+    fn fetch_writing_style(&self, story_id: &str) -> Result<Option<crate::db::models::WritingStyle>, String> {
         let repo = WritingStyleRepository::new(self.pool.clone());
         repo.get_by_story(story_id)
             .map_err(|e| format!("获取文风失败: {}", e))
@@ -533,7 +543,7 @@ impl ContextOptimizer {
         &self,
         story_id: &str,
     ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
-        use crate::db::repositories_v3::StoryStyleConfigRepository;
+        use crate::db::repositories::StoryStyleConfigRepository;
         use crate::creative_engine::style::blend::StyleBlendConfig;
 
         let repo = StoryStyleConfigRepository::new(self.pool.clone());

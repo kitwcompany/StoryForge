@@ -5,7 +5,7 @@
 use super::impact_analyzer::ImpactAnalyzer;
 use super::models::{CascadeTaskPayload, CascadeTaskResult, EntityChangeEvent, RewriteSegment, RewriteStatus, SceneImpact, UserDecision};
 use super::repository::EntityMentionRepository;
-use crate::db::repositories_v3::SceneRepository;
+use crate::db::repositories::SceneRepository;
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::llm::LlmService;

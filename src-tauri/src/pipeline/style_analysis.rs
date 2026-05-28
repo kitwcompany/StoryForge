@@ -7,7 +7,7 @@
 use crate::db::{
     DbPool, ChapterRepository, DraftRepository,
 };
-use crate::db::repositories_v3::StyleSnapshotRepository;
+use crate::db::repositories::StyleSnapshotRepository;
 use crate::creative_engine::style::metrics::StyleMetrics;
 use crate::creative_engine::style::evolution::{
     StyleEvolutionEngine, StyleDnaDelta,

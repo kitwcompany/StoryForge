@@ -30,7 +30,7 @@ impl AnalyticsEngine {
     pub fn analyze_writing_data(
         &self,
         story_id: &str,
-        scenes: &[crate::db::models_v3::Scene],
+        scenes: &[crate::db::models::Scene],
     ) -> WritingAnalytics {
         let total_words: i64 = scenes
             .iter()

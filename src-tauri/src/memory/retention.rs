@@ -3,7 +3,7 @@
 //! 基于 Ebbinghaus 遗忘曲线理论的记忆优先级管理
 //! R(t) = R₀ × e^(-λt) + Σ(强化奖励)
 
-use crate::db::models_v3::{Entity, RetentionConfig};
+use crate::db::models::{Entity, RetentionConfig};
 use chrono::{DateTime, Duration, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -314,13 +314,13 @@ impl RetentionManager {
     fn get_config_for_entity(&self, entity: &Entity) -> &RetentionConfig {
         match entity.entity_type {
             // 概念/设定类使用架构级配置（衰减慢）
-            crate::db::models_v3::EntityType::Concept => &self.architecture_config,
+            crate::db::models::EntityType::Concept => &self.architecture_config,
             // 角色使用默认配置
-            crate::db::models_v3::EntityType::Character => &self.config,
+            crate::db::models::EntityType::Character => &self.config,
             // 地点使用默认配置
-            crate::db::models_v3::EntityType::Location => &self.config,
+            crate::db::models::EntityType::Location => &self.config,
             // 事件使用瞬态配置（衰减快）
-            crate::db::models_v3::EntityType::Event => &self.transient_config,
+            crate::db::models::EntityType::Event => &self.transient_config,
             // 其他使用默认配置
             _ => &self.config,
         }
@@ -389,7 +389,7 @@ pub struct ArchiveResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models_v3::{Entity, EntityType};
+    use crate::db::models::{Entity, EntityType};
 
     fn create_test_entity(name: &str, confidence: Option<f32>, access_count: i32) -> Entity {
         Entity {

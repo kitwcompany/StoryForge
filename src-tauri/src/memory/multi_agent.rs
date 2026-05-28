@@ -4,7 +4,7 @@
 //! 支持Wiki引用跟踪和保存到Wiki
 
 use crate::llm::LlmService;
-use crate::db::models_v3::AgentBotType;
+use crate::db::models::AgentBotType;
 use super::ingest::{IngestPipeline, IngestContent};
 use chrono::Local;
 use serde::{Serialize, Deserialize};

@@ -1,19 +1,19 @@
 //! Orchestrator commands
 
-use crate::db::{StoryRepository, ChapterRepository};
-use tauri::AppHandle;
-use crate::get_pool;
+use crate::db::{StoryRepository, ChapterRepository, DbPool};
+use tauri::{AppHandle, State};
+use crate::error::AppError;
 use crate::record_ai_operation;
 use crate::is_novel_creation_intent;
-use crate::detect_and_route_intent;
 
 /// 预检命令 - 写作前检查阻塞性问题
 #[tauri::command(rename_all = "snake_case")]
 pub fn check_preflight(
     story_id: String,
     chapter_number: i32,
-) -> Result<crate::story_system::preflight::PreflightResult, String> {
-    let pool = get_pool().ok_or("[check_preflight] Database not initialized")?;
+    pool: State<'_, DbPool>,
+) -> Result<crate::story_system::preflight::PreflightResult, AppError> {
+    let pool = pool.inner().clone();
     let checker = crate::story_system::preflight::PreflightChecker::new();
     Ok(checker.check(&pool, &story_id, chapter_number))
 }
@@ -25,12 +25,13 @@ pub async fn smart_execute(
     user_input: String,
     current_content: Option<String>,
     style_weight: Option<i32>,
+    pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<crate::planner::PlanExecutionResult, String> {
+) -> Result<crate::planner::PlanExecutionResult, AppError> {
     let style_weight = style_weight.unwrap_or(50);
     use tauri::Emitter;
 
-    let pool = get_pool().ok_or("[smart_execute] Database not initialized")?;
+    let pool = pool.inner().clone();
 
     // 辅助函数：发送 smart_execute 整体进度事件
     let app_handle_for_progress = app_handle.clone();
@@ -47,14 +48,14 @@ pub async fn smart_execute(
 
     // 构建 PlanContext：从当前系统状态推断
     let stories = StoryRepository::new(pool.clone()).get_all()
-        .map_err(|e| format!("[smart_execute] Failed to load stories: {}", e))?;
+        .map_err(|e| AppError::internal(format!("[smart_execute] Failed to load stories: {}", e)))?;
     let current_story = stories.first().cloned();
     let current_story_id = current_story.as_ref().map(|s| s.id.clone());
 
     let chapters = if let Some(ref story_id) = current_story_id {
         ChapterRepository::new(pool.clone())
             .get_by_story(story_id)
-            .map_err(|e| format!("[smart_execute] Failed to load chapters: {}", e))?
+            .map_err(|e| AppError::internal(format!("[smart_execute] Failed to load chapters: {}", e)))?
     } else {
         vec![]
     };
@@ -227,7 +228,7 @@ pub async fn smart_execute(
             }
             Err(e) => {
                 log::error!("[smart_execute] GenesisPipeline failed: {}", e);
-                return Err(format!("小说初始化失败: {}", e));
+                return Err(AppError::internal(format!("小说初始化失败: {}", e)));
             }
         }
     }
@@ -239,9 +240,9 @@ pub async fn smart_execute(
         world_building_summary, character_list, foreshadowing_status, style_dna_info, mcp_tools_available,
         chapter_number
     ) = if let Some(ref story_id) = current_story_id {
-        let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.clone());
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         let scenes = scene_repo.get_by_story(story_id)
-            .map_err(|e| format!("[smart_execute] Failed to load scenes: {}", e))?;
+            .map_err(|e| AppError::internal(format!("[smart_execute] Failed to load scenes: {}", e)))?;
         let scene_count = scenes.len();
 
         let scenes_summary: Vec<crate::planner::SceneStructureSummary> = scenes.iter().map(|s| {
@@ -299,7 +300,7 @@ pub async fn smart_execute(
 
         // ===== 增强上下文加载 =====
         // 世界观摘要
-        let wb_repo = crate::db::repositories_v3::WorldBuildingRepository::new(pool.clone());
+        let wb_repo = crate::db::repositories::WorldBuildingRepository::new(pool.clone());
         let world_building_summary = wb_repo.get_by_story(story_id).ok().flatten().map(|wb| {
             let rules_summary = wb.rules.iter()
                 .filter(|r| r.importance >= 7)
@@ -325,7 +326,7 @@ pub async fn smart_execute(
 
         // 风格DNA / 风格混合
         let style_dna_info = {
-            use crate::db::repositories_v3::StoryStyleConfigRepository;
+            use crate::db::repositories::StoryStyleConfigRepository;
             use crate::creative_engine::style::blend::StyleBlendConfig;
             
             // 优先检查混合配置
@@ -377,45 +378,6 @@ pub async fn smart_execute(
          None, vec![], vec![], None, vec![], 1)
     };
 
-    // Phase 3: 意图路由增强 — 自动检测更多用户意图
-    let auto_routed_plan = detect_and_route_intent(
-        &user_input,
-        &current_story_id,
-        scene_count,
-        &scenes_summary,
-        &current_scene_stage,
-        &story_progress,
-    );
-
-    if let Some(plan) = auto_routed_plan {
-        log::info!("[smart_execute] Auto-routed intent to plan: {}", plan.understanding);
-        let executor = crate::planner::PlanExecutor::new(app_handle);
-        let result = executor.execute_plan(plan, &crate::planner::PlanContext {
-            current_story_id: current_story_id.clone(),
-            has_story: !stories.is_empty(),
-            has_chapters: !chapters.is_empty(),
-            chapter_count,
-            current_content_preview: current_content_preview.clone(),
-            user_input: user_input.clone(),
-            scene_count,
-            scenes_summary: scenes_summary.clone(),
-            current_scene_id: current_scene_id.clone(),
-            current_scene_stage: current_scene_stage.clone(),
-            total_word_count,
-            latest_chapter_word_count,
-            story_progress: story_progress.clone(),
-            world_building_summary: world_building_summary.clone(),
-            character_list: character_list.clone(),
-            foreshadowing_status: foreshadowing_status.clone(),
-            style_dna_info: style_dna_info.clone(),
-            mcp_tools_available: mcp_tools_available.clone(),
-            selected_text: None,
-            style_weight,
-            chapter_number,
-        }).await;
-        return Ok(result);
-    }
-
     emit_progress("context_loaded", "故事上下文加载完成", 2, 5);
 
     // Clone values before they are moved into plan_context
@@ -453,7 +415,7 @@ pub async fn smart_execute(
     emit_progress("executing", "开始执行创作计划...", 3, 5);
     let executor = crate::planner::PlanExecutor::new(app_handle);
     let result = executor.execute_with_context(&plan_context).await
-        .map_err(|e| format!("[smart_execute] Plan execution failed: {}", e))?;
+        .map_err(|e| AppError::internal(format!("[smart_execute] Plan execution failed: {}", e)))?;
     emit_progress("completed", "创作计划执行完成", 5, 5);
 
     // 如果计划执行失败（所有步骤都失败或没有内容/空内容），返回错误
@@ -468,7 +430,7 @@ pub async fn smart_execute(
         } else {
             format!("计划执行失败：{}", result.messages.join("; "))
         };
-        return Err(error_msg);
+        return Err(AppError::internal(error_msg));
     }
 
     // Record AI operation for non-bootstrap generation
@@ -496,19 +458,20 @@ pub async fn smart_execute(
 pub async fn get_input_hint(
     app_handle: AppHandle,
     current_content: Option<String>,
-) -> Result<String, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+    pool: State<'_, DbPool>,
+) -> Result<String, AppError> {
+    let pool = pool.inner().clone();
 
     // 获取当前故事状态
     let stories = StoryRepository::new(pool.clone()).get_all()
-        .map_err(|e| format!("Failed to load stories: {}", e))?;
+        .map_err(|e| AppError::internal(format!("Failed to load stories: {}", e)))?;
     let current_story = stories.first().cloned();
     let current_story_id = current_story.as_ref().map(|s| s.id.clone());
 
     let chapters = if let Some(ref story_id) = current_story_id {
         ChapterRepository::new(pool.clone())
             .get_by_story(story_id)
-            .map_err(|e| format!("Failed to load chapters: {}", e))?
+            .map_err(|e| AppError::internal(format!("Failed to load chapters: {}", e)))?
     } else {
         vec![]
     };
@@ -557,7 +520,7 @@ pub async fn get_input_hint(
         }
 
         // 如果有场景信息，添加场景相关建议
-        let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.clone());
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
         if let Ok(scenes) = scene_repo.get_by_story(story_id) {
             let scene_count = scenes.len();
             let has_content = scenes.iter().any(|s| s.content.is_some() || s.draft_content.is_some());

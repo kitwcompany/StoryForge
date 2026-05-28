@@ -3,7 +3,7 @@
 //! 结合 BM25 文本搜索和向量相似度搜索
 //! 使用 RRF (Reciprocal Rank Fusion) 融合排序
 
-use crate::db::models_v3::Entity;
+use crate::db::models::Entity;
 use crate::embeddings::embedding::embed_text_async;
 use crate::vector::lancedb_store::{LanceVectorStore, SearchResult as VectorSearchResult};
 use serde::{Deserialize, Serialize};

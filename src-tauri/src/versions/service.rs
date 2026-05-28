@@ -3,8 +3,8 @@
 //! 提供版本比较、恢复和版本链管理功能
 #![allow(dead_code)]
 
-use crate::db::models_v3::SceneVersion;
-use crate::db::repositories_v3::{SceneRepository, SceneVersionRepository};
+use crate::db::models::SceneVersion;
+use crate::db::repositories::{SceneRepository, SceneVersionRepository};
 use crate::db::DbPool;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -135,7 +135,7 @@ impl SceneVersionService {
             .ok_or("Scene not found")?;
 
         // 创建场景更新
-        let updates = crate::db::repositories_v3::SceneUpdate {
+        let updates = crate::db::repositories::SceneUpdate {
             title: target_version.title.clone(),
             content: target_version.content.clone(),
             dramatic_goal: target_version.dramatic_goal.clone(),
@@ -158,9 +158,9 @@ impl SceneVersionService {
         // 创建新版本记录这次恢复操作
         let restored_scene = scene_repo.get_by_id(scene_id)?.ok_or("Scene not found")?;
         let creator_type = match restored_by {
-            "user" => crate::db::models_v3::CreatorType::User,
-            "ai" => crate::db::models_v3::CreatorType::Ai,
-            _ => crate::db::models_v3::CreatorType::System,
+            "user" => crate::db::models::CreatorType::User,
+            "ai" => crate::db::models::CreatorType::Ai,
+            _ => crate::db::models::CreatorType::System,
         };
 
         let change_summary = format!(
@@ -270,9 +270,9 @@ impl SceneVersionService {
 
         for version in &versions {
             match version.created_by {
-                crate::db::models_v3::CreatorType::User => user_edits += 1,
-                crate::db::models_v3::CreatorType::Ai => ai_edits += 1,
-                crate::db::models_v3::CreatorType::System => system_edits += 1,
+                crate::db::models::CreatorType::User => user_edits += 1,
+                crate::db::models::CreatorType::Ai => ai_edits += 1,
+                crate::db::models::CreatorType::System => system_edits += 1,
             }
         }
 
@@ -316,7 +316,7 @@ impl SceneVersionService {
             .into_iter()
             .filter(|v| {
                 v.confidence_score.map_or(false, |score| score >= min_confidence)
-                    && !matches!(v.created_by, crate::db::models_v3::CreatorType::System)
+                    && !matches!(v.created_by, crate::db::models::CreatorType::System)
             })
             .max_by(|a, b| {
                 a.confidence_score

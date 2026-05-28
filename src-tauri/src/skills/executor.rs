@@ -141,10 +141,10 @@ impl SkillExecutor {
         // Add context info
         let context_info = format!(
             "Story: {}\nGenre: {}\nTone: {}\nChapter: {}\n",
-            context.story_title,
-            context.genre,
-            context.tone,
-            context.chapter_number
+            context.story.story_title,
+            context.story.genre,
+            context.story.tone,
+            context.narrative.chapter_number
         );
         
         user_prompt = format!("{}\n\n{}", context_info, user_prompt);

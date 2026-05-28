@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 use crate::llm::{LlmAdapter, LlmService};
-use crate::db::models_v3::*;
+use crate::db::models::*;
 use serde::{Serialize, Deserialize};
 use serde_json;
 

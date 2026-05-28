@@ -5,7 +5,7 @@
 
 use crate::db::DbPool;
 use crate::error::AppError;
-use crate::db::repositories_v3::UserPreferenceRepository;
+use crate::db::repositories::UserPreferenceRepository;
 use super::generator::{AdaptiveGenerator, GenerationStrategy};
 
 /// 个性化提示词构建器
@@ -101,7 +101,7 @@ impl PromptPersonalizer {
         Ok(parts.join("\n"))
     }
 
-    fn describe_dialogue_preference(&self, pref: &crate::db::models_v3::UserPreference) -> String {
+    fn describe_dialogue_preference(&self, pref: &crate::db::models::UserPreference) -> String {
         match pref.preference_key.as_str() {
             "dialogue_ratio" => match pref.preference_value.as_str() {
                 "prefer_more_dialogue" => "偏好更多对话".to_string(),
@@ -112,7 +112,7 @@ impl PromptPersonalizer {
         }
     }
 
-    fn describe_content_preference(&self, pref: &crate::db::models_v3::UserPreference) -> String {
+    fn describe_content_preference(&self, pref: &crate::db::models::UserPreference) -> String {
         match pref.preference_key.as_str() {
             "description_ratio" => match pref.preference_value.as_str() {
                 "prefer_more_description" => "偏好更多环境描写".to_string(),
@@ -128,7 +128,7 @@ impl PromptPersonalizer {
         }
     }
 
-    fn describe_pacing_preference(&self, pref: &crate::db::models_v3::UserPreference) -> String {
+    fn describe_pacing_preference(&self, pref: &crate::db::models::UserPreference) -> String {
         match pref.preference_key.as_str() {
             "sentence_length" => match pref.preference_value.as_str() {
                 "prefer_slower_pacing" => "偏好慢节奏（长句）".to_string(),
@@ -139,7 +139,7 @@ impl PromptPersonalizer {
         }
     }
 
-    fn describe_style_preference(&self, pref: &crate::db::models_v3::UserPreference) -> String {
+    fn describe_style_preference(&self, pref: &crate::db::models::UserPreference) -> String {
         match pref.preference_key.as_str() {
             "overall_satisfaction" => match pref.preference_value.as_str() {
                 "needs_improvement" => "近期需要调整生成策略".to_string(),
@@ -183,10 +183,10 @@ mod tests {
             r2d2_sqlite::SqliteConnectionManager::memory()
         ).unwrap());
 
-        let pref = crate::db::models_v3::UserPreference {
+        let pref = crate::db::models::UserPreference {
             id: "1".to_string(),
             story_id: "s1".to_string(),
-            preference_type: crate::db::models_v3::PreferenceType::Dialogue,
+            preference_type: crate::db::models::PreferenceType::Dialogue,
             preference_key: "dialogue_ratio".to_string(),
             preference_value: "prefer_more_dialogue".to_string(),
             confidence: 0.8,

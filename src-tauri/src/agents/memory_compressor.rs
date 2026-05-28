@@ -53,10 +53,10 @@ impl Agent for MemoryCompressorAgent {
 5. 如果内容包含多个章节，按时间线组织
 
 请直接输出压缩后的摘要，不要添加解释。"#,
-            context.story_title,
-            context.genre,
-            context.tone,
-            context.pacing,
+            context.story.story_title,
+            context.story.genre,
+            context.story.tone,
+            context.story.pacing,
             input
         );
 

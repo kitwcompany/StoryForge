@@ -1,13 +1,18 @@
 //! Character commands
 
-use crate::db::{CharacterRepository, CreateCharacterRequest};
-use tauri::{AppHandle, Manager};
-use crate::get_pool;
+use crate::db::{CharacterRepository, CreateCharacterRequest, DbPool};
+use tauri::{AppHandle, Manager, State};
+use crate::error::AppError;
 use crate::SKILL_MANAGER;
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_story_characters(story_id: String) -> Result<Vec<crate::db::Character>, String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).get_by_story(&story_id).map_err(|e| crate::error::AppError::from(e).to_string())
+pub fn get_story_characters(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::Character>, AppError> {
+    CharacterRepository::new(pool.inner().clone())
+        .get_by_story(&story_id)
+        .map_err(AppError::from)
 }
 
 
@@ -17,9 +22,12 @@ pub fn create_character(
     personality: Option<String>, goals: Option<String>, appearance: Option<String>,
     gender: Option<String>, age: Option<i32>,
     app: AppHandle,
-    automation_service: tauri::State<crate::automation::service::AutomationService>
-) -> Result<crate::db::Character, String> {
-    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age }).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    automation_service: tauri::State<crate::automation::service::AutomationService>,
+    pool: State<'_, DbPool>,
+) -> Result<crate::db::Character, AppError> {
+    let character = CharacterRepository::new(pool.inner().clone())
+        .create(CreateCharacterRequest { story_id: story_id.clone(), name: name.clone(), background, personality, goals, appearance, gender, age })
+        .map_err(AppError::from)?;
 
     // OnCharacterCreate hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -58,9 +66,10 @@ pub fn update_character(
     id: String, name: Option<String>, background: Option<String>,
     personality: Option<String>, goals: Option<String>,
     appearance: Option<String>, gender: Option<String>, age: Option<i32>,
-    app: AppHandle
-) -> Result<(), String> {
-    let pool = get_pool().ok_or("DB not initialized")?;
+    app: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<(), AppError> {
+    let pool = pool.inner().clone();
     let repo = CharacterRepository::new(pool.clone());
     // 先查询旧角色数据，用于级联改写对比（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let old_character = repo.get_by_id(&id).ok().flatten();
@@ -71,7 +80,7 @@ pub fn update_character(
     let personality_for_ingest = personality.clone();
     let goals_for_ingest = goals.clone();
     let appearance_for_ingest = appearance.clone();
-    repo.update(&id, name, background, personality, goals, appearance, gender, age).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    repo.update(&id, name, background, personality, goals, appearance, gender, age).map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt.clone() {
         let _ = crate::state_sync::StateSync::emit_character_updated(&app, &id, name_for_ingest.as_deref(), &story_id);
 
@@ -189,7 +198,7 @@ pub fn update_character(
             };
             match pipeline.ingest(&content).await {
                 Ok(result) => {
-                    let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool_for_kg);
+                    let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(pool_for_kg);
                     for entity in &result.entities {
                         let _ = kg_repo.create_entity(
                             &story_id_for_ingest,
@@ -215,11 +224,15 @@ pub fn update_character(
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_character(id: String, app: AppHandle) -> Result<(), String> {
-    let repo = CharacterRepository::new(get_pool().ok_or("DB not initialized")?);
+pub fn delete_character(
+    id: String,
+    app: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<(), AppError> {
+    let repo = CharacterRepository::new(pool.inner().clone());
     // 先查询 story_id，删除后无法再获取（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
-    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    repo.delete(&id).map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt {
         let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
     }

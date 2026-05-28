@@ -376,7 +376,7 @@ impl PlanExecutor {
 
     fn get_current_scene_number(&self, story_id: &str) -> Result<Option<i32>, AppError> {
         let pool = self.app_handle.state::<crate::db::DbPool>();
-        let repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+        let repo = crate::db::repositories::SceneRepository::new(pool.inner().clone());
         let scenes = repo.get_by_story(story_id).map_err(AppError::from)?;
         Ok(scenes.iter().max_by_key(|s| s.sequence_number).map(|s| s.sequence_number))
     }
@@ -484,7 +484,7 @@ impl PlanExecutor {
         let selected_text = plan_context.selected_text.clone();
         let mut context = self.build_agent_context(&story_id, current_content, selected_text)?;
         // v0.8.0: 使用 PlanContext 中的章节号（用户当前编辑的场景），而非最新场景
-        context.chapter_number = plan_context.chapter_number.max(1) as u32;
+        context.narrative.chapter_number = plan_context.chapter_number.max(1) as u32;
 
         // Phase 5: 将 PlanContext 中的结构信息注入到 AgentTask 参数
         let mut enriched_params = params.clone();
@@ -707,7 +707,7 @@ impl PlanExecutor {
         let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let pool = self.app_handle.state::<crate::db::DbPool>();
-        let wb_repo = crate::db::repositories_v3::WorldBuildingRepository::new(pool.inner().clone());
+        let wb_repo = crate::db::repositories::WorldBuildingRepository::new(pool.inner().clone());
 
         let wb = wb_repo.get_by_story(&story_id).map_err(AppError::from)?
             .ok_or_else(|| "World building not found for this story".to_string())?;
@@ -761,7 +761,7 @@ impl PlanExecutor {
                     rule_val.get("rule_type").and_then(|v| v.as_str()),
                     rule_val.get("importance").and_then(|v| v.as_i64()),
                 ) {
-                    use crate::db::models_v3::{WorldRule, RuleType};
+                    use crate::db::models::{WorldRule, RuleType};
                     all_rules.push(WorldRule {
                         id: Uuid::new_v4().to_string(),
                         name: name.to_string(),
@@ -801,7 +801,7 @@ impl PlanExecutor {
         let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let pool = self.app_handle.state::<crate::db::DbPool>();
-        let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+        let scene_repo = crate::db::repositories::SceneRepository::new(pool.inner().clone());
 
         // 按ID或sequence_number查找场景
         let scene = if let Ok(Some(s)) = scene_repo.get_by_id(&scene_id) {
@@ -859,7 +859,7 @@ impl PlanExecutor {
         let updates: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| format!("Failed to parse scene update JSON: {}", e))?;
 
-        let mut scene_update = crate::db::repositories_v3::SceneUpdate {
+        let mut scene_update = crate::db::repositories::SceneUpdate {
             title: updates.get("title").and_then(|v| v.as_str()).map(|s| s.to_string()),
             dramatic_goal: updates.get("dramatic_goal").and_then(|v| v.as_str()).map(|s| s.to_string()),
             external_pressure: updates.get("external_pressure").and_then(|v| v.as_str()).map(|s| s.to_string()),
@@ -886,7 +886,7 @@ impl PlanExecutor {
         let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let pool = self.app_handle.state::<crate::db::DbPool>();
-        let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool.inner().clone());
+        let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(pool.inner().clone());
 
         // 简化查询：获取所有实体，由LLM筛选
         let entities = kg_repo.get_entities_by_story(&story_id).map_err(AppError::from)?;

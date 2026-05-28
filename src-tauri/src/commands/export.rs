@@ -1,30 +1,35 @@
 //! Export commands
 
-use crate::db::{StoryRepository, CharacterRepository, ChapterRepository, SceneRepository};
+use crate::commands::EmitSync;
+use crate::db::{StoryRepository, CharacterRepository, ChapterRepository, SceneRepository, DbPool};
 use crate::export::{StoryExporter, ExportConfig, ExportFormat, ExportResult};
-use tauri::Manager;
-use crate::get_pool;
+use tauri::{Manager, State, AppHandle};
+use crate::error::AppError;
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn export_story(options: crate::ExportOptions, app_handle: tauri::AppHandle) -> Result<ExportResult, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+pub async fn export_story(
+    options: crate::ExportOptions,
+    app_handle: tauri::AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<ExportResult, AppError> {
+    let pool = pool.inner().clone();
 
     let story = StoryRepository::new(pool.clone())
         .get_by_id(&options.story_id)
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .ok_or("Story not found")?;
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("story", &options.story_id))?;
 
     let mut chapters = ChapterRepository::new(pool.clone())
         .get_by_story(&options.story_id)
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     let characters = CharacterRepository::new(pool.clone())
         .get_by_story(&options.story_id)
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(&options.story_id)
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     // W4-B10: 导出聚合完整性修复 - 对 content 为空的 chapter，自动从关联 scenes 聚合内容
     for chapter in &mut chapters {
@@ -71,7 +76,7 @@ pub async fn export_story(options: crate::ExportOptions, app_handle: tauri::AppH
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
         .join("exports");
 
-    std::fs::create_dir_all(&export_dir).map_err(|e| crate::error::AppError::from(e).to_string())?;
+    std::fs::create_dir_all(&export_dir).map_err(AppError::from)?;
     let output_path = export_dir.join(&filename);
 
     let config = ExportConfig {
@@ -85,7 +90,7 @@ pub async fn export_story(options: crate::ExportOptions, app_handle: tauri::AppH
     let template_content = if let Some(ref template_id) = options.template_id {
         let template_repo = crate::db::ExportTemplateRepository::new(pool.clone());
         template_repo.get_by_id(template_id)
-            .map_err(|e| crate::error::AppError::from(e).to_string())?
+            .map_err(AppError::from)?
             .map(|t| t.template_content)
     } else {
         None
@@ -93,7 +98,7 @@ pub async fn export_story(options: crate::ExportOptions, app_handle: tauri::AppH
 
     let exporter = StoryExporter::new();
     exporter.export_to_file(&story, &chapters, &characters, &scenes, &config, &output_path, template_content.as_deref())
-        .map_err(|e| crate::error::AppError::from(e).to_string())?;
+        .map_err(AppError::from)?;
 
     Ok(ExportResult {
         file_path: output_path.to_string_lossy().to_string(),
@@ -104,10 +109,12 @@ pub async fn export_story(options: crate::ExportOptions, app_handle: tauri::AppH
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn list_export_templates(format_filter: Option<String>) -> Result<Vec<crate::db::ExportTemplate>, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-    let repo = crate::db::ExportTemplateRepository::new(pool);
-    let templates = repo.get_all().map_err(|e| crate::error::AppError::from(e).to_string())?;
+pub async fn list_export_templates(
+    format_filter: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::ExportTemplate>, AppError> {
+    let repo = crate::db::ExportTemplateRepository::new(pool.inner().clone());
+    let templates = repo.get_all().map_err(AppError::from)?;
 
     if let Some(filter) = format_filter {
         let filtered: Vec<_> = templates.into_iter()
@@ -121,24 +128,35 @@ pub async fn list_export_templates(format_filter: Option<String>) -> Result<Vec<
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn save_export_template(name: String, description: Option<String>, format: String, template_content: String) -> Result<crate::db::ExportTemplate, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-    let repo = crate::db::ExportTemplateRepository::new(pool);
+pub async fn save_export_template(
+    name: String,
+    description: Option<String>,
+    format: String,
+    template_content: String,
+    pool: State<'_, DbPool>,
+    app: AppHandle,
+) -> Result<crate::db::ExportTemplate, AppError> {
+    let repo = crate::db::ExportTemplateRepository::new(pool.inner().clone());
     let req = crate::db::CreateExportTemplateRequest {
         name,
         description,
         format,
         template_content,
     };
-    repo.create(req).map_err(|e| crate::error::AppError::from(e).to_string())
+    repo.create(req)
+        .map_err(AppError::from)
+        .emit_sync(&app, None, "exportTemplates")
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn delete_export_template(id: String) -> Result<(), String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
-    let repo = crate::db::ExportTemplateRepository::new(pool);
-    repo.delete(&id).map_err(|e| crate::error::AppError::from(e).to_string())?;
+pub async fn delete_export_template(
+    id: String,
+    pool: State<'_, DbPool>,
+    app: AppHandle,
+) -> Result<(), AppError> {
+    let repo = crate::db::ExportTemplateRepository::new(pool.inner().clone());
+    repo.delete(&id)
+        .map_err(AppError::from)?;
     Ok(())
 }
-

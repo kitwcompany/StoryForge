@@ -53,10 +53,10 @@ impl Agent for KnowledgeDistillerAgent {
 5. 输出条理清晰，使用Markdown格式，总长度控制在800字以内
 
 请直接输出蒸馏后的摘要。"#,
-            context.story_title,
-            context.genre,
-            context.tone,
-            context.pacing,
+            context.story.story_title,
+            context.story.genre,
+            context.story.tone,
+            context.story.pacing,
             input
         );
 

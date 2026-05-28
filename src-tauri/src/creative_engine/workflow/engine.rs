@@ -8,7 +8,7 @@ use crate::agents::{AgentContext, AgentResult};
 use crate::db::DbPool;
 use crate::db::repositories::ChapterRepository;
 use crate::db::CreateChapterRequest;
-use crate::db::repositories_v3::{KnowledgeGraphRepository, SceneRepository, WorldBuildingRepository, CharacterRepository, WritingStyleRepository};
+use crate::db::repositories::{KnowledgeGraphRepository, SceneRepository, WorldBuildingRepository, CharacterRepository, WritingStyleRepository};
 use crate::db::{SceneUpdate, CreateCharacterRequest, WritingStyleUpdate, WorldRule, Culture};
 use crate::agents::novel_creation::{WorldBuildingOption, CharacterProfileOption, WritingStyleOption};
 use crate::creative_engine::methodology::MethodologyConfig;
@@ -249,10 +249,10 @@ fn standard_phase_workflow(phase: CreationPhase, ctx: &AgentContext) -> PhaseWor
             .with_agents(vec![]),
     };
     // 如果故事配置了创作方法论，覆盖默认硬编码
-    if let Some(ref method_id) = ctx.methodology_id {
+    if let Some(ref method_id) = ctx.world.methodology_id {
         if !method_id.is_empty() {
             pw = pw.with_methodology_id(method_id);
-            if let Some(ref step) = ctx.methodology_step {
+            if let Some(ref step) = ctx.world.methodology_step {
                 pw = pw.with_methodology_step(step);
             }
         }
@@ -303,7 +303,7 @@ impl CreationWorkflowEngine {
 
         match phase {
             CreationPhase::Ingestion => {
-                let story_id = context.story_id.clone();
+                let story_id = context.story.story_id.clone();
                 let content = input.to_string();
 
                 // 1. 保存内容到数据库（Scene）—— 统一创作流水线：Scene 为唯一提交粒度
@@ -447,7 +447,7 @@ impl CreationWorkflowEngine {
                 };
 
                 let mut task = AgentTask {
-                    id: format!("{}-{}", phase.id_str(), context.story_id),
+                    id: format!("{}-{}", phase.id_str(), context.story.story_id),
                     agent_type,
                     context: context.clone(),
                     input: task_input,
@@ -457,10 +457,10 @@ impl CreationWorkflowEngine {
 
                 // 注入方法论配置
                 if config.methodology_id.is_some() {
-                    task.context.methodology_id = config.methodology_id;
+                    task.context.world.methodology_id = config.methodology_id;
                 }
                 if config.methodology_step.is_some() {
-                    task.context.methodology_step = config.methodology_step;
+                    task.context.world.methodology_step = config.methodology_step;
                 }
 
                 self.agent_service.execute_task(task).await
@@ -705,14 +705,14 @@ impl CreationWorkflowEngine {
     fn update_context_after_phase(context: &mut AgentContext, phase: CreationPhase, content: &str) {
         match phase {
             CreationPhase::Conception => {
-                context.world_rules = Some(content.to_string());
+                context.world.world_rules = Some(content.to_string());
             }
             CreationPhase::Outlining => {
-                context.scene_structure = Some(content.to_string());
+                context.world.scene_structure = Some(content.to_string());
             }
             CreationPhase::SceneDesign => {
-                let existing = context.world_rules.take().unwrap_or_default();
-                context.world_rules = Some(
+                let existing = context.world.world_rules.take().unwrap_or_default();
+                context.world.world_rules = Some(
                     if existing.is_empty() {
                         format!("【场景结构】\n{}", content)
                     } else {
@@ -721,7 +721,7 @@ impl CreationWorkflowEngine {
                 );
             }
             CreationPhase::Writing => {
-                context.current_content = Some(content.to_string());
+                context.narrative.current_content = Some(content.to_string());
             }
             _ => {}
         }

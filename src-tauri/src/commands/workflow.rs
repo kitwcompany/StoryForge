@@ -1,5 +1,6 @@
 //! Workflow commands
 
+use crate::error::AppError;
 use tauri::{AppHandle, Emitter};
 
 // ===== 通用 Workflow 引擎命令 — 仅保留前端查询命令 =====
@@ -8,7 +9,7 @@ use tauri::{AppHandle, Emitter};
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_workflows(
     loader: tauri::State<'_, crate::workflow::WorkflowLoader>,
-) -> Result<Vec<crate::workflow::LoadedWorkflow>, String> {
+) -> Result<Vec<crate::workflow::LoadedWorkflow>, AppError> {
     Ok(loader.list_workflows())
 }
 
@@ -17,13 +18,13 @@ pub fn list_workflows(
 #[tauri::command(rename_all = "snake_case")]
 pub fn reload_workflows(
     loader: tauri::State<'_, crate::workflow::WorkflowLoader>,
-) -> Result<usize, String> {
-    loader.reload_all().map_err(|e| crate::error::AppError::from(e).to_string())
+) -> Result<usize, AppError> {
+    loader.reload_all().map_err(AppError::from)
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn evolve_capabilities(app_handle: AppHandle) -> Result<Vec<(String, String)>, String> {
+pub async fn evolve_capabilities(app_handle: AppHandle) -> Result<Vec<(String, String)>, AppError> {
     log::info!("[evolve_capabilities] 手动触发能力进化分析");
     let llm = crate::llm::LlmService::new(app_handle.clone());
     let engine = crate::capabilities::evolution::CapabilityEvolutionEngine::new(llm, &app_handle);

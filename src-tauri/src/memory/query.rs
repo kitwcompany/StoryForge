@@ -6,7 +6,7 @@
 //! Stage 4: 带引用编号的上下文组装
 
 use super::tokenizer::CJKTokenizer;
-use crate::db::models_v3::Entity;
+use crate::db::models::Entity;
 use crate::embeddings::embedding::embed_text_async;
 use rusqlite::params;
 

@@ -1,5 +1,6 @@
 //! Skill commands
 
+use crate::commands::EmitSync;
 use crate::db::DbPool;
 use crate::skills::SkillInfo;
 use crate::error::AppError;
@@ -15,27 +16,51 @@ pub fn get_skills() -> Result<Vec<SkillInfo>, AppError> {
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn import_skill(path: String) -> Result<SkillInfo, AppError> {
-    let skill = SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.import_skill(std::path::Path::new(&path))?;
-    Ok(SkillInfo::from(skill))
+pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError> {
+    SKILL_MANAGER.get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .import_skill(std::path::Path::new(&path))
+        .map_err(AppError::from)
+        .map(SkillInfo::from)
+        .emit_sync(&app, None, "skills")
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn enable_skill(skill_id: String) -> Result<(), AppError> {
-    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.enable_skill(&skill_id)
+pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
+    SKILL_MANAGER.get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .enable_skill(&skill_id)
+        .map_err(AppError::from)
+        .emit_sync(&app, None, "skills")
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn disable_skill(skill_id: String) -> Result<(), AppError> {
-    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.disable_skill(&skill_id)
+pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
+    SKILL_MANAGER.get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .disable_skill(&skill_id)
+        .map_err(AppError::from)
+        .emit_sync(&app, None, "skills")
 }
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn uninstall_skill(skill_id: String) -> Result<(), AppError> {
-    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.uninstall_skill(&skill_id)
+pub fn uninstall_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
+    SKILL_MANAGER.get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .uninstall_skill(&skill_id)
+        .map_err(AppError::from)
+        .emit_sync(&app, None, "skills")
 }
 
 
@@ -47,8 +72,14 @@ pub fn get_skill(skill_id: String) -> Result<SkillInfo, AppError> {
 
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn update_skill(skill_id: String, manifest: crate::skills::SkillManifest) -> Result<(), AppError> {
-    SKILL_MANAGER.get().ok_or(AppError::internal("Skills not initialized"))?.lock().map_err(|e| crate::error::AppError::from(e).to_string())?.update_skill(&skill_id, manifest)
+pub fn update_skill(skill_id: String, manifest: crate::skills::SkillManifest, app: AppHandle) -> Result<(), AppError> {
+    SKILL_MANAGER.get()
+        .ok_or(AppError::internal("Skills not initialized"))?
+        .lock()
+        .map_err(|e| crate::error::AppError::from(e).to_string())?
+        .update_skill(&skill_id, manifest)
+        .map_err(AppError::from)
+        .emit_sync(&app, None, "skills")
 }
 
 
@@ -81,27 +112,7 @@ pub async fn execute_skill(
             }
         }
     } else {
-        crate::agents::AgentContext {
-            story_id: String::new(),
-            story_title: String::new(),
-            genre: String::new(),
-            tone: String::new(),
-            pacing: String::new(),
-            chapter_number: 0,
-            characters: vec![],
-            previous_chapters: vec![],
-            current_content: None,
-            selected_text: None,
-            world_rules: None,
-            scene_structure: None,
-            methodology_id: None,
-            methodology_step: None,
-            style_dna_id: None,
-            style_blend: None,
-            style_fingerprint: None,
-            memory_pack: None,
-            memory_context: None,
-        }
+        crate::agents::AgentContext::default()
     };
 
     // Execute skill

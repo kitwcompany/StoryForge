@@ -37,5 +37,9 @@ pub mod sync;
 #[macro_use]
 pub mod vector;
 #[macro_use]
+pub mod utils;
+#[macro_use]
 pub mod workflow;
+
+pub use utils::EmitSync;
 

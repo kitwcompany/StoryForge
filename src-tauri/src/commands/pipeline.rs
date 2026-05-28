@@ -1,16 +1,19 @@
 //! Pipeline commands
 
 use tauri::AppHandle;
-use crate::get_pool;
+use tauri::State;
+use crate::db::DbPool;
+use crate::error::AppError;
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn auto_create_missing_contracts(
     story_id: String,
     chapter_number: i32,
     scene_id: Option<String>,
+    pool: State<'_, DbPool>,
     app_handle: AppHandle,
-) -> Result<serde_json::Value, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+) -> Result<serde_json::Value, AppError> {
+    let pool = pool.inner().clone();
     let builder = crate::story_system::auto_contract::AutoContractBuilder::new(pool, app_handle);
     let (created_master, created_chapter, created_outline) = builder.auto_fill(&story_id, chapter_number, scene_id.as_deref()).await?;
     Ok(serde_json::json!({
@@ -24,4 +27,3 @@ pub async fn auto_create_missing_contracts(
         }
     }))
 }
-

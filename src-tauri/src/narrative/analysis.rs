@@ -705,7 +705,7 @@ impl PipelineStep<AnalysisContext> for KnowledgeGraphExtractionStep {
                 elapsed_seconds: 0,
                 metadata: None,
             });
-            let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(ctx.pool.clone());
+            let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(ctx.pool.clone());
             let story_id = ctx.story_id.clone();
             let mut entity_id_map: HashMap<String, String> = HashMap::new();
 

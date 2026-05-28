@@ -79,6 +79,8 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => { currentStoryRef.current = currentStory; }, [currentStory]);
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
+  const isSavedRef = useRef(isSaved);
+  useEffect(() => { isSavedRef.current = isSaved; }, [isSaved]);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   // W2-F1 TODO: `content` 和 `isSaved` 应迁移到 frontstageStore（唯一可写源）。
   // 当前已通过事件入口保护（ContentUpdate/ChapterSwitch 在 isSaved===false 时不覆盖）
@@ -374,9 +376,11 @@ const FrontstageApp: React.FC = () => {
 
   // Load stories on mount
   useEffect(() => {
+    const unlisteners: (() => void)[] = [];
     loadStories();
-    setupEventListeners();
+    setupEventListeners(unlisteners);
     return () => {
+      unlisteners.forEach(u => u());
       if (typewriterIntervalRef.current) {
         clearInterval(typewriterIntervalRef.current);
         typewriterIntervalRef.current = null;
@@ -385,16 +389,16 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   // Setup Tauri event listeners
-  const setupEventListeners = async () => {
+  const setupEventListeners = async (unlisteners: (() => void)[]) => {
     try {
       // 监听 frontstage-update 事件
-      await listen<FrontstageEvent>('frontstage-update', (event) => {
+      const unlisten1 = await listen<FrontstageEvent>('frontstage-update', (event) => {
         const { type, payload } = event.payload;
 
         switch (type) {
           case 'ContentUpdate':
             // W2-F1: 有未保存更改时不覆盖，避免同步事件导致内容回滚
-            if (payload?.text !== undefined && isSaved) {
+            if (payload?.text !== undefined && isSavedRef.current) {
               setContent(autoFormatText(payload.text));
             }
             break;
@@ -511,9 +515,10 @@ const FrontstageApp: React.FC = () => {
             break;
         }
       });
+      unlisteners.push(unlisten1);
 
       // 监听 novel-bootstrap-error 事件（后台阶段错误可见化）
-      await listen<{
+      const unlisten2 = await listen<{
         step: string;
         story_id: string;
         error: string;
@@ -529,9 +534,10 @@ const FrontstageApp: React.FC = () => {
           currentToastPhaseRef.current = null;
         }
       });
+      unlisteners.push(unlisten2);
 
       // 监听 novel-bootstrap-progress 事件
-      await listen<{
+      const unlisten3 = await listen<{
         session_id: string;
         step_name: string;
         step_number: number;
@@ -583,9 +589,10 @@ const FrontstageApp: React.FC = () => {
           }, 3000);
         }
       });
+      unlisteners.push(unlisten3);
 
       // 监听 plan-generator-progress 事件 — 方案C：流式进度反馈
-      await listen<{
+      const unlisten4 = await listen<{
         stage: string;
         message: string;
       }>('plan-generator-progress', (event) => {
@@ -594,9 +601,10 @@ const FrontstageApp: React.FC = () => {
         setGenerationStatus(p.message);
         updateToastPhase(p.stage);
       });
+      unlisteners.push(unlisten4);
 
       // 监听 smart-execute-progress 事件 — 整体执行进度
-      await listen<{
+      const unlisten5 = await listen<{
         stage: string;
         message: string;
         step_number: number;
@@ -607,9 +615,10 @@ const FrontstageApp: React.FC = () => {
         setGenerationStatus(p.message);
         updateToastPhase(p.stage);
       });
+      unlisteners.push(unlisten5);
 
       // 监听 plan-executor-step 事件 — 步骤级进度
-      await listen<{
+      const unlisten6 = await listen<{
         step_id: string;
         capability_id: string;
         status: string;
@@ -631,9 +640,10 @@ const FrontstageApp: React.FC = () => {
           setGenerationStatus(p.message);
         }
       });
+      unlisteners.push(unlisten6);
 
       // 监听 agent-stage-update 事件 — Agent内部阶段
-      await listen<{
+      const unlisten7 = await listen<{
         agent_type: string;
         stage: string;
         message: string;
@@ -646,9 +656,10 @@ const FrontstageApp: React.FC = () => {
         setGenerationStatus(`${p.agent_type}: ${p.message}`);
         updateToastPhase(p.stage);
       });
+      unlisteners.push(unlisten7);
 
       // 监听 llm-generating-progress 事件 — LLM模型生成心跳
-      await listen<{
+      const unlisten8 = await listen<{
         stage: string;
         message: string;
         elapsed_seconds: number;
@@ -663,7 +674,7 @@ const FrontstageApp: React.FC = () => {
         const p = event.payload;
         updateLastEventTime();
         frontstageLogger.debug('[llm-generating-progress]', { stage: p.stage, message: p.message, pipeline_context: p.pipeline_context });
-        
+
         // v5.2.4: 如果携带Pipeline步骤上下文，同步更新bootstrapProgress
         if (p.pipeline_context) {
           setBootstrapProgress({
@@ -675,12 +686,13 @@ const FrontstageApp: React.FC = () => {
           });
           updateToastPhase(p.pipeline_context.step_name);
         }
-        
+
         setGenerationStatus(p.message);
       });
+      unlisteners.push(unlisten8);
 
       // v5.2.0: 监听上下文降级事件
-      await listen<{
+      const unlisten9 = await listen<{
         story_id: string;
         reason: string;
         fallback: string;
@@ -689,6 +701,7 @@ const FrontstageApp: React.FC = () => {
         frontstageLogger.warn('[context-degraded]', { reason: p.reason });
         toast('正在使用简化上下文生成内容...', { icon: '⚡', duration: 3000 });
       });
+      unlisteners.push(unlisten9);
     } catch (e) {
       frontstageLogger.error('Failed to setup event listeners', { error: e });
     }

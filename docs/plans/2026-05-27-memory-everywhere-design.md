@@ -486,4 +486,15 @@ MemoryHealthDaemon::run_hourly()
 
 ---
 
-**等待审批。批准后开始 Phase 0 实施。**
+**已实施完成（2026-05-27）**
+
+| Phase | 状态 | 提交 |
+|-------|------|------|
+| Phase 0 基础设施 | ✅ 完成 | `3dc8b30` |
+| Phase 1 读路径 | ✅ 完成 | `e21c850` |
+| Phase 2 校验路径 | ✅ 完成 | `fc3e18f` |
+| Phase 3 写路径 | ✅ 完成 | `7cad96b` |
+| Phase 4 后台维护 | ✅ 完成 | `f4f339d` |
+| Phase 5 前端设置 | ⏳ 待迭代 | — |
+
+**已推送至 GitHub master**

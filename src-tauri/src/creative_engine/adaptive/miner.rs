@@ -11,7 +11,7 @@
 
 use crate::db::DbPool;
 use crate::error::AppError;
-use crate::db::repositories_v3::{UserFeedbackRepository, UserPreferenceRepository};
+use crate::db::repositories::{UserFeedbackRepository, UserPreferenceRepository};
 use super::feedback::FeedbackRecorder;
 
 /// 挖掘出的偏好
@@ -74,7 +74,7 @@ impl PreferenceMiner {
     }
 
     /// 挖掘对话偏好
-    fn mine_dialogue_preference(&self, logs: &[crate::db::models_v3::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_dialogue_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         // 计算接受/拒绝/修改中对话的比例差异
@@ -86,15 +86,15 @@ impl PreferenceMiner {
         for log in logs {
             let ratio = estimate_dialogue_ratio(&log.original_ai_text);
             match log.feedback_type {
-                crate::db::models_v3::FeedbackType::Accept => {
+                crate::db::models::FeedbackType::Accept => {
                     accept_dialogue_ratio += ratio;
                     accept_count += 1;
                 }
-                crate::db::models_v3::FeedbackType::Reject => {
+                crate::db::models::FeedbackType::Reject => {
                     reject_dialogue_ratio += ratio;
                     reject_count += 1;
                 }
-                crate::db::models_v3::FeedbackType::Modify => {
+                crate::db::models::FeedbackType::Modify => {
                     // 修改的情况：比较原文和修改后的对话比例变化
                     let original_ratio = estimate_dialogue_ratio(&log.original_ai_text);
                     let final_ratio = estimate_dialogue_ratio(&log.final_text);
@@ -138,7 +138,7 @@ impl PreferenceMiner {
     }
 
     /// 挖掘描写偏好
-    fn mine_description_preference(&self, logs: &[crate::db::models_v3::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_description_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         let mut accept_desc = 0.0f32;
@@ -149,11 +149,11 @@ impl PreferenceMiner {
         for log in logs {
             let ratio = estimate_description_ratio(&log.original_ai_text);
             match log.feedback_type {
-                crate::db::models_v3::FeedbackType::Accept => {
+                crate::db::models::FeedbackType::Accept => {
                     accept_desc += ratio;
                     accept_count += 1;
                 }
-                crate::db::models_v3::FeedbackType::Reject => {
+                crate::db::models::FeedbackType::Reject => {
                     reject_desc += ratio;
                     reject_count += 1;
                 }
@@ -190,7 +190,7 @@ impl PreferenceMiner {
     }
 
     /// 挖掘节奏偏好
-    fn mine_pacing_preference(&self, logs: &[crate::db::models_v3::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_pacing_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         let mut accept_sentence_len = 0.0f32;
@@ -201,11 +201,11 @@ impl PreferenceMiner {
         for log in logs {
             let avg_len = estimate_avg_sentence_length(&log.original_ai_text);
             match log.feedback_type {
-                crate::db::models_v3::FeedbackType::Accept => {
+                crate::db::models::FeedbackType::Accept => {
                     accept_sentence_len += avg_len;
                     accept_count += 1;
                 }
-                crate::db::models_v3::FeedbackType::Reject => {
+                crate::db::models::FeedbackType::Reject => {
                     reject_sentence_len += avg_len;
                     reject_count += 1;
                 }
@@ -242,7 +242,7 @@ impl PreferenceMiner {
     }
 
     /// 挖掘风格偏好（基于接受/拒绝的统计）
-    fn mine_style_preference(&self, logs: &[crate::db::models_v3::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_style_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         let stats = FeedbackRecorder::new(self.pool.clone()).get_stats(&logs.first().map(|l| l.story_id.clone()).unwrap_or_default());
@@ -278,7 +278,7 @@ impl PreferenceMiner {
     }
 
     /// 挖掘叙事偏好
-    fn mine_narrative_preference(&self, logs: &[crate::db::models_v3::UserFeedbackLog]) -> Vec<MinedPreference> {
+    fn mine_narrative_preference(&self, logs: &[crate::db::models::UserFeedbackLog]) -> Vec<MinedPreference> {
         let mut preferences = Vec::new();
 
         // 检查用户修改的内容中是否经常添加/删除内心独白
@@ -287,7 +287,7 @@ impl PreferenceMiner {
         let mut total_modify = 0;
 
         for log in logs {
-            if log.feedback_type == crate::db::models_v3::FeedbackType::Modify {
+            if log.feedback_type == crate::db::models::FeedbackType::Modify {
                 let original_interior = count_interior_monologue(&log.original_ai_text);
                 let final_interior = count_interior_monologue(&log.final_text);
                 if final_interior > original_interior {

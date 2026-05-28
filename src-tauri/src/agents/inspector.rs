@@ -57,15 +57,18 @@ SUGGESTIONS:
 CONSISTENCY_ISSUES:
 - [List any contradictions with established facts, or "None found"]
 "#,
-            context.genre,
-            context.tone,
-            context.pacing,
-            context.chapter_number,
-            context.characters.iter()
+            context.story.genre,
+            context.story.tone,
+            context.story.pacing,
+            context.narrative.chapter_number,
+            context.narrative.characters.iter()
                 .map(|c| format!("- {}: {}", c.name, c.personality))
                 .collect::<Vec<_>>()
                 .join("\n"),
-            context.key_events.join("\n"),
+            context.narrative.previous_chapters.iter()
+                .map(|c| format!("- 第{}章 {}: {}", c.number, c.title, c.summary))
+                .collect::<Vec<_>>()
+                .join("\n"),
             content
         )
     }
