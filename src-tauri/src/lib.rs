@@ -23,7 +23,10 @@ pub(crate) mod embeddings;
 mod utils;
 mod window;
 mod updater;
-mod story_commands;
+mod scene_commands;
+mod creation_commands;
+mod studio_commands;
+mod revision_commands;
 mod pipeline;
 mod knowledge_base;
 mod intent;
@@ -68,7 +71,6 @@ use std::time::Instant;
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
 
-
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
 pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
@@ -91,8 +93,45 @@ pub(crate) fn record_ai_operation(req: db::CreateAiOperationRequest) {
 pub(crate) fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
 fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
 
+/// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
+fn graceful_shutdown(app_handle: &tauri::AppHandle) {
+    log::info!("[Shutdown] Starting graceful shutdown...");
+
+    // 1. SQLite WAL checkpoint — 确保所有数据已写入主数据库
+    if let Some(pool) = get_pool() {
+        if let Ok(conn) = pool.get() {
+            match conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE)") {
+                Ok(_) => log::info!("[Shutdown] WAL checkpoint completed"),
+                Err(e) => log::warn!("[Shutdown] WAL checkpoint failed: {}", e),
+            }
+        } else {
+            log::warn!("[Shutdown] Failed to get DB connection for checkpoint");
+        }
+    } else {
+        log::warn!("[Shutdown] No DB pool available for checkpoint");
+    }
+
+    // 2. 保存待处理的向量索引
+    save_pending_vector_indexes();
+    log::info!("[Shutdown] Pending vector indexes saved");
+
+    // 3. 停止自动化服务
+    if let Ok(automation) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        app_handle.state::<crate::automation::service::AutomationService>()
+    })) {
+        automation.shutdown();
+        log::info!("[Shutdown] Automation service stop requested");
+    } else {
+        log::warn!("[Shutdown] Automation service not available for shutdown");
+    }
+
+    // 4. 退出应用
+    log::info!("[Shutdown] Exiting application");
+    std::process::exit(0);
+}
+
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -107,14 +146,13 @@ pub fn run() {
                         let _ = window.hide();
                     }
                     "frontstage" => {
-                        // 关闭幕前窗口时，默认退出整个应用
-                        log::info!("Frontstage close requested, exiting application");
-                        std::process::exit(0);
+                        // 优雅关闭: 检查数据库、保存向量索引、停止自动化服务
+                        graceful_shutdown(&window.app_handle());
                     }
                     _ => {
                         // 其他窗口默认退出
                         log::info!("Window {} close requested, exiting application", window.label());
-                        std::process::exit(0);
+                        graceful_shutdown(&window.app_handle());
                     }
                 }
             }
@@ -174,7 +212,7 @@ pub fn run() {
 
             // Seed built-in StyleDNAs
             if let Some(pool) = get_pool() {
-                let style_repo = db::repositories_v3::StyleDnaRepository::new(pool);
+                let style_repo = db::StyleDnaRepository::new(pool);
                 match style_repo.get_builtin() {
                     Ok(existing) if existing.is_empty() => {
                         log::info!("[StyleDNA] Seeding built-in styles...");
@@ -520,37 +558,11 @@ pub fn run() {
         .expect("error running tauri app");
 }
 
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChatMessageItem {
     pub role: String,
     pub content: String,
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 use tokio::sync::Mutex as TokioMutex;
 
@@ -569,10 +581,6 @@ pub(crate) static BUILTIN_MCP_SERVER: Lazy<TokioMutex<mcp::McpServer>> = Lazy::n
     };
     TokioMutex::new(mcp::McpServer::new(config))
 });
-
-
-
-
 
 // Vector Search Commands (LanceDB)
 use vector::LanceVectorStore;
@@ -640,14 +648,6 @@ fn load_pending_vector_indexes() -> Vec<String> {
     result
 }
 
-
-
-
-
-
-
-
-
 /// 检测用户输入是否包含"创建新小说"的意图
 pub(crate) fn is_novel_creation_intent(user_input: &str) -> bool {
     let input = user_input.to_lowercase();
@@ -673,23 +673,6 @@ pub(crate) fn is_novel_creation_intent(user_input: &str) -> bool {
     true
 }
 
-/// Phase 3: 轻量意图检测
-/// 
-/// 设计原则：所有复杂意图理解交由 PlanGenerator（LLM）处理。
-/// 此函数仅作为极端轻量的快速路径，仅在输入非常简短明确时提供建议。
-/// 返回 None 表示"让模型决定"，这是默认和推荐行为。
-pub(crate) fn detect_and_route_intent(
-    _user_input: &str,
-    _story_id: &Option<String>,
-    _scene_count: usize,
-    _scenes_summary: &[planner::SceneStructureSummary],
-    _current_scene_stage: &Option<String>,
-    _story_progress: &str,
-) -> Option<planner::ExecutionPlan> {
-    // 保留函数接口以兼容现有调用点，但始终返回 None。
-    None
-}
-
 #[derive(Debug, Deserialize)]
 pub(crate) struct RecordFeedbackRequest {
     story_id: String,
@@ -708,12 +691,6 @@ pub(crate) struct LearningPoint {
     impact: String,
 }
 
-
-
-
-
-
-
 #[derive(Debug, Deserialize)]
 pub(crate) struct ExportOptions {
     story_id: String,
@@ -723,49 +700,3 @@ pub(crate) struct ExportOptions {
     include_characters: Option<bool>,
     template_id: Option<String>,
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
