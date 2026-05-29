@@ -63,9 +63,12 @@ jobs:
           workspaces: src-tauri
           shared-key: tauri
 
+      - name: Install rustfmt nightly
+        run: rustup component add rustfmt --toolchain nightly
+
       - name: Check Rust formatting
         working-directory: src-tauri
-        run: cargo fmt -- --check
+        run: cargo +nightly fmt -- --check
 
       - name: Run Clippy
         working-directory: src-tauri
