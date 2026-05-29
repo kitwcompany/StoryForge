@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v0.7.8 - AI 导演式小说创作系统
+# StoryForge (草苔) v0.7.9 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流、高密度状态世界构建法。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v0.7.8 最新更新（2026-05-26）**：记忆无处不在 — 记忆系统与创作流程深度融合 + 续写功能风格指纹加固 + 自动更新系统增强。**记忆无处不在** — 打破记忆系统与创作流程的"两张皮"：章节号正确传递（auto_write/smart_execute/PlanExecutor 均使用当前场景序号）；Inspector 新增第 7 维「记忆一致性」质检（角色状态/伏笔回收/世界观规则/时间线连续性）；MemoryWriter 定稿后自动压缩摘要并写入三层记忆（scene_commits + memory_items）；MemoryHealthDaemon 每小时自动归档遗忘实体并发射健康报告；完整的记忆读写闭环（读→校验→写→维护）。**续写功能风格指纹加固** — 从"软性风格提示"跃迁到"量化指纹约束"：风格指纹引擎从任意参考文本提取句长分布、四字格密度、虚词频率、标志性词汇、锚点片段等量化特征；Writer prompt 自动注入风格约束；Inspector 新增第 6 维「风格一致性评分」；Orchestrator 双轨平衡（风格分 + 叙事分）；3 候选并行生成选优；跨段一致性 4 维度漂移检测；后处理替换层（虚词对齐 + 四字格密度补偿）；前端 WenSiPanel 参考文本输入 + 风格-叙事滑块 + 实时风格分数。**自动更新系统增强** — 检测间隔 24h → 4h；后台静默下载 + 进度可视化；更新日志结构化分类；CI 配置增量更新（delta patch）+ artifact 上传。
+> **v0.7.9 最新更新（2026-05-29）**：六阶段架构深度优化 — 稳定性、模块化、状态同步、构建工具链、数据层、架构改进全面落地。**安全与稳定性** — 修复 FrontstageApp 内存泄漏（Tauri 事件监听器未清理）；删除约 2400 行死代码（旧版前端 src/main.js + src/views.js）；清理 lib.rs 200+ 行空白行；移除 detect_and_route_intent 死代码。**后端模块化** — story_commands.rs（3445 行）拆分为 4 个领域文件（scene_commands/creation_commands/studio_commands/revision_commands）；14 个命令文件错误处理统一为 Result<T, AppError>；全局 get_pool() 反模式改为 State<'_, DbPool> 注入。**状态同步** — 32 个 mutation 命令补全状态同步事件；React Query 缓存策略优化（cancelQueries + debounce）；DOM hack 封装为 useWebViewRedrawFix hook。**构建工具链** — 新增 rustfmt.toml、.clippy.toml、.prettierrc、ESLint v9 flat config；Vite 配置 manualChunks 代码分割（react/editor/ui/data 四 vendor）。**数据层深化** — schema_migrations 表实现迁移版本控制；删除 models_v3.rs + repositories_v3.rs（约 6100 行死代码）；create_v3_tables 合并到 create_tables；删除 FallbackVectorStore，统一使用 LanceVectorStore。**架构改进** — AgentContext 拆分为 6 个子结构（StoryContext/NarrativeContext/StyleContext/WorldContext/AgentMemoryContext）；优雅关闭（WAL checkpoint + 持久化 pending vector indexes + 停止 automation service）；修复 LLM 取消竞态（Option<Sender> + take() 原子消费）。
+>
+> **v0.7.8 更新（2026-05-26）**：记忆无处不在 — 记忆系统与创作流程深度融合 + 续写功能风格指纹加固 + 自动更新系统增强。**记忆无处不在** — 打破记忆系统与创作流程的"两张皮"：章节号正确传递（auto_write/smart_execute/PlanExecutor 均使用当前场景序号）；Inspector 新增第 7 维「记忆一致性」质检（角色状态/伏笔回收/世界观规则/时间线连续性）；MemoryWriter 定稿后自动压缩摘要并写入三层记忆（scene_commits + memory_items）；MemoryHealthDaemon 每小时自动归档遗忘实体并发射健康报告；完整的记忆读写闭环（读→校验→写→维护）。**续写功能风格指纹加固** — 从"软性风格提示"跃迁到"量化指纹约束"：风格指纹引擎从任意参考文本提取句长分布、四字格密度、虚词频率、标志性词汇、锚点片段等量化特征；Writer prompt 自动注入风格约束；Inspector 新增第 6 维「风格一致性评分」；Orchestrator 双轨平衡（风格分 + 叙事分）；3 候选并行生成选优；跨段一致性 4 维度漂移检测；后处理替换层（虚词对齐 + 四字格密度补偿）；前端 WenSiPanel 参考文本输入 + 风格-叙事滑块 + 实时风格分数。**自动更新系统增强** — 检测间隔 24h → 4h；后台静默下载 + 进度可视化；更新日志结构化分类；CI 配置增量更新（delta patch）+ artifact 上传。
 >
 > **v0.7.7 更新（2026-05-25）**：统一创作流水线 + 级联改写 + 架构归一化 + 后端预检自动补齐 + 统一后台活动提示系统。**统一创作流水线** — 快速创作与向导模式合并为同一后端 8 阶段 Pipeline，Scene 为唯一提交粒度；快速创作后后台自动 enrich 生成完整世界观/角色/风格，并自动修正正文与要素的不一致；向导创作全流程 SQLite 事务保护。**级联改写系统** — 角色/世界观/关系变更后自动检测影响范围，Diff 预览 + 一键改写受影响场景。**架构归一化** — db 模型层（models_v3）、仓库层（repositories_v3 + Trait 层）、命令注册（handlers.rs）全面重构，消除 2 套模型 + 6 套仓库的碎片化问题。**Task System 全局化** — AI 生成与 Pipeline 审校接入任务中心，支持进度追踪和一键重试。**后端预检自动补齐** — `execute_writer_raw` 预检发现缺少世界观合同/章节合同/场景大纲时，不再直接报错，而是自动调用 LLM 补齐后重新预检；所有后端写作入口（`smart_execute`/`auto_write`/`auto_revise`/`generate_scene_draft`/Workflow）全覆盖。**统一后台活动提示系统** — 新增 `backendActivityStore` (Zustand) 聚合所有后台活动状态，`useBackendActivityListener` Hook 统一监听 6 类进度事件；底部状态栏新增心跳脉冲动画 + 进度条 + 多任务计数，大阶段变化时自动 toast 提示，让用户持续感应后台智能平台的"心跳般"互动陪写。
 >

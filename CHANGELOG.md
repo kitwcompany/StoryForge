@@ -2,6 +2,46 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.7.9] - 六阶段架构深度优化（2026-05-29）
+
+### 🔒 安全与稳定性
+- **修复 FrontstageApp 内存泄漏** — 9 个 Tauri 事件监听器保存 unlisten 回调，组件卸载时统一清理
+- **删除旧版前端死代码** — 移除 src/main.js（~1000 行）和 src/views.js（~1400 行），构建产物仅使用 src-frontend/
+- **清理 lib.rs 空白行** — 删除 200+ 行连续空白行
+- **移除 detect_and_route_intent 死代码** — 始终返回 None 的占位函数及其所有调用点
+
+### 🏗️ 后端模块化
+- **拆分 story_commands.rs** — 3445 行单体文件拆分为 4 个领域文件：scene_commands.rs（33 命令）、creation_commands.rs（24 命令）、studio_commands.rs（32 命令）、revision_commands.rs（16 命令）
+- **统一错误处理** — 14 个命令文件从 `Result<T, String>` 迁移到 `Result<T, AppError>`，消除两套错误模式并存
+- **标准化状态注入** — 所有命令文件从全局 `get_pool()` 改为 `State<'_, DbPool>` 参数注入
+
+### 🔄 状态同步
+- **32 个 mutation 命令补全状态同步事件** — skill/export/story_system/intent/studio/creation/revision 等领域
+- **React Query 缓存优化** — currentStory 切换时先 `cancelQueries()` 取消过时请求，再 `invalidateQueries()`
+- **DOM hack 封装** — App.tsx 中的 forceRedraw 提取为 `useWebViewRedrawFix()` hook
+
+### 🔧 构建工具链
+- **Rust 格式化配置** — 新增 rustfmt.toml（max_width=100, edition=2021, imports_granularity）
+- **Clippy 配置** — 新增 .clippy.toml（自定义 doc-valid-idents）
+- **前端格式化** — 新增 .prettierrc + eslint.config.mjs（ESLint v9 flat config）
+- **Vite 代码分割** — manualChunks 配置：react-vendor / editor-vendor / ui-vendor / data-vendor
+- **CI 质量门禁** — build.yml 新增 cargo fmt --check、cargo clippy -- -D warnings、npm run format:check、npm run lint
+
+### 🗄️ 数据层深化
+- **迁移版本控制** — 新增 schema_migrations 表，`get_current_version()` + `record_migration()` 管理 72 个迁移
+- **删除 v3 模型文件** — models_v3.rs（~2900 行）和 repositories_v3.rs（~3200 行）已删除
+- **合并 create_v3_tables** — 将 v3 表定义内联到 create_tables，消除重复调用
+- **向量存储统一** — 删除 FallbackVectorStore，所有向量操作统一走 LanceVectorStore
+
+### 🏛️ 架构改进
+- **AgentContext 拆分** — 拆分为 StoryContext / NarrativeContext / StyleContext / WorldContext / AgentMemoryContext 5 个子结构
+- **优雅关闭** — `graceful_shutdown()` 执行 SQLite WAL checkpoint → 持久化 pending vector indexes → 停止 automation service → exit(0)
+- **修复 LLM 取消竞态** — `cancel_senders` 改为 `HashMap<String, Option<Sender<()>>>`，`cancel_generation()` 使用 `take()` 原子消费 sender，消除 TOCTOU 竞态
+
+**编译状态**: `cargo check` 零错误，`cargo test` 通过，前端 `tsc --noEmit` 通过。
+
+---
+
 ## [v0.7.8] - 记忆无处不在 + 续写风格指纹加固 + 自动更新增强（2026-05-26）
 
 ### 🧠 记忆无处不在 — 记忆系统与创作流程深度融合
