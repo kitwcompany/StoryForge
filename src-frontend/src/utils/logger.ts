@@ -73,7 +73,7 @@ function saveConfig(config: LogConfig) {
   }
 }
 
-let config = loadConfig();
+const config = loadConfig();
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 0,
