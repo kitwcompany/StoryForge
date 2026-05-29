@@ -13,6 +13,7 @@ import {
 import toast from 'react-hot-toast';
 import type { ModelType, ModelConfig, LlmProvider } from '@/types/llm';
 import { cn } from '@/utils/cn';
+import { normalizeFloat } from '@/utils/numberFormat';
 
 const typeLabels: Record<ModelType, string> = {
   chat: '聊天',
@@ -56,7 +57,15 @@ export function ModelModal({
 
   const { register, handleSubmit, watch, setValue, getValues } = useForm({
     defaultValues: model
-      ? { ...defaultValues, ...model, api_key: model.api_key === '***' ? '' : model.api_key || '' }
+      ? {
+          ...defaultValues,
+          ...model,
+          api_key: model.api_key === '***' ? '' : model.api_key || '',
+          temperature:
+            (model.type === 'chat' || model.type === 'multimodal')
+              ? normalizeFloat((model as any).temperature ?? 0.7, 2)
+              : 0.7,
+        }
       : defaultValues,
   });
 
@@ -114,7 +123,7 @@ export function ModelModal({
     // 编辑且空字符串：不传递 api_key 字段，后端保留旧值
 
     if (effectiveType === 'chat' || effectiveType === 'multimodal') {
-      payload.temperature = Number(data.temperature);
+      payload.temperature = normalizeFloat(Number(data.temperature), 2);
       payload.max_tokens = Number(data.max_tokens);
       payload.capabilities =
         effectiveType === 'chat'

@@ -213,7 +213,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
             "model_source": p.model_source,
             "model": p.model,
             "type": if is_multimodal { "multimodal" } else { "chat" },
-            "temperature": p.temperature,
+            "temperature": format!("{:.2}", p.temperature).parse::<f64>().unwrap(),
             "max_tokens": p.max_tokens,
             "timeout_seconds": p.timeout_seconds,
             "is_default": p.is_default,

@@ -208,7 +208,11 @@ mod temperature_serde {
         S: Serializer,
     {
         let normalized = ((temp * 100.0).round() / 100.0).clamp(0.0, 2.0);
-        serializer.serialize_f32(normalized)
+        // 通过字符串 round-trip 确保序列化输出为干净的 2 位小数，
+        // 避免 f32 -> f64 精度扩展导致 serde_json 输出 0.8899999856948853 这类噪声
+        let s = format!("{:.2}", normalized);
+        let clean: f64 = s.parse().unwrap();
+        serializer.serialize_f64(clean)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<f32, D::Error>
