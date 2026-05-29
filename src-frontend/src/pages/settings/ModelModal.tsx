@@ -62,7 +62,7 @@ export function ModelModal({
           ...model,
           api_key: model.api_key === '***' ? '' : model.api_key || '',
           temperature:
-            (model.type === 'chat' || model.type === 'multimodal')
+            model.type === 'chat' || model.type === 'multimodal'
               ? normalizeFloat((model as any).temperature ?? 0.7, 2)
               : 0.7,
         }

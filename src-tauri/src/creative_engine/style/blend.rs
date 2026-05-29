@@ -140,8 +140,7 @@ impl StyleBlendConfig {
 
     /// 获取指定 DNA
     pub fn get_dna<'a>(&self, dna_id: &str, dnas: &'a [StyleDNA]) -> Option<&'a StyleDNA> {
-        dnas.iter()
-            .find(|d| d.meta.name == dna_id)
+        dnas.iter().find(|d| d.meta.name == dna_id)
     }
 
     /// 计算加权平均句长
