@@ -262,4 +262,9 @@ tauri::generate_handler![
     creative_engine::cascade_rewriter::commands::get_cascade_rewrite_result,
     creative_engine::cascade_rewriter::commands::apply_cascade_rewrite,
     creative_engine::cascade_rewriter::commands::reject_cascade_rewrite,
+    // LitSeg 叙事感知分段命令
+    commands::narrative::analyze_narrative_structure,
+    commands::narrative::get_narrative_events,
+    commands::narrative::get_narrative_threads,
+    commands::narrative::get_narrative_chunks,
 ]

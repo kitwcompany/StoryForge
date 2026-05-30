@@ -14,10 +14,12 @@ use tauri::Emitter;
 use crate::{
     db::{
         models::{Entity, EntityType, Relation, RelationType},
+        repositories_narrative_events::NarrativeEventRepository,
         DbPool,
     },
     embeddings::{embed_entity, EntityEmbeddingRequest},
     llm::LlmService,
+    narrative::event::{EventType, NarrativeEvent},
 };
 
 /// Ingest作业记录
@@ -239,11 +241,23 @@ impl IngestPipeline {
         &self,
         content: &IngestContent,
     ) -> Result<IngestResult, Box<dyn std::error::Error>> {
-        // Step 1: 分析阶段
+        // Step 1: 分析阶段 — 实体、关系、情感、伏笔、主题
         let analysis = self.analyze_content(content).await?;
 
-        // Step 2: 生成阶段
+        // Step 2: 生成阶段 — 结构化知识档案
         let knowledge = self.generate_knowledge(&analysis).await?;
+
+        // Step 3: LitSeg 叙事事件提取 — 从文本中提取推动情节的关键事件
+        let mut narrative_events = self
+            .extract_narrative_events(content, &analysis)
+            .await
+            .unwrap_or_default();
+
+        // Step 3b: 构建事件因果链并保存到数据库
+        Self::build_event_chain(&mut narrative_events);
+        if let Err(e) = self.save_narrative_events(&narrative_events) {
+            log::warn!("[Ingest] 保存叙事事件失败: {}", e);
+        }
 
         // 转换为数据库模型
         let new_entities = self.convert_entities(&knowledge.entities, content);
@@ -259,6 +273,7 @@ impl IngestPipeline {
             knowledge,
             entities,
             relations,
+            narrative_events,
         })
     }
 
@@ -619,6 +634,181 @@ impl IngestPipeline {
         .into())
     }
 
+    // ==================== LitSeg Step 3: 叙事事件提取 ====================
+
+    /// Step 3: LitSeg 叙事事件提取 — 从文本中提取推动情节发展的关键事件
+    async fn extract_narrative_events(
+        &self,
+        content: &IngestContent,
+        analysis: &ContentAnalysis,
+    ) -> Result<Vec<NarrativeEvent>, Box<dyn std::error::Error>> {
+        // 构建提示词
+        let characters: Vec<String> = analysis
+            .entities
+            .iter()
+            .filter(|e| e.entity_type == "Character")
+            .map(|e| e.name.clone())
+            .collect();
+
+        let prompt = crate::llm::prompt::PromptLibrary::narrative_event_extraction();
+        let rendered = prompt.render(&[
+            ("characters".to_string(), characters.join(", ")),
+            ("prior_events".to_string(), "无".to_string()),
+            ("content".to_string(), content.text.clone()),
+        ]);
+
+        let mut last_error: Option<String> = None;
+        for attempt in 0..3 {
+            let mut prompt_text = rendered.clone();
+            if let Some(ref err) = last_error {
+                prompt_text.push_str(&format!(
+                    "\n\n【修正要求】之前输出存在问题: {}。请务必修正后，仅输出合法的JSON数组，不要添加任何markdown代码块标记。",
+                    err
+                ));
+            }
+
+            let response = self.llm_service.generate(prompt_text, None, None).await?;
+            let json_str = match crate::narrative::extract_and_sanitize_json(&response.content) {
+                Ok(s) => s,
+                Err(e) => {
+                    last_error = Some(format!("JSON提取失败: {}", e));
+                    continue;
+                }
+            };
+
+            match serde_json::from_str::<Vec<NarrativeEventExtraction>>(&json_str) {
+                Ok(extractions) => {
+                    let events = self.convert_to_narrative_events(extractions, content);
+                    return Ok(events);
+                }
+                Err(e) => {
+                    last_error = Some(format!("JSON解析失败: {}", e));
+                    continue;
+                }
+            }
+        }
+
+        Err(format!(
+            "[Ingest Step3] 3次尝试均失败. 最后错误: {}",
+            last_error.unwrap_or_default()
+        )
+        .into())
+    }
+
+    /// 将 LLM 提取结果转换为 NarrativeEvent
+    fn convert_to_narrative_events(
+        &self,
+        extractions: Vec<NarrativeEventExtraction>,
+        content: &IngestContent,
+    ) -> Vec<NarrativeEvent> {
+        extractions
+            .into_iter()
+            .enumerate()
+            .map(|(idx, ext)| NarrativeEvent {
+                id: format!("nev_{}_{}", content.story_id, idx),
+                story_id: content.story_id.clone(),
+                chapter_number: 0, // 由调用方填充
+                scene_id: content.scene_id.clone(),
+                event_type: ext.event_type,
+                intensity: ext.intensity.clamp(0.0, 1.0),
+                sentiment: ext.sentiment.clamp(-1.0, 1.0),
+                description: ext.description,
+                involved_character_ids: ext.involved_character_ids,
+                conflict_types: ext
+                    .conflict_types
+                    .iter()
+                    .filter_map(|c| crate::db::ConflictType::from_str(c).ok())
+                    .collect(),
+                preceding_event_id: None,
+                following_event_id: None,
+                act_number: 1,
+                position_in_act: 1,
+                created_at: Local::now(),
+            })
+            .collect()
+    }
+
+    /// 构建事件因果链 — 基于事件类型和描述推断前后关系
+    pub fn build_event_chain(events: &mut [NarrativeEvent]) {
+        if events.len() < 2 {
+            return;
+        }
+
+        // 按事件类型排序：introduction -> foreshadow_setup -> conflict_eruption -> turning_point -> climax -> resolution -> foreshadow_payoff
+        let type_order = |et: &EventType| match et {
+            EventType::Introduction => 0,
+            EventType::ForeshadowSetup => 1,
+            EventType::Transition => 2,
+            EventType::ConflictEruption => 3,
+            EventType::CharacterArc => 4,
+            EventType::TurningPoint => 5,
+            EventType::Revelation => 6,
+            EventType::Climax => 7,
+            EventType::Resolution => 8,
+            EventType::ForeshadowPayoff => 9,
+        };
+
+        // 按类型顺序排序（稳定排序保留原始顺序）
+        events.sort_by_key(|e| type_order(&e.event_type));
+
+        // 建立因果链
+        for i in 0..events.len() - 1 {
+            let next_id = events[i + 1].id.clone();
+            events[i].following_event_id = Some(next_id);
+            let prev_id = events[i].id.clone();
+            events[i + 1].preceding_event_id = Some(prev_id);
+        }
+    }
+
+    /// 保存叙事事件到数据库 — 融合后：直接更新 scenes 表的 narrative 字段
+    fn save_narrative_events(&self, events: &[NarrativeEvent]) -> Result<(), rusqlite::Error> {
+        let Some(pool) = &self.pool else {
+            return Ok(());
+        };
+        let conn = pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+
+        for event in events {
+            let scene_id = match &event.scene_id {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let event_types_json = serde_json::to_string(&[event.event_type.to_string()])
+                .unwrap_or_else(|_| "[]".to_string());
+            let conflict_types_json = serde_json::to_string(&event.conflict_types)
+                .unwrap_or_else(|_| "[]".to_string());
+
+            let result = conn.execute(
+                "UPDATE scenes SET
+                    narrative_intensity = ?2,
+                    narrative_sentiment = ?3,
+                    narrative_event_types = ?4,
+                    narrative_preceding_scene_id = ?5,
+                    narrative_following_scene_id = ?6,
+                    act_number = ?7,
+                    position_in_act = ?8
+                 WHERE id = ?1",
+                params![
+                    scene_id,
+                    event.intensity,
+                    event.sentiment,
+                    event_types_json,
+                    event.preceding_event_id.as_ref().map(|s| s.as_str()),
+                    event.following_event_id.as_ref().map(|s| s.as_str()),
+                    event.act_number,
+                    event.position_in_act,
+                ],
+            );
+
+            if let Err(e) = result {
+                log::warn!("[Ingest] 更新场景叙事字段失败 (scene_id={}): {}", scene_id, e);
+            }
+        }
+        Ok(())
+    }
+
     /// 转换为数据库实体模型，并生成嵌入向量
     fn convert_entities(&self, profiles: &[EntityProfile], content: &IngestContent) -> Vec<Entity> {
         profiles
@@ -917,6 +1107,17 @@ fn validate_generated_knowledge(knowledge: &GeneratedKnowledge) -> Result<(), St
     Ok(())
 }
 
+/// LitSeg 叙事事件提取 — LLM 响应结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NarrativeEventExtraction {
+    pub event_type: EventType,
+    pub intensity: f32,
+    pub sentiment: f32,
+    pub description: String,
+    pub involved_character_ids: Vec<String>,
+    pub conflict_types: Vec<String>,
+}
+
 /// Ingest结果
 #[derive(Debug, Clone)]
 pub struct IngestResult {
@@ -924,6 +1125,8 @@ pub struct IngestResult {
     pub knowledge: GeneratedKnowledge,
     pub entities: Vec<Entity>,
     pub relations: Vec<Relation>,
+    /// LitSeg: 叙事事件提取结果
+    pub narrative_events: Vec<NarrativeEvent>,
 }
 
 /// Ingest批次（用于批量处理）

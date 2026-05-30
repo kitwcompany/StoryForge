@@ -104,6 +104,11 @@ impl PromptLibrary {
 {{scene_structure}}
 {{/if}}
 
+{{#if narrative_structure}}
+【叙事结构定位】
+{{narrative_structure}}
+{{/if}}
+
 写作要求：
 1. 保持文风一致，情节连贯自然
 2. 人物行为符合性格设定

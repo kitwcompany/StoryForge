@@ -16,6 +16,7 @@ import { Settings } from '@/pages/Settings';
 import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { Tasks } from '@/pages/Tasks';
 import { Foreshadowing } from '@/pages/Foreshadowing';
+import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
 import { StorySystem } from '@/pages/StorySystem';
 import { UsageStats } from '@/pages/UsageStats';
 import { WritingStats } from '@/pages/WritingStats';
@@ -255,6 +256,8 @@ function App() {
         return <Tasks />;
       case 'foreshadowing':
         return <Foreshadowing />;
+      case 'narrative-analysis':
+        return <NarrativeAnalysis />;
       case 'story-system':
         return <StorySystem />;
       case 'usage-stats':

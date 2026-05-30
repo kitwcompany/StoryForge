@@ -6,7 +6,7 @@
 use crate::{
     agents::{
         AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
-        StoryContext, StyleContext, WorldContext,
+        NarrativeStructureContext, StoryContext, StyleContext, WorldContext,
     },
     db::{
         repositories::{
@@ -190,6 +190,10 @@ impl StoryContextBuilder {
             }
         };
 
+        // LitSeg E1: 构建叙事结构感知上下文
+        let narrative_structure = self.build_narrative_structure_context(story_id, scene_number);
+        let active_threads = self.fetch_active_threads(story_id);
+
         Ok(AgentContext {
             story: StoryContext {
                 story_id: story_id.to_string(),
@@ -212,6 +216,8 @@ impl StoryContextBuilder {
                 previous_chapters,
                 current_content,
                 selected_text,
+                narrative_structure: Some(narrative_structure),
+                active_threads,
             },
             style: StyleContext {
                 style_dna_id: story.style_dna_id,
@@ -467,6 +473,211 @@ impl StoryContextBuilder {
             None
         } else {
             Some(parts.join("\n"))
+        }
+    }
+
+    // ==================== LitSeg E1: 叙事结构感知 ====================
+
+    /// 构建叙事结构感知上下文
+    fn build_narrative_structure_context(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+    ) -> NarrativeStructureContext {
+        let current_chapter = scene_number.unwrap_or(1) as i32;
+
+        // 优先从 story_outlines.analyzed_structure_json 读取 LitSeg 分析结果
+        if let Some(structure) = self.fetch_analyzed_structure(story_id) {
+            if let Some(ctx) = self.locate_in_structure(&structure, current_chapter) {
+                return ctx;
+            }
+        }
+
+        // 其次从 scenes.act_number 推断
+        if let Some(ctx) = self.infer_from_scene_acts(story_id, current_chapter) {
+            return ctx;
+        }
+
+        // 最终回退：基于场景数量做实时推断
+        self.infer_narrative_structure_from_scenes(story_id, current_chapter)
+    }
+
+    /// 从 story_outlines 读取 LitSeg 分析后的幕结构
+    fn fetch_analyzed_structure(
+        &self,
+        story_id: &str,
+    ) -> Option<Vec<crate::narrative::structure::Act>> {
+        use crate::db::repositories::StoryOutlineRepository;
+
+        let repo = StoryOutlineRepository::new(self.pool.clone());
+        let outline = repo.get_by_story(story_id).ok()?;
+        let json_str = outline.analyzed_structure_json?;
+        serde_json::from_str(&json_str).ok()
+    }
+
+    /// 根据当前章节在分析结构中定位
+    fn locate_in_structure(
+        &self,
+        acts: &[crate::narrative::structure::Act],
+        current_chapter: i32,
+    ) -> Option<NarrativeStructureContext> {
+        let current_act = acts.iter().find(|a| {
+            current_chapter >= a.start_chapter && current_chapter <= a.end_chapter
+        })?;
+
+        let position_in_act = if current_act.end_chapter > current_act.start_chapter {
+            (current_chapter - current_act.start_chapter) as f32
+                / (current_act.end_chapter - current_act.start_chapter) as f32
+        } else {
+            0.5
+        };
+
+        let is_near_boundary = position_in_act < 0.15 || position_in_act > 0.85;
+        let act_type_str = format!("{:?}", current_act.act_type).to_lowercase();
+
+        Some(NarrativeStructureContext {
+            current_act: act_type_str.clone(),
+            act_number: current_act.act_number,
+            position_in_act,
+            dramatic_function: Self::map_act_to_dramatic_function(&act_type_str, position_in_act),
+            is_near_boundary,
+        })
+    }
+
+    /// 从 scenes.act_number 推断叙事位置
+    fn infer_from_scene_acts(
+        &self,
+        story_id: &str,
+        current_chapter: i32,
+    ) -> Option<NarrativeStructureContext> {
+        use crate::db::repositories::SceneRepository;
+
+        let repo = SceneRepository::new(self.pool.clone());
+        let scenes = repo.get_by_story(story_id).ok()?;
+        let current_scene = scenes.iter().find(|s| s.sequence_number == current_chapter)?;
+        let act_number = current_scene.act_number.unwrap_or(1);
+        let position_in_act = current_scene.position_in_act.unwrap_or(1) as f32 / 3.0;
+
+        let act_type = match act_number {
+            1 => "introduction",
+            2 => "development",
+            3 => "turn",
+            4 => "resolution",
+            _ => "development",
+        };
+
+        Some(NarrativeStructureContext {
+            current_act: act_type.to_string(),
+            act_number,
+            position_in_act,
+            dramatic_function: Self::map_act_to_dramatic_function(act_type, position_in_act),
+            is_near_boundary: position_in_act < 0.15 || position_in_act > 0.85,
+        })
+    }
+
+    /// 获取当前活跃的叙事线索
+    fn fetch_active_threads(&self, story_id: &str) -> Vec<String> {
+        let mut threads = Vec::new();
+
+        // 1. 未回收的伏笔
+        use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+        let fs_tracker = ForeshadowingTracker::new(self.pool.clone());
+        if let Ok(unresolved) = fs_tracker.get_unresolved(story_id) {
+            for fs in unresolved.iter().take(5) {
+                threads.push(format!("伏笔:{}(风险:{:.1})", fs.content, fs.risk_signals_score.unwrap_or(0.0)));
+            }
+        }
+
+        // 2. 有弧光的角色
+        use crate::db::repositories::CharacterRepository;
+        let char_repo = CharacterRepository::new(self.pool.clone());
+        if let Ok(chars) = char_repo.get_by_story(story_id) {
+            for ch in chars.iter().take(5) {
+                threads.push(format!("角色:{}(弧光)", ch.name));
+            }
+        }
+
+        threads
+    }
+
+    /// 基于场景数量实时推断叙事结构（pipeline 运行前的 fallback）
+    fn infer_narrative_structure_from_scenes(
+        &self,
+        story_id: &str,
+        current_chapter: i32,
+    ) -> NarrativeStructureContext {
+        use crate::db::repositories::SceneRepository;
+
+        let repo = SceneRepository::new(self.pool.clone());
+        let scenes = match repo.get_by_story(story_id) {
+            Ok(s) => s,
+            Err(_) => return NarrativeStructureContext::default(),
+        };
+
+        if scenes.is_empty() {
+            return NarrativeStructureContext::default();
+        }
+
+        let total = scenes.len() as i32;
+        let current = current_chapter.max(1).min(total);
+        let ratio = current as f32 / total as f32;
+
+        // 简单四分法推断幕结构
+        let (act_type, act_number, position_in_act) = if ratio <= 0.25 {
+            ("introduction", 1, ratio / 0.25)
+        } else if ratio <= 0.5 {
+            ("development", 2, (ratio - 0.25) / 0.25)
+        } else if ratio <= 0.75 {
+            ("turn", 3, (ratio - 0.5) / 0.25)
+        } else {
+            ("resolution", 4, (ratio - 0.75) / 0.25)
+        };
+
+        let is_near_boundary = position_in_act < 0.15 || position_in_act > 0.85;
+
+        NarrativeStructureContext {
+            current_act: act_type.to_string(),
+            act_number,
+            position_in_act,
+            dramatic_function: Self::map_act_to_dramatic_function(act_type, position_in_act),
+            is_near_boundary,
+        }
+    }
+
+    /// 将幕类型和位置映射到戏剧功能
+    fn map_act_to_dramatic_function(act_type: &str, position: f32) -> String {
+        match act_type {
+            "introduction" => {
+                if position < 0.3 {
+                    "铺垫".to_string()
+                } else {
+                    "触发事件".to_string()
+                }
+            }
+            "development" => {
+                if position < 0.5 {
+                    "上升动作".to_string()
+                } else {
+                    " complication".to_string()
+                }
+            }
+            "turn" => {
+                if position < 0.5 {
+                    "发现".to_string()
+                } else {
+                    "逆转".to_string()
+                }
+            }
+            "resolution" => {
+                if position < 0.3 {
+                    "高潮".to_string()
+                } else if position < 0.7 {
+                    "回落".to_string()
+                } else {
+                    "结局".to_string()
+                }
+            }
+            _ => "发展".to_string(),
         }
     }
 }

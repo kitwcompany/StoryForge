@@ -466,6 +466,20 @@ impl SceneCommitService {
         projection_status["vector"] = serde_json::json!(vector_status);
         projection_status["kg"] = serde_json::json!(kg_status);
 
+        // LitSeg E1: 触发叙事分析流水线（在 kg ingest 完成后执行）
+        let narrative_status = if kg_status == "success" {
+            let pool = self.pool.clone();
+            match crate::narrative::litseg_pipeline::run_narrative_analysis(
+                &story_id, pool, None,
+            ).await {
+                Ok(()) => "success".to_string(),
+                Err(e) => format!("error: {}", e),
+            }
+        } else {
+            "skipped: kg_not_success".to_string()
+        };
+        projection_status["narrative"] = serde_json::json!(narrative_status);
+
         let async_elapsed = async_start.elapsed().as_millis();
         log::info!(
             "[ProjectionWriter] Async projections (vector + kg) completed in {}ms",

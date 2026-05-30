@@ -351,6 +351,8 @@ async fn run_character_cards(
                                 recent_events: new_recent
                                     .or(Some(format!("[第{}章] 出场", chapter_number))),
                                 updated_at_chapter: Some(chapter_number),
+                state_transitions_json: None,
+                arc_type: None,
                             };
 
                             if let Ok(count) =
@@ -408,6 +410,8 @@ async fn run_character_cards(
                 key_items: character.cs_key_items.clone(),
                 recent_events: Some(format!("[第{}章] 出场", chapter_number)),
                 updated_at_chapter: Some(chapter_number),
+                state_transitions_json: None,
+                arc_type: None,
             };
             if let Ok(count) = char_repo.update_character_state(&character.id, &state) {
                 if count > 0 {

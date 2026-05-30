@@ -10,15 +10,30 @@
 //! - genesis: GenesisPipeline — 正向/创世流程
 //! - analysis: AnalysisPipeline — 逆向/分析流程
 //! - progress: 统一进度事件系统
+//! - audit: StoryStructureAuditor — 故事结构审计
+//! - health: StoryHealthAnalyzer — 故事健康检查
+//! - event: 叙事事件模型（LitSeg E1）
+//! - thread: 叙事线索追踪模型（LitSeg E1）
+//! - structure: 叙事结构定位模型（LitSeg E1）
+//! - segment: 叙事感知分段模型（LitSeg E1）
 
 pub mod analysis;
 pub mod audit;
 pub mod elements;
+pub mod event;
 pub mod genesis;
 pub mod health;
 pub mod pipeline;
 pub mod progress;
 pub mod prompts;
+pub mod segment;
+pub mod chunker;
+pub mod litseg_pipeline;
+pub mod search;
+pub mod structure;
+pub mod structure_analyzer;
+pub mod thread;
+pub mod thread_tracker;
 
 /// 从 LLM 响应中提取 JSON 对象，并修复常见语法错误（尾随逗号、空值、markdown
 /// 围栏等）

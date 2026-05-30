@@ -476,6 +476,8 @@ impl ContextOptimizer {
                 previous_chapters: l1.recent_chapters,
                 current_content: current_content.clone(),
                 selected_text: selected_text.clone(),
+                narrative_structure: None,
+                active_threads: vec![],
             },
             style: StyleContext {
                 style_dna_id: l0.style_dna_id,

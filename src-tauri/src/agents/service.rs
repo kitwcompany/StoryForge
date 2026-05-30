@@ -1194,6 +1194,11 @@ impl AgentService {
             ctx.format_previous_chapters()
         };
         vars.insert("previous_chapters".to_string(), previous_chapters_text);
+        // LitSeg E1: 注入叙事结构上下文
+        vars.insert(
+            "narrative_structure".to_string(),
+            ctx.format_narrative_structure(),
+        );
         vars.insert(
             "current_content".to_string(),
             ctx.narrative

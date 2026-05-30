@@ -135,6 +135,8 @@ impl ShortTermMemory {
                 characters: character_infos,
                 current_content: None,
                 selected_text: None,
+                narrative_structure: None,
+                active_threads: vec![],
             },
             style: StyleContext {
                 style_dna_id: None,

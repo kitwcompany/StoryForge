@@ -1281,3 +1281,52 @@ export interface StyleSnapshot {
 
 export const getLatestStyleSnapshot = (storyId: string) =>
   loggedInvoke<StyleSnapshot | null>('get_latest_style_snapshot', { story_id: storyId });
+
+// --- LitSeg 叙事分析 ---
+
+export interface NarrativeStructureAct {
+  act_number: number;
+  act_type: string;
+  start_chapter: number;
+  end_chapter: number;
+  summary?: string;
+}
+
+export interface NarrativeEvent {
+  scene_id: string;
+  scene_number: number;
+  title?: string;
+  intensity?: number;
+  sentiment?: number;
+  event_types?: string;
+  act_number?: number;
+  position_in_act?: number;
+}
+
+export interface NarrativeThread {
+  type: string;
+  content: string;
+  status: string;
+  risk_score?: number;
+}
+
+export interface NarrativeChunk {
+  id: string;
+  story_id: string;
+  chapter_range_start: number;
+  chapter_range_end: number;
+  text: string;
+  chunk_type: string;
+}
+
+export const analyzeNarrativeStructure = (storyId: string) =>
+  loggedInvoke<{ structure: NarrativeStructureAct[] }>('analyze_narrative_structure', { story_id: storyId });
+
+export const getNarrativeEvents = (storyId: string) =>
+  loggedInvoke<{ count: number; events: NarrativeEvent[] }>('get_narrative_events', { story_id: storyId });
+
+export const getNarrativeThreads = (storyId: string) =>
+  loggedInvoke<{ count: number; threads: NarrativeThread[] }>('get_narrative_threads', { story_id: storyId });
+
+export const getNarrativeChunks = (storyId: string) =>
+  loggedInvoke<{ count: number; chunks: NarrativeChunk[] }>('get_narrative_chunks', { story_id: storyId });

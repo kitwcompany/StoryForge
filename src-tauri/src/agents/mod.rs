@@ -71,9 +71,36 @@ pub struct NarrativeContext {
     #[serde(default)]
     pub previous_chapters: Vec<ChapterSummary>,
     #[serde(default)]
-    pub current_content: Option<String>, // 当前章节全文（已过滤元信息，保留纯内容）
+    pub current_content: Option<String>,
     #[serde(default)]
-    pub selected_text: Option<String>, // 用户选中的文本
+    pub selected_text: Option<String>,
+    // LitSeg E1: 叙事结构感知增强
+    #[serde(default)]
+    pub narrative_structure: Option<NarrativeStructureContext>,
+    #[serde(default)]
+    pub active_threads: Vec<String>,
+}
+
+/// LitSeg 叙事结构上下文
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NarrativeStructureContext {
+    pub current_act: String,
+    pub act_number: i32,
+    pub position_in_act: f32,
+    pub dramatic_function: String,
+    pub is_near_boundary: bool,
+}
+
+impl Default for NarrativeStructureContext {
+    fn default() -> Self {
+        Self {
+            current_act: "发展".to_string(),
+            act_number: 1,
+            position_in_act: 0.5,
+            dramatic_function: "发展".to_string(),
+            is_near_boundary: false,
+        }
+    }
 }
 
 /// 风格配置上下文
@@ -231,6 +258,8 @@ impl AgentContext {
                 previous_chapters: vec![],
                 current_content: None,
                 selected_text: None,
+                narrative_structure: None,
+                active_threads: vec![],
             },
             style: StyleContext {
                 style_dna_id: None,
@@ -275,6 +304,26 @@ impl AgentContext {
                 .map(|c| format!("第{}章 {}: {}", c.number, c.title, c.summary))
                 .collect::<Vec<_>>()
                 .join("\n\n")
+        }
+    }
+
+    /// 构建叙事结构上下文描述
+    pub fn format_narrative_structure(&self) -> String {
+        if let Some(ref ns) = self.narrative.narrative_structure {
+            let mut parts = vec![
+                format!("当前幕: 第{}幕（{}）", ns.act_number, ns.current_act),
+                format!("幕内位置: {:.0}%", ns.position_in_act * 100.0),
+                format!("戏剧功能: {}", ns.dramatic_function),
+            ];
+            if ns.is_near_boundary {
+                parts.push("注意: 接近叙事边界，可能发生转折".to_string());
+            }
+            if !self.narrative.active_threads.is_empty() {
+                parts.push(format!("活跃线索: {}", self.narrative.active_threads.join(", ")));
+            }
+            parts.join("\n")
+        } else {
+            "叙事结构信息暂不可用".to_string()
         }
     }
 }

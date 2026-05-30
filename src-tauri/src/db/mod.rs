@@ -3,6 +3,7 @@ pub mod models;
 pub mod repositories;
 pub mod repositories_export;
 pub mod repositories_narrative;
+pub mod repositories_narrative_events;
 pub mod repositories_pipeline;
 pub mod repositories_story_system;
 pub mod traits;
@@ -20,6 +21,7 @@ pub use connection::{init_db, DbPool};
 pub use models::*;
 pub use repositories::*;
 pub use repositories_export::*;
+pub use repositories_narrative_events::*;
 pub use repositories_pipeline::*;
 pub use repositories_story_system::*;
 pub use traits::{

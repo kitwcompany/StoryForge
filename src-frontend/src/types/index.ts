@@ -267,6 +267,7 @@ export type ViewType =
   | 'book-deconstruction'
   | 'tasks'
   | 'foreshadowing'
+  | 'narrative-analysis'
   | 'creation-wizard'
   | 'story-system'
   | 'usage-stats'

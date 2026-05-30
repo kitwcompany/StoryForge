@@ -21,6 +21,8 @@ pub mod mcp;
 #[macro_use]
 pub mod memory;
 #[macro_use]
+pub mod narrative;
+#[macro_use]
 pub mod orchestrator;
 #[macro_use]
 pub mod pipeline;

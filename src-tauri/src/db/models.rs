@@ -67,6 +67,15 @@ pub struct Scene {
 
     // 关联的章节ID
     pub chapter_id: Option<String>,
+
+    // LitSeg: 叙事分析字段（从 narrative_events 表合并）
+    pub narrative_intensity: Option<f32>,
+    pub narrative_sentiment: Option<f32>,
+    pub narrative_event_types: Option<String>,
+    pub narrative_preceding_scene_id: Option<String>,
+    pub narrative_following_scene_id: Option<String>,
+    pub act_number: Option<i32>,
+    pub position_in_act: Option<i32>,
 }
 
 /// 场景分隔节点
@@ -88,7 +97,7 @@ pub struct SceneDividerNode {
     pub updated_at: DateTime<Local>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ConflictType {
     ManVsMan,          // 人与人
     ManVsSelf,         // 人与自我
@@ -357,6 +366,9 @@ pub struct StoryOutline {
     pub total_scenes_estimate: Option<i32>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
+
+    // LitSeg: 分析后的实际幕结构（从 narrative_structure 表合并）
+    pub analyzed_structure_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1885,4 +1897,62 @@ pub struct CharacterState {
     pub key_items: Option<String>,
     pub recent_events: Option<String>,
     pub updated_at_chapter: Option<i32>,
+
+    // LitSeg: 角色弧光追踪（从 narrative_threads.character_arc 合并）
+    pub state_transitions_json: Option<String>,
+    pub arc_type: Option<String>,
+}
+
+// ==================== LitSeg 深度融合模型 ====================
+// 注意: narrative_events / narrative_threads / narrative_structure 已合并到现有表:
+//   - narrative_events → scenes 表 (narrative_* 字段)
+//   - narrative_threads.foreshadow → foreshadowing_tracker (event_id + score 字段)
+//   - narrative_threads.character_arc → character_states (transitions + arc_type 字段)
+//   - narrative_threads.conflict_escalation → conflict_escalations 表
+//   - narrative_structure → story_outlines.analyzed_structure_json
+
+/// 叙事结构定位表 — 保留，提供场景级精细定位（新增能力）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NarrativeStructurePosition {
+    pub id: String,
+    pub story_id: String,
+    pub event_id: String,
+    pub act_number: i32,
+    pub act_type: String,
+    pub position_in_act: f32,
+    pub dramatic_function: String,
+    pub is_narrative_boundary: bool,
+    pub created_at: String,
+}
+
+/// 冲突升级追踪表 — 从 narrative_threads.conflict_escalation 提取为独立结构化表
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictEscalation {
+    pub id: String,
+    pub story_id: String,
+    pub conflict_type: String,
+    pub party_a_ids: String,
+    pub party_b_ids: String,
+    pub intensity_timeline_json: String,
+    pub current_intensity: f32,
+    pub is_escalated: bool,
+    pub created_at: String,
+}
+
+/// 叙事感知文本块表（SQLite 索引 + LanceDB vector_id）— 保留为物化缓存
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NarrativeChunk {
+    pub id: String,
+    pub story_id: String,
+    pub chapter_range_start: i32,
+    pub chapter_range_end: i32,
+    pub scene_ids: String,
+    pub event_ids: String,
+    pub text: String,
+    pub chunk_type: String,
+    pub is_boundary_start: bool,
+    pub is_boundary_end: bool,
+    pub thread_ids: String,
+    pub vector_id: Option<String>,
+    pub created_at: String,
 }

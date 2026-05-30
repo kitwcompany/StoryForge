@@ -35,6 +35,10 @@ pub struct ForeshadowingRecord {
     pub content: String,
     pub setup_scene_id: Option<String>,
     pub payoff_scene_id: Option<String>,
+    // LitSeg: 叙事事件关联（从 narrative_threads.foreshadow 合并）
+    pub setup_event_id: Option<String>,
+    pub payoff_event_id: Option<String>,
+    pub risk_signals_score: Option<f32>,
     pub status: ForeshadowingStatus,
     pub importance: i32, // 1-10
     pub created_at: String,
@@ -161,6 +165,9 @@ impl ForeshadowingTracker {
                     status,
                     importance: row.get(6)?,
                     created_at: row.get(7)?,
+                    setup_event_id: None,
+                    payoff_event_id: None,
+                    risk_signals_score: None,
                     resolved_at: row.get(8)?,
                 })
             })
@@ -206,6 +213,9 @@ impl ForeshadowingTracker {
                     status,
                     importance: row.get(6)?,
                     created_at: row.get(7)?,
+                    setup_event_id: None,
+                    payoff_event_id: None,
+                    risk_signals_score: None,
                     resolved_at: row.get(8)?,
                 })
             })

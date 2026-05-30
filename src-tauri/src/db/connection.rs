@@ -3470,6 +3470,364 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 72)?;
     }
 
+    // Migration 74: 创建 narrative_events 表 — LitSeg 叙事事件模型 (E1)
+    if current_version < 73 {
+        let event_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_events'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if event_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE narrative_events (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL REFERENCES stories(id),
+                    chapter_number INTEGER NOT NULL,
+                    scene_id TEXT,
+                    event_type TEXT NOT NULL,
+                    intensity REAL NOT NULL DEFAULT 0.5,
+                    sentiment REAL NOT NULL DEFAULT 0.0,
+                    description TEXT NOT NULL,
+                    involved_character_ids TEXT NOT NULL DEFAULT '[]',
+                    conflict_types TEXT NOT NULL DEFAULT '[]',
+                    preceding_event_id TEXT,
+                    following_event_id TEXT,
+                    act_number INTEGER NOT NULL DEFAULT 1,
+                    position_in_act INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id),
+                    FOREIGN KEY (preceding_event_id) REFERENCES narrative_events(id),
+                    FOREIGN KEY (following_event_id) REFERENCES narrative_events(id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_events_story ON narrative_events(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_events_chapter ON narrative_events(story_id, \
+                 chapter_number)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_events_type ON narrative_events(event_type)",
+                [],
+            )?;
+        }
+        record_migration(conn, 73)?;
+    }
+
+    // Migration 75: 创建 narrative_threads 表 — LitSeg 叙事线索追踪 (E1)
+    if current_version < 74 {
+        let thread_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_threads'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if thread_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE narrative_threads (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL REFERENCES stories(id),
+                    thread_type TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    thread_data TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_threads_story ON narrative_threads(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_threads_type ON narrative_threads(thread_type)",
+                [],
+            )?;
+        }
+        record_migration(conn, 74)?;
+    }
+
+    // Migration 76: 创建 narrative_structure_positions 表 — LitSeg 叙事结构定位 (E1)
+    if current_version < 75 {
+        let position_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_structure_positions'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if position_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE narrative_structure_positions (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL REFERENCES stories(id),
+                    event_id TEXT NOT NULL REFERENCES narrative_events(id),
+                    act_number INTEGER NOT NULL,
+                    act_type TEXT NOT NULL,
+                    position_in_act REAL NOT NULL,
+                    dramatic_function TEXT NOT NULL,
+                    is_narrative_boundary INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id),
+                    FOREIGN KEY (event_id) REFERENCES narrative_events(id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_structure_positions_story ON \
+                 narrative_structure_positions(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_structure_positions_boundary ON \
+                 narrative_structure_positions(is_narrative_boundary)",
+                [],
+            )?;
+        }
+        record_migration(conn, 75)?;
+    }
+
+    // Migration 77: 创建 narrative_structure 表 — LitSeg 叙事结构幕级划分 (E1)
+    if current_version < 76 {
+        let structure_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_structure'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if structure_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE narrative_structure (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL REFERENCES stories(id),
+                    act_number INTEGER NOT NULL,
+                    act_type TEXT NOT NULL,
+                    start_chapter INTEGER NOT NULL,
+                    end_chapter INTEGER NOT NULL,
+                    summary TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_structure_story ON narrative_structure(story_id)",
+                [],
+            )?;
+        }
+        record_migration(conn, 76)?;
+    }
+
+    // Migration 78: 创建 narrative_chunks 表 — LitSeg 叙事感知分段 (E1)
+    if current_version < 77 {
+        let chunk_tables: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='narrative_chunks'",
+            )?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if chunk_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE narrative_chunks (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL REFERENCES stories(id),
+                    chapter_range_start INTEGER NOT NULL,
+                    chapter_range_end INTEGER NOT NULL,
+                    scene_ids TEXT NOT NULL DEFAULT '[]',
+                    event_ids TEXT NOT NULL DEFAULT '[]',
+                    text TEXT NOT NULL,
+                    chunk_type TEXT NOT NULL,
+                    is_boundary_start INTEGER NOT NULL DEFAULT 0,
+                    is_boundary_end INTEGER NOT NULL DEFAULT 0,
+                    thread_ids TEXT NOT NULL DEFAULT '[]',
+                    vector_id TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_chunks_story ON narrative_chunks(story_id)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_chunks_type ON narrative_chunks(chunk_type)",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX idx_narrative_chunks_boundary ON \
+                 narrative_chunks(is_boundary_start, is_boundary_end)",
+                [],
+            )?;
+        }
+        record_migration(conn, 77)?;
+    }
+
+    // Migration 79: 增强 scenes 表 — 添加 LitSeg 叙事分析字段
+    if current_version < 78 {
+        let scene_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(scenes)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !scene_cols.contains(&"narrative_intensity".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_intensity REAL DEFAULT 0.5", [])?;
+        }
+        if !scene_cols.contains(&"narrative_sentiment".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_sentiment REAL DEFAULT 0.0", [])?;
+        }
+        if !scene_cols.contains(&"narrative_event_types".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_event_types TEXT DEFAULT '[]'", [])?;
+        }
+        if !scene_cols.contains(&"narrative_preceding_scene_id".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_preceding_scene_id TEXT", [])?;
+        }
+        if !scene_cols.contains(&"narrative_following_scene_id".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN narrative_following_scene_id TEXT", [])?;
+        }
+        if !scene_cols.contains(&"act_number".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN act_number INTEGER DEFAULT 1", [])?;
+        }
+        if !scene_cols.contains(&"position_in_act".to_string()) {
+            conn.execute("ALTER TABLE scenes ADD COLUMN position_in_act INTEGER DEFAULT 1", [])?;
+        }
+        record_migration(conn, 78)?;
+    }
+
+    // Migration 80: 增强 foreshadowing_tracker 表 — 添加 LitSeg 事件关联
+    if current_version < 79 {
+        let fs_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(foreshadowing_tracker)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !fs_cols.contains(&"setup_event_id".to_string()) {
+            conn.execute("ALTER TABLE foreshadowing_tracker ADD COLUMN setup_event_id TEXT", [])?;
+        }
+        if !fs_cols.contains(&"payoff_event_id".to_string()) {
+            conn.execute("ALTER TABLE foreshadowing_tracker ADD COLUMN payoff_event_id TEXT", [])?;
+        }
+        if !fs_cols.contains(&"risk_signals_score".to_string()) {
+            conn.execute("ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals_score REAL DEFAULT 0.0", [])?;
+        }
+        record_migration(conn, 79)?;
+    }
+
+    // Migration 81: 增强 character_states 表 — 添加弧光追踪
+    if current_version < 80 {
+        let cs_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(character_states)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !cs_cols.contains(&"state_transitions_json".to_string()) {
+            conn.execute("ALTER TABLE character_states ADD COLUMN state_transitions_json TEXT DEFAULT '[]'", [])?;
+        }
+        if !cs_cols.contains(&"arc_type".to_string()) {
+            conn.execute("ALTER TABLE character_states ADD COLUMN arc_type TEXT DEFAULT 'positive'", [])?;
+        }
+        record_migration(conn, 80)?;
+    }
+
+    // Migration 82: 增强 story_outlines 表 — 添加分析后的结构
+    if current_version < 81 {
+        let so_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(story_outlines)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !so_cols.contains(&"analyzed_structure_json".to_string()) {
+            conn.execute("ALTER TABLE story_outlines ADD COLUMN analyzed_structure_json TEXT", [])?;
+        }
+        record_migration(conn, 81)?;
+    }
+
+    // Migration 83: 新建 conflict_escalations 表
+    if current_version < 82 {
+        let ce_tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conflict_escalations'")?
+            .query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if ce_tables.is_empty() {
+            conn.execute(
+                "CREATE TABLE conflict_escalations (
+                    id TEXT PRIMARY KEY,
+                    story_id TEXT NOT NULL REFERENCES stories(id),
+                    conflict_type TEXT NOT NULL,
+                    party_a_ids TEXT NOT NULL DEFAULT '[]',
+                    party_b_ids TEXT NOT NULL DEFAULT '[]',
+                    intensity_timeline_json TEXT NOT NULL DEFAULT '[]',
+                    current_intensity REAL NOT NULL DEFAULT 0.0,
+                    is_escalated INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (story_id) REFERENCES stories(id)
+                )",
+                [],
+            )?;
+            conn.execute("CREATE INDEX idx_conflict_escalations_story ON conflict_escalations(story_id)", [])?;
+            conn.execute("CREATE INDEX idx_conflict_escalations_type ON conflict_escalations(conflict_type)", [])?;
+        }
+        record_migration(conn, 82)?;
+    }
+
+    // Migration 84: 删除冗余的 LitSeg 表（数据已迁移到增强后的现有表）
+    if current_version < 83 {
+        // 删除 narrative_events 表（功能已合并到 scenes 表）
+        conn.execute("DROP TABLE IF EXISTS narrative_events", [])?;
+        // 删除 narrative_threads 表（功能已拆分到 foreshadowing_tracker/character_states/conflict_escalations）
+        conn.execute("DROP TABLE IF EXISTS narrative_threads", [])?;
+        // 删除 narrative_structure 表（功能已合并到 story_outlines.analyzed_structure_json）
+        conn.execute("DROP TABLE IF EXISTS narrative_structure", [])?;
+        // 清理相关索引
+        conn.execute("DROP INDEX IF EXISTS idx_narrative_events_story", [])?;
+        conn.execute("DROP INDEX IF EXISTS idx_narrative_events_chapter", [])?;
+        conn.execute("DROP INDEX IF EXISTS idx_narrative_events_type", [])?;
+        conn.execute("DROP INDEX IF EXISTS idx_narrative_threads_story", [])?;
+        conn.execute("DROP INDEX IF EXISTS idx_narrative_threads_type", [])?;
+        conn.execute("DROP INDEX IF EXISTS idx_narrative_structure_story", [])?;
+        record_migration(conn, 83)?;
+    }
+
     Ok(())
 }
 
