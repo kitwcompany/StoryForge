@@ -2,13 +2,15 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v0.8.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v0.8.1 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
-> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流、高密度状态世界构建法。让 AI 成为你的创作搭档，越写越懂你。
+> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流、高密度状态世界构建法、**LitSeg 叙事感知分段**。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v0.8.0 最新更新（2026-05-29）**：模型管理重构 + 浮点数精度修复 + 连接状态增强。**模型管理统一集中** — 四个分散的模型 Tab 合并为单一"模型管理"页面，顶部五档类型筛选器，新建模型时先选类型再配置。**浮点数精度全面修复** — 后端 temperature 序列化规范化到 2 位小数，前端新增 `normalizeFloat`/`formatDisplayFloat` 工具函数，GeneralSettings slider 彻底消除 `0.8999999` 类显示问题。**模型连接状态丰富化** — 检测中显示步骤名称+脉冲动画，已连接显示延迟+质量评级，失败时展开步骤详情+重试按钮，全局 Store 自动轮询 30s，状态变更自动 toast 提示。**幕前底部栏 tooltip 增强** — 悬停显示提供商、API Base 简写、延迟、最后检测时间，失败时一键"前往配置"。
+> **v0.8.1 最新更新（2026-05-30）**：LitSeg 叙事感知分段深度融合 — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 将 AI 的叙事结构感知能力融入创作全流程。**深度融合而非机械叠加** — narrative_events / narrative_threads / narrative_structure 三张冗余表全部删除，功能分别合并到 scenes / foreshadowing_tracker / character_states / story_outlines 等现有表；新增 scenes.narrative_intensity/event_types/act_number 等 7 个字段，让"场景=情节节点"的设计意图与 LitSeg 的"事件提取"洞察融为一体。**叙事分析页面** — 后台新增"叙事分析"标签页，可视化展示起承转合四幕结构、事件强度时间线、未回收伏笔与角色弧光。**Agent 上下文增强** — Writer Agent 的系统提示词自动注入当前叙事位置（"第3幕75%，接近高潮"），AI 写作时明确知道故事进展到哪个阶段，生成内容更符合叙事节奏。
+>
+> **v0.8.0 更新（2026-05-29）**：模型管理重构 + 浮点数精度修复 + 连接状态增强。**模型管理统一集中** — 四个分散的模型 Tab 合并为单一"模型管理"页面，顶部五档类型筛选器，新建模型时先选类型再配置。**浮点数精度全面修复** — 后端 temperature 序列化规范化到 2 位小数，前端新增 `normalizeFloat`/`formatDisplayFloat` 工具函数，GeneralSettings slider 彻底消除 `0.8999999` 类显示问题。**模型连接状态丰富化** — 检测中显示步骤名称+脉冲动画，已连接显示延迟+质量评级，失败时展开步骤详情+重试按钮，全局 Store 自动轮询 30s，状态变更自动 toast 提示。**幕前底部栏 tooltip 增强** — 悬停显示提供商、API Base 简写、延迟、最后检测时间，失败时一键"前往配置"。
 >
 > **v0.7.9 更新（2026-05-29）**：六阶段架构深度优化 — 稳定性、模块化、状态同步、构建工具链、数据层、架构改进全面落地。**安全与稳定性** — 修复 FrontstageApp 内存泄漏（Tauri 事件监听器未清理）；删除约 2400 行死代码（旧版前端 src/main.js + src/views.js）；清理 lib.rs 200+ 行空白行；移除 detect_and_route_intent 死代码。**后端模块化** — story_commands.rs（3445 行）拆分为 4 个领域文件（scene_commands/creation_commands/studio_commands/revision_commands）；14 个命令文件错误处理统一为 Result<T, AppError>；全局 get_pool() 反模式改为 State<'_, DbPool> 注入。**状态同步** — 32 个 mutation 命令补全状态同步事件；React Query 缓存策略优化（cancelQueries + debounce）；DOM hack 封装为 useWebViewRedrawFix hook。**构建工具链** — 新增 rustfmt.toml、.clippy.toml、.prettierrc、ESLint v9 flat config；Vite 配置 manualChunks 代码分割（react/editor/ui/data 四 vendor）。**数据层深化** — schema_migrations 表实现迁移版本控制；删除 models_v3.rs + repositories_v3.rs（约 6100 行死代码）；create_v3_tables 合并到 create_tables；删除 FallbackVectorStore，统一使用 LanceVectorStore。**架构改进** — AgentContext 拆分为 6 个子结构（StoryContext/NarrativeContext/StyleContext/WorldContext/AgentMemoryContext）；优雅关闭（WAL checkpoint + 持久化 pending vector indexes + 停止 automation service）；修复 LLM 取消竞态（Option<Sender> + take() 原子消费）。
 >
