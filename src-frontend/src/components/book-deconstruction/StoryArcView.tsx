@@ -1,4 +1,13 @@
-import { GitBranch, Mountain, Zap, TrendingUp, Layers, Activity, BookOpen, BarChart3 } from 'lucide-react';
+import {
+  GitBranch,
+  Mountain,
+  Zap,
+  TrendingUp,
+  Layers,
+  Activity,
+  BookOpen,
+  BarChart3,
+} from 'lucide-react';
 import type { ReferenceBook, ReferenceScene } from '@/types/book-deconstruction';
 
 interface StoryArcViewProps {
@@ -60,14 +69,14 @@ export function StoryArcView({ book, scenes }: StoryArcViewProps) {
 
   // LitSeg: 幕类型中文映射
   const actTypeLabels: Record<string, string> = {
-    'Setup': '起（铺设）',
-    'Confrontation': '承（对抗）',
-    'RisingAction': '转（上升）',
-    'Climax': '高潮',
-    'Resolution': '合（结局）',
-    'Exposition': ' exposition',
-    'Development': '发展',
-    'Transition': '转折',
+    Setup: '起（铺设）',
+    Confrontation: '承（对抗）',
+    RisingAction: '转（上升）',
+    Climax: '高潮',
+    Resolution: '合（结局）',
+    Exposition: ' exposition',
+    Development: '发展',
+    Transition: '转折',
   };
 
   const actColors: Record<number, string> = {
@@ -93,15 +102,13 @@ export function StoryArcView({ book, scenes }: StoryArcViewProps) {
             <h4 className="text-sm font-medium text-cinema-gold">叙事幕结构</h4>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-            {acts.map((act) => (
+            {acts.map(act => (
               <div
                 key={act.act_number}
                 className={`rounded-lg border p-3 ${actColors[act.act_number] || 'border-gray-600 bg-gray-800/30'}`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-gray-400">
-                    第{act.act_number}幕
-                  </span>
+                  <span className="text-xs font-medium text-gray-400">第{act.act_number}幕</span>
                   <BookOpen className="w-3 h-3 text-gray-500" />
                 </div>
                 <div className="text-sm font-medium text-white mb-1">
@@ -125,7 +132,7 @@ export function StoryArcView({ book, scenes }: StoryArcViewProps) {
       )}
 
       {/* ====== LitSeg: 场景强度时间线 ====== */}
-      {scenes.some((s) => s.narrative_intensity !== undefined && s.narrative_intensity !== null) && (
+      {scenes.some(s => s.narrative_intensity !== undefined && s.narrative_intensity !== null) && (
         <div className="bg-cinema-900 border border-cinema-800 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="w-4 h-4 text-cinema-gold" />
@@ -133,8 +140,8 @@ export function StoryArcView({ book, scenes }: StoryArcViewProps) {
           </div>
           <div className="space-y-2">
             {scenes
-              .filter((s) => s.narrative_intensity !== undefined && s.narrative_intensity !== null)
-              .map((scene) => (
+              .filter(s => s.narrative_intensity !== undefined && s.narrative_intensity !== null)
+              .map(scene => (
                 <div key={scene.id} className="flex items-center gap-3">
                   <div className="w-8 text-xs text-gray-500 text-right shrink-0">
                     {scene.sequence_number}
@@ -167,7 +174,7 @@ export function StoryArcView({ book, scenes }: StoryArcViewProps) {
       )}
 
       {/* ====== LitSeg: 场景情感分布 ====== */}
-      {scenes.some((s) => s.narrative_sentiment !== undefined && s.narrative_sentiment !== null) && (
+      {scenes.some(s => s.narrative_sentiment !== undefined && s.narrative_sentiment !== null) && (
         <div className="bg-cinema-900 border border-cinema-800 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-4">
             <Activity className="w-4 h-4 text-cinema-gold" />
@@ -175,7 +182,7 @@ export function StoryArcView({ book, scenes }: StoryArcViewProps) {
           </div>
           <div className="relative h-16 bg-gray-800/50 rounded-lg overflow-hidden">
             {scenes
-              .filter((s) => s.narrative_sentiment !== undefined && s.narrative_sentiment !== null)
+              .filter(s => s.narrative_sentiment !== undefined && s.narrative_sentiment !== null)
               .map((scene, idx, arr) => {
                 const sentiment = scene.narrative_sentiment ?? 0;
                 const color =
