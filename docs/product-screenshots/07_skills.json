@@ -1,0 +1,395 @@
+{
+  "viewId": "skills",
+  "viewName": "技能",
+  "description": "配置 AI 创作技能",
+  "title": "CINEMA-AI | 越写越懂的创作系统",
+  "screenshot": "07_skills.png",
+  "capturedAt": "2026-06-08T08:36:05.305Z",
+  "elements": [
+    {
+      "tag": "button",
+      "text": "重试",
+      "className": "ml-2 px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg text-xs font-medium transition-colors",
+      "type": "submit",
+      "rect": {
+        "x": 1025,
+        "y": 35,
+        "w": 48,
+        "h": 24
+      }
+    },
+    {
+      "tag": "button",
+      "text": "重试",
+      "className": "ml-2 px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg text-xs font-medium transition-colors",
+      "type": "submit",
+      "rect": {
+        "x": 1025,
+        "y": 35,
+        "w": 48,
+        "h": 24
+      }
+    },
+    {
+      "tag": "button",
+      "text": "开幕前写作",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 bg-gradient-to-r fro",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 94,
+        "w": 231,
+        "h": 50
+      }
+    },
+    {
+      "tag": "button",
+      "text": "仪表盘",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 193,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "故事",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 245,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "角色",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 297,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "世界构建",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 349,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "场景",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 401,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "知识图谱",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 453,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "技能",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 505,
+        "w": 231,
+        "h": 50
+      }
+    },
+    {
+      "tag": "button",
+      "text": "MCP",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 559,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "拆书",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 611,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "任务",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 663,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "伏笔看板",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 715,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "叙事分析",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 767,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "Story System",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 819,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "用量统计",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 871,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "写作统计",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 923,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "设置",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 975,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "登录",
+      "className": "flex items-center gap-2 px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 r",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 1036,
+        "w": 76,
+        "h": 32
+      }
+    },
+    {
+      "tag": "button",
+      "text": "导入技能",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 1768,
+        "y": 32,
+        "w": 120,
+        "h": 40
+      }
+    },
+    {
+      "tag": "button",
+      "text": "关闭",
+      "className": "ml-auto text-xs underline",
+      "type": "submit",
+      "rect": {
+        "x": 1847,
+        "y": 131,
+        "w": 24,
+        "h": 16
+      }
+    },
+    {
+      "tag": "button",
+      "text": "全部",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 288,
+        "y": 186,
+        "w": 52,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "写作",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 348,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "分析",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 410,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "角色",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 472,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "情节",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 534,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "风格",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 596,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "世界观",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 658,
+        "y": 186,
+        "w": 68,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "导出",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 734,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "集成",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 796,
+        "y": 186,
+        "w": 54,
+        "h": 34
+      }
+    },
+    {
+      "tag": "button",
+      "text": "自定义",
+      "className": "inline-flex items-center justify-center gap-2 rounded-xl transition-all duration-200 disabled:opacit",
+      "type": "submit",
+      "rect": {
+        "x": 858,
+        "y": 186,
+        "w": 68,
+        "h": 34
+      }
+    }
+  ],
+  "pageText": "无法连接到本地服务\n请确保应用已正确启动\n重试\n无法连接到本地服务\n请确保应用已正确启动\n重试\n草苔\nStoryForge\n开幕前写作\n\n极简阅读写作界面\n\n仪表盘\n故事\n角色\n世界构建\n场景\n知识图谱\n技能\nMCP\n拆书\n任务\n伏笔看板\n叙事分析\nStory System\n用量统计\n写作统计\n设置\n\n未选择故事\n\n登录\n技能工坊\n\n管理和配置AI辅助技能\n\n导入技能\nCannot read properties of undefined (reading 'invoke')\n关闭\n全部\n写作\n分析\n角色\n情节\n风格\n世界观\n导出\n集成\n自定义\n\n该分类下暂无技能"
+}

@@ -243,6 +243,24 @@ test.describe('StoryForge 应用测试', () => {
             if (cmd === 'get_story_characters') {
               return [];
             }
+            if (cmd === 'get_settings') {
+              return {
+                version: '0.1.0',
+                updated_at: new Date().toISOString(),
+                models: { chat: [], embedding: [], multimodal: [], image: [] },
+                active_models: {},
+                agent_mappings: [],
+                general: { theme: 'dark', language: 'zh-CN', auto_save: true, auto_save_interval: 30, font_size: 16, line_height: 1.6 },
+                privacy: { share_usage_data: false, store_api_keys_securely: true },
+                book_deconstruction_concurrency: 3,
+                rewrite_threshold: 0.75,
+                max_feedback_loops: 2,
+                writing_strategy: { run_mode: 'fast', conflict_level: 50, pace: 'balanced', ai_freedom: 'medium' },
+              };
+            }
+            if (cmd === 'get_models') {
+              return [];
+            }
             if (cmd === 'get_config') {
               return { model: 'default', provider: 'mock', base_url: '', api_key: '', max_tokens: 4096, temperature: 0.8 };
             }
@@ -261,10 +279,19 @@ test.describe('StoryForge 应用测试', () => {
             // 其他命令静默返回 null，避免未定义错误阻断 UI
             return null;
           },
-          transformCallback: (callback: any) => {
+          transformCallback: (callback: any, once: boolean = false) => {
             const id = Math.random().toString(36).substring(2);
-            (window as any)[`__tauri_callback_${id}`] = callback;
+            const internals = (window as any).__TAURI_INTERNALS__;
+            if (!internals.callbacks) internals.callbacks = {};
+            internals.callbacks[id] = { callback, once };
             return id;
+          },
+          unregisterCallback: (id: string) => {
+            const internals = (window as any).__TAURI_INTERNALS__;
+            if (internals.callbacks) delete internals.callbacks[id];
+          },
+          convertFileSrc: (filePath: string, protocol: string = 'asset') => {
+            return `${protocol}://${filePath}`;
           }
         };
 

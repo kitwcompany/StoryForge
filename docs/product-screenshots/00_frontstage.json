@@ -1,0 +1,102 @@
+{
+  "viewId": "frontstage",
+  "viewName": "幕前写作",
+  "description": "沉浸式写作界面，专注创作正文内容",
+  "title": "草苔 - 幕前创作",
+  "screenshot": "00_frontstage.png",
+  "capturedAt": "2026-06-08T08:35:45.819Z",
+  "elements": [
+    {
+      "tag": "button",
+      "text": "暖赭",
+      "title": "暖色纸张 + 赭红强调，默认温馨氛围",
+      "className": "color-theme-option active",
+      "type": "submit",
+      "rect": {
+        "x": 1094,
+        "y": 70,
+        "w": 71,
+        "h": 26
+      }
+    },
+    {
+      "tag": "button",
+      "text": "冷青",
+      "title": "冷白灰蓝 + 青色强调，清新理性",
+      "className": "color-theme-option",
+      "type": "submit",
+      "rect": {
+        "x": 1094,
+        "y": 100,
+        "w": 71,
+        "h": 26
+      }
+    },
+    {
+      "tag": "button",
+      "text": "琥珀",
+      "title": "暖米黄 + 琥珀橙强调，温润古典",
+      "className": "color-theme-option",
+      "type": "submit",
+      "rect": {
+        "x": 1094,
+        "y": 130,
+        "w": 71,
+        "h": 26
+      }
+    },
+    {
+      "tag": "button",
+      "text": "靛紫",
+      "title": "冷灰白 + 靛蓝强调，沉静深邃",
+      "className": "color-theme-option",
+      "type": "submit",
+      "rect": {
+        "x": 1094,
+        "y": 159,
+        "w": 71,
+        "h": 26
+      }
+    },
+    {
+      "tag": "button",
+      "text": "温",
+      "title": "文思被动 — 仅萤火提示",
+      "className": "wensi-mode-toggle wensi-passive",
+      "type": "submit",
+      "rect": {
+        "x": 1192,
+        "y": 8,
+        "w": 28,
+        "h": 28
+      }
+    },
+    {
+      "tag": "button",
+      "text": "批",
+      "title": "生成古典评点",
+      "className": "sidebar-dock-btn",
+      "type": "submit",
+      "disabled": true,
+      "rect": {
+        "x": 14,
+        "y": 96,
+        "w": 36,
+        "h": 36
+      }
+    },
+    {
+      "tag": "textarea",
+      "text": "输入任意指令…",
+      "className": "frontstage-input-textarea",
+      "type": "textarea",
+      "rect": {
+        "x": 257,
+        "y": 662,
+        "w": 808,
+        "h": 27
+      }
+    }
+  ],
+  "pageText": "草苔\n·\n0 字 / 0 字\n·\n18px\n色调\n暖赭\n冷青\n琥珀\n靛紫\n温\n批\n\n\n\n\n开始写下第一句话，文思将随你而行\n\n按 / 查看可用命令"
+}

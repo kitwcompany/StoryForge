@@ -1,0 +1,251 @@
+{
+  "viewId": "world_building",
+  "viewName": "世界构建",
+  "description": "构建故事世界观",
+  "title": "CINEMA-AI | 越写越懂的创作系统",
+  "screenshot": "05_world_building.png",
+  "capturedAt": "2026-06-08T08:36:00.953Z",
+  "elements": [
+    {
+      "tag": "button",
+      "text": "重试",
+      "className": "ml-2 px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg text-xs font-medium transition-colors",
+      "type": "submit",
+      "rect": {
+        "x": 1025,
+        "y": 35,
+        "w": 48,
+        "h": 24
+      }
+    },
+    {
+      "tag": "button",
+      "text": "重试",
+      "className": "ml-2 px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg text-xs font-medium transition-colors",
+      "type": "submit",
+      "rect": {
+        "x": 1025,
+        "y": 35,
+        "w": 48,
+        "h": 24
+      }
+    },
+    {
+      "tag": "button",
+      "text": "开幕前写作",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 bg-gradient-to-r fro",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 94,
+        "w": 231,
+        "h": 50
+      }
+    },
+    {
+      "tag": "button",
+      "text": "仪表盘",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 193,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "故事",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 245,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "角色",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 297,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "世界构建",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 349,
+        "w": 231,
+        "h": 50
+      }
+    },
+    {
+      "tag": "button",
+      "text": "场景",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 403,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "知识图谱",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 455,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "技能",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 507,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "MCP",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 559,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "拆书",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 611,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "任务",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 663,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "伏笔看板",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 715,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "叙事分析",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 767,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "Story System",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 819,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "用量统计",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 871,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "写作统计",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 923,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "设置",
+      "className": "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 hover:bg-cinema-800 ",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 975,
+        "w": 231,
+        "h": 48
+      }
+    },
+    {
+      "tag": "button",
+      "text": "登录",
+      "className": "flex items-center gap-2 px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 r",
+      "type": "submit",
+      "rect": {
+        "x": 12,
+        "y": 1036,
+        "w": 76,
+        "h": 32
+      }
+    }
+  ],
+  "pageText": "无法连接到本地服务\n请确保应用已正确启动\n重试\n无法连接到本地服务\n请确保应用已正确启动\n重试\n草苔\nStoryForge\n开幕前写作\n\n极简阅读写作界面\n\n仪表盘\n故事\n角色\n世界构建\n场景\n知识图谱\n技能\nMCP\n拆书\n任务\n伏笔看板\n叙事分析\nStory System\n用量统计\n写作统计\n设置\n\n未选择故事\n\n登录\n先选择一个故事\n\n在故事库中选择一个故事来构建世界"
+}

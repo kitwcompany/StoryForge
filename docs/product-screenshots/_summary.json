@@ -1,0 +1,102 @@
+{
+  "capturedAt": "2026-06-08T08:36:24.930Z",
+  "totalViews": 17,
+  "views": [
+    {
+      "id": "dashboard",
+      "name": "仪表盘",
+      "screenshot": "01_dashboard.png",
+      "elements": 24
+    },
+    {
+      "id": "stories",
+      "name": "故事",
+      "screenshot": "02_stories.png",
+      "elements": 20
+    },
+    {
+      "id": "characters",
+      "name": "角色",
+      "screenshot": "03_characters.png",
+      "elements": 20
+    },
+    {
+      "id": "scenes",
+      "name": "场景",
+      "screenshot": "04_scenes.png",
+      "elements": 21
+    },
+    {
+      "id": "world_building",
+      "name": "世界构建",
+      "screenshot": "05_world_building.png",
+      "elements": 20
+    },
+    {
+      "id": "knowledge-graph",
+      "name": "知识图谱",
+      "screenshot": "06_knowledge-graph.png",
+      "elements": 20
+    },
+    {
+      "id": "skills",
+      "name": "技能",
+      "screenshot": "07_skills.png",
+      "elements": 32
+    },
+    {
+      "id": "mcp",
+      "name": "MCP",
+      "screenshot": "08_mcp.png",
+      "elements": 26
+    },
+    {
+      "id": "book-deconstruction",
+      "name": "拆书",
+      "screenshot": "09_book-deconstruction.png",
+      "elements": 22
+    },
+    {
+      "id": "tasks",
+      "name": "任务",
+      "screenshot": "10_tasks.png",
+      "elements": 26
+    },
+    {
+      "id": "foreshadowing",
+      "name": "伏笔看板",
+      "screenshot": "11_foreshadowing.png",
+      "elements": 21
+    },
+    {
+      "id": "narrative-analysis",
+      "name": "叙事分析",
+      "screenshot": "12_narrative-analysis.png",
+      "elements": 20
+    },
+    {
+      "id": "story-system",
+      "name": "Story System",
+      "screenshot": "13_story-system.png",
+      "elements": 20
+    },
+    {
+      "id": "usage-stats",
+      "name": "用量统计",
+      "screenshot": "14_usage-stats.png",
+      "elements": 20
+    },
+    {
+      "id": "writing-stats",
+      "name": "写作统计",
+      "screenshot": "15_writing-stats.png",
+      "elements": 20
+    },
+    {
+      "id": "settings",
+      "name": "设置",
+      "screenshot": "16_settings.png",
+      "elements": 36
+    }
+  ]
+}
