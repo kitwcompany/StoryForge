@@ -2,13 +2,27 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v0.8.2 - AI 导演式小说创作系统
+# StoryForge (草苔) v0.9.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
 > 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、AI 三审Pipeline、角色动态状态追踪、7 阶段全自动创作工作流、高密度状态世界构建法、**LitSeg 叙事感知分段**。让 AI 成为你的创作搭档，越写越懂你。
 >
-> **v0.8.2 最新更新（2026-06-03）**：LitSeg 拆书融合全面完成 — Phase 1-6 六阶段深度融合落地。**叙事感知分块**（chunker.rs）长篇小说按章节边界+场景转换点智能分块，杜绝 5000 字符固定切分切断叙事的问题。**模型增强**（elements.rs + intensity_mapper.rs）场景元素自动携带 narrative_intensity/sentiment/event_types/act_number 等 7 个 LitSeg 字段。**Executor 后处理**（executor.rs）7 步 Pipeline 完成后自动运行 NarrativeStructureAnalyzer 推断起承转合幕结构。**转故事迁移**（service.rs）拆书结果一键转创作故事时，叙事分析数据无缝迁移到 story_outlines / scenes 表。**前端可视化**（StoryArcView.tsx）故事线标签页新增幕结构图、场景叙事强度时间线、场景情感分布三大可视化组件。**向量化增强**（lancedb_store.rs）场景 embedding 携带 act_number 等 narrative 元数据，语义检索时可按叙事结构重排序。全部 264 项 Rust 测试通过，前端构建成功。
+> **v0.9.0 最新更新（2026-06-08）**：基于 Brooks-Lint 全面扫描的代码质量大重构完成。
+>
+> **Phase 1 测试根基** — 新增 23 个回归测试（总计 297）：SceneRepository 事务与 33 字段映射测试、PipelineReviewExecutor `parse_pipeline_payload` 提取 + 7 测试、LlmService `build_writing_prompt` 纯函数 + 事件序列化 10 测试、`is_novel_creation_intent` 6 测试。`cargo test` 全绿，`tsc --noEmit` 零错误。
+>
+> **Phase 2 启动序列重构** — `lib.rs` 的 `setup` 闭包从 ~500 行瘦身到 ~117 行（-77%），提取 6 个独立初始化函数；9 个全局静态变量（`DB_POOL`、`APP_CONFIG`、`VECTOR_STORE` 等）添加 `SAFETY`/`GLOBAL` 注释，明确生命周期与线程安全约定。
+>
+> **Phase 3 领域层治理** — 18 个请求/响应 DTO 从 `db/models.rs` 迁移到新建 `db/dto.rs`；`commands/chapter.rs` 的 debounce、payoff 检测、自动化触发逻辑迁移到 `story_system/chapter_service.rs`；`commands/scene_commands.rs` 的知识图谱 Ingest、向量索引、级联改写迁移到 `story_system/scene_service.rs`，命令层回归"薄适配器"定位。
+>
+> **Phase 4 前端架构清理** — 修复 `@services/` 与 `@/services/` 路径别名混用；`tsconfig.json` 移除冗余 `@services/*` 映射；`settings.ts` 消灭 3 处 `any`；1340 行的 `services/tauri.ts` 拆分为 16 个 `api/` 子模块（stories/skills/settings/intent/annotations/knowledge/wizard/memory/pipeline/quality/genesis/storySystem/stream/subscription/writing/core），`tauri.ts` 变为 barrel 文件；36 个内联接口集中迁移到 `types/api.ts`。
+>
+> **Phase 5 后端质量收尾** — `cargo fix` + 手动清理：`~20` 条未使用 imports/variables 清理、`classic_styles.rs` + `classic_styles_extended.rs` 48 个风格函数 `pub` 降低、`narrative/prompts::verb()` 可见性收紧，最终实现 **`cargo check` 0 警告**。
+>
+> **迁移框架现代化** — `db/migrations.rs` 自定义 `MigrationRunner` 集成到 `connection.rs` 的 `init_db()`，使用 `run_with_legacy()` 桥接兼容历史迁移；从 3111 行 `run_migrations()` 中成功提取 20 个版本（V007–V026）为 `.sql` 文件，后续版本将持续迁移。
+>
+> **v0.8.2 更新（2026-06-03）**：LitSeg 拆书融合全面完成 — Phase 1-6 六阶段深度融合落地。**叙事感知分块**（chunker.rs）长篇小说按章节边界+场景转换点智能分块，杜绝 5000 字符固定切分切断叙事的问题。**模型增强**（elements.rs + intensity_mapper.rs）场景元素自动携带 narrative_intensity/sentiment/event_types/act_number 等 7 个 LitSeg 字段。**Executor 后处理**（executor.rs）7 步 Pipeline 完成后自动运行 NarrativeStructureAnalyzer 推断起承转合幕结构。**转故事迁移**（service.rs）拆书结果一键转创作故事时，叙事分析数据无缝迁移到 story_outlines / scenes 表。**前端可视化**（StoryArcView.tsx）故事线标签页新增幕结构图、场景叙事强度时间线、场景情感分布三大可视化组件。**向量化增强**（lancedb_store.rs）场景 embedding 携带 act_number 等 narrative 元数据，语义检索时可按叙事结构重排序。全部 264 项 Rust 测试通过，前端构建成功。
 >
 > **v0.8.1 更新（2026-05-30）**：LitSeg 叙事感知分段深度融合 — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 将 AI 的叙事结构感知能力融入创作全流程。**深度融合而非机械叠加** — narrative_events / narrative_threads / narrative_structure 三张冗余表全部删除，功能分别合并到 scenes / foreshadowing_tracker / character_states / story_outlines 等现有表；新增 scenes.narrative_intensity/event_types/act_number 等 7 个字段，让"场景=情节节点"的设计意图与 LitSeg 的"事件提取"洞察融为一体。**叙事分析页面** — 后台新增"叙事分析"标签页，可视化展示起承转合四幕结构、事件强度时间线、未回收伏笔与角色弧光。**Agent 上下文增强** — Writer Agent 的系统提示词自动注入当前叙事位置（"第3幕75%，接近高潮"），AI 写作时明确知道故事进展到哪个阶段，生成内容更符合叙事节奏。
 >
