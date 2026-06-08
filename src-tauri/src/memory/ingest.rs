@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 两步思维链Ingest流程
 //!
 //! 基于llm_wiki方法论：
@@ -658,7 +659,7 @@ impl IngestPipeline {
         ]);
 
         let mut last_error: Option<String> = None;
-        for attempt in 0..3 {
+        for _attempt in 0..3 {
             let mut prompt_text = rendered.clone();
             if let Some(ref err) = last_error {
                 prompt_text.push_str(&format!(
@@ -778,9 +779,6 @@ impl IngestPipeline {
 
             let event_types_json = serde_json::to_string(&[event.event_type.to_string()])
                 .unwrap_or_else(|_| "[]".to_string());
-            let conflict_types_json =
-                serde_json::to_string(&event.conflict_types).unwrap_or_else(|_| "[]".to_string());
-
             let result = conn.execute(
                 "UPDATE scenes SET
                     narrative_intensity = ?2,

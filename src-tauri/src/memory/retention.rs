@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 记忆保留管理 - Phase 1.4
 //!
 //! 基于 Ebbinghaus 遗忘曲线理论的记忆优先级管理

@@ -1,7 +1,6 @@
 //! 小说创建 Agent
 //!
 //! 负责引导式生成小说核心要素：世界观、角色谱、文字风格
-#![allow(dead_code)]
 #![allow(unused_imports)]
 
 use serde::{Deserialize, Serialize};

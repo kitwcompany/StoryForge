@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Task Service
 //!
 //! 业务服务层：整合 Repository + Scheduler + Heartbeat + ExecutorRegistry

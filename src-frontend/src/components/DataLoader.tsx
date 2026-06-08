@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
-import { healthCheck } from '@services/tauri';
+import { healthCheck } from '@/services/tauri';
 
 // v5.0.0 修复：DataLoader 不再加载 stories，避免与 App.tsx 的 handleWindowShown 竞态
 // stories 的加载完全由 App.tsx 控制，确保窗口重新显示时数据刷新可靠

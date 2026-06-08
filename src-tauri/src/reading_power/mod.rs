@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Reading Power System - 追读力系统
 //!
 //! 参考 webnovel-writer 的追读力设计：

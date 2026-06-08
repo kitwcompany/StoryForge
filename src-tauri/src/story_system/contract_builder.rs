@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Contract Builder - 合同构建器
 //!
 //! 辅助构建各类合同的 JSON 内容

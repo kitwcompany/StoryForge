@@ -1,8 +1,8 @@
+#![allow(dead_code)]
 //! Agent Service - 智能代理服务
 //!
 //! 协调多个Agent完成复杂的创作任务
 //! 支持任务分解、执行、结果整合
-#![allow(dead_code)]
 #![allow(unused_imports)]
 
 use std::collections::HashMap;
@@ -761,7 +761,6 @@ impl AgentService {
 
         // v0.7.8: 风格一致性快速检查（ fingerprint 存在时）
         if let Some(ref fingerprint) = task.context.style.style_fingerprint {
-            let fp_text = fingerprint.to_prompt_section();
             let style_check =
                 crate::creative_engine::style::fingerprint::StyleFingerprint::from_text(&content);
             let len_diff = (style_check.syntax.avg_sentence_length

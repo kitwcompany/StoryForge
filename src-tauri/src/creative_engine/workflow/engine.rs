@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 创作工作流引擎核心
 //!
 //! 串联所有创作阶段和 Agent，形成完整闭环：
@@ -22,10 +23,10 @@ use crate::{
     creative_engine::methodology::MethodologyConfig,
     db::{
         repositories::{
-            ChapterRepository, CharacterRepository, KnowledgeGraphRepository, SceneRepository,
+            CharacterRepository, KnowledgeGraphRepository, SceneRepository,
             WorldBuildingRepository, WritingStyleRepository,
         },
-        CreateChapterRequest, CreateCharacterRequest, Culture, DbPool, SceneUpdate, WorldRule,
+        CreateCharacterRequest, DbPool, SceneUpdate,
         WritingStyleUpdate,
     },
     error::AppError,

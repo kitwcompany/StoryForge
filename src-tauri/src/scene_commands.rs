@@ -32,6 +32,7 @@ use crate::{
         ingest::{IngestContent, IngestPipeline},
         retention::RetentionManager,
     },
+    story_system::scene_service::SceneService,
     versions::service::{SceneVersionService, VersionChainNode, VersionDiff, VersionStats},
 };
 
@@ -112,39 +113,9 @@ pub async fn create_scene(
         }
     }
 
-    // OnSceneCreate hook
-    if let Some(manager) = crate::SKILL_MANAGER.get() {
-        if let Ok(skill_manager) = manager.lock() {
-            let story_id = scene.story_id.clone();
-            let scene_id = scene.id.clone();
-            let scene_title = scene.title.clone();
-            let skill_manager = skill_manager.clone();
-            tauri::async_runtime::spawn(async move {
-                let context = crate::agents::AgentContext::minimal(story_id, String::new());
-                let data = serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
-                let _ = skill_manager
-                    .execute_hooks(crate::skills::HookEvent::OnSceneCreate, &context, data)
-                    .await;
-                log::info!(
-                    "Hook executed: {:?}",
-                    crate::skills::HookEvent::OnSceneCreate
-                );
-            });
-        }
-    }
-
-    let _ = crate::state_sync::StateSync::emit_scene_created(
-        &app_handle,
-        &story_id,
-        &scene.id,
-        scene.title.as_deref(),
-    );
-    let _ = automation_service
-        .trigger_event(crate::automation::triggers::TriggerEvent::SceneCreated {
-            story_id: story_id.clone(),
-            scene_id: scene.id.clone(),
-        })
-        .await;
+    // 委托领域服务处理后续业务编排
+    let service = SceneService::new(pool.inner().clone(), app_handle);
+    service.on_scene_created(&scene, has_extra, has_setting_changes, automation_service.inner());
 
     Ok(scene)
 }

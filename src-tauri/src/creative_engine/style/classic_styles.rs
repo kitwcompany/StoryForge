@@ -108,7 +108,7 @@ pub fn jin_yong() -> StyleDNA {
 
 /// 张爱玲风格
 /// 特征：色彩与触觉词汇密集、比喻精巧、冷漠叙事距离、细节描写极致
-pub fn zhang_ailing() -> StyleDNA {
+fn zhang_ailing() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "张爱玲".to_string(),
@@ -253,7 +253,7 @@ pub fn hemingway() -> StyleDNA {
 
 /// 村上春树风格
 /// 特征：超现实比喻、孤独感、爵士乐节奏、第一人称疏离
-pub fn murakami() -> StyleDNA {
+fn murakami() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "村上春树".to_string(),
@@ -333,7 +333,7 @@ pub fn murakami() -> StyleDNA {
 
 /// 莫言风格
 /// 特征：乡土气息浓郁、感官爆炸、魔幻现实主义、粗粝有力
-pub fn mo_yan() -> StyleDNA {
+fn mo_yan() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "莫言".to_string(),
@@ -406,7 +406,7 @@ pub fn mo_yan() -> StyleDNA {
 }
 
 /// 古典散文风格
-pub fn classical_prose() -> StyleDNA {
+fn classical_prose() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "古典散文".to_string(),
@@ -462,7 +462,7 @@ pub fn classical_prose() -> StyleDNA {
 }
 
 /// 现代极简风格
-pub fn modern_minimal() -> StyleDNA {
+fn modern_minimal() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "现代极简".to_string(),
@@ -518,7 +518,7 @@ pub fn modern_minimal() -> StyleDNA {
 }
 
 /// 黑色侦探风格
-pub fn noir_detective() -> StyleDNA {
+fn noir_detective() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "黑色侦探".to_string(),
@@ -574,7 +574,7 @@ pub fn noir_detective() -> StyleDNA {
 }
 
 /// 武侠诗意风格
-pub fn wuxia_poetic() -> StyleDNA {
+fn wuxia_poetic() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "武侠诗意".to_string(),
@@ -630,7 +630,7 @@ pub fn wuxia_poetic() -> StyleDNA {
 }
 
 /// 浪漫绮丽风格
-pub fn romance_flowery() -> StyleDNA {
+fn romance_flowery() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "浪漫绮丽".to_string(),

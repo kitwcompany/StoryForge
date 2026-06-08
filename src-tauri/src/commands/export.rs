@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Export commands
 
 use tauri::{AppHandle, Manager, State};
@@ -178,7 +179,7 @@ pub async fn save_export_template(
 pub async fn delete_export_template(
     id: String,
     pool: State<'_, DbPool>,
-    app: AppHandle,
+    _app: AppHandle,
 ) -> Result<(), AppError> {
     let repo = crate::db::ExportTemplateRepository::new(pool.inner().clone());
     repo.delete(&id).map_err(AppError::from)?;

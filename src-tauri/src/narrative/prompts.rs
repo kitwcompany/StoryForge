@@ -13,7 +13,7 @@ pub enum PromptMode {
 }
 
 impl PromptMode {
-    pub fn verb(&self) -> &'static str {
+    fn verb(&self) -> &'static str {
         match self {
             PromptMode::Generate => "生成",
             PromptMode::Extract => "提取",

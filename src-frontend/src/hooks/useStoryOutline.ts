@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getStoryOutline, updateStoryOutline } from '@services/tauri';
+import { getStoryOutline, updateStoryOutline } from '@/services/tauri';
 import type { StoryOutline } from '@/types/index';
 
 const STORY_OUTLINE_KEY = 'story-outline';

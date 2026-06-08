@@ -68,12 +68,23 @@ use tauri::{Emitter, Manager};
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
 
+// GLOBAL: DB_POOL — 数据库连接池全局访问点。
+// SAFETY: 仅在 setup() 中初始化一次，之后只读访问。Mutex 用于 Lazy 初始化，不是频繁锁竞争。
+// NOTE: 理想情况下应通过 Tauri State 注入，但当前大量模块直接调用 get_pool()，保留为过渡期全局。
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
+
+// GLOBAL: APP_CONFIG — 应用配置全局访问点。
+// SAFETY: 在 setup() 中加载后极少变更。reload_config() 会写，但频率极低。
+// NOTE: 应逐步迁移到按模块配置注入。
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
+
+// GLOBAL: SKILL_MANAGER — 技能管理器全局单例。
+// SAFETY: OnceCell 保证仅初始化一次。SkillManager 内部使用 Mutex 保护状态。
 pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
 
-/// Chapter commit debounce: chapter_id -> last_scheduled_time
-/// W4-B9: 防止频繁保存导致重复 commit
+// GLOBAL: Chapter commit debounce 状态。
+// W4-B9: 防止频繁保存导致重复 commit。
+// SAFETY: 纯内存状态，丢失无数据损坏风险。每次启动重置。
 pub(crate) static CHAPTER_COMMIT_DEBOUNCE: Lazy<Mutex<HashMap<String, Instant>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 pub(crate) const CHAPTER_COMMIT_DEBOUNCE_SECONDS: u64 = 30; // 30 秒 debounce
@@ -91,10 +102,6 @@ pub(crate) fn record_ai_operation(req: db::CreateAiOperationRequest) {
 pub(crate) fn get_pool() -> Option<DbPool> {
     DB_POOL.lock().unwrap().clone()
 }
-fn get_config() -> Option<AppConfig> {
-    APP_CONFIG.lock().unwrap().clone()
-}
-
 /// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
 fn graceful_shutdown(app_handle: &tauri::AppHandle) {
     log::info!("[Shutdown] Starting graceful shutdown...");
@@ -132,8 +139,388 @@ fn graceful_shutdown(app_handle: &tauri::AppHandle) {
     std::process::exit(0);
 }
 
+/// 种子内置数据：StyleDNA、导出模板、GenreProfiles
+fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
+    // Seed built-in StyleDNAs
+    let style_repo = db::StyleDnaRepository::new(pool.clone());
+    match style_repo.get_builtin() {
+        Ok(existing) if existing.is_empty() => {
+            log::info!("[StyleDNA] Seeding built-in styles...");
+            for style in creative_engine::style::classic_styles::get_builtin_styles() {
+                if let Ok(dna_json) = serde_json::to_string(&style) {
+                    let _ = style_repo.create(
+                        &style.meta.name,
+                        style.meta.author.as_deref(),
+                        &dna_json,
+                        true,
+                    );
+                }
+            }
+            log::info!("[StyleDNA] Built-in styles seeded successfully");
+        }
+        Ok(_) => log::info!("[StyleDNA] Built-in styles already exist, skipping seed"),
+        Err(e) => log::warn!("[StyleDNA] Failed to check existing styles: {}", e),
+    }
+
+    // Seed built-in export templates
+    let template_repo = db::ExportTemplateRepository::new(pool.clone());
+    match template_repo.seed_builtin_templates() {
+        Ok(_) => log::info!("[ExportTemplates] Built-in templates seeded successfully"),
+        Err(e) => {
+            log::warn!("[ExportTemplates] Failed to seed built-in templates: {}", e)
+        }
+    }
+
+    // Seed genre profiles
+    let templates_dir = app_dir.join("templates");
+    let user_genres_path = templates_dir.join("genres.json");
+    let default_genres_json = include_str!("../../templates/genres.json");
+
+    if !user_genres_path.exists() {
+        let _ = std::fs::create_dir_all(&templates_dir);
+        if let Err(e) = std::fs::write(&user_genres_path, default_genres_json) {
+            log::warn!(
+                "[GenreProfiles] Failed to copy default genres.json to app dir: {}",
+                e
+            );
+        } else {
+            log::info!(
+                "[GenreProfiles] Copied default genres.json to {:?}",
+                user_genres_path
+            );
+        }
+    }
+
+    if let Ok(json_str) = std::fs::read_to_string(&user_genres_path) {
+        match serde_json::from_str::<serde_json::Value>(&json_str) {
+            Ok(genres_data) => {
+                if let Some(profiles) = genres_data.get("profiles").and_then(|p| p.as_array()) {
+                    let repo = db::GenreProfileRepository::new(pool.clone());
+                    for profile in profiles {
+                        let genre_name = profile
+                            .get("genre_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let canonical_name = profile
+                            .get("canonical_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if genre_name.is_empty() || canonical_name.is_empty() {
+                            continue;
+                        }
+                        // 仅当不存在时才插入，避免覆盖用户自定义修改
+                        match repo.get_by_name(genre_name) {
+                            Ok(None) => {
+                                let aliases_json =
+                                    profile.get("aliases").map(|v| v.to_string());
+                                let core_tone =
+                                    profile.get("core_tone").and_then(|v| v.as_str());
+                                let pacing_strategy = profile
+                                    .get("pacing_strategy")
+                                    .and_then(|v| v.as_str());
+                                let anti_patterns_json =
+                                    profile.get("anti_patterns").map(|v| v.to_string());
+                                let reference_tables_json = profile
+                                    .get("reference_tables")
+                                    .and_then(|v| v.as_str());
+                                let _ = repo.create(
+                                    genre_name,
+                                    canonical_name,
+                                    aliases_json.as_deref(),
+                                    core_tone,
+                                    pacing_strategy,
+                                    anti_patterns_json.as_deref(),
+                                    reference_tables_json,
+                                );
+                            }
+                            Ok(Some(_)) => {
+                                // 已存在，跳过
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[GenreProfiles] Failed to check existing genre '{}' : {}",
+                                    genre_name,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    log::info!(
+                        "[GenreProfiles] Seeded {} built-in genre profiles",
+                        profiles.len()
+                    );
+                }
+            }
+            Err(e) => {
+                log::warn!("[GenreProfiles] Failed to parse genres.json: {}", e);
+            }
+        }
+    }
+}
+
+/// 初始化任务系统和自动化服务
+fn init_task_system_and_automation(
+    app: &mut tauri::App,
+    pool: &DbPool,
+    app_handle: &tauri::AppHandle,
+) {
+    let task_service =
+        task_system::service::TaskService::new(pool.clone(), app_handle.clone());
+    let llm_service = llm::LlmService::new(app_handle.clone());
+    let executor = std::sync::Arc::new(
+        book_deconstruction::executor::BookDeconstructionExecutor::new(
+            pool.clone(),
+            llm_service,
+            app_handle.clone(),
+        ),
+    );
+    task_service.register_executor(executor);
+    let cascade_executor = std::sync::Arc::new(
+        creative_engine::cascade_rewriter::executor::CascadeRewriteExecutor::new(
+            pool.clone(),
+            app_handle.clone(),
+        ),
+    );
+    task_service.register_executor(cascade_executor);
+    let ai_gen_executor = std::sync::Arc::new(
+        agents::executor::AiGenerationExecutor::new(pool.clone(), app_handle.clone()),
+    );
+    task_service.register_executor(ai_gen_executor);
+    let pipeline_executor =
+        std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(
+            pool.clone(),
+            app_handle.clone(),
+        ));
+    task_service.register_executor(pipeline_executor);
+    if let Err(e) = task_service.bootstrap() {
+        log::error!("Failed to bootstrap task system: {}", e);
+    } else {
+        log::info!("Task system bootstrapped successfully");
+    }
+    app.manage(task_service);
+
+    // Initialize automation service
+    let automation_service =
+        automation::service::AutomationService::new(app_handle.clone(), pool.clone());
+    let automation_service_clone = automation_service.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = automation_service_clone.initialize().await {
+            log::error!("Failed to initialize automation service: {}", e);
+        } else {
+            log::info!("Automation service initialized successfully");
+        }
+    });
+    app.manage(automation_service);
+}
+
+/// 异步初始化 LanceDB 向量存储并处理积压索引
+async fn init_vector_store_async(vector_db_path: String) {
+    let mut vector_store = LanceVectorStore::new(vector_db_path);
+    if let Err(e) = vector_store.init().await {
+        log::error!("Failed to initialize vector store: {}", e);
+        return;
+    }
+    let _ = VECTOR_STORE.set(vector_store);
+    log::info!("Vector store initialized successfully");
+
+    // 处理启动期间积压的章节索引请求
+    let pending_ids: Vec<String> = {
+        if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
+            std::mem::take(&mut *pending)
+        } else {
+            Vec::new()
+        }
+    };
+    if !pending_ids.is_empty() {
+        log::info!(
+            "[PENDING_VECTOR] Processing {} queued chapter indexes",
+            pending_ids.len()
+        );
+        for chapter_id in pending_ids {
+            if let Some(pool) = get_pool() {
+                let repo = db::ChapterRepository::new(pool);
+                if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
+                    let story_id = chapter.story_id.clone();
+                    let content_text = chapter.content.clone().unwrap_or_default();
+                    if content_text.len() >= 20 {
+                        match embeddings::embed_text_async(content_text.clone()).await {
+                            Ok(embedding) => {
+                                let record = vector::VectorRecord {
+                                    id: format!("chapter:{}", chapter_id),
+                                    story_id: story_id.clone(),
+                                    chapter_id: chapter_id.clone(),
+                                    chapter_number: chapter.chapter_number,
+                                    text: content_text.clone(),
+                                    record_type: "chapter".to_string(),
+                                    metadata: None,
+                                    embedding,
+                                };
+                                if let Some(store) = VECTOR_STORE.get() {
+                                    match store.add_record(record).await {
+                                        Ok(_) => log::info!(
+                                            "[PENDING_VECTOR] Indexed queued chapter {}",
+                                            chapter_id
+                                        ),
+                                        Err(e) => log::warn!(
+                                            "[PENDING_VECTOR] Failed to index queued chapter {}: {}",
+                                            chapter_id,
+                                            e
+                                        ),
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[PENDING_VECTOR] Failed to generate embedding for queued chapter {}: {}",
+                                    chapter_id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(pool) = get_pool() {
+        if let Ok(conn) = pool.get() {
+            let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
+        }
+    }
+    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// 初始化工作流引擎、调度器和 DSL 加载器
+fn init_workflow_engine(app: &mut tauri::App, app_handle: tauri::AppHandle) {
+    let (engine, restored_instance_ids) = if let Some(pool) = get_pool() {
+        workflow::WorkflowEngine::with_pool(pool)
+    } else {
+        (workflow::WorkflowEngine::new(), vec![])
+    };
+    let scheduler = std::sync::Arc::new(workflow::WorkflowScheduler::new());
+    // Register the standard writing workflow template
+    if let Err(e) = engine.register_workflow(workflow::templates::standard_writing_workflow()) {
+        log::warn!("Failed to register standard workflow: {}", e);
+    }
+    let engine_arc = std::sync::Arc::new(engine);
+    scheduler.start_auto_drain(engine_arc.clone(), app_handle.clone());
+    if !restored_instance_ids.is_empty() {
+        log::info!(
+            "[WorkflowEngine] Restoring {} pending/running instances to scheduler",
+            restored_instance_ids.len()
+        );
+        let scheduler_clone = scheduler.clone();
+        tauri::async_runtime::spawn(async move {
+            for instance_id in restored_instance_ids {
+                if let Err(e) = scheduler_clone.schedule_execution(instance_id).await {
+                    log::warn!(
+                        "[WorkflowEngine] Failed to restore instance to scheduler: {}",
+                        e
+                    );
+                }
+            }
+        });
+    }
+
+    app.manage(engine_arc.clone());
+    app.manage(scheduler);
+    log::info!("Workflow engine and scheduler initialized");
+
+    // Initialize WorkflowLoader (file system DSL watcher)
+    let loader = workflow::WorkflowLoader::new(engine_arc);
+    let builtin_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("workflows")));
+    let user_dir = app_handle
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
+        .join("workflows");
+    if let Err(e) = loader.initialize(builtin_dir, user_dir) {
+        log::warn!("[WorkflowLoader] Failed to initialize: {}", e);
+    }
+    app.manage(loader);
+    log::info!("[WorkflowLoader] File system workflow watcher initialized");
+}
+
+/// 初始化窗口状态：隐藏 backstage，聚焦 frontstage，禁用 Windows 右键菜单
+fn init_windows(app: &mut tauri::App) {
+    log::info!("[StateSync] State synchronization service initialized");
+
+    if let Some(backstage) = app.get_webview_window("backstage") {
+        let _ = backstage.hide();
+    }
+    if let Some(frontstage) = app.get_webview_window("frontstage") {
+        let _ = frontstage.set_focus();
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for label in ["frontstage", "backstage"] {
+            if let Some(window) = app.get_webview_window(label) {
+                let _ = window.with_webview(|webview| {
+                    let controller = webview.controller();
+                    unsafe {
+                        if let Ok(core) = controller.CoreWebView2() {
+                            if let Ok(settings) = core.Settings() {
+                                let _ = settings.SetAreDefaultContextMenusEnabled(false);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// 启动后台任务：能力进化自动触发
+fn spawn_background_tasks(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        let llm = llm::LlmService::new(app_handle.clone());
+        let engine = capabilities::evolution::CapabilityEvolutionEngine::new(
+            llm,
+            &app_handle,
+        );
+        let stats = engine.get_statistics();
+        let total_records: usize = stats.values().map(|(t, _)| t).sum();
+        if total_records >= 5 {
+            log::info!(
+                "[CapabilityEvolution] Auto-triggering evolution with {} total records",
+                total_records
+            );
+            match engine.evolve_capability_descriptions().await {
+                Ok(improvements) => {
+                    log::info!(
+                        "[CapabilityEvolution] Auto-evolution completed with {} improvements",
+                        improvements.len()
+                    );
+                    let _ = app_handle.emit(
+                        "capabilities-evolved",
+                        serde_json::json!({
+                            "improvements": improvements,
+                            "auto_triggered": true,
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                        }),
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[CapabilityEvolution] Auto-evolution failed: {}", e)
+                }
+            }
+        } else {
+            log::info!(
+                "[CapabilityEvolution] Not enough records ({}) to trigger auto-evolution",
+                total_records
+            );
+        }
+    });
+}
+
 pub fn run() {
-    let app = tauri::Builder::default()
+    let _app = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -222,129 +609,8 @@ pub fn run() {
             let evolved_desc_path = app_dir.join("evolved_descriptions.json");
             crate::capabilities::set_evolved_descriptions_path(evolved_desc_path);
 
-            // Seed built-in StyleDNAs
             if let Some(pool) = get_pool() {
-                let style_repo = db::StyleDnaRepository::new(pool);
-                match style_repo.get_builtin() {
-                    Ok(existing) if existing.is_empty() => {
-                        log::info!("[StyleDNA] Seeding built-in styles...");
-                        for style in creative_engine::style::classic_styles::get_builtin_styles() {
-                            if let Ok(dna_json) = serde_json::to_string(&style) {
-                                let _ = style_repo.create(
-                                    &style.meta.name,
-                                    style.meta.author.as_deref(),
-                                    &dna_json,
-                                    true,
-                                );
-                            }
-                        }
-                        log::info!("[StyleDNA] Built-in styles seeded successfully");
-                    }
-                    Ok(_) => log::info!("[StyleDNA] Built-in styles already exist, skipping seed"),
-                    Err(e) => log::warn!("[StyleDNA] Failed to check existing styles: {}", e),
-                }
-            }
-
-            // Seed built-in export templates
-            if let Some(pool) = get_pool() {
-                let template_repo = db::ExportTemplateRepository::new(pool);
-                match template_repo.seed_builtin_templates() {
-                    Ok(_) => log::info!("[ExportTemplates] Built-in templates seeded successfully"),
-                    Err(e) => {
-                        log::warn!("[ExportTemplates] Failed to seed built-in templates: {}", e)
-                    }
-                }
-            }
-            {
-                let templates_dir = app_dir.join("templates");
-                let user_genres_path = templates_dir.join("genres.json");
-                let default_genres_json = include_str!("../../templates/genres.json");
-
-                if !user_genres_path.exists() {
-                    let _ = std::fs::create_dir_all(&templates_dir);
-                    if let Err(e) = std::fs::write(&user_genres_path, default_genres_json) {
-                        log::warn!(
-                            "[GenreProfiles] Failed to copy default genres.json to app dir: {}",
-                            e
-                        );
-                    } else {
-                        log::info!(
-                            "[GenreProfiles] Copied default genres.json to {:?}",
-                            user_genres_path
-                        );
-                    }
-                }
-
-                if let (Some(pool), Ok(json_str)) =
-                    (get_pool(), std::fs::read_to_string(&user_genres_path))
-                {
-                    match serde_json::from_str::<serde_json::Value>(&json_str) {
-                        Ok(genres_data) => {
-                            if let Some(profiles) =
-                                genres_data.get("profiles").and_then(|p| p.as_array())
-                            {
-                                let repo = db::GenreProfileRepository::new(pool);
-                                for profile in profiles {
-                                    let genre_name = profile
-                                        .get("genre_name")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
-                                    let canonical_name = profile
-                                        .get("canonical_name")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
-                                    if genre_name.is_empty() || canonical_name.is_empty() {
-                                        continue;
-                                    }
-                                    // 仅当不存在时才插入，避免覆盖用户自定义修改
-                                    match repo.get_by_name(genre_name) {
-                                        Ok(None) => {
-                                            let aliases_json =
-                                                profile.get("aliases").map(|v| v.to_string());
-                                            let core_tone =
-                                                profile.get("core_tone").and_then(|v| v.as_str());
-                                            let pacing_strategy = profile
-                                                .get("pacing_strategy")
-                                                .and_then(|v| v.as_str());
-                                            let anti_patterns_json =
-                                                profile.get("anti_patterns").map(|v| v.to_string());
-                                            let reference_tables_json = profile
-                                                .get("reference_tables")
-                                                .and_then(|v| v.as_str());
-                                            let _ = repo.create(
-                                                genre_name,
-                                                canonical_name,
-                                                aliases_json.as_deref(),
-                                                core_tone,
-                                                pacing_strategy,
-                                                anti_patterns_json.as_deref(),
-                                                reference_tables_json,
-                                            );
-                                        }
-                                        Ok(Some(_)) => {
-                                            // 已存在，跳过
-                                        }
-                                        Err(e) => {
-                                            log::warn!(
-                                                "[GenreProfiles] Failed to check existing genre \
-                                                 '{}': {}",
-                                                genre_name,
-                                                e
-                                            );
-                                        }
-                                    }
-                                }
-                                log::info!(
-                                    "[GenreProfiles] Seeded {} built-in genre profiles",
-                                    profiles.len()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("[GenreProfiles] Failed to parse genres.json: {}", e);
-                        }
-                    }
-                }
+                seed_builtin_data(&pool, &app_dir);
             }
 
             // Initialize embedding model
@@ -360,145 +626,15 @@ pub fn run() {
                 }
             }
 
-            // Bootstrap task system
             if let Some(pool) = get_pool() {
                 let app_handle = app.handle().clone();
-                let task_service =
-                    task_system::service::TaskService::new(pool.clone(), app_handle.clone());
-                let llm_service = llm::LlmService::new(app_handle.clone());
-                let executor = std::sync::Arc::new(
-                    book_deconstruction::executor::BookDeconstructionExecutor::new(
-                        pool.clone(),
-                        llm_service,
-                        app_handle.clone(),
-                    ),
-                );
-                task_service.register_executor(executor);
-                let cascade_executor = std::sync::Arc::new(
-                    creative_engine::cascade_rewriter::executor::CascadeRewriteExecutor::new(
-                        pool.clone(),
-                        app_handle.clone(),
-                    ),
-                );
-                task_service.register_executor(cascade_executor);
-                let ai_gen_executor = std::sync::Arc::new(
-                    agents::executor::AiGenerationExecutor::new(pool.clone(), app_handle.clone()),
-                );
-                task_service.register_executor(ai_gen_executor);
-                let pipeline_executor =
-                    std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(
-                        pool.clone(),
-                        app_handle.clone(),
-                    ));
-                task_service.register_executor(pipeline_executor);
-                if let Err(e) = task_service.bootstrap() {
-                    log::error!("Failed to bootstrap task system: {}", e);
-                } else {
-                    log::info!("Task system bootstrapped successfully");
-                }
-                app.manage(task_service);
-
-                // Initialize automation service
-                let automation_service =
-                    automation::service::AutomationService::new(app_handle.clone(), pool.clone());
-                let automation_service_clone = automation_service.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = automation_service_clone.initialize().await {
-                        log::error!("Failed to initialize automation service: {}", e);
-                    } else {
-                        log::info!("Automation service initialized successfully");
-                    }
-                });
-                app.manage(automation_service);
+                init_task_system_and_automation(app, &pool, &app_handle);
             }
 
-            // Initialize LanceDB vector store
+            // Initialize LanceDB vector store (async background task)
             let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
             std::fs::create_dir_all(&vector_db_path).ok();
-
-            // P0-7 修复: 在向量存储初始化完成后处理积压的索引请求
-            let _app_handle_for_vector = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let mut vector_store = LanceVectorStore::new(vector_db_path);
-                if let Err(e) = vector_store.init().await {
-                    log::error!("Failed to initialize vector store: {}", e);
-                } else {
-                    let _ = VECTOR_STORE.set(vector_store);
-                    log::info!("Vector store initialized successfully");
-                    // 处理启动期间积压的章节索引请求
-                    let pending_ids: Vec<String> = {
-                        if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
-                            std::mem::take(&mut *pending)
-                        } else {
-                            Vec::new()
-                        }
-                    };
-                    if !pending_ids.is_empty() {
-                        log::info!(
-                            "[PENDING_VECTOR] Processing {} queued chapter indexes",
-                            pending_ids.len()
-                        );
-                        for chapter_id in pending_ids {
-                            if let Some(pool) = get_pool() {
-                                let repo = db::ChapterRepository::new(pool);
-                                if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
-                                    let story_id = chapter.story_id.clone();
-                                    let content_text = chapter.content.clone().unwrap_or_default();
-                                    if content_text.len() >= 20 {
-                                        match embeddings::embed_text_async(content_text.clone())
-                                            .await
-                                        {
-                                            Ok(embedding) => {
-                                                let record = vector::VectorRecord {
-                                                    id: format!("chapter:{}", chapter_id),
-                                                    story_id: story_id.clone(),
-                                                    chapter_id: chapter_id.clone(),
-                                                    chapter_number: chapter.chapter_number,
-                                                    text: content_text.clone(),
-                                                    record_type: "chapter".to_string(),
-                                                    metadata: None,
-                                                    embedding,
-                                                };
-                                                if let Some(store) = VECTOR_STORE.get() {
-                                                    match store.add_record(record).await {
-                                                        Ok(_) => log::info!(
-                                                            "[PENDING_VECTOR] Indexed queued \
-                                                             chapter {}",
-                                                            chapter_id
-                                                        ),
-                                                        Err(e) => log::warn!(
-                                                            "[PENDING_VECTOR] Failed to index \
-                                                             queued chapter {}: {}",
-                                                            chapter_id,
-                                                            e
-                                                        ),
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                log::warn!(
-                                                    "[PENDING_VECTOR] Failed to generate \
-                                                     embedding for queued chapter {}: {}",
-                                                    chapter_id,
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(pool) = get_pool() {
-                        if let Ok(conn) = pool.get() {
-                            let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
-                        }
-                    }
-                    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
-                        let _ = std::fs::remove_file(path);
-                    }
-                }
-            });
+            tauri::async_runtime::spawn(init_vector_store_async(vector_db_path));
 
             // NOTE: WebSocket server for collaborative editing is reserved for future use
             // (Phase 4) See docs/plans/ for collaboration feature roadmap.
@@ -520,139 +656,10 @@ pub fn run() {
             //     });
             // }
 
-            // Initialize WorkflowEngine and WorkflowScheduler
-            let workflow_engine_arc = {
-                let (engine, restored_instance_ids) = if let Some(pool) = get_pool() {
-                    workflow::WorkflowEngine::with_pool(pool)
-                } else {
-                    (workflow::WorkflowEngine::new(), vec![])
-                };
-                let scheduler = std::sync::Arc::new(workflow::WorkflowScheduler::new());
-                // Register the standard writing workflow template
-                if let Err(e) =
-                    engine.register_workflow(workflow::templates::standard_writing_workflow())
-                {
-                    log::warn!("Failed to register standard workflow: {}", e);
-                }
-                let engine_arc = std::sync::Arc::new(engine);
-                scheduler.start_auto_drain(engine_arc.clone(), app.handle().clone());
-                if !restored_instance_ids.is_empty() {
-                    log::info!(
-                        "[WorkflowEngine] Restoring {} pending/running instances to scheduler",
-                        restored_instance_ids.len()
-                    );
-                    let scheduler_clone = scheduler.clone();
-                    tauri::async_runtime::spawn(async move {
-                        for instance_id in restored_instance_ids {
-                            if let Err(e) = scheduler_clone.schedule_execution(instance_id).await {
-                                log::warn!(
-                                    "[WorkflowEngine] Failed to restore instance to scheduler: {}",
-                                    e
-                                );
-                            }
-                        }
-                    });
-                }
+            init_workflow_engine(app, app.handle().clone());
 
-                app.manage(engine_arc.clone());
-                app.manage(scheduler);
-                log::info!("Workflow engine and scheduler initialized");
-                engine_arc
-            };
-
-            // Initialize WorkflowLoader (file system DSL watcher)
-            {
-                let loader = workflow::WorkflowLoader::new(workflow_engine_arc);
-                let builtin_dir = std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|d| d.join("workflows")));
-                let user_dir = app
-                    .path()
-                    .app_data_dir()
-                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
-                    .join("workflows");
-                if let Err(e) = loader.initialize(builtin_dir, user_dir) {
-                    log::warn!("[WorkflowLoader] Failed to initialize: {}", e);
-                }
-                app.manage(loader);
-                log::info!("[WorkflowLoader] File system workflow watcher initialized");
-            }
-
-            // Initialize State Sync Service
-            log::info!("[StateSync] State synchronization service initialized");
-
-            // Ensure backstage is hidden on startup
-            if let Some(backstage) = app.get_webview_window("backstage") {
-                let _ = backstage.hide();
-            }
-            // Focus frontstage
-            if let Some(frontstage) = app.get_webview_window("frontstage") {
-                let _ = frontstage.set_focus();
-            }
-
-            // Disable default webview context menus on Windows
-            #[cfg(target_os = "windows")]
-            {
-                for label in ["frontstage", "backstage"] {
-                    if let Some(window) = app.get_webview_window(label) {
-                        let _ = window.with_webview(|webview| {
-                            let controller = webview.controller();
-                            unsafe {
-                                if let Ok(core) = controller.CoreWebView2() {
-                                    if let Ok(settings) = core.Settings() {
-                                        let _ = settings.SetAreDefaultContextMenusEnabled(false);
-                                    }
-                                }
-                            }
-                        });
-                    }
-                }
-            }
-            {
-                let app_handle_evolve = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                    let llm = llm::LlmService::new(app_handle_evolve.clone());
-                    let engine = capabilities::evolution::CapabilityEvolutionEngine::new(
-                        llm,
-                        &app_handle_evolve,
-                    );
-                    let stats = engine.get_statistics();
-                    let total_records: usize = stats.values().map(|(t, _)| t).sum();
-                    if total_records >= 5 {
-                        log::info!(
-                            "[CapabilityEvolution] Auto-triggering evolution with {} total records",
-                            total_records
-                        );
-                        match engine.evolve_capability_descriptions().await {
-                            Ok(improvements) => {
-                                log::info!(
-                                    "[CapabilityEvolution] Auto-evolution completed with {} \
-                                     improvements",
-                                    improvements.len()
-                                );
-                                let _ = app_handle_evolve.emit(
-                                    "capabilities-evolved",
-                                    serde_json::json!({
-                                        "improvements": improvements,
-                                        "auto_triggered": true,
-                                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                                    }),
-                                );
-                            }
-                            Err(e) => {
-                                log::warn!("[CapabilityEvolution] Auto-evolution failed: {}", e)
-                            }
-                        }
-                    } else {
-                        log::info!(
-                            "[CapabilityEvolution] Not enough records ({}) to trigger \
-                             auto-evolution",
-                            total_records
-                        );
-                    }
-                });
-            }
+            init_windows(app);
+            spawn_background_tasks(app.handle().clone());
 
             // v0.8.0: 启动记忆健康守护进程
             if let Some(pool) = get_pool() {
@@ -674,10 +681,13 @@ pub struct ChatMessageItem {
 
 use tokio::sync::Mutex as TokioMutex;
 
+// GLOBAL: MCP 客户端连接池。
+// SAFETY: TokioMutex 用于异步上下文。连接在运行时动态增删。
 pub(crate) static MCP_CONNECTIONS: Lazy<TokioMutex<HashMap<String, mcp::McpClient>>> =
     Lazy::new(|| TokioMutex::new(HashMap::new()));
 
-// W2-B8: 全局内置 MCP Server 实例，支持运行时动态注册/注销工具
+// GLOBAL: 内置 MCP Server 实例（W2-B8）。
+// SAFETY: Lazy 初始化一次。运行时通过 TokioMutex 支持动态注册/注销工具。
 pub(crate) static BUILTIN_MCP_SERVER: Lazy<TokioMutex<mcp::McpServer>> = Lazy::new(|| {
     let config = mcp::McpServerConfig {
         id: "builtin".to_string(),
@@ -693,10 +703,18 @@ pub(crate) static BUILTIN_MCP_SERVER: Lazy<TokioMutex<mcp::McpServer>> = Lazy::n
 // Vector Search Commands (LanceDB)
 use vector::LanceVectorStore;
 
+// GLOBAL: LanceDB 向量存储单例。
+// SAFETY: OnceCell 保证仅初始化一次。在异步任务中完成 init() 后设置。
+// NOTE: 向量存储有持久化文件，重启后数据不丢失，但句柄需要重新打开。
 pub(crate) static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
-/// 向量存储初始化前积压的章节索引请求（P0-7 修复: 防止启动后首章丢失索引）
+
+// GLOBAL: 向量存储初始化前积压的章节索引请求（P0-7 修复）。
+// SAFETY: 纯内存队列，启动时从 SQLite/JSON 恢复，初始化完成后消费并清空。
+// 丢失仅导致章节未建立向量索引，无数据损坏。
 static PENDING_VECTOR_INDEXES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-/// P2-19 修复: pending queue 持久化文件路径
+
+// GLOBAL: pending queue 持久化文件路径（P2-19 修复）。
+// SAFETY: OnceCell 在 setup() 中设置一次。仅用于优雅关闭时的后备保存。
 static PENDING_VECTOR_INDEXES_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
 
 fn save_pending_vector_indexes() {
@@ -802,6 +820,7 @@ pub(crate) fn is_novel_creation_intent(user_input: &str) -> bool {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct RecordFeedbackRequest {
     story_id: String,
     scene_id: Option<String>,
@@ -820,6 +839,7 @@ pub(crate) struct LearningPoint {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct ExportOptions {
     story_id: String,
     format: String,
@@ -827,4 +847,52 @@ pub(crate) struct ExportOptions {
     include_outline: Option<bool>,
     include_characters: Option<bool>,
     template_id: Option<String>,
+}
+
+#[cfg(test)]
+mod lib_tests {
+    use super::*;
+
+    #[test]
+    fn test_is_novel_creation_intent_chinese_creation() {
+        assert!(is_novel_creation_intent("我想写一部武侠小说"));
+        assert!(is_novel_creation_intent("帮我创建一本新书"));
+        assert!(is_novel_creation_intent("生成一篇科幻小说"));
+        assert!(is_novel_creation_intent("新建一个故事"));
+    }
+
+    #[test]
+    fn test_is_novel_creation_intent_english_creation() {
+        assert!(is_novel_creation_intent("I want to write a novel"));
+        assert!(is_novel_creation_intent("create a story"));
+        assert!(is_novel_creation_intent("start a book"));
+    }
+
+    #[test]
+    fn test_is_novel_creation_intent_continuation() {
+        // 包含续写关键词，应返回 false
+        assert!(!is_novel_creation_intent("帮我续写这部小说"));
+        assert!(!is_novel_creation_intent("接着写后面的内容"));
+        assert!(!is_novel_creation_intent("继续往下写"));
+    }
+
+    #[test]
+    fn test_is_novel_creation_intent_mixed_signals() {
+        // 同时包含创建和续写信号，优先判断为续写
+        assert!(!is_novel_creation_intent("创建一本新书，然后续写后面的章节"));
+        assert!(!is_novel_creation_intent("写一部小说，接着写后续"));
+    }
+
+    #[test]
+    fn test_is_novel_creation_intent_no_signal() {
+        assert!(!is_novel_creation_intent("今天天气不错"));
+        assert!(!is_novel_creation_intent("帮我修改这段文字"));
+        assert!(!is_novel_creation_intent("保存文件"));
+    }
+
+    #[test]
+    fn test_is_novel_creation_intent_case_insensitive() {
+        assert!(is_novel_creation_intent("WRITE A NOVEL"));
+        assert!(is_novel_creation_intent("Create A Story"));
+    }
 }

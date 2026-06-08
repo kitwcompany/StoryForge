@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Vector commands
 
 use tauri::State;
@@ -9,7 +10,7 @@ pub async fn search_similar(
     story_id: String,
     query: String,
     top_k: Option<usize>,
-    pool: State<'_, DbPool>,
+    _pool: State<'_, DbPool>,
 ) -> Result<Vec<SearchResult>, AppError> {
     use crate::embeddings::embed_text_async;
 
@@ -46,7 +47,7 @@ pub async fn hybrid_search_vectors(
     story_id: String,
     query: String,
     top_k: Option<usize>,
-    pool: State<'_, DbPool>,
+    _pool: State<'_, DbPool>,
 ) -> Result<Vec<SearchResult>, AppError> {
     use crate::embeddings::embed_text_async;
 

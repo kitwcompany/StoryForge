@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Agent Orchestrator - Agent 协作编排器
 //!
 //! 实现 Agent 间的协作工作流，支持反馈闭环：
@@ -317,7 +318,7 @@ impl AgentOrchestrator {
             let mut style_issues = Vec::new();
 
             // v0.7.8: 双轨评分 — 从 Inspector JSON 响应中解析风格分数
-            let (style_score, narrative_score, mut drift_details) =
+            let (style_score, narrative_score, drift_details) =
                 Self::parse_inspector_style_analysis(&inspect_result.content, base_inspect_score);
 
             // 综合分数 = 风格分 * style_weight + 叙事分 * narrative_weight

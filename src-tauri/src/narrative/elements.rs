@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 统一叙事元素模型
 //!
 //! 生产表（stories/characters/scenes）和参考表（reference_books/

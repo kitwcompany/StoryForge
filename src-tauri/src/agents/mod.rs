@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Agent System - 智能代理系统
 //!
 //! 提供创作辅助的智能Agent框架
@@ -8,7 +9,6 @@
 //! - OutlinePlanner: 大纲规划师 - 设计故事结构
 //! - StyleMimic: 风格模仿师 - 分析和模仿文风
 //! - PlotAnalyzer: 情节分析师 - 分析情节复杂度
-#![allow(dead_code)]
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

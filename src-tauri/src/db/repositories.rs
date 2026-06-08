@@ -1,5 +1,5 @@
-//! Repository 层
 #![allow(dead_code)]
+//! Repository 层
 
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
@@ -11,7 +11,7 @@ use super::{
     AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeType, Chapter, Character,
     CharacterConflict, CharacterState, CommentMessage, CommentThread, CommentThreadWithMessages,
     ConflictType, CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest, CreatorType,
-    Culture, DbPool, DynamicTrait, Entity, GenesisRun, LlmStudioConfig, OAuthAccount, Relation,
+    Culture, DbPool, DynamicTrait, Entity, LlmStudioConfig, OAuthAccount, Relation,
     RuleType, Scene, SceneAnnotation, SceneVersion, Session, Story, StoryStyleConfig, StorySummary,
     StudioConfig, TextAnnotation, ThreadStatus, UiStudioConfig, UpdateStoryRequest, User, UserInfo,
     WorldBuilding, WorldRule, WritingStyle,

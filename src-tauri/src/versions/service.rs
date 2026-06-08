@@ -1,7 +1,7 @@
+#![allow(dead_code)]
 //! 场景版本服务 - Phase 3.2
 //!
 //! 提供版本比较、恢复和版本链管理功能
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 

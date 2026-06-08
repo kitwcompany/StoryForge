@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Capability Evolution - 能力进化反馈环
 //!
 //! Records execution results and uses LLM to improve capability descriptions

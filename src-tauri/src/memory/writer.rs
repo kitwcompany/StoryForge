@@ -5,8 +5,6 @@
 //! - 更新 scene_commits.summary_text
 //! - 异步更新 memory_items（简化：直接创建 summary 条目）
 
-use chrono::Local;
-
 use crate::db::{repositories_story_system::SceneCommitRepository, DbPool, MemoryItemRepository};
 
 pub struct MemoryWriter {

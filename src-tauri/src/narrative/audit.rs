@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Story Structure Audit — 故事结构健康检查
 //!
 //! 对已有故事项目进行结构分析，检测潜在问题。

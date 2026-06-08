@@ -5,7 +5,7 @@ import {
   createChapter,
   updateChapter,
   deleteChapter,
-} from '@services/tauri';
+} from '@/services/tauri';
 import type { Chapter } from '@/types/index';
 import toast from 'react-hot-toast';
 import { useScene } from './useScenes';

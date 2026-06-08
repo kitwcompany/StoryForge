@@ -1,4 +1,6 @@
 pub mod connection;
+pub mod dto;
+pub mod migrations;
 pub mod models;
 pub mod repositories;
 pub mod repositories_export;
@@ -18,10 +20,10 @@ mod tests;
 #[cfg(test)]
 pub use connection::create_test_pool;
 pub use connection::{init_db, DbPool};
+pub use dto::*;
 pub use models::*;
 pub use repositories::*;
 pub use repositories_export::*;
-pub use repositories_narrative_events::*;
 pub use repositories_pipeline::*;
 pub use repositories_story_system::*;
 pub use traits::{

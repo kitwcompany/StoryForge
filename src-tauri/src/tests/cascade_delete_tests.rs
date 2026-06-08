@@ -2,8 +2,8 @@
 mod cascade_delete_tests {
     use crate::db::{
         connection::create_test_pool,
-        models::{CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest},
         repositories::{ChapterRepository, CharacterRepository, StoryRepository},
+        CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest,
     };
 
     #[test]

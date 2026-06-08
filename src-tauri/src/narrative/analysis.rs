@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! AnalysisPipeline — 逆向/分析流程
 //!
 //! 增强版拆书功能，基于统一的 NarrativePipeline 框架。

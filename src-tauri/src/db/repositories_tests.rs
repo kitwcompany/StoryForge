@@ -603,4 +603,116 @@ mod tests {
         assert_eq!(scenes[1].id, scene1.id); // 现在是第2个
         assert_eq!(scenes[1].sequence_number, 2);
     }
+
+    #[test]
+    fn test_scene_create_in_tx() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "事务测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
+
+        let mut conn = pool.get().unwrap();
+        let tx = conn.transaction().unwrap();
+
+        let scene = scene_repo.create_in_tx(&tx, &story.id, 1, Some("事务场景")).unwrap();
+        assert_eq!(scene.story_id, story.id);
+        assert_eq!(scene.sequence_number, 1);
+        assert_eq!(scene.title, Some("事务场景".to_string()));
+        assert!(scene.characters_present.is_empty());
+        assert!(scene.character_conflicts.is_empty());
+
+        tx.commit().unwrap();
+
+        // Verify the scene is persisted after commit
+        let fetched = scene_repo.get_by_id(&scene.id).unwrap();
+        assert!(fetched.is_some());
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.title, Some("事务场景".to_string()));
+    }
+
+    #[test]
+    fn test_scene_get_by_story_full_field_mapping() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "字段映射测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+            })
+            .unwrap();
+
+        // Create scene with all fields populated via direct SQL
+        let conn = pool.get().unwrap();
+        let scene_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO scenes (
+                id, story_id, sequence_number, title, dramatic_goal, external_pressure,
+                conflict_type, characters_present, character_conflicts, setting_location,
+                setting_time, setting_atmosphere, content, previous_scene_id, next_scene_id,
+                model_used, cost, created_at, updated_at, confidence_score, execution_stage,
+                outline_content, draft_content, style_blend_override, foreshadowing_ids, chapter_id,
+                narrative_intensity, narrative_sentiment, narrative_event_types,
+                narrative_preceding_scene_id, narrative_following_scene_id, act_number, position_in_act
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)",
+            rusqlite::params![
+                &scene_id, &story.id, 1, "完整场景", "目标", "压力", "ManVsSelf",
+                "[\"Alice\", \"Bob\"]", "[{\"character_a_id\": \"c1\", \"character_b_id\": \"c2\", \"conflict_nature\": \"internal\", \"stakes\": \"test\"}]",
+                "古堡", "午夜", "阴森", "场景内容", rusqlite::types::Null, rusqlite::types::Null,
+                "gpt-4", 0.05, &now, &now, 0.95, "drafting", "大纲", "草稿",
+                "blend-1", "[\"f1\", \"f2\"]", rusqlite::types::Null,
+                0.8, 0.8, "[\"event1\"]", rusqlite::types::Null, rusqlite::types::Null, 2, 0
+            ],
+        ).unwrap();
+        drop(conn);
+
+        let scenes = scene_repo.get_by_story(&story.id).unwrap();
+        assert_eq!(scenes.len(), 1);
+        let scene = &scenes[0];
+
+        assert_eq!(scene.id, scene_id);
+        assert_eq!(scene.story_id, story.id);
+        assert_eq!(scene.sequence_number, 1);
+        assert_eq!(scene.title, Some("完整场景".to_string()));
+        assert_eq!(scene.dramatic_goal, Some("目标".to_string()));
+        assert_eq!(scene.external_pressure, Some("压力".to_string()));
+        assert_eq!(scene.conflict_type, Some(ConflictType::ManVsSelf));
+        assert_eq!(scene.characters_present, vec!["Alice", "Bob"]);
+        assert_eq!(scene.character_conflicts.len(), 1);
+        assert_eq!(scene.character_conflicts[0].character_a_id, "c1");
+        assert_eq!(scene.setting_location, Some("古堡".to_string()));
+        assert_eq!(scene.setting_time, Some("午夜".to_string()));
+        assert_eq!(scene.setting_atmosphere, Some("阴森".to_string()));
+        assert_eq!(scene.content, Some("场景内容".to_string()));
+        assert_eq!(scene.previous_scene_id, None);
+        assert_eq!(scene.next_scene_id, None);
+        assert_eq!(scene.model_used, Some("gpt-4".to_string()));
+        assert_eq!(scene.cost, Some(0.05));
+        assert_eq!(scene.confidence_score, Some(0.95));
+        assert_eq!(scene.execution_stage, Some("drafting".to_string()));
+        assert_eq!(scene.outline_content, Some("大纲".to_string()));
+        assert_eq!(scene.draft_content, Some("草稿".to_string()));
+        assert_eq!(scene.style_blend_override, Some("blend-1".to_string()));
+        assert_eq!(scene.foreshadowing_ids, Some(vec!["f1".to_string(), "f2".to_string()]));
+        assert_eq!(scene.chapter_id, None);
+        assert_eq!(scene.narrative_intensity, Some(0.8));
+        assert_eq!(scene.narrative_sentiment, Some(0.8));
+        assert_eq!(scene.narrative_event_types, Some("[\"event1\"]".to_string()));
+        assert_eq!(scene.narrative_preceding_scene_id, None);
+        assert_eq!(scene.narrative_following_scene_id, None);
+        assert_eq!(scene.act_number, Some(2));
+        assert_eq!(scene.position_in_act, Some(0));
+    }
 }

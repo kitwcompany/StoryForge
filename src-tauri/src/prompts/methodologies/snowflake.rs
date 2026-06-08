@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 雪花写作法 (Snowflake Method) 提示词模板
 //!
 //! 从一句话到完整小说的渐进细化方法论。

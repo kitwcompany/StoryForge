@@ -1,8 +1,8 @@
+#![allow(dead_code)]
 //! Memory Compressor Agent - 记忆压缩师
 //!
 //! 将长篇内容、实体档案、历史版本压缩为高层记忆摘要
 //! 用于上下文窗口优化和长期记忆保留
-#![allow(dead_code)]
 
 use async_trait::async_trait;
 

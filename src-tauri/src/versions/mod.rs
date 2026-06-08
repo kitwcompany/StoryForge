@@ -1,7 +1,7 @@
+#![allow(dead_code)]
 //! 版本管理模块
 //!
 //! 提供场景版本历史、比较和恢复功能
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 

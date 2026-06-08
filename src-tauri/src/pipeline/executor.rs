@@ -55,6 +55,76 @@ impl super::types::PipelineCallbacks for TaskPipelineCallbacks {
     fn on_chunk(&self, _chunk: &str) {}
 }
 
+fn task_ok(result_json: Option<String>) -> TaskResult {
+    TaskResult {
+        success: true,
+        result_json,
+        error_message: None,
+    }
+}
+
+fn task_err(error_message: impl Into<String>) -> TaskResult {
+    TaskResult {
+        success: false,
+        result_json: None,
+        error_message: Some(error_message.into()),
+    }
+}
+
+/// Parsed payload for pipeline operations.
+#[derive(Debug)]
+struct PipelinePayload {
+    operation: String,
+    story_id: String,
+    draft_id: String,
+    user_prompt: Option<String>,
+    review_focus: Option<String>,
+    chapter_number: i32,
+    chapter_title: Option<String>,
+}
+
+fn parse_pipeline_payload(task: &Task) -> Result<PipelinePayload, String> {
+    let payload: serde_json::Value = match task.payload.as_deref() {
+        Some(p) => serde_json::from_str(p).unwrap_or_else(|_| serde_json::json!({})),
+        None => serde_json::json!({}),
+    };
+
+    let story_id = payload
+        .get("story_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let draft_id = payload
+        .get("draft_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    if story_id.is_empty() || draft_id.is_empty() {
+        return Err("Missing story_id or draft_id in payload".to_string());
+    }
+
+    Ok(PipelinePayload {
+        operation: payload
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("review")
+            .to_string(),
+        story_id,
+        draft_id,
+        user_prompt: payload.get("user_prompt").and_then(|v| v.as_str()).map(String::from),
+        review_focus: payload.get("review_focus").and_then(|v| v.as_str()).map(String::from),
+        chapter_number: payload
+            .get("chapter_number")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32,
+        chapter_title: payload
+            .get("chapter_title")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+    })
+}
+
 #[async_trait::async_trait]
 impl TaskExecutor for PipelineReviewExecutor {
     fn can_handle(&self, task_type: &TaskType) -> bool {
@@ -65,35 +135,10 @@ impl TaskExecutor for PipelineReviewExecutor {
         let ctx =
             TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
 
-        let payload: serde_json::Value = match task.payload.as_deref() {
-            Some(p) => serde_json::from_str(p).unwrap_or_else(|_| serde_json::json!({})),
-            None => serde_json::json!({}),
+        let payload = match parse_pipeline_payload(task) {
+            Ok(p) => p,
+            Err(e) => return Ok(task_err(e)),
         };
-
-        let operation = payload
-            .get("operation")
-            .and_then(|v| v.as_str())
-            .unwrap_or("review");
-
-        let story_id = payload
-            .get("story_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-
-        let draft_id = payload
-            .get("draft_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-
-        if story_id.is_empty() || draft_id.is_empty() {
-            return Ok(TaskResult {
-                success: false,
-                result_json: None,
-                error_message: Some("Missing story_id or draft_id in payload".to_string()),
-            });
-        }
 
         let config = PipelineConfig::default();
         let llm_service = LlmService::new(self.app_handle.clone());
@@ -103,14 +148,13 @@ impl TaskExecutor for PipelineReviewExecutor {
             app_handle: self.app_handle.clone(),
         };
 
-        let result = match operation {
+        let result = match payload.operation.as_str() {
             "refine" => {
-                let user_prompt = payload.get("user_prompt").and_then(|v| v.as_str());
                 ctx.update_progress("refine", 5, "开始修稿...");
                 match super::refine_draft(
-                    &story_id,
-                    &draft_id,
-                    user_prompt,
+                    &payload.story_id,
+                    &payload.draft_id,
+                    payload.user_prompt.as_deref(),
                     &config,
                     &self.pool,
                     &llm_service,
@@ -120,26 +164,17 @@ impl TaskExecutor for PipelineReviewExecutor {
                 {
                     Ok(result) => {
                         let json = serde_json::to_string(&result)?;
-                        Ok(TaskResult {
-                            success: true,
-                            result_json: Some(json),
-                            error_message: None,
-                        })
+                        Ok(task_ok(Some(json)))
                     }
-                    Err(e) => Ok(TaskResult {
-                        success: false,
-                        result_json: None,
-                        error_message: Some(e.to_string()),
-                    }),
+                    Err(e) => Ok(task_err(e.to_string())),
                 }
             }
             "review" => {
-                let review_focus = payload.get("review_focus").and_then(|v| v.as_str());
                 ctx.update_progress("review", 5, "开始审稿...");
                 match super::review_draft(
-                    &story_id,
-                    &draft_id,
-                    review_focus,
+                    &payload.story_id,
+                    &payload.draft_id,
+                    payload.review_focus.as_deref(),
                     &config,
                     &self.pool,
                     &llm_service,
@@ -149,36 +184,20 @@ impl TaskExecutor for PipelineReviewExecutor {
                 {
                     Ok(result) => {
                         let json = serde_json::to_string(&result)?;
-                        Ok(TaskResult {
-                            success: true,
-                            result_json: Some(json),
-                            error_message: None,
-                        })
+                        Ok(task_ok(Some(json)))
                     }
-                    Err(e) => Ok(TaskResult {
-                        success: false,
-                        result_json: None,
-                        error_message: Some(e.to_string()),
-                    }),
+                    Err(e) => Ok(task_err(e.to_string())),
                 }
             }
             "finalize" => {
-                let chapter_number = payload
-                    .get("chapter_number")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(1) as i32;
-                let chapter_title = payload
-                    .get("chapter_title")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
                 let chapter_info = ChapterInfo {
-                    chapter_number,
-                    title: chapter_title,
+                    chapter_number: payload.chapter_number,
+                    title: payload.chapter_title.clone(),
                 };
                 ctx.update_progress("finalize", 5, "开始定稿...");
                 match super::finalize_draft(
-                    &story_id,
-                    &draft_id,
+                    &payload.story_id,
+                    &payload.draft_id,
                     &chapter_info,
                     &config,
                     &self.pool,
@@ -191,27 +210,192 @@ impl TaskExecutor for PipelineReviewExecutor {
                         let json = serde_json::to_string(&serde_json::json!({
                             "post_process_run_id": post_process_run_id,
                         }))?;
-                        Ok(TaskResult {
-                            success: true,
-                            result_json: Some(json),
-                            error_message: None,
-                        })
+                        Ok(task_ok(Some(json)))
                     }
-                    Err(e) => Ok(TaskResult {
-                        success: false,
-                        result_json: None,
-                        error_message: Some(e.to_string()),
-                    }),
+                    Err(e) => Ok(task_err(e.to_string())),
                 }
             }
-            _ => Ok(TaskResult {
-                success: false,
-                result_json: None,
-                error_message: Some(format!("Unknown pipeline operation: {}", operation)),
-            }),
+            _ => Ok(task_err(format!("Unknown pipeline operation: {}", payload.operation))),
         };
 
         ctx.heartbeat();
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task_system::models::TaskType;
+
+    #[test]
+    fn test_parse_pipeline_payload_basic() {
+        let task = Task {
+            id: "t1".to_string(),
+            name: "test".to_string(),
+            description: None,
+            task_type: TaskType::PipelineReview,
+            schedule_type: crate::task_system::models::ScheduleType::Once,
+            cron_pattern: None,
+            payload: Some(r#"{"story_id": "s1", "draft_id": "d1", "operation": "review"}"#.to_string()),
+            status: crate::task_system::models::TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 3,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: 300,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let payload = parse_pipeline_payload(&task).unwrap();
+        assert_eq!(payload.story_id, "s1");
+        assert_eq!(payload.draft_id, "d1");
+        assert_eq!(payload.operation, "review");
+        assert_eq!(payload.review_focus, None);
+        assert_eq!(payload.chapter_number, 1);
+        assert_eq!(payload.chapter_title, None);
+    }
+
+    #[test]
+    fn test_parse_pipeline_payload_refine() {
+        let task = Task {
+            id: "t2".to_string(),
+            name: "test".to_string(),
+            description: None,
+            task_type: TaskType::PipelineReview,
+            schedule_type: crate::task_system::models::ScheduleType::Once,
+            cron_pattern: None,
+            payload: Some(r#"{"story_id": "s2", "draft_id": "d2", "operation": "refine", "user_prompt": "请缩短"}"#.to_string()),
+            status: crate::task_system::models::TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 3,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: 300,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let payload = parse_pipeline_payload(&task).unwrap();
+        assert_eq!(payload.operation, "refine");
+        assert_eq!(payload.user_prompt, Some("请缩短".to_string()));
+    }
+
+    #[test]
+    fn test_parse_pipeline_payload_finalize() {
+        let task = Task {
+            id: "t3".to_string(),
+            name: "test".to_string(),
+            description: None,
+            task_type: TaskType::PipelineReview,
+            schedule_type: crate::task_system::models::ScheduleType::Once,
+            cron_pattern: None,
+            payload: Some(r#"{"story_id": "s3", "draft_id": "d3", "operation": "finalize", "chapter_number": 5, "chapter_title": "第五章"}"#.to_string()),
+            status: crate::task_system::models::TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 3,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: 300,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let payload = parse_pipeline_payload(&task).unwrap();
+        assert_eq!(payload.operation, "finalize");
+        assert_eq!(payload.chapter_number, 5);
+        assert_eq!(payload.chapter_title, Some("第五章".to_string()));
+    }
+
+    #[test]
+    fn test_parse_pipeline_payload_missing_story_id() {
+        let task = Task {
+            id: "t4".to_string(),
+            name: "test".to_string(),
+            description: None,
+            task_type: TaskType::PipelineReview,
+            schedule_type: crate::task_system::models::ScheduleType::Once,
+            cron_pattern: None,
+            payload: Some(r#"{"draft_id": "d4"}"#.to_string()),
+            status: crate::task_system::models::TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 3,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: 300,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let result = parse_pipeline_payload(&task);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("story_id"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_payload_missing_draft_id() {
+        let task = Task {
+            id: "t5".to_string(),
+            name: "test".to_string(),
+            description: None,
+            task_type: TaskType::PipelineReview,
+            schedule_type: crate::task_system::models::ScheduleType::Once,
+            cron_pattern: None,
+            payload: Some(r#"{"story_id": "s5"}"#.to_string()),
+            status: crate::task_system::models::TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 3,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: 300,
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-01".to_string(),
+        };
+
+        let result = parse_pipeline_payload(&task);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("draft_id"));
+    }
+
+    #[test]
+    fn test_task_ok() {
+        let result = task_ok(Some("{}".to_string()));
+        assert!(result.success);
+        assert_eq!(result.result_json, Some("{}".to_string()));
+        assert_eq!(result.error_message, None);
+    }
+
+    #[test]
+    fn test_task_err() {
+        let result = task_err("Something went wrong");
+        assert!(!result.success);
+        assert_eq!(result.result_json, None);
+        assert_eq!(result.error_message, Some("Something went wrong".to_string()));
     }
 }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! StoryStateManager — RESERVED FOR FUTURE USE (Phase 4)
 //!
 //! This module provides a runtime story state manager with character arcs,

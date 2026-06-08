@@ -1,0 +1,17 @@
+// Barrel export — all API functions re-exported from sub-modules
+export * from './core';
+export * from './writing';
+export * from './stories';
+export * from './skills';
+export * from './settings';
+export * from './intent';
+export * from './annotations';
+export * from './knowledge';
+export * from './wizard';
+export * from './memory';
+export * from './pipeline';
+export * from './quality';
+export * from './genesis';
+export * from './storySystem';
+export * from './stream';
+export * from './subscription';

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Story System - 合同驱动体系
 //!
 //! 参考 webnovel-writer 的 Story System Phase 5 设计：
@@ -20,9 +21,11 @@ use crate::{
 };
 
 pub mod auto_contract;
+pub mod chapter_service;
 pub mod contract_builder;
 pub mod preflight;
 pub mod projection_writers;
+pub mod scene_service;
 
 /// 合同类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

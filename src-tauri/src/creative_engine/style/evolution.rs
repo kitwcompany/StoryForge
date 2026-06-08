@@ -313,7 +313,7 @@ impl Default for StyleEvolutionEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::anti_ai::{AntiAiReviewer, DimensionScore};
+    use crate::anti_ai::AntiAiReviewer;
 
     #[test]
     fn test_evolve_from_anti_ai() {

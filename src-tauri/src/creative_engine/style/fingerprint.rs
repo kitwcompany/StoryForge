@@ -239,7 +239,7 @@ fn split_sentences(text: &str) -> Vec<String> {
 /// 提取词汇指纹
 fn extract_vocabulary_fingerprint(
     text: &str,
-    sentences: &[String],
+    _sentences: &[String],
     char_count: f32,
 ) -> VocabularyFingerprint {
     // 虚词统计
@@ -438,7 +438,7 @@ fn extract_dialogue_fingerprint(text: &str, char_count: f32) -> DialogueFingerpr
 }
 
 /// 采样锚点片段
-fn sample_anchors(text: &str, sentences: &[String], count: usize) -> Vec<String> {
+fn sample_anchors(_text: &str, sentences: &[String], count: usize) -> Vec<String> {
     if sentences.len() <= 3 {
         return sentences.iter().cloned().collect();
     }

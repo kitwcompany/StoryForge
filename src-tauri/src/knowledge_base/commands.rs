@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use tauri::command;
 
 use super::{KbImportResult, KbSearchResult, KbStats};

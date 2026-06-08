@@ -1,16 +1,14 @@
+#![allow(dead_code)]
 //! 叙事感知分段器 — LitSeg Phase 5
 //!
 //! 基于叙事结构生成文本块，在叙事边界处切分。
 //! 每个 NarrativeChunk 是一个完整的叙事单元。
 
-use crate::{
-    db::ConflictType,
-    narrative::{
-        event::{EventType, NarrativeEvent},
-        segment::{ChunkType, NarrativeChunk},
-        structure::{Act, ActType, NarrativeStructure},
-        structure_analyzer::NarrativeStructureAnalyzer,
-    },
+use crate::narrative::{
+    event::NarrativeEvent,
+    segment::{ChunkType, NarrativeChunk},
+    structure::{Act, ActType},
+    structure_analyzer::NarrativeStructureAnalyzer,
 };
 
 /// 叙事感知分段器
@@ -157,7 +155,7 @@ impl NarrativeChunker {
 
     fn make_chunk(
         story_id: &str,
-        act: &Act,
+        _act: &Act,
         scenes: &[&SceneRef],
         events: &[&NarrativeEvent],
         chunk_type: ChunkType,

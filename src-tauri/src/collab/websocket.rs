@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! WebSocket Server for Collaborative Editing
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};

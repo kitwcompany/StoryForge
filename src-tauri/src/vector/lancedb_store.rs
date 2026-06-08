@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! LanceDB Vector Store
 //!
 //! Real LanceDB-backed vector storage using ANN vector search.

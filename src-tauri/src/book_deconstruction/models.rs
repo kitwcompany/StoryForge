@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Book Deconstruction Models
 //!
 //! Data structures for the book deconstruction feature.

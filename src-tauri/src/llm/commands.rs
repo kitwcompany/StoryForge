@@ -1,7 +1,7 @@
+#![allow(dead_code)]
 //! LLM Tauri Commands
 //!
 //! 提供给前端调用的LLM相关命令
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, State};

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 叙事结构分析器 — LitSeg Phase 4 (最大价值模块)
 //!
 //! 基于事件强度分布自动推断幕级结构：
@@ -249,7 +250,7 @@ impl NarrativeStructureAnalyzer {
 
     fn determine_dramatic_function(
         &self,
-        event: &NarrativeEvent,
+        _event: &NarrativeEvent,
         act: &Act,
         position_in_act: f32,
     ) -> DramaticFunction {

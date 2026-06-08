@@ -9,7 +9,7 @@ use super::dna::*;
 
 /// 鲁迅风格
 /// 特征：冷峻犀利、白话文运动、讽刺、解剖国民性
-pub fn lu_xun() -> StyleDNA {
+fn lu_xun() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "鲁迅".to_string(),
@@ -94,7 +94,7 @@ pub fn lu_xun() -> StyleDNA {
 
 /// 老舍风格
 /// 特征：京味儿、市井烟火、幽默温厚、口语化
-pub fn lao_she() -> StyleDNA {
+fn lao_she() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "老舍".to_string(),
@@ -174,7 +174,7 @@ pub fn lao_she() -> StyleDNA {
 
 /// 沈从文风格
 /// 特征：湘西风情、田园牧歌、清澈自然、抒情诗化
-pub fn shen_congwen() -> StyleDNA {
+fn shen_congwen() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "沈从文".to_string(),
@@ -258,7 +258,7 @@ pub fn shen_congwen() -> StyleDNA {
 
 /// 余华风格
 /// 特征：冷酷叙事、暴力美学、简朴直白、黑色幽默
-pub fn yu_hua() -> StyleDNA {
+fn yu_hua() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "余华".to_string(),
@@ -337,7 +337,7 @@ pub fn yu_hua() -> StyleDNA {
 
 /// 王小波风格
 /// 特征：幽默反讽、理性思辨、自由洒脱、口语化智慧
-pub fn wang_xiaobo() -> StyleDNA {
+fn wang_xiaobo() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "王小波".to_string(),
@@ -421,7 +421,7 @@ pub fn wang_xiaobo() -> StyleDNA {
 
 /// 曹雪芹风格
 /// 特征：诗词融合、细腻入微、贵族生活、宿命感
-pub fn cao_xueqin() -> StyleDNA {
+fn cao_xueqin() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "曹雪芹".to_string(),
@@ -501,7 +501,7 @@ pub fn cao_xueqin() -> StyleDNA {
 
 /// 蒲松龄风格
 /// 特征：文言志怪、诡谲幽微、善恶报应、简洁传神
-pub fn pu_songling() -> StyleDNA {
+fn pu_songling() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "蒲松龄".to_string(),
@@ -580,7 +580,7 @@ pub fn pu_songling() -> StyleDNA {
 
 /// 苏轼风格
 /// 特征：豪放洒脱、古文功底、旷达人生观、兼融儒释道
-pub fn su_shi() -> StyleDNA {
+fn su_shi() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "苏轼".to_string(),
@@ -659,7 +659,7 @@ pub fn su_shi() -> StyleDNA {
 
 /// 阿城风格
 /// 特征：古典白描、淡泊节制、智慧内敛、棋道人生
-pub fn a_cheng() -> StyleDNA {
+fn a_cheng() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "阿城".to_string(),
@@ -739,7 +739,7 @@ pub fn a_cheng() -> StyleDNA {
 
 /// 白先勇风格
 /// 特征：台北人、苍凉精致、旧贵族、细腻心理
-pub fn bai_xianyong() -> StyleDNA {
+fn bai_xianyong() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "白先勇".to_string(),
@@ -819,7 +819,7 @@ pub fn bai_xianyong() -> StyleDNA {
 
 /// 钱锺书风格
 /// 特征：博学讽刺、机智俏皮、比喻密集、学贯中西
-pub fn qian_zhongshu() -> StyleDNA {
+fn qian_zhongshu() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "钱锺书".to_string(),
@@ -904,7 +904,7 @@ pub fn qian_zhongshu() -> StyleDNA {
 
 /// 郁达夫风格
 /// 特征：抒情自叙、感伤独白、浪漫颓废、心理暴露
-pub fn yu_dafu() -> StyleDNA {
+fn yu_dafu() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "郁达夫".to_string(),
@@ -986,7 +986,7 @@ pub fn yu_dafu() -> StyleDNA {
 
 /// 川端康成风格
 /// 特征：物哀、新感觉派、纤细、色彩与季节
-pub fn kawabata_yasunari() -> StyleDNA {
+fn kawabata_yasunari() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "川端康成".to_string(),
@@ -1066,7 +1066,7 @@ pub fn kawabata_yasunari() -> StyleDNA {
 
 /// 三岛由纪夫风格
 /// 特征：暴烈美学、古典华丽、肌肉与死亡、仪式感
-pub fn mishima_yukio() -> StyleDNA {
+fn mishima_yukio() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "三岛由纪夫".to_string(),
@@ -1151,7 +1151,7 @@ pub fn mishima_yukio() -> StyleDNA {
 
 /// 太宰治风格
 /// 特征：斜阳、颓废、自毁、软弱与讨好
-pub fn dazai_osamu() -> StyleDNA {
+fn dazai_osamu() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "太宰治".to_string(),
@@ -1230,7 +1230,7 @@ pub fn dazai_osamu() -> StyleDNA {
 
 /// 夏目漱石风格
 /// 特征：余裕派、知识分子、幽默、心理深潜
-pub fn natsume_soseki() -> StyleDNA {
+fn natsume_soseki() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "夏目漱石".to_string(),
@@ -1310,7 +1310,7 @@ pub fn natsume_soseki() -> StyleDNA {
 
 /// 芥川龙之介风格
 /// 特征：历史题材、冷峻怀疑、精致短篇、人性黑暗
-pub fn akutagawa_ryunosuke() -> StyleDNA {
+fn akutagawa_ryunosuke() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "芥川龙之介".to_string(),
@@ -1390,7 +1390,7 @@ pub fn akutagawa_ryunosuke() -> StyleDNA {
 
 /// 东野圭吾风格
 /// 特征：社会派推理、冷静、反转、日常恐怖
-pub fn higashino_keigo() -> StyleDNA {
+fn higashino_keigo() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "东野圭吾".to_string(),
@@ -1468,7 +1468,7 @@ pub fn higashino_keigo() -> StyleDNA {
 
 /// 陀思妥耶夫斯基风格
 /// 特征：心理深渊、癫狂、长独白、罪与罚
-pub fn dostoevsky() -> StyleDNA {
+fn dostoevsky() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "陀思妥耶夫斯基".to_string(),
@@ -1548,7 +1548,7 @@ pub fn dostoevsky() -> StyleDNA {
 
 /// 托尔斯泰风格
 /// 特征：史诗全景、道德、朴素、历史与家庭
-pub fn tolstoy() -> StyleDNA {
+fn tolstoy() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "托尔斯泰".to_string(),
@@ -1628,7 +1628,7 @@ pub fn tolstoy() -> StyleDNA {
 
 /// 卡夫卡风格
 /// 特征：荒诞、异化、冷静恐怖、官僚迷宫
-pub fn kafka() -> StyleDNA {
+fn kafka() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "卡夫卡".to_string(),
@@ -1708,7 +1708,7 @@ pub fn kafka() -> StyleDNA {
 
 /// 福克纳风格
 /// 特征：美国南方、多角度、繁复长句、时间跳跃
-pub fn faulkner() -> StyleDNA {
+fn faulkner() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "福克纳".to_string(),
@@ -1792,7 +1792,7 @@ pub fn faulkner() -> StyleDNA {
 
 /// 菲茨杰拉德风格
 /// 特征：爵士时代、华丽忧郁、美国梦、精致感伤
-pub fn fitzgerald() -> StyleDNA {
+fn fitzgerald() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "菲茨杰拉德".to_string(),
@@ -1872,7 +1872,7 @@ pub fn fitzgerald() -> StyleDNA {
 
 /// 博尔赫斯风格
 /// 特征：迷宫、智性、浓缩、时间循环、图书馆
-pub fn borges() -> StyleDNA {
+fn borges() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "博尔赫斯".to_string(),
@@ -1952,7 +1952,7 @@ pub fn borges() -> StyleDNA {
 
 /// 科塔萨尔风格
 /// 特征：日常变形、奇幻跳脱、游戏规则、读者参与
-pub fn cortazar() -> StyleDNA {
+fn cortazar() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "科塔萨尔".to_string(),
@@ -2032,7 +2032,7 @@ pub fn cortazar() -> StyleDNA {
 
 /// 爱伦·坡风格
 /// 特征：哥特恐怖、韵律、死亡、心理分析
-pub fn poe() -> StyleDNA {
+fn poe() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "爱伦·坡".to_string(),
@@ -2108,7 +2108,7 @@ pub fn poe() -> StyleDNA {
 
 /// 洛夫克拉夫特风格
 /// 特征：宇宙恐怖、不可名状、冗长、科学冷静
-pub fn lovecraft() -> StyleDNA {
+fn lovecraft() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "洛夫克拉夫特".to_string(),
@@ -2192,7 +2192,7 @@ pub fn lovecraft() -> StyleDNA {
 
 /// 简·奥斯汀风格
 /// 特征：讽刺、礼仪、机智、婚姻市场
-pub fn austen() -> StyleDNA {
+fn austen() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "简·奥斯汀".to_string(),
@@ -2272,7 +2272,7 @@ pub fn austen() -> StyleDNA {
 
 /// 狄更斯风格
 /// 特征：社会批判、人物类型化、温情、连载节奏
-pub fn dickens() -> StyleDNA {
+fn dickens() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "狄更斯".to_string(),
@@ -2352,7 +2352,7 @@ pub fn dickens() -> StyleDNA {
 
 /// 福楼拜风格
 /// 特征：客观、精雕细琢、包法利式、农民语言
-pub fn flaubert() -> StyleDNA {
+fn flaubert() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "福楼拜".to_string(),
@@ -2436,7 +2436,7 @@ pub fn flaubert() -> StyleDNA {
 
 /// 雨果风格
 /// 特征：浪漫主义、宏大、人道、史诗
-pub fn hugo() -> StyleDNA {
+fn hugo() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "雨果".to_string(),
@@ -2521,7 +2521,7 @@ pub fn hugo() -> StyleDNA {
 
 /// 纳博科夫风格
 /// 特征：博学、文字游戏、华丽、不可靠叙事
-pub fn nabokov() -> StyleDNA {
+fn nabokov() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "纳博科夫".to_string(),
@@ -2608,7 +2608,7 @@ pub fn nabokov() -> StyleDNA {
 
 /// 赛博朋克风格
 /// 特征：高科技低生活、霓虹、碎片化、黑客
-pub fn cyberpunk() -> StyleDNA {
+fn cyberpunk() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "赛博朋克".to_string(),
@@ -2688,7 +2688,7 @@ pub fn cyberpunk() -> StyleDNA {
 
 /// 蒸汽朋克风格
 /// 特征：维多利亚、齿轮、冒险、绅士风度
-pub fn steampunk() -> StyleDNA {
+fn steampunk() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "蒸汽朋克".to_string(),
@@ -2768,7 +2768,7 @@ pub fn steampunk() -> StyleDNA {
 
 /// 新怪谈风格
 /// 特征：都市奇幻、不可解、日常恐怖、官僚迷宫
-pub fn new_weird() -> StyleDNA {
+fn new_weird() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "新怪谈".to_string(),
@@ -2848,7 +2848,7 @@ pub fn new_weird() -> StyleDNA {
 
 /// 硬科幻风格
 /// 特征：技术细节、概念密集、冷静、工程师思维
-pub fn hard_sf() -> StyleDNA {
+fn hard_sf() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "硬科幻".to_string(),
@@ -2924,7 +2924,7 @@ pub fn hard_sf() -> StyleDNA {
 
 /// 史诗奇幻风格
 /// 特征：托尔金式、宏大、神话、中古用语
-pub fn epic_fantasy() -> StyleDNA {
+fn epic_fantasy() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "史诗奇幻".to_string(),
@@ -3003,7 +3003,7 @@ pub fn epic_fantasy() -> StyleDNA {
 
 /// 黑暗奇幻风格
 /// 特征：残酷、灰色道德、血腥、现实主义魔法
-pub fn grimdark() -> StyleDNA {
+fn grimdark() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "黑暗奇幻".to_string(),
@@ -3082,7 +3082,7 @@ pub fn grimdark() -> StyleDNA {
 
 /// 仙侠修真风格
 /// 特征：古风、升级、世界观、丹药法宝
-pub fn xianxia() -> StyleDNA {
+fn xianxia() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "仙侠修真".to_string(),
@@ -3161,7 +3161,7 @@ pub fn xianxia() -> StyleDNA {
 
 /// 无限流风格
 /// 特征：副本、惊悚、智斗、系统提示
-pub fn infinite_flow() -> StyleDNA {
+fn infinite_flow() -> StyleDNA {
     StyleDNA {
         meta: StyleMeta {
             name: "无限流".to_string(),

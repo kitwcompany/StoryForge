@@ -210,14 +210,18 @@ export const LogManager = {
 
   /** 启用指定命名空间 */
   enableNamespace(namespace: string) {
-    config.enabledNamespaces.push(namespace);
-    saveConfig(config);
+    if (!config.enabledNamespaces.includes(namespace)) {
+      config.enabledNamespaces.push(namespace);
+      saveConfig(config);
+    }
   },
 
   /** 禁用指定命名空间 */
   disableNamespace(namespace: string) {
-    config.disabledNamespaces.push(namespace);
-    saveConfig(config);
+    if (!config.disabledNamespaces.includes(namespace)) {
+      config.disabledNamespaces.push(namespace);
+      saveConfig(config);
+    }
   },
 
   /** 重置所有过滤规则 */

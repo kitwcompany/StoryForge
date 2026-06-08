@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Book Analyzer - LLM 分析编排器
 //!
 //! 5步分析 Pipeline：元信息 → 世界观 → 人物 → 章节概要 → 故事线

@@ -1,8 +1,8 @@
+#![allow(dead_code)]
 //! LLM Service - 统一的大语言模型服务
 //!
 //! 提供同步生成和流式生成两种模式
 //! 支持多提供商配置管理和自动切换
-#![allow(dead_code)]
 
 use std::{
     collections::HashMap,
@@ -750,27 +750,7 @@ impl LlmService {
 
     /// 构建写作专用提示词
     fn build_writing_prompt(&self, user_input: &str, context: Option<&str>) -> String {
-        let mut prompt = String::new();
-
-        // 系统提示
-        prompt.push_str("你是一位专业的小说创作助手，擅长中文写作。\n\n");
-
-        // 上下文
-        if let Some(ctx) = context {
-            prompt.push_str("【前文上下文】\n");
-            prompt.push_str(ctx);
-            prompt.push_str("\n\n");
-        }
-
-        // 用户输入
-        prompt.push_str("【续写要求】\n");
-        prompt.push_str(user_input);
-        prompt.push_str("\n\n");
-
-        // 输出要求
-        prompt.push_str("请直接输出续写内容，不要添加解释。保持文风一致，情节连贯。");
-
-        prompt
+        build_writing_prompt(user_input, context)
     }
 
     /// 测试连接
@@ -838,7 +818,35 @@ impl LlmService {
     }
 }
 
-/// 全局LLM服务实例
+/// 构建写作专用提示词（纯函数，无需 self）
+fn build_writing_prompt(user_input: &str, context: Option<&str>) -> String {
+    let mut prompt = String::new();
+
+    // 系统提示
+    prompt.push_str("你是一位专业的小说创作助手，擅长中文写作。\n\n");
+
+    // 上下文
+    if let Some(ctx) = context {
+        prompt.push_str("【前文上下文】\n");
+        prompt.push_str(ctx);
+        prompt.push_str("\n\n");
+    }
+
+    // 用户输入
+    prompt.push_str("【续写要求】\n");
+    prompt.push_str(user_input);
+    prompt.push_str("\n\n");
+
+    // 输出要求
+    prompt.push_str("请直接输出续写内容，不要添加解释。保持文风一致，情节连贯。");
+
+    prompt
+}
+
+// GLOBAL: LLM 服务单例。
+// SAFETY: OnceCell 保证仅初始化一次。通过 init_llm_service() 在 setup() 中设置。
+// NOTE: 当前使用全局静态是因为大量命令处理器直接调用 get_llm_service()。
+// 长期目标：通过 Tauri State 注入，消除全局依赖。
 static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Mutex<Option<LlmService>>> =
     once_cell::sync::OnceCell::new();
 
@@ -873,4 +881,146 @@ impl Clone for LlmService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_build_writing_prompt_without_context() {
+        let prompt = build_writing_prompt("写一个关于太空的故事", None);
+        assert!(prompt.contains("你是一位专业的小说创作助手"));
+        assert!(prompt.contains("【续写要求】"));
+        assert!(prompt.contains("写一个关于太空的故事"));
+        assert!(prompt.contains("请直接输出续写内容"));
+        assert!(!prompt.contains("【前文上下文】"));
+    }
+
+    #[test]
+    fn test_build_writing_prompt_with_context() {
+        let prompt = build_writing_prompt("继续写下去", Some("之前的章节内容..."));
+        assert!(prompt.contains("你是一位专业的小说创作助手"));
+        assert!(prompt.contains("【前文上下文】"));
+        assert!(prompt.contains("之前的章节内容..."));
+        assert!(prompt.contains("【续写要求】"));
+        assert!(prompt.contains("继续写下去"));
+        assert!(prompt.contains("请直接输出续写内容"));
+    }
+
+    #[test]
+    fn test_build_writing_prompt_empty_input() {
+        let prompt = build_writing_prompt("", None);
+        assert!(prompt.contains("【续写要求】"));
+        assert!(prompt.contains("请直接输出续写内容"));
+    }
+
+    #[test]
+    fn test_stream_chunk_serialization() {
+        let chunk = StreamChunk {
+            chunk: "Hello".to_string(),
+            is_first: true,
+            is_last: false,
+            model: "gpt-4".to_string(),
+        };
+        let json = serde_json::to_string(&chunk).unwrap();
+        assert!(json.contains("Hello"));
+        assert!(json.contains("gpt-4"));
+
+        let deserialized: StreamChunk = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.chunk, "Hello");
+        assert!(deserialized.is_first);
+        assert!(!deserialized.is_last);
+    }
+
+    #[test]
+    fn test_generation_complete_serialization() {
+        let complete = GenerationComplete {
+            full_text: "全文内容".to_string(),
+            model: "claude-3".to_string(),
+            tokens_used: 100,
+            cost: 0.002,
+            duration_ms: 1234,
+        };
+        let json = serde_json::to_string(&complete).unwrap();
+        let deserialized: GenerationComplete = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.full_text, "全文内容");
+        assert_eq!(deserialized.tokens_used, 100);
+        assert_eq!(deserialized.cost, 0.002);
+        assert_eq!(deserialized.duration_ms, 1234);
+    }
+
+    #[test]
+    fn test_generation_error_serialization() {
+        let error = GenerationError {
+            error: "连接超时".to_string(),
+            error_code: "TIMEOUT".to_string(),
+        };
+        let json = serde_json::to_string(&error).unwrap();
+        let deserialized: GenerationError = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.error, "连接超时");
+        assert_eq!(deserialized.error_code, "TIMEOUT");
+    }
+
+    #[test]
+    fn test_llm_generating_progress_serialization() {
+        let pipeline_ctx = PipelineContext {
+            step_name: "内容评审".to_string(),
+            step_number: 2,
+            total_steps: 5,
+            action: "正在生成评审意见".to_string(),
+        };
+        let progress = LlmGeneratingProgress {
+            stage: "generating".to_string(),
+            message: "AI 正在深度思考中...".to_string(),
+            elapsed_seconds: 30,
+            model: "gpt-4".to_string(),
+            pipeline_context: Some(pipeline_ctx),
+        };
+        let json = serde_json::to_string(&progress).unwrap();
+        let deserialized: LlmGeneratingProgress = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.stage, "generating");
+        assert_eq!(deserialized.elapsed_seconds, 30);
+        let ctx = deserialized.pipeline_context.unwrap();
+        assert_eq!(ctx.step_name, "内容评审");
+        assert_eq!(ctx.step_number, 2);
+        assert_eq!(ctx.total_steps, 5);
+    }
+
+    #[test]
+    fn test_llm_generating_progress_without_pipeline_context() {
+        let progress = LlmGeneratingProgress {
+            stage: "connecting".to_string(),
+            message: "正在连接模型...".to_string(),
+            elapsed_seconds: 0,
+            model: "deepseek-chat".to_string(),
+            pipeline_context: None,
+        };
+        let json = serde_json::to_string(&progress).unwrap();
+        let deserialized: LlmGeneratingProgress = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.pipeline_context.is_none());
+    }
+
+    #[test]
+    fn test_generate_request_serialization() {
+        let req = GenerateRequest {
+            prompt: "Hello".to_string(),
+            max_tokens: Some(100),
+            temperature: Some(0.7),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.prompt, "Hello");
+        assert_eq!(deserialized.max_tokens, Some(100));
+        assert_eq!(deserialized.temperature, Some(0.7));
+    }
+
+    #[test]
+    fn test_generate_response_serialization() {
+        let resp = GenerateResponse {
+            content: "World".to_string(),
+            model: "gpt-4".to_string(),
+            tokens_used: 10,
+            cost: 0.001,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let deserialized: GenerateResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.content, "World");
+        assert_eq!(deserialized.tokens_used, 10);
+    }
 }

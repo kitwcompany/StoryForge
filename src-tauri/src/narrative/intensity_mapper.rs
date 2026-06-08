@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! LitSeg 叙事强度映射器
 //!
 //! 从拆书已提取的字段（conflict_type, emotional_tone, key_events）

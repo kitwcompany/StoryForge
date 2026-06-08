@@ -5,7 +5,7 @@ import {
   updateCharacter,
   deleteCharacter,
   notifyFrontstageDataRefresh,
-} from '@services/tauri';
+} from '@/services/tauri';
 import type { CreateCharacterRequest, Character } from '@/types/index';
 import toast from 'react-hot-toast';
 import { useEffect } from 'react';

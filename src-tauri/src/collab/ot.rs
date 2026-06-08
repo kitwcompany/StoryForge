@@ -1,5 +1,5 @@
-//! Operational Transformation (OT) Algorithm
 #![allow(dead_code)]
+//! Operational Transformation (OT) Algorithm
 
 use serde::{Deserialize, Serialize};
 

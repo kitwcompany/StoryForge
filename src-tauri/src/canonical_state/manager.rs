@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! CanonicalStateManager - 规范状态管理器
 //!
 //! 从数据库实时聚合故事的完整状态快照。

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 统一进度事件系统
 //!
 //! 替代 novel-bootstrap-progress 和 book-analysis-progress，

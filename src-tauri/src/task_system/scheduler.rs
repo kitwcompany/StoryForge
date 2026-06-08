@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Task Scheduler
 //!
 //! 基于 tokio::time 的任务调度器，参考 memoh-X CronPool 设计。

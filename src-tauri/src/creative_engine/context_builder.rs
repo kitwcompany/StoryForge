@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! StoryContextBuilder - 创作上下文构建器
 //!
 //! 从数据库中读取真实故事数据，为 Agent 提供完整的创作上下文。

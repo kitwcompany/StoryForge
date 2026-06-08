@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listStories, createStory, updateStory, deleteStory } from '@services/tauri';
+import { listStories, createStory, updateStory, deleteStory } from '@/services/tauri';
 import type { CreateStoryRequest, Story } from '@/types/index';
 import toast from 'react-hot-toast';
 

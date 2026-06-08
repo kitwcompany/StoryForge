@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 叙事感知检索增强 — LitSeg Phase 5
 //!
 //! 在标准混合检索（RRF）后增加叙事感知重排序层。

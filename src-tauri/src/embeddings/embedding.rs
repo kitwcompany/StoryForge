@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Text Embedding Module
 //!
 //! 增强版嵌入服务，支持：
@@ -5,7 +6,6 @@
 //! - 实体嵌入（名称+描述+属性拼接）
 //! - Embedding 缓存
 //! - 多模型支持（预留接口）
-#![allow(dead_code)]
 
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},

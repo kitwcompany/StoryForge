@@ -18,11 +18,11 @@ const MEDIUM_NOVEL_MAX: usize = 500_000;
 /// 长篇固定分块大小（字符数）— 仅作为 fallback
 const _LONG_CHUNK_SIZE: usize = 5_000;
 /// 中篇章节合并阈值：相邻章节合并的最小字数
-const MEDIUM_MERGE_MIN_WORDS: usize = 3_000;
+const _MEDIUM_MERGE_MIN_WORDS: usize = 3_000;
 /// 大章节阈值：超过此字数的章节需要按场景转换点再分
 const LARGE_CHAPTER_THRESHOLD: usize = 8_000;
 /// 短章节阈值：低于此字数的章节会累积合并
-const SHORT_CHAPTER_THRESHOLD: usize = 2_000;
+const _SHORT_CHAPTER_THRESHOLD: usize = 2_000;
 /// 合并缓冲目标字数：累积到此后生成一个 chunk
 const MERGE_BUFFER_TARGET: usize = 3_000;
 
@@ -90,6 +90,7 @@ fn split_by_chapters(chapters: &[ParsedChapter]) -> Vec<TextChunk> {
 ///
 /// 算法：从文本开头开始，每 `chunk_size` 个字符切分为一个块，
 /// 确保所有字符都被包含，最后一个块可能小于 `chunk_size`。
+#[allow(dead_code)]
 fn split_by_fixed_size(text: &str, chunk_size: usize) -> Vec<TextChunk> {
     if text.is_empty() {
         return Vec::new();
@@ -379,6 +380,7 @@ fn build_chunk(chapters: &[&ParsedChapter], index: usize) -> TextChunk {
 }
 
 /// 合并相邻的短章节（用于中篇，避免单个 chunk 过短）
+#[allow(dead_code)]
 pub fn merge_short_chapters(chapters: &[ParsedChapter], min_words: usize) -> Vec<TextChunk> {
     let mut chunks: Vec<TextChunk> = Vec::new();
     let mut current_buffer: Vec<String> = Vec::new();

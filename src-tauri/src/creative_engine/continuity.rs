@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Story Continuity Engine - 故事连续性引擎
 //!
 //! 追踪角色状态、检测一致性冲突、管理时间线。

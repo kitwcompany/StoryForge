@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 场景结构 (Scene Structure) 提示词模板
 //!
 //! 基于 Dwight V. Swain 的场景-续接 (Scene-Sequel) 模型。

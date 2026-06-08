@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 叙事线索追踪引擎 — LitSeg Phase 3
 //!
 //! 基于叙事事件自动推断三种叙事线索：
@@ -148,7 +149,7 @@ impl ThreadTracker {
                     && Self::description_similarity(&setup.description, &payoff.description) > 0.3
             });
 
-            let status = if let Some(payoff) = matched_payoff {
+            let status = if let Some(_payoff) = matched_payoff {
                 ForeshadowStatus::PaidOff
             } else {
                 // 检查是否逾期（超过10章未回收）

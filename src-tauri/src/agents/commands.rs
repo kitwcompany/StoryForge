@@ -1,7 +1,7 @@
+#![allow(dead_code)]
 //! Agent Commands
 //!
 //! Tauri commands for agent execution
-#![allow(dead_code)]
 #![allow(unused_imports)]
 
 use std::{
@@ -542,7 +542,7 @@ pub async fn auto_write(
             };
 
             // v0.7.8: 跨段风格漂移检测 — 多维度（句长/四字格/虚词/标志性词汇）
-            let (style_drift_warning, loop_style_score, loop_drift_details) = if loop_count > 0 {
+            let (_, loop_style_score, loop_drift_details) = if loop_count > 0 {
                 if let Some(ref fp) = fingerprint {
                     let recent = accumulated_content
                         .chars()

@@ -1,5 +1,4 @@
 //! Settings management commands for Tauri
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 

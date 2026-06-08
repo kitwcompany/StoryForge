@@ -40,11 +40,15 @@ const defaultLogger = createLogger('error:handler');
  * Tauri 会把 Rust 的 Err(AppError) 序列化为 JSON 字符串放在 Error.message 中，
  * 也可能在某些版本下直接反序列化为对象。
  */
+function isStructuredError(obj: Record<string, unknown>): obj is Record<'code' | 'message', string> & { data?: Record<string, unknown> } {
+  return typeof obj.code === 'string' && typeof obj.message === 'string';
+}
+
 export function parseStructuredError(error: unknown): StructuredError | null {
   // 已经是对象
   if (error && typeof error === 'object') {
     const obj = error as Record<string, unknown>;
-    if (typeof obj.code === 'string' && typeof obj.message === 'string') {
+    if (isStructuredError(obj)) {
       return {
         code: obj.code,
         message: obj.message,
@@ -70,7 +74,7 @@ export function parseStructuredError(error: unknown): StructuredError | null {
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-        if (typeof parsed.code === 'string' && typeof parsed.message === 'string') {
+        if (isStructuredError(parsed)) {
           return {
             code: parsed.code,
             message: parsed.message,

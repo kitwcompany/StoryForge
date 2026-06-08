@@ -17,6 +17,10 @@ import type {
 
 const settingsServiceLogger = createLogger('services:settings');
 
+function isTauriApp(): boolean {
+  return !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
+}
+
 // 浏览器开发环境 fallback：三个真实本地模型
 const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
   {
@@ -78,9 +82,9 @@ const BROWSER_FALLBACK_SETTINGS: AppSettings = {
   version: '0.1.0',
   updated_at: new Date().toISOString(),
   models: {
-    chat: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'chat') as any,
-    embedding: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'embedding') as any,
-    multimodal: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'multimodal') as any,
+    chat: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'chat'),
+    embedding: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'embedding'),
+    multimodal: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'multimodal'),
     image: [],
   },
   active_models: {
@@ -116,8 +120,7 @@ export async function getSettings(): Promise<AppSettings> {
   try {
     return await loggedInvoke<AppSettings>('get_settings');
   } catch (e) {
-    const isTauri = !!(window as any).__TAURI__;
-    if (!isTauri) {
+    if (!isTauriApp()) {
       return BROWSER_FALLBACK_SETTINGS;
     }
     throw e;
@@ -144,8 +147,7 @@ export async function getModels(): Promise<ModelConfig[]> {
   try {
     return await loggedInvoke<ModelConfig[]>('get_models');
   } catch (e) {
-    const isTauri = !!(window as any).__TAURI__;
-    if (!isTauri) {
+    if (!isTauriApp()) {
       settingsServiceLogger.debug('[Browser Fallback] Using local real models');
       return BROWSER_FALLBACK_MODELS;
     }
@@ -244,21 +246,23 @@ async function browserTestModelConnection(modelId: string): Promise<ConnectionTe
     const latency = Math.round(performance.now() - postStart);
     steps[1] = { name: '测试 API 响应', status: 'success' };
     return { success: true, latency, steps };
-  } catch (e: any) {
+  } catch (e: unknown) {
     const latency = Math.round(performance.now() - start);
     const lastRunningIdx = steps.findIndex(s => s.status === 'running');
     if (lastRunningIdx >= 0) {
-      const errMsg = e.name === 'AbortError' ? '连接超时' : e.message || '连接失败';
+      const err = e instanceof Error ? e : new Error(String(e));
+      const errMsg = err.name === 'AbortError' ? '连接超时' : err.message || '连接失败';
       steps[lastRunningIdx] = {
         ...steps[lastRunningIdx],
         status: 'failed',
         detail: errMsg,
       };
     }
+    const err = e instanceof Error ? e : new Error(String(e));
     return {
       success: false,
       latency,
-      error: e.name === 'AbortError' ? '连接超时' : e.message || '连接失败',
+      error: err.name === 'AbortError' ? '连接超时' : err.message || '连接失败',
       steps,
     };
   }
@@ -269,8 +273,7 @@ export async function testModelConnection(modelId: string): Promise<ConnectionTe
   try {
     return await loggedInvoke<ConnectionTestResult>('test_model_connection', { modelId });
   } catch (e) {
-    const isTauri = !!(window as any).__TAURI__;
-    if (!isTauri) {
+    if (!isTauriApp()) {
       return browserTestModelConnection(modelId);
     }
     throw e;
@@ -287,14 +290,13 @@ export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Prom
   try {
     return await loggedInvoke<string[]>('fetch_models', { baseUrl, apiKey });
   } catch (e) {
-    const isTauri = !!(window as any).__TAURI__;
-    if (!isTauri) {
+    if (!isTauriApp()) {
       try {
         const headers: Record<string, string> = {};
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
         const resp = await fetch(`${baseUrl}/v1/models`, { headers });
         const data = await resp.json();
-        return data.data?.map((m: any) => m.id) || [];
+        return (data.data as Array<{ id: string }>)?.map((m) => m.id) || [];
       } catch {
         return [];
       }

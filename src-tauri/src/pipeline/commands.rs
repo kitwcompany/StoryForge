@@ -43,7 +43,7 @@ impl super::types::PipelineCallbacks for PipelineTaskCallbacks {
         let _ = repo.create_log(&self.task_id, "info", message);
     }
 
-    fn progress(&self, phase: &str, percent: f32) {
+    fn progress(&self, _phase: &str, percent: f32) {
         let repo = crate::task_system::repository::TaskRepository::new(self.pool.clone());
         let progress = (percent * 100.0) as i32;
         let _ = repo.update_status(
