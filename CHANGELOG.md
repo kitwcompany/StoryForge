@@ -2,6 +2,55 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.0] - Brooks-Lint 代码质量重构：DTO、服务下沉、前端拆分、迁移框架（2026-06-08）
+
+### 摘要
+- 基于 Brooks-Lint v1.0 扫描报告，完成第一轮代码质量重构
+- `cargo check` 接近零警告（仅 1 处预留测试辅助函数 dead_code 提示）
+- 前端 `tsc --noEmit` 零错误
+- Rust 测试覆盖从 264 → **297** passed，全部本地 SQLite + mock 运行
+
+### Phase 1 基础设施与测试根基
+- **测试覆盖扩展至 297 例**：新增 `db/repositories_tests.rs`、`db/cascade_tests.rs`、`canonical_state/tests.rs` 等模块，为核心 Repository、Cascade 删除、规范状态构建器铺设回归保护网
+- **本地可运行**：所有新增测试基于纯本地 SQLite + mock LLM，无需网络即可通过
+- **迁移框架 SQL 化**：在 `src-tauri/src/db/migrations.rs` 实现自定义 `MigrationRunner`，将历史内联迁移提取为 `V007 ~ V027` 共 21 个版本化 `.sql` 文件，按 `schema_migrations` 表版本顺序执行，支持幂等跳过与 legacy inline 迁移兼容
+
+### Phase 2 启动序列与全局状态治理
+- **`lib.rs` 初始化热点收敛**：`run()` 中 500+ 行的发散式 setup 逻辑拆分为 `init_task_system_and_automation()`、`seed_builtin_data()`、`graceful_shutdown()` 等独立函数
+- **全局静态文档化**：`DB_POOL`、`APP_CONFIG`、`SKILL_MANAGER`、`CHAPTER_COMMIT_DEBOUNCE` 等全局单例添加详细 SAFETY 注释，明确生命周期与迁移路径
+- **连接池初始化整合**：`init_db()` 通过 `MigrationRunner::run_with_legacy()` 统一执行 SQL 迁移与遗留 Rust 内联迁移，避免启动闪退
+
+### Phase 3 领域层重构
+- **DTO 独立化**：新建 `src-tauri/src/db/dto.rs`，将 `CreateSceneRequest`、`UpdateStoryRequest`、`CreateChapterRequest`、`CreateCharacterRequest`、`CreateAiOperationRequest` 等 18+ 个请求/响应 DTO 从 `models.rs` 迁出，消除贫血模型与 DTO 混杂
+- **Story System 服务下沉**：
+  - 新建 `story_system/chapter_service.rs`：`ChapterService` / `ChapterCommitDebouncer` / `PayoffDetector` / `AutomationTrigger`，统一处理章节更新后的 debounce commit、伏笔逾期检测、状态同步、Skill Hook
+  - 新建 `story_system/scene_service.rs`：`SceneService` / `SceneIngestor` / `SceneAutomationTrigger`，统一处理场景内容变更后的 KG Ingest、向量索引、world_building 刷新
+- **命令层薄化**：`commands/chapter.rs` 与 `scene_commands.rs` 只保留参数校验与事件发射，业务编排全部委托领域服务
+
+### Phase 4 前端架构清理
+- **`services/tauri.ts` 拆分完成**：原 1,340 行上帝文件拆分为 `services/api/` 下 17 个按域子模块
+  - `core.ts`：仅保留 `loggedInvoke<T>`（带参数脱敏与耗时日志）
+  - `stories.ts`、`storySystem.ts`、`skills.ts`、`settings.ts`、`intent.ts`、`annotations.ts`、`knowledge.ts`、`memory.ts`、`pipeline.ts`、`quality.ts`、`genesis.ts`、`stream.ts`、`subscription.ts`、`writing.ts`、`wizard.ts`
+  - `index.ts`：barrel export，统一汇总
+- **兼容保留**：`services/tauri.ts` 现为 3 行 barrel，历史调用方 `import { ... } from '@/services/tauri'` 无需修改
+- **状态同步 Hook 完善**：`useSyncStore.ts` 覆盖 Story / Character / Scene / Chapter / WorldBuilding / StyleDna / Task / Annotation / PayoffLedger / DataRefresh 等全量资源，自动调用 `queryClient.invalidateQueries/removeQueries`
+
+### Phase 5 后端代码质量收尾
+- **`cargo check` 接近零警告**：消除 Brooks-Lint 报告中的未使用变量、冗余导入、未处理 Result 等批量问题
+- **字段与序列化清理**：`settings.rs` temperature 序列化、`numberFormat.ts` 浮点精度等前期修复保持稳定
+- **连接状态模块**：`modelConnectionStore.ts` + `ModelCard` 连接测试可视化稳定运行
+
+### 迁移框架技术细节
+- **自定义 `MigrationRunner`**：因项目使用 rusqlite 0.39，未启用 refinery 默认特性，而是实现兼容 runner
+- **路径探测**：支持 exe 旁、`CARGO_MANIFEST_DIR`、`src-tauri/src/db/migrations` 等多环境路径
+- **事务管理**：每个迁移在独立事务中执行，自动忽略 SQL 中的 `BEGIN/COMMIT/ROLLBACK`
+- **幂等安全**：对 `duplicate column name` / `already exists` 等错误做日志警告并跳过，兼容已有数据库
+- **版本追踪**：沿用既有 `schema_migrations` 表，现有用户数据库可平滑升级
+
+**编译状态**: `cargo check` 1 警告（测试辅助函数未使用），`cargo test` **297/297** 通过，前端 `tsc --noEmit` 零错误。
+
+---
+
 ## [v0.8.0] - 模型管理重构 + 浮点数精度修复 + 连接状态增强（2026-05-29）
 
 ### 🎯 模型管理统一集中
