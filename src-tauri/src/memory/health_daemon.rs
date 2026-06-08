@@ -122,7 +122,7 @@ impl MemoryHealthDaemon {
 /// 启动守护进程（在应用启动时调用）
 pub fn spawn_daemon(pool: DbPool, app_handle: tauri::AppHandle) {
     let daemon = Arc::new(MemoryHealthDaemon::new(pool));
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         daemon.start(app_handle).await;
     });
     log::info!("[MemoryHealthDaemon] Spawned background task");
