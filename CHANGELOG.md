@@ -51,6 +51,66 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ---
 
+## [v0.8.2] - LitSeg 拆书融合 Phase 1-6 全面完成（2026-06-03）
+
+### 📖 LitSeg 叙事感知分块与模型增强
+- **Phase 1: 叙事感知分块** (`book_deconstruction/chunker.rs`)
+  - `NarrativeAware` 分块策略：章节边界为首要叙事边界，大章节(>8000字)按场景转换点再分
+  - 3 个单元测试全部通过
+- **Phase 2: 模型增强** (`narrative/elements.rs`, `intensity_mapper.rs`)
+  - `SceneElement` / `ReferenceScene` 新增 narrative 字段：`narrative_intensity`、`sentiment`、`event_types`、`act_number`、`position_in_act`
+  - 新建 `intensity_mapper.rs`：冲突类型→强度、情感基调→极性映射
+  - Migration 85：`reference_scenes` 表增强 narrative 字段
+
+### 🔧 Pipeline 后处理与向量化
+- **Phase 3: Executor 后处理** (`book_deconstruction/executor.rs`)
+  - Pipeline 完成后运行 LitSeg 后处理：计算 intensity、推断幕结构、标注 `act_number`
+  - Migration 86：`reference_books` 添加 `analyzed_structure_json`
+- **Phase 6: 向量化增强** (`vector/lancedb_store.rs`)
+  - `VectorRecord` / `SearchResult` 新增 `metadata` 字段
+  - LanceDB schema 添加 `metadata` 列，旧表自动重建
+
+### 🔄 转故事与前端升级
+- **Phase 4: convert_to_story 迁移** (`book_deconstruction/service.rs`)
+  - 拆书转故事时自动创建 `story_outlines`，携带 narrative 结构
+- **Phase 5: 前端升级**
+  - `StoryArcView.tsx` 新增幕结构图、场景叙事强度时间线、场景情感分布
+  - 保留原有 `story_arc` 解析（向后兼容）
+
+**编译状态**: `cargo check` 零错误，`cargo test` 通过。
+
+---
+
+## [v0.8.1] - LitSeg 叙事感知分段深度融合（2026-05-30）
+
+### 📖 LitSeg 叙事感知分段深度融合
+- **深度融合而非机械叠加** — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 的核心洞察，将 LitSeg 分析能力融入现有架构而非创建平行系统
+- **删除 3 张冗余表**：`narrative_events` / `narrative_threads` / `narrative_structure`
+- **增强 4 张现有表**：
+  - `scenes` 新增 7 个 narrative 字段（intensity/sentiment/event_types/act_number/position_in_act 等）
+  - `foreshadowing_tracker` 新增 setup_event_id / payoff_event_id / risk_signals_score
+  - `character_states` 新增 state_transitions_json / arc_type
+  - `story_outlines` 新增 analyzed_structure_json
+- **新建 1 张表**：`conflict_escalations`（从 narrative_threads.conflict_escalation 提取为结构化表）
+- **保留 2 张表**：`narrative_structure_positions`（场景级精细定位）、`narrative_chunks`（物化缓存）
+
+### 🧠 AI 叙事结构感知
+- **ingest 流程增强** — 保存章节后自动提取叙事事件并更新 scenes 表 narrative 字段
+- **叙事分析流水线** — 在 kg ingest 完成后触发，自动推断叙事线索、分析幕结构、生成叙事感知文本块
+- **Agent 上下文增强** — Writer Agent 系统提示词自动注入当前叙事位置（如"第3幕75%，接近高潮"）
+
+### 🖥️ 叙事分析页面
+- 新增"叙事分析"侧边栏导航项
+- **幕级结构可视化** — 起承转合四幕图，显示章节范围
+- **事件强度时间线** — 按章节排序的强度条，直观展示故事节奏
+- **活跃线索面板** — 未回收伏笔、角色弧光、冲突升级状态
+
+### 🔧 数据库迁移
+- **Migration 79-84**：6 个新迁移完成表结构变更
+- `cargo check` 零错误，`cargo test` 通过
+
+---
+
 ## [v0.8.0] - 模型管理重构 + 浮点数精度修复 + 连接状态增强（2026-05-29）
 
 ### 🎯 模型管理统一集中
@@ -2500,31 +2560,5 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - LLM 集成
 - 数据库设计
 
-## [v0.8.1] - LitSeg 叙事感知分段深度融合（2026-05-30）
 
-### 📖 LitSeg 叙事感知分段深度融合
-- **深度融合而非机械叠加** — 基于论文 "Narrative-Aware Document Segmentation for Literary RAG" 的核心洞察，将 LitSeg 分析能力融入现有架构而非创建平行系统
-- **删除 3 张冗余表**：`narrative_events` / `narrative_threads` / `narrative_structure`
-- **增强 4 张现有表**：
-  - `scenes` 新增 7 个 narrative 字段（intensity/sentiment/event_types/act_number/position_in_act 等）
-  - `foreshadowing_tracker` 新增 setup_event_id / payoff_event_id / risk_signals_score
-  - `character_states` 新增 state_transitions_json / arc_type
-  - `story_outlines` 新增 analyzed_structure_json
-- **新建 1 张表**：`conflict_escalations`（从 narrative_threads.conflict_escalation 提取为结构化表）
-- **保留 2 张表**：`narrative_structure_positions`（场景级精细定位）、`narrative_chunks`（物化缓存）
-
-### 🧠 AI 叙事结构感知
-- **ingest 流程增强** — 保存章节后自动提取叙事事件并更新 scenes 表 narrative 字段
-- **叙事分析流水线** — 在 kg ingest 完成后触发，自动推断叙事线索、分析幕结构、生成叙事感知文本块
-- **Agent 上下文增强** — Writer Agent 系统提示词自动注入当前叙事位置（如"第3幕75%，接近高潮"）
-
-### 🖥️ 叙事分析页面
-- 新增"叙事分析"侧边栏导航项
-- **幕级结构可视化** — 起承转合四幕图，显示章节范围
-- **事件强度时间线** — 按章节排序的强度条，直观展示故事节奏
-- **活跃线索面板** — 未回收伏笔、角色弧光、冲突升级状态
-
-### 🔧 数据库迁移
-- **Migration 79-84**：6 个新迁移完成表结构变更
-- `cargo check` 零错误，`cargo test` 通过
 
