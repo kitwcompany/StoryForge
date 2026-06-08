@@ -174,12 +174,10 @@ impl AutomationTrigger {
     ) {
         tauri::async_runtime::spawn(async move {
             if let Err(e) = automation_service
-                .trigger_event(
-                    crate::automation::triggers::TriggerEvent::ChapterCreated {
-                        story_id,
-                        chapter_id,
-                    },
-                )
+                .trigger_event(crate::automation::triggers::TriggerEvent::ChapterCreated {
+                    story_id,
+                    chapter_id,
+                })
                 .await
             {
                 log::warn!(
@@ -282,8 +280,7 @@ impl ChapterService {
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
                     let context = crate::agents::AgentContext::minimal(story_id, String::new());
-                    let data =
-                        serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
+                    let data = serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
                     let _ = skill_manager
                         .execute_hooks(crate::skills::HookEvent::AfterChapterSave, &context, data)
                         .await;

@@ -136,7 +136,10 @@ impl MigrationRunner {
     pub fn run(&self, conn: &mut Connection) -> Result<(), MigrationError> {
         let migrations = self.load_migrations()?;
         if migrations.is_empty() {
-            log::info!("[migrations] No migration files found in {}", self.migrations_dir);
+            log::info!(
+                "[migrations] No migration files found in {}",
+                self.migrations_dir
+            );
             return Ok(());
         }
 
@@ -245,9 +248,7 @@ impl MigrationRunner {
                 // If the error is "duplicate column name" or "table already exists",
                 // we may want to log and continue for idempotent safety.
                 let err_msg = e.to_string().to_lowercase();
-                if err_msg.contains("duplicate column name")
-                    || err_msg.contains("already exists")
-                {
+                if err_msg.contains("duplicate column name") || err_msg.contains("already exists") {
                     log::warn!(
                         "[migrations] Idempotent skip: {} (stmt: {})",
                         e,
@@ -324,8 +325,14 @@ fn record_migration(conn: &Connection, version: i32) -> Result<(), rusqlite::Err
 pub enum MigrationError {
     DirectoryNotFound(std::path::PathBuf),
     InvalidFilename(String),
-    OutOfOrder { prev: Migration, next: Migration },
-    SqlExecution { sql: String, source: rusqlite::Error },
+    OutOfOrder {
+        prev: Migration,
+        next: Migration,
+    },
+    SqlExecution {
+        sql: String,
+        source: rusqlite::Error,
+    },
     Io(std::io::Error),
     Rusqlite(rusqlite::Error),
 }
@@ -475,7 +482,6 @@ mod tests {
                 "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
                 [],
                 |row| row.get(0),
-                
             )
             .unwrap();
         assert_eq!(version, 1);

@@ -11,8 +11,8 @@ use super::{
     AgentBotConfig, AnchorType, ChangeStatus, ChangeTrack, ChangeType, Chapter, Character,
     CharacterConflict, CharacterState, CommentMessage, CommentThread, CommentThreadWithMessages,
     ConflictType, CreateChapterRequest, CreateCharacterRequest, CreateStoryRequest, CreatorType,
-    Culture, DbPool, DynamicTrait, Entity, LlmStudioConfig, OAuthAccount, Relation,
-    RuleType, Scene, SceneAnnotation, SceneVersion, Session, Story, StoryStyleConfig, StorySummary,
+    Culture, DbPool, DynamicTrait, Entity, LlmStudioConfig, OAuthAccount, Relation, RuleType,
+    Scene, SceneAnnotation, SceneVersion, Session, Story, StoryStyleConfig, StorySummary,
     StudioConfig, TextAnnotation, ThreadStatus, UiStudioConfig, UpdateStoryRequest, User, UserInfo,
     WorldBuilding, WorldRule, WritingStyle,
 };

@@ -211,18 +211,14 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                         // 仅当不存在时才插入，避免覆盖用户自定义修改
                         match repo.get_by_name(genre_name) {
                             Ok(None) => {
-                                let aliases_json =
-                                    profile.get("aliases").map(|v| v.to_string());
-                                let core_tone =
-                                    profile.get("core_tone").and_then(|v| v.as_str());
-                                let pacing_strategy = profile
-                                    .get("pacing_strategy")
-                                    .and_then(|v| v.as_str());
+                                let aliases_json = profile.get("aliases").map(|v| v.to_string());
+                                let core_tone = profile.get("core_tone").and_then(|v| v.as_str());
+                                let pacing_strategy =
+                                    profile.get("pacing_strategy").and_then(|v| v.as_str());
                                 let anti_patterns_json =
                                     profile.get("anti_patterns").map(|v| v.to_string());
-                                let reference_tables_json = profile
-                                    .get("reference_tables")
-                                    .and_then(|v| v.as_str());
+                                let reference_tables_json =
+                                    profile.get("reference_tables").and_then(|v| v.as_str());
                                 let _ = repo.create(
                                     genre_name,
                                     canonical_name,
@@ -264,8 +260,7 @@ fn init_task_system_and_automation(
     pool: &DbPool,
     app_handle: &tauri::AppHandle,
 ) {
-    let task_service =
-        task_system::service::TaskService::new(pool.clone(), app_handle.clone());
+    let task_service = task_system::service::TaskService::new(pool.clone(), app_handle.clone());
     let llm_service = llm::LlmService::new(app_handle.clone());
     let executor = std::sync::Arc::new(
         book_deconstruction::executor::BookDeconstructionExecutor::new(
@@ -282,15 +277,15 @@ fn init_task_system_and_automation(
         ),
     );
     task_service.register_executor(cascade_executor);
-    let ai_gen_executor = std::sync::Arc::new(
-        agents::executor::AiGenerationExecutor::new(pool.clone(), app_handle.clone()),
-    );
+    let ai_gen_executor = std::sync::Arc::new(agents::executor::AiGenerationExecutor::new(
+        pool.clone(),
+        app_handle.clone(),
+    ));
     task_service.register_executor(ai_gen_executor);
-    let pipeline_executor =
-        std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(
-            pool.clone(),
-            app_handle.clone(),
-        ));
+    let pipeline_executor = std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(
+        pool.clone(),
+        app_handle.clone(),
+    ));
     task_service.register_executor(pipeline_executor);
     if let Err(e) = task_service.bootstrap() {
         log::error!("Failed to bootstrap task system: {}", e);
@@ -480,10 +475,7 @@ fn spawn_background_tasks(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         let llm = llm::LlmService::new(app_handle.clone());
-        let engine = capabilities::evolution::CapabilityEvolutionEngine::new(
-            llm,
-            &app_handle,
-        );
+        let engine = capabilities::evolution::CapabilityEvolutionEngine::new(llm, &app_handle);
         let stats = engine.get_statistics();
         let total_records: usize = stats.values().map(|(t, _)| t).sum();
         if total_records >= 5 {
@@ -879,7 +871,9 @@ mod lib_tests {
     #[test]
     fn test_is_novel_creation_intent_mixed_signals() {
         // 同时包含创建和续写信号，优先判断为续写
-        assert!(!is_novel_creation_intent("创建一本新书，然后续写后面的章节"));
+        assert!(!is_novel_creation_intent(
+            "创建一本新书，然后续写后面的章节"
+        ));
         assert!(!is_novel_creation_intent("写一部小说，接着写后续"));
     }
 

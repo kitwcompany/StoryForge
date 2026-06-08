@@ -112,8 +112,14 @@ fn parse_pipeline_payload(task: &Task) -> Result<PipelinePayload, String> {
             .to_string(),
         story_id,
         draft_id,
-        user_prompt: payload.get("user_prompt").and_then(|v| v.as_str()).map(String::from),
-        review_focus: payload.get("review_focus").and_then(|v| v.as_str()).map(String::from),
+        user_prompt: payload
+            .get("user_prompt")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        review_focus: payload
+            .get("review_focus")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         chapter_number: payload
             .get("chapter_number")
             .and_then(|v| v.as_i64())
@@ -215,7 +221,10 @@ impl TaskExecutor for PipelineReviewExecutor {
                     Err(e) => Ok(task_err(e.to_string())),
                 }
             }
-            _ => Ok(task_err(format!("Unknown pipeline operation: {}", payload.operation))),
+            _ => Ok(task_err(format!(
+                "Unknown pipeline operation: {}",
+                payload.operation
+            ))),
         };
 
         ctx.heartbeat();
@@ -237,7 +246,9 @@ mod tests {
             task_type: TaskType::PipelineReview,
             schedule_type: crate::task_system::models::ScheduleType::Once,
             cron_pattern: None,
-            payload: Some(r#"{"story_id": "s1", "draft_id": "d1", "operation": "review"}"#.to_string()),
+            payload: Some(
+                r#"{"story_id": "s1", "draft_id": "d1", "operation": "review"}"#.to_string(),
+            ),
             status: crate::task_system::models::TaskStatus::Pending,
             progress: 0,
             result: None,
@@ -396,6 +407,9 @@ mod tests {
         let result = task_err("Something went wrong");
         assert!(!result.success);
         assert_eq!(result.result_json, None);
-        assert_eq!(result.error_message, Some("Something went wrong".to_string()));
+        assert_eq!(
+            result.error_message,
+            Some("Something went wrong".to_string())
+        );
     }
 }

@@ -622,7 +622,9 @@ mod tests {
         let mut conn = pool.get().unwrap();
         let tx = conn.transaction().unwrap();
 
-        let scene = scene_repo.create_in_tx(&tx, &story.id, 1, Some("事务场景")).unwrap();
+        let scene = scene_repo
+            .create_in_tx(&tx, &story.id, 1, Some("事务场景"))
+            .unwrap();
         assert_eq!(scene.story_id, story.id);
         assert_eq!(scene.sequence_number, 1);
         assert_eq!(scene.title, Some("事务场景".to_string()));
@@ -705,11 +707,17 @@ mod tests {
         assert_eq!(scene.outline_content, Some("大纲".to_string()));
         assert_eq!(scene.draft_content, Some("草稿".to_string()));
         assert_eq!(scene.style_blend_override, Some("blend-1".to_string()));
-        assert_eq!(scene.foreshadowing_ids, Some(vec!["f1".to_string(), "f2".to_string()]));
+        assert_eq!(
+            scene.foreshadowing_ids,
+            Some(vec!["f1".to_string(), "f2".to_string()])
+        );
         assert_eq!(scene.chapter_id, None);
         assert_eq!(scene.narrative_intensity, Some(0.8));
         assert_eq!(scene.narrative_sentiment, Some(0.8));
-        assert_eq!(scene.narrative_event_types, Some("[\"event1\"]".to_string()));
+        assert_eq!(
+            scene.narrative_event_types,
+            Some("[\"event1\"]".to_string())
+        );
         assert_eq!(scene.narrative_preceding_scene_id, None);
         assert_eq!(scene.narrative_following_scene_id, None);
         assert_eq!(scene.act_number, Some(2));

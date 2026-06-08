@@ -43,11 +43,7 @@ impl SceneIngestor {
     }
 
     /// 启动后台 ingest 任务。
-    pub fn spawn_ingest(
-        scene_id: String,
-        pool: DbPool,
-        app_handle: AppHandle,
-    ) {
+    pub fn spawn_ingest(scene_id: String, pool: DbPool, app_handle: AppHandle) {
         tauri::async_runtime::spawn(async move {
             let scene_repo = SceneRepository::new(pool.clone());
             let Some(scene) = (match scene_repo.get_by_id(&scene_id) {
@@ -86,7 +82,9 @@ impl SceneIngestor {
                 }
             };
 
-            let Some(ingest_result) = ingest_result else { return };
+            let Some(ingest_result) = ingest_result else {
+                return;
+            };
 
             let kg_repo = KnowledgeGraphRepository::new(pool.clone());
             let saved_entities = kg_repo
@@ -142,11 +140,7 @@ impl SceneIngestor {
                 saved_relations
             );
 
-            let _ = StateSync::emit_ingestion_completed(
-                &app_handle_for_sync,
-                &story_id,
-                "scene",
-            );
+            let _ = StateSync::emit_ingestion_completed(&app_handle_for_sync, &story_id, "scene");
             let _ = StateSync::emit_data_refresh(
                 &app_handle_for_sync,
                 Some(&story_id),
@@ -230,12 +224,10 @@ impl SceneAutomationTrigger {
     ) {
         tauri::async_runtime::spawn(async move {
             if let Err(e) = automation_service
-                .trigger_event(
-                    crate::automation::triggers::TriggerEvent::SceneCreated {
-                        story_id,
-                        scene_id,
-                    },
-                )
+                .trigger_event(crate::automation::triggers::TriggerEvent::SceneCreated {
+                    story_id,
+                    scene_id,
+                })
                 .await
             {
                 log::warn!(
@@ -327,11 +319,15 @@ impl SceneService {
                 let skill_manager = skill_manager.clone();
                 tauri::async_runtime::spawn(async move {
                     let context = crate::agents::AgentContext::minimal(story_id, String::new());
-                    let data = serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
+                    let data =
+                        serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
                     let _ = skill_manager
                         .execute_hooks(crate::skills::HookEvent::OnSceneCreate, &context, data)
                         .await;
-                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnSceneCreate);
+                    log::info!(
+                        "Hook executed: {:?}",
+                        crate::skills::HookEvent::OnSceneCreate
+                    );
                 });
             }
         }

@@ -115,7 +115,12 @@ pub async fn create_scene(
 
     // 委托领域服务处理后续业务编排
     let service = SceneService::new(pool.inner().clone(), app_handle);
-    service.on_scene_created(&scene, has_extra, has_setting_changes, automation_service.inner());
+    service.on_scene_created(
+        &scene,
+        has_extra,
+        has_setting_changes,
+        automation_service.inner(),
+    );
 
     Ok(scene)
 }
