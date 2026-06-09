@@ -23,6 +23,16 @@ pub struct AutoContractProgress {
     pub progress: f32, // 0.0 - 1.0
 }
 
+/// 自动补齐结果
+#[derive(Debug, Default)]
+pub struct AutoFillResult {
+    pub created_master: bool,
+    pub created_chapter: bool,
+    pub created_character: bool,
+    pub created_scene: bool,
+    pub created_outline: bool,
+}
+
 /// 自动合同构建器
 pub struct AutoContractBuilder {
     pool: DbPool,
@@ -45,30 +55,87 @@ impl AutoContractBuilder {
         );
     }
 
-    /// 自动补齐指定故事缺失的合同及场景大纲
+    /// 自动补齐指定故事缺失的合同、角色、场景及场景大纲
     ///
-    /// 返回 (是否创建了 master_setting, 是否创建了 chapter_contract, 是否创建了
-    /// scene_outline)
+    /// 当预检发现阻塞性问题时，auto_fill 尝试自动创建所有缺失的基础数据，
+    /// 包括默认角色、默认场景、世界观合同、章节合同和场景大纲。
     pub async fn auto_fill(
         &self,
         story_id: &str,
         chapter_number: i32,
         scene_id: Option<&str>,
-    ) -> Result<(bool, bool, bool), String> {
+    ) -> Result<AutoFillResult, String> {
         let engine = super::StorySystemEngine::new(self.pool.clone());
         let tree = engine.get_contract_tree(story_id)?;
 
-        let mut created_master = false;
-        let mut created_chapter = false;
-        let mut created_outline = false;
+        let mut result = AutoFillResult::default();
 
-        // 1. 检查并补齐 MASTER_SETTING
+        // 1. 检查并补齐角色（角色是后续合同/大纲生成的重要上下文）
+        let char_repo = CharacterRepository::new(self.pool.clone());
+        let characters = char_repo
+            .get_by_story(story_id)
+            .map_err(|e| format!("读取角色失败: {}", e))?;
+        if characters.is_empty() {
+            self.emit_progress("analyzing", "正在分析故事内容，准备生成默认角色...", 0.05);
+            match self.build_default_character(story_id).await {
+                Ok(_character) => {
+                    self.emit_progress("saving", "默认角色已生成并保存", 0.15);
+                    result.created_character = true;
+                    log::info!(
+                        "[AutoContract] Created default character for story {}",
+                        story_id
+                    );
+                }
+                Err(e) => {
+                    self.emit_progress("error", &format!("默认角色生成失败: {}", e), 0.0);
+                    log::warn!("[AutoContract] Failed to create default character: {}", e);
+                }
+            }
+        }
+
+        // 2. 检查并补齐场景（场景存在后，大纲才能被填充）
+        let scene_repo = SceneRepository::new(self.pool.clone());
+        let scenes = scene_repo
+            .get_by_story(story_id)
+            .map_err(|e| format!("读取场景失败: {}", e))?;
+        let target_scene_id = if let Some(sid) = scene_id {
+            Some(sid.to_string())
+        } else {
+            scenes
+                .into_iter()
+                .find(|s| s.sequence_number == chapter_number)
+                .map(|s| s.id)
+        };
+        let target_scene_id = if target_scene_id.is_none() {
+            self.emit_progress("analyzing", "正在创建默认场景...", 0.18);
+            match self.build_default_scene(story_id, chapter_number).await {
+                Ok(scene) => {
+                    self.emit_progress("saving", "默认场景已创建", 0.22);
+                    result.created_scene = true;
+                    log::info!(
+                        "[AutoContract] Created default scene for story {} chapter {}",
+                        story_id,
+                        chapter_number
+                    );
+                    Some(scene.id)
+                }
+                Err(e) => {
+                    self.emit_progress("error", &format!("默认场景创建失败: {}", e), 0.0);
+                    log::warn!("[AutoContract] Failed to create default scene: {}", e);
+                    None
+                }
+            }
+        } else {
+            target_scene_id
+        };
+
+        // 3. 检查并补齐 MASTER_SETTING
         if tree.master_setting.is_none() {
-            self.emit_progress("analyzing", "正在分析故事内容，准备生成世界观合同...", 0.1);
+            self.emit_progress("analyzing", "正在分析故事内容，准备生成世界观合同...", 0.3);
             match self.build_master_setting(story_id).await {
                 Ok(_contract) => {
-                    self.emit_progress("saving", "世界观合同已生成并保存", 0.25);
-                    created_master = true;
+                    self.emit_progress("saving", "世界观合同已生成并保存", 0.45);
+                    result.created_master = true;
                     log::info!(
                         "[AutoContract] Created MASTER_SETTING for story {}",
                         story_id
@@ -81,7 +148,7 @@ impl AutoContractBuilder {
             }
         }
 
-        // 2. 检查并补齐 CHAPTER 合同
+        // 4. 检查并补齐 CHAPTER 合同
         let has_chapter_contract = tree.chapters.values().any(|c| {
             serde_json::from_str::<super::ChapterContract>(&c.contract_json)
                 .map(|cc| cc.chapter_number == chapter_number)
@@ -89,11 +156,11 @@ impl AutoContractBuilder {
         });
 
         if !has_chapter_contract {
-            self.emit_progress("analyzing", "正在分析章节内容，准备生成章节合同...", 0.3);
+            self.emit_progress("analyzing", "正在分析章节内容，准备生成章节合同...", 0.5);
             match self.build_chapter_contract(story_id, chapter_number).await {
                 Ok(_contract) => {
-                    self.emit_progress("saving", "章节合同已生成并保存", 0.5);
-                    created_chapter = true;
+                    self.emit_progress("saving", "章节合同已生成并保存", 0.65);
+                    result.created_chapter = true;
                     log::info!(
                         "[AutoContract] Created CHAPTER contract for story {} chapter {}",
                         story_id,
@@ -107,23 +174,7 @@ impl AutoContractBuilder {
             }
         }
 
-        // 3. 检查并补齐 Scene 大纲
-        // 如果前端未传 scene_id，则根据 chapter_number（对应 sequence_number）自动查找
-        let target_scene_id = if let Some(sid) = scene_id {
-            Some(sid.to_string())
-        } else {
-            let scene_repo = SceneRepository::new(self.pool.clone());
-            scene_repo
-                .get_by_story(story_id)
-                .ok()
-                .and_then(|scenes| {
-                    scenes
-                        .into_iter()
-                        .find(|s| s.sequence_number == chapter_number)
-                })
-                .map(|s| s.id)
-        };
-
+        // 5. 检查并补齐 Scene 大纲
         if let Some(ref sid) = target_scene_id {
             let scene_repo = SceneRepository::new(self.pool.clone());
             if let Ok(Some(scene)) = scene_repo.get_by_id(sid) {
@@ -133,11 +184,11 @@ impl AutoContractBuilder {
                     .map(|o| !o.trim().is_empty())
                     .unwrap_or(false);
                 if !has_outline {
-                    self.emit_progress("analyzing", "正在分析场景信息，准备生成场景大纲...", 0.6);
+                    self.emit_progress("analyzing", "正在分析场景信息，准备生成场景大纲...", 0.75);
                     match self.build_scene_outline(story_id, sid, &scene).await {
                         Ok(_) => {
-                            self.emit_progress("saving", "场景大纲已生成并保存", 0.85);
-                            created_outline = true;
+                            self.emit_progress("saving", "场景大纲已生成并保存", 0.9);
+                            result.created_outline = true;
                             log::info!(
                                 "[AutoContract] Created scene outline for story {} scene {}",
                                 story_id,
@@ -154,7 +205,7 @@ impl AutoContractBuilder {
         }
 
         self.emit_progress("completed", "补齐完成", 1.0);
-        Ok((created_master, created_chapter, created_outline))
+        Ok(result)
     }
 
     /// 根据已有故事内容自动生成世界观合同
@@ -739,5 +790,97 @@ impl AutoContractBuilder {
             .map_err(|e| format!("保存大纲失败: {}", e))?;
 
         Ok(())
+    }
+
+    /// 基于故事概念生成一个默认主角
+    async fn build_default_character(
+        &self,
+        story_id: &str,
+    ) -> Result<crate::db::models::Character, String> {
+        let story_repo = StoryRepository::new(self.pool.clone());
+        let story = story_repo
+            .get_by_id(story_id)
+            .map_err(|e| format!("读取故事失败: {}", e))?
+            .ok_or_else(|| "故事不存在".to_string())?;
+
+        let prompt = format!(
+            "根据以下故事信息，生成一个主角的基本设定，以 JSON 格式输出。\n\n\
+             故事标题: {}\n\
+             体裁: {}\n\
+             简介: {}\n\n\
+             请输出以下格式的 JSON：\n\
+             {{\n  \"name\": \"角色姓名\",\n  \"background\": \"背景故事（50字以内）\",\n  \"personality\": \"性格特点（50字以内）\",\n  \"goals\": \"目标动机（50字以内）\"\n}}",
+            story.title,
+            story.genre.as_deref().unwrap_or("未知"),
+            story.description.as_deref().unwrap_or("暂无简介")
+        );
+
+        self.emit_progress("generating_character", "正在生成默认角色...", 0.08);
+        let llm_service = LlmService::new(self.app_handle.clone());
+        let response = llm_service
+            .generate(prompt, Some(1024), Some(0.7))
+            .await
+            .map_err(|e| format!("LLM 生成失败: {}", e))?;
+
+        let json_str = crate::narrative::extract_and_sanitize_json(&response.content)
+            .unwrap_or_else(|_| response.content.clone());
+
+        let char_data: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| format!("解析角色 JSON 失败: {}\n原始内容: {}", e, json_str))?;
+
+        let name = char_data["name"].as_str().unwrap_or("主角").to_string();
+        let background = char_data["background"].as_str().map(|s| s.to_string());
+        let personality = char_data["personality"].as_str().map(|s| s.to_string());
+        let goals = char_data["goals"].as_str().map(|s| s.to_string());
+
+        let char_repo = CharacterRepository::new(self.pool.clone());
+        let character = char_repo
+            .create(crate::db::CreateCharacterRequest {
+                story_id: story_id.to_string(),
+                name,
+                background,
+                personality,
+                goals,
+                appearance: None,
+                gender: None,
+                age: None,
+            })
+            .map_err(|e| format!("保存角色失败: {}", e))?;
+
+        Ok(character)
+    }
+
+    /// 创建一个默认场景（占位符，供后续大纲生成使用）
+    async fn build_default_scene(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<crate::db::models::Scene, String> {
+        let scene_repo = SceneRepository::new(self.pool.clone());
+        let scene = scene_repo
+            .create(
+                story_id,
+                chapter_number,
+                Some(&format!("第{}章", chapter_number)),
+            )
+            .map_err(|e| format!("创建场景失败: {}", e))?;
+
+        // 将已有角色加入场景出场角色列表，增强后续大纲生成的上下文
+        let char_repo = CharacterRepository::new(self.pool.clone());
+        if let Ok(characters) = char_repo.get_by_story(story_id) {
+            if !characters.is_empty() {
+                let character_names: Vec<String> =
+                    characters.iter().map(|c| c.name.clone()).collect();
+                let _ = scene_repo.update(
+                    &scene.id,
+                    &SceneUpdate {
+                        characters_present: Some(character_names),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+
+        Ok(scene)
     }
 }

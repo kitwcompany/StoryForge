@@ -248,7 +248,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
     fn execute<'a>(
         &'a self,
         ctx: &'a mut GenesisContext,
-        llm: &'a LlmService,
+        _llm: &'a LlmService,
         progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
     {
@@ -275,23 +275,37 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            // Genesis 初稿直接调用 LLM，绕过 AgentOrchestrator 的 preflight 检查
-            //（故事刚创建时还没有角色和场景，preflight 会阻塞）
-            let prompt = format!(
-                "请撰写《{}》的第一章开头（1500-2500字）。\n\n【故事概念】\n题材：{}\n基调：\
-                 {}\n节奏：{}\n简介：{}\n主题：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
-                 需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. \
-                 埋下至少一个伏笔\n4. \
-                 在第一幕结尾制造一个冲突或悬念\n\n重要：\
-                 必须严格遵循用户原始要求中的题材设定，不得偏离。",
-                meta.title,
-                meta.genre,
-                meta.tone,
-                meta.pacing,
-                meta.description,
-                meta.themes.join(", "),
-                ctx.user_premise
-            );
+            // 通过 AgentService 生成第一章
+            // auto-fill 已支持自动补齐角色和场景，preflight 不会再阻塞
+            let builder =
+                crate::creative_engine::context_builder::StoryContextBuilder::new(ctx.pool.clone());
+            let agent_context = builder
+                .build(&ctx.story_id, Some(1), None, None)
+                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
+
+            let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
+            let task = crate::agents::service::AgentTask {
+                id: Uuid::new_v4().to_string(),
+                agent_type: crate::agents::service::AgentType::Writer,
+                context: agent_context,
+                input: format!(
+                    "请撰写《{}》的第一章开头（1500-2500字）。\n\n【故事概念】\n题材：{}\n基调：\
+                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
+                     需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. \
+                     埋下至少一个伏笔\n4. \
+                     在第一幕结尾制造一个冲突或悬念\n\n重要：\
+                     必须严格遵循用户原始要求中的题材设定，不得偏离。",
+                    meta.title,
+                    meta.genre,
+                    meta.tone,
+                    meta.pacing,
+                    meta.description,
+                    meta.themes.join(", "),
+                    ctx.user_premise
+                ),
+                parameters: HashMap::new(),
+                tier: None,
+            };
 
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
@@ -306,16 +320,27 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            let llm_response = llm
-                .generate(prompt, Some(4096), Some(0.8))
+            // W2-B2: Bootstrap 初稿走 Orchestrator Fast 模式（单轮生成，跳过 Inspector）
+            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+                service,
+                ctx.app_handle.clone(),
+            );
+            let result = match orchestrator
+                .generate(task, crate::agents::orchestrator::GenerationMode::Fast)
                 .await
-                .map_err(|e| PipelineError::LlmError(e.to_string()))?;
-
-            let content = llm_response.content;
+            {
+                Ok(workflow_result) => crate::agents::AgentResult {
+                    content: workflow_result.final_content,
+                    score: Some(workflow_result.final_score),
+                    suggestions: vec![],
+                    request_id: None,
+                },
+                Err(e) => return Err(PipelineError::LlmError(e.to_string())),
+            };
 
             // 保存到 Chapter
             let chapter_repo = ChapterRepository::new(ctx.pool.clone());
-            let content_len = content.chars().count();
+            let content_len = result.content.chars().count();
             tracing::info!(
                 "[FirstChapterGenerationStep] Saving chapter: story_id={}, content_len={}",
                 ctx.story_id,
@@ -327,7 +352,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     chapter_number: 1,
                     title: Some("第一章".to_string()),
                     outline: None,
-                    content: Some(content.clone()),
+                    content: Some(result.content.clone()),
                 })
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
             tracing::info!(
@@ -347,7 +372,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     story_id: ctx.story_id.clone(),
                     chapter_id: chapter.id.clone(),
                     title: "第一章".to_string(),
-                    content: Some(content.clone()),
+                    content: Some(result.content.clone()),
                 },
             ) {
                 Ok(()) => tracing::info!(
@@ -362,8 +387,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 ),
             }
 
-            ctx.first_chapter_content = Some(content.clone());
-            let content_len = content.chars().count();
+            ctx.first_chapter_content = Some(result.content.clone());
+            let content_len = result.content.chars().count();
             progress(PipelineProgressEvent {
                 pipeline_id: ctx.session_id.clone(),
                 pipeline_type: PipelineType::Genesis,
