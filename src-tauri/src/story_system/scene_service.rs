@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Scene 领域服务
 //!
 //! 将原本混杂在 scene_commands.rs 中的业务编排逻辑提取到领域层：
@@ -139,8 +140,12 @@ impl SceneIngestor {
                 saved_relations
             );
 
-            StateSync::emit_ingestion_completed(&app_handle_for_sync, &story_id, "scene");
-            StateSync::emit_data_refresh(&app_handle_for_sync, Some(&story_id), "knowledgeGraph");
+            let _ = StateSync::emit_ingestion_completed(&app_handle_for_sync, &story_id, "scene");
+            let _ = StateSync::emit_data_refresh(
+                &app_handle_for_sync,
+                Some(&story_id),
+                "knowledgeGraph",
+            );
 
             // 向量索引更新
             if let Some(store) = VECTOR_STORE.get() {
@@ -272,11 +277,11 @@ impl SceneService {
             || updates.setting_time.is_some()
             || updates.setting_atmosphere.is_some()
         {
-            StateSync::emit_world_building_updated(&self.app_handle, story_id);
+            let _ = StateSync::emit_world_building_updated(&self.app_handle, story_id);
         }
 
         // 3. 场景更新同步事件
-        StateSync::emit_scene_updated(
+        let _ = StateSync::emit_scene_updated(
             &self.app_handle,
             story_id,
             scene_id,
@@ -329,7 +334,7 @@ impl SceneService {
 
         // 2. 如果额外字段被更新，发射 scene_updated 确保前端缓存刷新（P1-9）
         if has_extra {
-            StateSync::emit_scene_updated(
+            let _ = StateSync::emit_scene_updated(
                 &self.app_handle,
                 &scene.story_id,
                 &scene.id,
@@ -338,7 +343,7 @@ impl SceneService {
         }
 
         // 3. 场景创建同步事件
-        StateSync::emit_scene_created(
+        let _ = StateSync::emit_scene_created(
             &self.app_handle,
             &scene.story_id,
             &scene.id,
@@ -347,7 +352,7 @@ impl SceneService {
 
         // 4. setting 字段变更同步触发 world_building 更新
         if has_setting_changes {
-            StateSync::emit_world_building_updated(&self.app_handle, &scene.story_id);
+            let _ = StateSync::emit_world_building_updated(&self.app_handle, &scene.story_id);
         }
 
         // 5. 自动化触发
@@ -361,7 +366,7 @@ impl SceneService {
     /// `delete_scene` 成功后的后续业务处理。
     pub fn on_scene_deleted(&self, scene_id: &str, story_id: &str) {
         // W2-F3: 场景删除后同步触发 world_building 更新（清理无引用规则）
-        StateSync::emit_world_building_updated(&self.app_handle, story_id);
-        StateSync::emit_scene_deleted(&self.app_handle, story_id, scene_id);
+        let _ = StateSync::emit_world_building_updated(&self.app_handle, story_id);
+        let _ = StateSync::emit_scene_deleted(&self.app_handle, story_id, scene_id);
     }
 }

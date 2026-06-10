@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 混合搜索 - Phase 1.3
 //!
 //! 结合 BM25 文本搜索和向量相似度搜索
@@ -311,7 +312,10 @@ impl EntityHybridSearch {
             .collect();
 
         // 2. 向量相似度（如果查询可以嵌入）
-        let query_embedding: Option<Vec<f32>> = embed_text_async(query.to_string()).await.ok();
+        let query_embedding: Option<Vec<f32>> = match embed_text_async(query.to_string()).await {
+            Ok(emb) => Some(emb),
+            Err(_) => None,
+        };
 
         // 3. 融合排序
         let mut combined_scores: Vec<(Entity, f32)> = entities

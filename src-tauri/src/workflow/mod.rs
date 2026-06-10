@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -453,10 +454,10 @@ impl WorkflowEngine {
         }
 
         for node in nodes {
-            if !visited.contains(&node.id)
-                && dfs(&node.id, &adjacency, &mut visited, &mut rec_stack)
-            {
-                return true;
+            if !visited.contains(&node.id) {
+                if dfs(&node.id, &adjacency, &mut visited, &mut rec_stack) {
+                    return true;
+                }
             }
         }
         false

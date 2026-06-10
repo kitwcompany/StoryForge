@@ -124,7 +124,7 @@ impl PayoffDetector {
                         overdue.len(),
                         story_id
                     );
-                    StateSync::emit_payoff_overdue(&app_handle, &story_id, &overdue);
+                    let _ = StateSync::emit_payoff_overdue(&app_handle, &story_id, &overdue);
                 }
                 _ => {}
             }
@@ -227,7 +227,12 @@ impl ChapterService {
         );
 
         // 2. 章节更新同步事件
-        StateSync::emit_chapter_updated(&self.app_handle, chapter_id, title.as_deref(), story_id);
+        let _ = StateSync::emit_chapter_updated(
+            &self.app_handle,
+            chapter_id,
+            title.as_deref(),
+            story_id,
+        );
 
         // 3. 自动化触发
         let word_count_val = word_count.unwrap_or(0) as usize;
@@ -289,7 +294,7 @@ impl ChapterService {
         }
 
         // 2. 章节创建同步事件
-        StateSync::emit_chapter_created(
+        let _ = StateSync::emit_chapter_created(
             &self.app_handle,
             &chapter.story_id,
             &chapter.id,
@@ -301,7 +306,7 @@ impl ChapterService {
             let scene_repo = SceneRepository::new(self.pool.clone());
             if let Ok(scenes) = scene_repo.get_by_chapter(&chapter.id) {
                 if let Some(scene) = scenes.first() {
-                    StateSync::emit_scene_updated(
+                    let _ = StateSync::emit_scene_updated(
                         &self.app_handle,
                         &chapter.story_id,
                         &scene.id,

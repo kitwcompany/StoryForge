@@ -66,7 +66,7 @@ pub fn create_character(
         }
     }
 
-    crate::state_sync::StateSync::emit_character_created(
+    let _ = crate::state_sync::StateSync::emit_character_created(
         &app,
         &story_id,
         &character.id,
@@ -131,7 +131,7 @@ pub fn update_character(
     )
     .map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt.clone() {
-        crate::state_sync::StateSync::emit_character_updated(
+        let _ = crate::state_sync::StateSync::emit_character_updated(
             &app,
             &id,
             name_for_ingest.as_deref(),
@@ -283,7 +283,7 @@ pub fn update_character(
                         character_id,
                         result.entities.len()
                     );
-                    crate::state_sync::StateSync::emit_data_refresh(
+                    let _ = crate::state_sync::StateSync::emit_data_refresh(
                         &app_handle_clone,
                         Some(&story_id_for_ingest),
                         "knowledgeGraph",
@@ -314,7 +314,7 @@ pub fn delete_character(
     let story_id_opt = repo.get_by_id(&id).ok().flatten().map(|c| c.story_id);
     repo.delete(&id).map_err(AppError::from)?;
     if let Some(story_id) = story_id_opt {
-        crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
+        let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
     }
     Ok(())
 }

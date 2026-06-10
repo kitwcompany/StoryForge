@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 记忆系统模块
 //!
 //! 基于llm_wiki方法论的记忆系统实现：
@@ -156,7 +157,7 @@ impl ShortTermMemory {
 
     /// 生成章节摘要（首尾提取 + 关键词密度启发式摘要）
     fn summarize_chapter(&self, chapter: &Chapter) -> String {
-        let content = chapter.content.as_deref().unwrap_or("");
+        let content = chapter.content.as_ref().map(|s| s.as_str()).unwrap_or("");
         if content.is_empty() {
             return "No content".to_string();
         }

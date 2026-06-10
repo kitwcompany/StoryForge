@@ -25,6 +25,7 @@ pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError>
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
         .import_skill(std::path::Path::new(&path))
+        .map_err(AppError::from)
         .map(SkillInfo::from)
         .emit_sync(&app, None, "skills")
 }
@@ -37,6 +38,7 @@ pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
         .enable_skill(&skill_id)
+        .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
 }
 
@@ -48,6 +50,7 @@ pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
         .disable_skill(&skill_id)
+        .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
 }
 
@@ -59,6 +62,7 @@ pub fn uninstall_skill(skill_id: String, app: AppHandle) -> Result<(), AppError>
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
         .uninstall_skill(&skill_id)
+        .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
 }
 
@@ -87,6 +91,7 @@ pub fn update_skill(
         .lock()
         .map_err(|e| crate::error::AppError::from(e).to_string())?
         .update_skill(&skill_id, manifest)
+        .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
 }
 

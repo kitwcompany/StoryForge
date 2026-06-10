@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 自动化处理器定义
 
 use std::collections::HashMap;

@@ -540,10 +540,10 @@ impl BookDeconstructionService {
         }
 
         // 3. 创建角色（合并 personality + appearance 作为 background）
-        for character in analysis.characters.iter() {
+        for (_i, character) in analysis.characters.iter().enumerate() {
             let char_repo = crate::db::CharacterRepository::new(pool.clone());
             let background = match (&character.personality, &character.appearance) {
-                (Some(p), Some(_a)) => Some(p.to_string()),
+                (Some(p), Some(_a)) => Some(format!("{}", p)),
                 (Some(p), None) => Some(p.clone()),
                 (None, Some(a)) => Some(a.clone()),
                 (None, None) => None,
@@ -732,7 +732,7 @@ impl BookDeconstructionService {
                     id: format!("{}_scene_{}", book_id, idx),
                     story_id: book_id.to_string(),
                     chapter_id: scene.id.clone(),
-                    chapter_number: scene.sequence_number,
+                    chapter_number: scene.sequence_number as i32,
                     text,
                     record_type: "reference_scene".to_string(),
                     metadata: Some(metadata),

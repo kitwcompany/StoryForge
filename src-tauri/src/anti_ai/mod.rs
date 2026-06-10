@@ -251,7 +251,9 @@ impl AntiAiReviewer {
         let flagged = Vec::new();
         let suggestions = Vec::new();
 
-        let sentences: Vec<&str> = text.split(['。', '！', '？']).collect();
+        let sentences: Vec<&str> = text
+            .split(|c| c == '。' || c == '！' || c == '？')
+            .collect();
 
         // 检查句式多样性
         let mut short_sentences = 0;
@@ -344,7 +346,11 @@ impl AntiAiReviewer {
             let uniform_count = lengths
                 .iter()
                 .filter(|l| {
-                    let diff = (**l).abs_diff(median);
+                    let diff = if **l > median {
+                        **l - median
+                    } else {
+                        median - **l
+                    };
                     diff < median / 5
                 })
                 .count();
@@ -456,7 +462,7 @@ impl AntiAiReviewer {
         }
 
         // 检查情感细腻度（内心独白 vs 外部描写）
-        let inner_monologue_markers = ["想", "觉得", "认为", "感到", "感觉"];
+        let inner_monologue_markers = vec!["想", "觉得", "认为", "感到", "感觉"];
         let inner_count: usize = inner_monologue_markers
             .iter()
             .map(|w| text.matches(w).count())

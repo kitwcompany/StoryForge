@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! StoryContextBuilder - 创作上下文构建器
 //!
 //! 从数据库中读取真实故事数据，为 Agent 提供完整的创作上下文。
@@ -161,11 +162,11 @@ impl StoryContextBuilder {
                 crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
             match orchestrator.build_memory_pack(
                 story_id,
-                scene_number.map(|n| n.max(0)).unwrap_or(1),
+                scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
                 "write",
                 current_scene
                     .as_ref()
-                    .and_then(|s| s.outline_content.as_deref()),
+                    .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
             ) {
                 Ok(mut pack) => {
                     // 将 previous_chapters 吸收进 working_memory
@@ -483,7 +484,7 @@ impl StoryContextBuilder {
         story_id: &str,
         scene_number: Option<i32>,
     ) -> NarrativeStructureContext {
-        let current_chapter = scene_number.unwrap_or(1);
+        let current_chapter = scene_number.unwrap_or(1) as i32;
 
         // 优先从 story_outlines.analyzed_structure_json 读取 LitSeg 分析结果
         if let Some(structure) = self.fetch_analyzed_structure(story_id) {
@@ -531,7 +532,7 @@ impl StoryContextBuilder {
             0.5
         };
 
-        let is_near_boundary = !(0.15..=0.85).contains(&position_in_act);
+        let is_near_boundary = position_in_act < 0.15 || position_in_act > 0.85;
         let act_type_str = format!("{:?}", current_act.act_type).to_lowercase();
 
         Some(NarrativeStructureContext {
@@ -572,7 +573,7 @@ impl StoryContextBuilder {
             act_number,
             position_in_act,
             dramatic_function: Self::map_act_to_dramatic_function(act_type, position_in_act),
-            is_near_boundary: !(0.15..=0.85).contains(&position_in_act),
+            is_near_boundary: position_in_act < 0.15 || position_in_act > 0.85,
         })
     }
 
@@ -638,7 +639,7 @@ impl StoryContextBuilder {
             ("resolution", 4, (ratio - 0.75) / 0.25)
         };
 
-        let is_near_boundary = !(0.15..=0.85).contains(&position_in_act);
+        let is_near_boundary = position_in_act < 0.15 || position_in_act > 0.85;
 
         NarrativeStructureContext {
             current_act: act_type.to_string(),

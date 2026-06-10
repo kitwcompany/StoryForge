@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![allow(unused_imports)]
 use std::{
     collections::HashMap,
@@ -259,8 +260,7 @@ impl McpServer {
     }
 
     pub async fn stop(&self) -> Result<(), McpError> {
-        let child = self.child_process.lock().unwrap().take();
-        if let Some(mut child) = child {
+        if let Some(mut child) = self.child_process.lock().unwrap().take() {
             let _ = child.kill().await;
         }
         Ok(())

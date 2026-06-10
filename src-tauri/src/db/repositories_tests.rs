@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 //! Repository 单元测试
 //!
 //! 覆盖 Story / Character / Chapter 的完整 CRUD 流程。

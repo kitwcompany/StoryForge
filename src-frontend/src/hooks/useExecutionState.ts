@@ -76,10 +76,10 @@ export function useExecutionState(storyId: string | null): {
     queryKey: ['canonical_state', storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return Promise.resolve({
-        narrative_phase: 'Setup',
-        story_context: { overdue_payoffs: [] },
-      });
+      return loggedInvoke<{
+        narrative_phase: string;
+        story_context: { overdue_payoffs: unknown[] };
+      }>('get_canonical_state', { story_id: storyId });
     },
     enabled: !!storyId,
     staleTime: 30000,

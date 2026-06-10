@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde_yaml;
 
 use super::*;
@@ -114,7 +115,7 @@ impl SkillLoader {
 
         // Parse prompt file: system prompt + user template
         let parts: Vec<&str> = content.split("---").collect();
-        let system_prompt = parts.first().unwrap_or(&"").trim().to_string();
+        let system_prompt = parts.get(0).unwrap_or(&"").trim().to_string();
         let user_template = parts.get(1).unwrap_or(&"").trim().to_string();
 
         Ok(SkillRuntime::Prompt(PromptRuntime {

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! LanceDB Vector Store
 //!
 //! Real LanceDB-backed vector storage using ANN vector search.
@@ -190,8 +191,10 @@ impl LanceVectorStore {
 
     fn table(&self) -> Result<&Table, Box<dyn std::error::Error + Send + Sync>> {
         self.table.as_ref().ok_or_else(|| {
-            Box::new(std::io::Error::other("Table not initialized"))
-                as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Table not initialized",
+            )) as Box<dyn std::error::Error + Send + Sync>
         })
     }
 
@@ -383,7 +386,7 @@ impl LanceVectorStore {
 
         let mut all_results: std::collections::HashMap<String, SearchResult> =
             std::collections::HashMap::new();
-        for r in vector_results.into_iter().chain(text_results) {
+        for r in vector_results.into_iter().chain(text_results.into_iter()) {
             all_results.entry(r.id.clone()).or_insert(r);
         }
 

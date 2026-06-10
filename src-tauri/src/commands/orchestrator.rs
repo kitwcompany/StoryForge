@@ -144,7 +144,11 @@ pub async fn smart_execute(
                 let bundle = ctx.bundle.clone();
 
                 // 发射 story_created 同步事件
-                crate::state_sync::StateSync::emit_story_created(&app_handle, &story_id, "新故事");
+                let _ = crate::state_sync::StateSync::emit_story_created(
+                    &app_handle,
+                    &story_id,
+                    "新故事",
+                );
 
                 // Record AI operation (before user_input is moved)
                 let user_input_for_record = user_input.clone();
@@ -453,8 +457,8 @@ pub async fn smart_execute(
         let mcp_tools_available = {
             let connections = crate::MCP_CONNECTIONS.lock().await;
             connections
-                .values()
-                .flat_map(|client| {
+                .iter()
+                .flat_map(|(_id, client)| {
                     client
                         .get_tools()
                         .iter()

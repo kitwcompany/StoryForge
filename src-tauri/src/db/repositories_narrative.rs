@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![allow(dead_code)]
 //! 统一叙事元素 Repository
 //!
 //! 操作 narrative_characters / narrative_scenes / narrative_world_buildings

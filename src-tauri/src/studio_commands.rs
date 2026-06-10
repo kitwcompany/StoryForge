@@ -52,8 +52,9 @@ pub async fn create_world_building(
         log::error!("[story_commands] {} failed: {}", "create_world_building", e);
         AppError::from(e)
     })?;
-    crate::state_sync::StateSync::emit_world_building_created(&app_handle, &story_id, &wb.id);
-    crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
+    let _ =
+        crate::state_sync::StateSync::emit_world_building_created(&app_handle, &story_id, &wb.id);
+    let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, &story_id);
     Ok(wb)
 }
 
@@ -108,7 +109,7 @@ pub async fn update_world_building(
         })
     });
     if let Some(ref story_id) = story_id_for_sync {
-        crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
+        let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
     if let Some(story_id) = story_id_for_sync.clone() {
         if let Some(manager) = crate::SKILL_MANAGER.get() {
@@ -265,8 +266,9 @@ pub async fn delete_world_building(
         e.to_string()
     })?;
     if let Some(ref story_id) = story_id_opt {
-        crate::state_sync::StateSync::emit_world_building_deleted(&app_handle, story_id, &id);
-        crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
+        let _ =
+            crate::state_sync::StateSync::emit_world_building_deleted(&app_handle, story_id, &id);
+        let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
     Ok(result)
 }
@@ -284,7 +286,11 @@ pub async fn create_writing_style(
     let result = repo
         .create(&story_id, name.as_deref())
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "writingStyles");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "writingStyles",
+    );
     Ok(result)
 }
 
@@ -315,7 +321,7 @@ pub async fn update_writing_style(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        crate::state_sync::StateSync::emit_data_refresh(
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "writingStyle",
@@ -337,7 +343,11 @@ pub async fn create_studio_config(
     let result = manager
         .create_default_studio(&story_id, "")
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "studioConfig");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "studioConfig",
+    );
     Ok(result)
 }
 
@@ -377,7 +387,7 @@ pub async fn update_studio_config(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        crate::state_sync::StateSync::emit_data_refresh(
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "studioConfig",
@@ -441,7 +451,11 @@ pub async fn create_entity(
             log::error!("[story_commands] {} failed: {}", "create_entity", e);
             AppError::from(e)
         })?;
-    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "knowledgeGraph",
+    );
     Ok(result)
 }
 
@@ -511,7 +525,7 @@ pub async fn update_entity(
         .ok()
     });
     if let Some(ref story_id) = story_id_for_sync {
-        crate::state_sync::StateSync::emit_data_refresh(
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(story_id),
             "knowledgeGraph",
@@ -546,7 +560,11 @@ pub async fn create_relation(
     let result = repo
         .create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
         .map_err(AppError::from)?;
-    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "knowledgeGraph",
+    );
     Ok(result)
 }
 
@@ -831,7 +849,7 @@ pub async fn update_story_summary(
         |row| row.get(0),
     );
     if let Ok(story_id) = story_id {
-        crate::state_sync::StateSync::emit_data_refresh(
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "storySummaries",
@@ -856,7 +874,7 @@ pub async fn delete_story_summary(
     );
     let result = repo.delete_summary(&summary_id).map_err(AppError::from)?;
     if let Ok(story_id) = story_id {
-        crate::state_sync::StateSync::emit_data_refresh(
+        let _ = crate::state_sync::StateSync::emit_data_refresh(
             &app_handle,
             Some(&story_id),
             "storySummaries",
@@ -928,7 +946,11 @@ pub async fn archive_forgotten_entities(
         archived_entities: archived,
         story_id: story_id.clone(),
     };
-    crate::state_sync::StateSync::emit_data_refresh(&app_handle, Some(&story_id), "knowledgeGraph");
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
+        &app_handle,
+        Some(&story_id),
+        "knowledgeGraph",
+    );
     Ok(result)
 }
 
@@ -945,7 +967,7 @@ pub async fn restore_archived_entity(
         .get_entity_by_id(&entity_id)
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("Entity", &entity_id))?;
-    crate::state_sync::StateSync::emit_data_refresh(
+    let _ = crate::state_sync::StateSync::emit_data_refresh(
         &app_handle,
         Some(&entity.story_id),
         "knowledgeGraph",

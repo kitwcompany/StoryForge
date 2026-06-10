@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Reference Book Repository
 //!
 //! 参考书籍、人物、场景的数据库存取层。

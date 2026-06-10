@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 场景结构规范 (Scene Structure Methodology)
 //!
 //! 基于 Dwight V. Swain 的 "Scene and Sequel" 模型：

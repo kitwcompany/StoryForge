@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Vector commands
 
 use tauri::State;

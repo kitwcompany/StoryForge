@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 两步思维链Ingest流程
 //!
 //! 基于llm_wiki方法论：
@@ -793,8 +794,8 @@ impl IngestPipeline {
                     event.intensity,
                     event.sentiment,
                     event_types_json,
-                    event.preceding_event_id.as_deref(),
-                    event.following_event_id.as_deref(),
+                    event.preceding_event_id.as_ref().map(|s| s.as_str()),
+                    event.following_event_id.as_ref().map(|s| s.as_str()),
                     event.act_number,
                     event.position_in_act,
                 ],

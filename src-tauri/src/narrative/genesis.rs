@@ -187,8 +187,8 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str =
-                super::extract_and_sanitize_json(content).map_err(PipelineError::ParseError)?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
             let meta: StoryMetaElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析故事概念失败: {}", e)))?;
 
@@ -371,7 +371,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?;
                 ch
             } else {
-                chapter_repo
+                let ch = chapter_repo
                     .create(crate::db::CreateChapterRequest {
                         story_id: ctx.story_id.clone(),
                         chapter_number: 1,
@@ -379,7 +379,8 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                         outline: None,
                         content: Some(result.content.clone()),
                     })
-                    .map_err(|e| PipelineError::StorageError(e.to_string()))?
+                    .map_err(|e| PipelineError::StorageError(e.to_string()))?;
+                ch
             };
 
             tracing::info!(
@@ -499,8 +500,8 @@ impl PipelineStep<GenesisContext> for WorldBuildingGenerationStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str =
-                super::extract_and_sanitize_json(content).map_err(PipelineError::ParseError)?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
             let wb: WorldBuildingElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析世界观失败: {}", e)))?;
 
@@ -631,8 +632,8 @@ impl PipelineStep<GenesisContext> for OutlineGenerationStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str =
-                super::extract_and_sanitize_json(content).map_err(PipelineError::ParseError)?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
             let outline: OutlineElement = serde_json::from_str(&json_str)
                 .map_err(|e| PipelineError::ParseError(format!("解析大纲失败: {}", e)))?;
 
@@ -753,8 +754,8 @@ impl PipelineStep<GenesisContext> for CharacterGenerationStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str =
-                super::extract_and_sanitize_json(content).map_err(PipelineError::ParseError)?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
             struct CharacterResponse {
@@ -908,8 +909,8 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str =
-                super::extract_and_sanitize_json(content).map_err(PipelineError::ParseError)?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
             struct SceneResponse {
@@ -1090,8 +1091,8 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let content = response.content.trim();
-            let json_str =
-                super::extract_and_sanitize_json(content).map_err(PipelineError::ParseError)?;
+            let json_str = super::extract_and_sanitize_json(content)
+                .map_err(|e| PipelineError::ParseError(e))?;
 
             #[derive(Debug, Deserialize)]
             struct ForeshadowingResponse {

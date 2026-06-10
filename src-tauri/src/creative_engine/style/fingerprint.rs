@@ -230,7 +230,7 @@ impl StyleFingerprint {
 
 /// 分句（支持中文标点）
 fn split_sentences(text: &str) -> Vec<String> {
-    text.split(['。', '！', '？', '.', '!', '?'])
+    text.split(|c: char| c == '。' || c == '！' || c == '？' || c == '.' || c == '!' || c == '?')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
@@ -270,10 +270,10 @@ fn extract_vocabulary_fingerprint(
 
     let mut char_freq: HashMap<char, u32> = HashMap::new();
     for ch in text.chars() {
-        if (ch.is_alphabetic() || (ch as u32) > 0x4e00 && (ch as u32) < 0x9fff)
-            && !common_chars.contains(&ch)
-        {
-            *char_freq.entry(ch).or_insert(0) += 1;
+        if ch.is_alphabetic() || (ch as u32) > 0x4e00 && (ch as u32) < 0x9fff {
+            if !common_chars.contains(&ch) {
+                *char_freq.entry(ch).or_insert(0) += 1;
+            }
         }
     }
     let mut signature_words: Vec<(String, u32)> = char_freq
@@ -351,7 +351,7 @@ fn extract_syntax_fingerprint(
     let short_count = sentence_lengths.iter().filter(|&&l| l < 10).count();
     let medium_count = sentence_lengths
         .iter()
-        .filter(|&&l| (10..=25).contains(&l))
+        .filter(|&&l| l >= 10 && l <= 25)
         .count();
     let long_count = sentence_lengths.iter().filter(|&&l| l > 25).count();
     let total = sentences.len().max(1) as f32;
@@ -440,7 +440,7 @@ fn extract_dialogue_fingerprint(text: &str, char_count: f32) -> DialogueFingerpr
 /// 采样锚点片段
 fn sample_anchors(_text: &str, sentences: &[String], count: usize) -> Vec<String> {
     if sentences.len() <= 3 {
-        return sentences.to_vec();
+        return sentences.iter().cloned().collect();
     }
 
     // 按"风格强度"排序：综合句长多样性 + 四字格密度 + 对话标签密度

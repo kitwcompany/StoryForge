@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Novel Bootstrap Workflow - 向后兼容类型定义
 //!
 //! 旧版 NovelBootstrapWorkflow 实现已迁移到 narrative/genesis.rs。

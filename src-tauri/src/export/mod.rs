@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::{fs, path::Path};
 
 use serde::{Deserialize, Serialize};
@@ -234,7 +235,7 @@ fn generate_markdown(
             content.push_str(&format!("- **节奏**: {}\n", pacing));
         }
         content.push_str(&format!("- **章节数**: {}\n", chapters.len()));
-        content.push('\n');
+        content.push_str("\n");
 
         // Description
         if let Some(ref desc) = story.description {
@@ -268,7 +269,11 @@ fn generate_markdown(
     content.push_str("# 正文\n\n");
 
     for chapter in chapters {
-        let title = chapter.title.as_deref().unwrap_or("未命名章节");
+        let title = chapter
+            .title
+            .as_ref()
+            .map(|t| t.as_str())
+            .unwrap_or("未命名章节");
 
         content.push_str(&format!("## {}\n\n", title));
 
@@ -380,7 +385,11 @@ fn generate_html(
     html.push_str("<h2>正文</h2>\n");
 
     for chapter in chapters {
-        let title = chapter.title.as_deref().unwrap_or("未命名章节");
+        let title = chapter
+            .title
+            .as_ref()
+            .map(|t| t.as_str())
+            .unwrap_or("未命名章节");
 
         html.push_str(&format!("<h3>{}</h3>\n", html_escape(title)));
 
@@ -464,7 +473,11 @@ fn generate_plaintext(
     text.push('\n');
 
     for chapter in chapters {
-        let title = chapter.title.as_deref().unwrap_or("未命名章节");
+        let title = chapter
+            .title
+            .as_ref()
+            .map(|t| t.as_str())
+            .unwrap_or("未命名章节");
 
         text.push('\n');
         text.push_str(&format!("{}\n", title));

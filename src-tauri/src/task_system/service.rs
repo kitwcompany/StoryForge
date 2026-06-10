@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Task Service
 //!
 //! 业务服务层：整合 Repository + Scheduler + Heartbeat + ExecutorRegistry
@@ -306,7 +307,10 @@ impl<R: Runtime> TaskService<R> {
         let executor = match executor {
             Some(e) => e,
             None => {
-                let err_msg = format!("No executor found for task type: {}", task.task_type);
+                let err_msg = format!(
+                    "No executor found for task type: {}",
+                    task.task_type.to_string()
+                );
                 repo.update_status(
                     task_id,
                     &TaskStatus::Failed,

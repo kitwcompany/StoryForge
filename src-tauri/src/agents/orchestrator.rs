@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Agent Orchestrator - Agent 协作编排器
 //!
 //! 实现 Agent 间的协作工作流，支持反馈闭环：
@@ -455,7 +456,8 @@ impl AgentOrchestrator {
         // 达到最大循环次数，返回最后一次结果
         let final_step = steps
             .iter()
-            .rfind(|s| s.step_type == WorkflowStepType::Inspection);
+            .filter(|s| s.step_type == WorkflowStepType::Inspection)
+            .last();
         let final_score = final_step.and_then(|s| s.score).unwrap_or(0.0);
         // 提取最后一次的风格分数（从步骤建议中推断）
         let (last_style_score, last_narrative_score, last_drift) =
@@ -496,7 +498,7 @@ impl AgentOrchestrator {
             // v0.8.0: 叙事分包含 memory 维度
             let narrative_score = json
                 .get("dimension_scores")
-                .map(|d| {
+                .and_then(|d| {
                     let logic = d.get("logic").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let character = d.get("character").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let writing = d.get("writing").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -504,7 +506,7 @@ impl AgentOrchestrator {
                     let world = d.get("world").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let memory = d.get("memory").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let total = logic + character + writing + pacing + world + memory;
-                    (total as f32 / 125.0).min(1.0) // 6维度总分125，归一化到0-1
+                    Some((total as f32 / 125.0).min(1.0)) // 6维度总分125，归一化到0-1
                 })
                 .unwrap_or(fallback_score);
 
