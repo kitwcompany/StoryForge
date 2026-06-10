@@ -11,7 +11,7 @@
 [![Version](https://img.shields.io/badge/version-v0.9.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.9.0 已完成 Brooks-Lint 全面扫描后的代码质量重构，`cargo check` 零警告，前端 `tsc --noEmit` 零错误。
+**最新动态**：v0.9.1 已完成架构拆分（repositories.rs 6198→183 行、models.rs 8 领域文件、FrontstageApp.tsx 提取 5 hooks + 2 组件）与全面测试覆盖（前端 71 新测试、Rust 21 新测试、E2E 36 行为驱动测试）。`cargo check` 零警告，`cargo test` 318/318 通过。
 
 ---
 

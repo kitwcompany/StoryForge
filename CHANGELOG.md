@@ -2,6 +2,50 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.1] - 架构拆分与全面测试覆盖（2026-06-10）
+
+### 摘要
+- 完成 Phase 3 架构拆分：God File 拆解 + 模型领域拆分 + RESERVED 模块清理
+- 完成 Phase 4 测试覆盖：前端 71 新测试 + Rust 21 新测试 + E2E 36 行为驱动测试
+- `cargo check` 零警告，`cargo test` 318/318 通过
+- 前端 `tsc --noEmit` 零错误，`vitest run` 124 passed
+- E2E `npx playwright test` 32 passed, 4 skipped
+
+### Phase 3 架构拆分
+- **repositories.rs 拆分**：6198 行 → 183 行。24 个 Repository 提取到独立 `repositories_{domain}.rs` 文件，保留 Trait Implementations 和 `pub use` 重导出
+- **models.rs 拆分**：按领域拆分为 8 个子模块（scene/story/world/knowledge/studio/change_track/user/pipeline），`models/mod.rs` 统一重导出
+- **FrontstageApp.tsx 拆分**：提取 5 个自定义 hooks + 2 个纯展示子组件
+  - Hooks：`useFrontstageData`、`useFrontstageEditor`、`useFrontstageGeneration`、`useFrontstageWensi`、`useFrontstagePanels`
+  - 组件：`HelpPanel.tsx`、`ZenModeExit.tsx`
+- **RESERVED 模块清理**：移除 3 个幽灵模块（`src-core` crate、StoryStateManager、Chat 模块）
+
+### Phase 4 测试覆盖
+- **前端单元测试（71 新测试）**：
+  - Hooks：`useFrontstageWensi` 6 例、`useFrontstagePanels` 8 例、`useFrontstageEditor` 7 例、`useFrontstageGeneration` 6 例
+  - 组件：`HelpPanel` 3 例、`ZenModeExit` 2 例
+  - 工具函数：`format.ts`（countWords/autoFormatText）14 例、`numberFormat.ts`（normalizeFloat/clampNumber）19 例
+- **Rust 核心测试（21 新测试）**：
+  - `utils/text`：word_count（中/英/混合）、truncate、normalize_whitespace、remove_markdown — 7 例
+  - `utils/file`：extension、sanitize_filename、unique_filename — 3 例
+  - `pipeline/refine`：calculate_diff_ratio LCS 差异算法 — 3 例
+  - `pipeline/review`：parse_review_json JSON 提取与容错 — 3 例
+  - `story_system/scene_service`：should_ingest 场景更新过滤 — 5 例
+- **E2E 测试重写（36 测试，7 文件）**：
+  - 重写 `storyforge.spec.ts`：从截图驱动转为行为驱动，12 个真实断言
+  - 新建 `frontstage-editing.spec.ts`：编辑器输入、自动保存、禅/修订模式 — 7 例
+  - 新建 `navigation.spec.ts`：URL 路由、前后台导航 — 4 例
+  - 新建 `backstage-pages.spec.ts`：仪表盘/故事/角色/场景/设置/世界观/知识图谱页面加载 — 8 例
+  - 共享 `mock-tauri.ts`：集中式 Tauri API mock 工具
+
+### 编译状态
+- `cargo check` ✅ 零警告
+- `cargo test --lib` ✅ **318/318** 通过
+- `cd src-frontend && npx tsc --noEmit` ✅ 零错误
+- `cd src-frontend && vitest run` ✅ 124 passed, 3 skipped, 0 failed
+- `npx playwright test` ✅ 32 passed, 4 skipped, 0 failed
+
+---
+
 ## [v0.9.0] - Brooks-Lint 代码质量重构：DTO、服务下沉、前端拆分、迁移框架（2026-06-08）
 
 ### 摘要

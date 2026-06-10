@@ -1,11 +1,44 @@
-# StoryForge (草苔) v0.7.7 项目完成状态
+# StoryForge (草苔) v0.9.1 项目完成状态
 
-> 最后更新: 2026-05-25（v0.7.7 + 后端预检自动补齐 + 统一后台活动提示系统）
+> 最后更新: 2026-06-10（v0.9.1 + 架构拆分 + 全面测试覆盖）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.9.1 架构拆分与全面测试覆盖（2026-06-10）
+
+#### 后端架构拆分
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| repositories.rs 拆分 | ✅ | 6198 行 → 183 行，24 个 Repository 提取到独立文件 |
+| models.rs 领域拆分 | ✅ | 8 个领域子模块（scene/story/world/knowledge/studio/change_track/user/pipeline） |
+| RESERVED 模块清理 | ✅ | 移除 3 个幽灵模块（src-core crate、StoryStateManager、Chat） |
+
+#### 前端架构拆分
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| FrontstageApp.tsx hooks 提取 | ✅ | 5 个自定义 hooks：useFrontstageData/Editor/Generation/Wensi/Panels |
+| FrontstageApp.tsx 组件提取 | ✅ | HelpPanel.tsx、ZenModeExit.tsx 纯展示子组件 |
+
+#### 测试覆盖扩展
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 前端单元测试 | ✅ | 71 新测试，124/124 通过 |
+| Rust 核心测试 | ✅ | 21 新测试，318/318 通过 |
+| E2E 测试重写 | ✅ | 36 测试（32 通过 + 4 跳过），行为驱动 |
+
+#### 质量门禁
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| cargo check | ✅ | 零警告 |
+| cargo test --lib | ✅ | 318/318 通过 |
+| tsc --noEmit | ✅ | 零错误 |
+| vitest run | ✅ | 124 passed, 3 skipped, 0 failed |
+| playwright test | ✅ | 32 passed, 4 skipped, 0 failed |
+
+---
 
 ### v0.7.7 后端预检自动补齐 + 统一后台活动提示系统（2026-05-25）
 

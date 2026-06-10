@@ -6,10 +6,49 @@
 
 | 类型 | 数量 | 状态 |
 |------|------|------|
-| Rust 单元测试 | 193 | ✅ 全部通过 |
+| Rust 单元测试 | 318 | ✅ 全部通过 (`cargo test --lib`) |
+| 前端单元测试 | 124 | ✅ 全部通过 (`vitest run`) |
 | 前端构建测试 | — | ✅ `npm run build` 通过 |
-| Tauri 构建测试 | — | ✅ `cargo tauri build` Windows 通过 |
-| Playwright E2E | — | 已配置（Chromium 147.0.7727.15）|
+| Tauri 构建测试 | — | ✅ `cargo tauri build` 通过 |
+| Playwright E2E | 36 (32+4) | ✅ 行为驱动测试 |
+
+### 测试文件分布
+
+**前端单元测试** (`src-frontend/src/**/*.test.{ts,tsx}`):
+- `frontstage/hooks/`：useFrontstageWensi ×6、useFrontstagePanels ×8、useFrontstageEditor ×7、useFrontstageGeneration ×6
+- `frontstage/components/`：HelpPanel ×3、ZenModeExit ×2、FrontstageHeader ×11、FrontstageSidebar ×3、FrontstageBottomBar ×3、FrontstageApp ×5
+- `utils/`：cn ×5、format ×14、numberFormat ×19、settings ×4
+- `hooks/`：useSettings ×4
+- `services/`：settings ×4
+- 其他：smoke ×1、useSyncStore.bug ×1、LlmProfileForm.bug ×1
+
+**Rust 单元测试** (`src-tauri/src/**/*.rs` 内 `#[cfg(test)]`):
+- `db/repositories_tests.rs`：18 例
+- `db/cascade_tests.rs`：6 例
+- `canonical_state/tests.rs`：8 例
+- `task_system/tests.rs`：15 例
+- `task_system/integration_tests.rs`：5 例
+- `utils/validation_tests.rs`：16 例
+- `utils/style_align.rs`：3 例
+- `utils/text.rs`：7 例
+- `utils/file.rs`：3 例
+- `pipeline/executor.rs`：9 例
+- `pipeline/refine.rs`：3 例
+- `pipeline/review.rs`：3 例
+- `story_system/scene_service.rs`：5 例
+- `narrative/elements.rs`：8 例
+- `creative_engine/style/dna.rs`：4 例
+- `book_deconstruction/parser.rs`：3 例
+- `config/settings_tests.rs`：13 例
+
+**E2E 测试** (`e2e/*.spec.ts`):
+- `storyforge.spec.ts`：12 例（数据持久化、页面加载、响应式）
+- `frontstage-editing.spec.ts`：7 例（编辑器、自动保存、模式切换）
+- `backstage-pages.spec.ts`：8 例（各页面加载与导航）
+- `navigation.spec.ts`：4 例（URL 路由）
+- `context-menu.spec.ts`：2 例（右键菜单）
+- `example.spec.ts`：1 例（冒烟测试）
+- `performance/tiptap-benchmark.spec.ts`：2 例（性能基准，默认跳过）
 
 ## ✅ 已安装组件
 
