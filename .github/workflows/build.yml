@@ -241,17 +241,38 @@ jobs:
         if: matrix.os == 'macos-latest' && github.event_name != 'pull_request'
         run: |
           echo "::group::Apple Certificate Debug"
+
           # 解码证书
           echo "$APPLE_CERTIFICATE" | base64 -d > /tmp/certificate.p12 2>/dev/null || {
             echo "❌ Failed to decode APPLE_CERTIFICATE (not valid base64?)"
             exit 1
           }
-          ls -la /tmp/certificate.p12
-          # 创建临时钥匙串并导入证书
+          echo "Certificate file size: $(stat -f%z /tmp/certificate.p12) bytes"
+          echo "Certificate MD5: $(md5 -q /tmp/certificate.p12)"
+
+          # 调试：密码长度（不泄露密码内容）
+          PASS_LEN=${#APPLE_CERTIFICATE_PASSWORD}
+          echo "APPLE_CERTIFICATE_PASSWORD length: $PASS_LEN chars"
+          if [ "$PASS_LEN" -ne 28 ]; then
+            echo "⚠️  WARNING: Expected password length is 28, but got $PASS_LEN"
+            echo "   This usually means extra spaces/newlines were added in the Secret"
+          fi
+
+          # 先用 openssl 验证（更详细的错误信息）
+          echo "---"
+          echo "Trying openssl pkcs12 verification..."
+          openssl pkcs12 -in /tmp/certificate.p12 -info -noout -passin env:APPLE_CERTIFICATE_PASSWORD 2>&1 || {
+            echo "❌ openssl verification failed"
+          }
+
+          # 再用 security 导入
+          echo "---"
+          echo "Trying security keychain import..."
           security create-keychain -p "" /tmp/build.keychain 2>/dev/null || true
           security import /tmp/certificate.p12 -k /tmp/build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign 2>&1 || {
             echo "❌ Certificate import failed — MAC verification failed (wrong password?)"
-            echo "   Action needed: Re-check APPLE_CERTIFICATE_PASSWORD in GitHub Secrets"
+            echo "   Action: Go to GitHub repo → Settings → Secrets → APPLE_CERTIFICATE_PASSWORD"
+            echo "   Delete the secret and re-create it with the exact 28-char password"
             exit 1
           }
           echo "✅ Certificate imported successfully"
