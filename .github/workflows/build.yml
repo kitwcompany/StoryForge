@@ -187,14 +187,6 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: false
       # Tauri 更新包签名私钥
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      # macOS 代码签名（仅 macOS runner 有效）
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      # macOS 公证（Apple ID + App-Specific Password 方式）
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -244,12 +236,39 @@ jobs:
           workspaces: src-tauri
           shared-key: tauri
 
+      # macOS 证书验证调试：在签名构建前验证证书和密码是否匹配
+      - name: Verify Apple certificate (macOS debug)
+        if: matrix.os == 'macos-latest' && github.event_name != 'pull_request'
+        run: |
+          echo "::group::Apple Certificate Debug"
+          # 解码证书
+          echo "$APPLE_CERTIFICATE" | base64 -d > /tmp/certificate.p12 2>/dev/null || {
+            echo "❌ Failed to decode APPLE_CERTIFICATE (not valid base64?)"
+            exit 1
+          }
+          ls -la /tmp/certificate.p12
+          # 创建临时钥匙串并导入证书
+          security create-keychain -p "" /tmp/build.keychain 2>/dev/null || true
+          security import /tmp/certificate.p12 -k /tmp/build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign 2>&1 || {
+            echo "❌ Certificate import failed — MAC verification failed (wrong password?)"
+            echo "   Action needed: Re-check APPLE_CERTIFICATE_PASSWORD in GitHub Secrets"
+            exit 1
+          }
+          echo "✅ Certificate imported successfully"
+          security find-identity -v /tmp/build.keychain
+          echo "::endgroup::"
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
       - name: Build Tauri app (PR)
         if: github.event_name == 'pull_request'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # PR 构建跳过 macOS 代码签名（不设置 APPLE_* 环境变量）
+          # 避免证书密码错误阻塞 PR CI
           args: ${{ matrix.args }}
           includeUpdaterJson: true
 
@@ -278,6 +297,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 代码签名（仅 macOS runner 有效）
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # macOS 公证
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v${{ steps.get_version.outputs.version }}-nightly
           releaseName: 'StoryForge v${{ steps.get_version.outputs.version }} Nightly'
@@ -313,6 +340,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 代码签名（仅 macOS runner 有效）
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # macOS 公证
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'StoryForge ${{ github.ref_name }}'
