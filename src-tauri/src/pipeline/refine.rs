@@ -242,3 +242,24 @@ fn calculate_diff_ratio(original: &str, modified: &str) -> f64 {
         1.0 - (lcs_len / max_len)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::calculate_diff_ratio;
+
+    #[test]
+    fn test_calculate_diff_ratio_identical() {
+        assert_eq!(calculate_diff_ratio("hello world", "hello world"), 0.0);
+    }
+
+    #[test]
+    fn test_calculate_diff_ratio_completely_different() {
+        assert_eq!(calculate_diff_ratio("abc", "xyz"), 1.0);
+    }
+
+    #[test]
+    fn test_calculate_diff_ratio_partially_similar() {
+        let ratio = calculate_diff_ratio("hello world", "hello rust");
+        assert!(ratio > 0.0 && ratio < 1.0);
+    }
+}

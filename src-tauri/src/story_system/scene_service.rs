@@ -370,3 +370,44 @@ impl SceneService {
         let _ = StateSync::emit_scene_deleted(&self.app_handle, story_id, scene_id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SceneIngestor;
+    use crate::db::SceneUpdate;
+
+    #[test]
+    fn test_should_ingest_content_update() {
+        let mut update = SceneUpdate::default();
+        update.content = Some("new content".to_string());
+        assert!(SceneIngestor::should_ingest(&update));
+    }
+
+    #[test]
+    fn test_should_ingest_title_update() {
+        let mut update = SceneUpdate::default();
+        update.title = Some("new title".to_string());
+        assert!(SceneIngestor::should_ingest(&update));
+    }
+
+    #[test]
+    fn test_should_ingest_empty_update() {
+        let update = SceneUpdate::default();
+        assert!(!SceneIngestor::should_ingest(&update));
+    }
+
+    #[test]
+    fn test_should_ingest_setting_location_update() {
+        let mut update = SceneUpdate::default();
+        update.setting_location = Some("castle".to_string());
+        assert!(SceneIngestor::should_ingest(&update));
+    }
+
+    #[test]
+    fn test_should_ingest_only_navigation_fields() {
+        let mut update = SceneUpdate::default();
+        update.previous_scene_id = Some("scene-1".to_string());
+        update.next_scene_id = Some("scene-3".to_string());
+        assert!(!SceneIngestor::should_ingest(&update));
+    }
+}

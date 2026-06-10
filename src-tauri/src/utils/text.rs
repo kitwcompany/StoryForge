@@ -103,3 +103,52 @@ impl TextUtils {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_word_count_chinese() {
+        assert_eq!(TextUtils::word_count("你好世界"), 1);
+    }
+
+    #[test]
+    fn test_word_count_english() {
+        assert_eq!(TextUtils::word_count("hello world"), 2);
+    }
+
+    #[test]
+    fn test_word_count_mixed() {
+        assert_eq!(TextUtils::word_count("hello 世界"), 2);
+    }
+
+    #[test]
+    fn test_truncate_normal() {
+        let text = "hello world";
+        assert_eq!(TextUtils::truncate(text, 8), "hello...");
+    }
+
+    #[test]
+    fn test_truncate_shorter_than_limit() {
+        let text = "hi";
+        assert_eq!(TextUtils::truncate(text, 10), "hi");
+    }
+
+    #[test]
+    fn test_normalize_whitespace() {
+        assert_eq!(
+            TextUtils::normalize_whitespace("  hello   world  "),
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn test_remove_markdown() {
+        let text = "**bold** and _italic_ and ## heading";
+        assert_eq!(
+            TextUtils::remove_markdown(text),
+            "bold and italic and heading"
+        );
+    }
+}

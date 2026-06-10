@@ -322,3 +322,34 @@ fn generate_fallback_review(
         ),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_review_json;
+
+    #[test]
+    fn test_parse_review_json_valid() {
+        let json = r#"{"review_id":"","overall_score":85.0,"dimensions":[{"name":"continuity","score":90.0,"comment":"good"}],"issues":[],"summary":"ok"}"#;
+        let result = parse_review_json(json).unwrap();
+        assert_eq!(result.overall_score, 85.0);
+        assert_eq!(result.summary, "ok");
+        assert_eq!(result.dimensions.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_review_json_with_extra_text() {
+        let text = r#"Here is the review:
+```json
+{"review_id":"","overall_score":70.0,"dimensions":[],"issues":[],"summary":"meh"}
+```"#;
+        let result = parse_review_json(text).unwrap();
+        assert_eq!(result.overall_score, 70.0);
+        assert_eq!(result.summary, "meh");
+    }
+
+    #[test]
+    fn test_parse_review_json_invalid_fallback() {
+        let text = "this is not json { broken";
+        assert!(parse_review_json(text).is_err());
+    }
+}

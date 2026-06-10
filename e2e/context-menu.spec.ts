@@ -1,12 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { getMockTauriInitScript } from './mock-tauri';
 
 test('frontstage context menu appears on right click', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.addInitScript(getMockTauriInitScript());
   await page.goto('/frontstage.html');
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(2000);
 
   const editor = page.locator('.rich-text-editor');
-  await expect(editor).toBeVisible();
+  await expect(editor).toBeVisible({ timeout: 10000 });
 
   // Right click in the editor area
   await editor.click({ button: 'right' });

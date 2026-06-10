@@ -113,3 +113,39 @@ impl FileUtils {
         Ok(files)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_extension_extracts_correctly() {
+        assert_eq!(
+            FileUtils::extension(Path::new("foo.TXT")),
+            Some("txt".to_string())
+        );
+        assert_eq!(
+            FileUtils::extension(Path::new("archive.tar.gz")),
+            Some("gz".to_string())
+        );
+        assert_eq!(FileUtils::extension(Path::new("no_extension")), None);
+    }
+
+    #[test]
+    fn test_sanitize_filename_removes_dangerous_chars() {
+        let input = "file<name>:foo/bar\\b|a?r*txt\0";
+        let expected = "file_name__foo_bar_b_a_r_txt_";
+        assert_eq!(FileUtils::sanitize_filename(input), expected);
+    }
+
+    #[test]
+    fn test_unique_filename_adds_suffix_when_exists() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test.txt");
+        std::fs::write(&path, "content").unwrap();
+
+        let unique = FileUtils::unique_filename(&path);
+        assert_eq!(unique.file_name().unwrap().to_str().unwrap(), "test_1.txt");
+    }
+}

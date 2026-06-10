@@ -1,337 +1,168 @@
 import { test, expect } from '@playwright/test';
+import { getMockTauriInitScript } from './mock-tauri';
 
 /**
- * StoryForge 应用测试套件
- * 测试核心功能：双界面、场景管理、版本控制等
+ * StoryForge 核心应用测试套件
+ * 行为驱动测试：验证关键用户流程和 UI 状态
  */
 test.describe('StoryForge 应用测试', () => {
-  
   test.beforeEach(async ({ page }) => {
-    // 每个测试前设置视口
     await page.setViewportSize({ width: 1920, height: 1080 });
   });
 
   test.describe('🎭 幕前界面测试', () => {
-    
-    test('幕前界面加载和截图', async ({ page }) => {
+    test('幕前界面加载并显示编辑器', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
       await page.goto('/frontstage.html');
-      await page.waitForTimeout(3000);
-      
-      // 截图
-      await page.screenshot({ 
-        path: 'e2e/screenshots/frontstage_initial.png', 
-        fullPage: true 
-      });
-      
-      console.log('✅ 幕前界面已截图');
+
+      // 断言编辑器可见
+      const editor = page.locator('.ProseMirror, [contenteditable="true"]').first();
+      await expect(editor).toBeVisible({ timeout: 10000 });
+
+      // 断言页面包含 frontstage 容器
+      await expect(page.locator('.frontstage-container')).toBeVisible();
+
+      // 断言头部状态栏存在
+      await expect(page.locator('.frontstage-header')).toBeVisible();
     });
 
-    test('幕前界面交互元素检查', async ({ page }) => {
+    test('幕前界面显示当前章节标题', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
+      await page.goto('/frontstage.html');
+
+      const chapterTitle = page.locator('.chapter-title');
+      await expect(chapterTitle).toBeVisible({ timeout: 10000 });
+      await expect(chapterTitle).toContainText('测试章节');
+    });
+
+    test('幕前界面截图回归测试', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
       await page.goto('/frontstage.html');
       await page.waitForTimeout(2000);
-      
-      // 检查是否存在编辑器区域
-      const editor = page.locator('.ProseMirror, [contenteditable="true"], .editor');
-      const hasEditor = await editor.count() > 0;
-      
-      if (hasEditor) {
-        console.log('✅ 找到编辑器元素');
-        await editor.screenshot({ path: 'e2e/screenshots/frontstage_editor.png' });
-      } else {
-        console.log('⚠️ 未找到编辑器元素，可能是加载中');
-      }
-      
-      // 截图整个页面
-      await page.screenshot({ 
-        path: 'e2e/screenshots/frontstage_full.png', 
-        fullPage: true 
+
+      await page.screenshot({
+        path: 'e2e/screenshots/frontstage_regression.png',
+        fullPage: true,
       });
+
+      // 基础可见性断言
+      await expect(page.locator('.frontstage-container')).toBeVisible();
     });
   });
 
   test.describe('🔧 幕后界面测试', () => {
-    
-    test('幕后仪表盘加载', async ({ page }) => {
+    test('幕后仪表盘加载并显示侧边栏导航', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
       await page.goto('/index.html');
-      await page.waitForTimeout(3000);
-      
-      await page.screenshot({ 
-        path: 'e2e/screenshots/backstage_dashboard.png', 
-        fullPage: true 
-      });
-      
-      console.log('✅ 幕后仪表盘已截图');
+
+      // 断言侧边栏存在
+      const sidebar = page.locator('aside');
+      await expect(sidebar).toBeVisible({ timeout: 10000 });
+
+      // 断言导航项存在
+      await expect(page.locator('nav')).toContainText('故事');
+      await expect(page.locator('nav')).toContainText('角色');
+      await expect(page.locator('nav')).toContainText('场景');
+      await expect(page.locator('nav')).toContainText('设置');
+
+      // 断言“开幕前写作”按钮存在
+      await expect(page.locator('text=开幕前写作')).toBeVisible();
     });
 
-    test('场景管理页面', async ({ page }) => {
-      await page.goto('/index.html#/scenes');
-      await page.waitForTimeout(3000);
-      
-      await page.screenshot({ 
-        path: 'e2e/screenshots/scenes_page.png', 
-        fullPage: true 
-      });
-      
-      console.log('✅ 场景管理页面已截图');
-    });
-
-    test('角色管理页面', async ({ page }) => {
-      await page.goto('/index.html#/characters');
-      await page.waitForTimeout(3000);
-      
-      await page.screenshot({ 
-        path: 'e2e/screenshots/characters_page.png', 
-        fullPage: true 
-      });
-      
-      console.log('✅ 角色管理页面已截图');
-    });
-
-    test('故事列表页面', async ({ page }) => {
-      await page.goto('/index.html#/stories');
-      await page.waitForTimeout(3000);
-      
-      await page.screenshot({ 
-        path: 'e2e/screenshots/stories_page.png', 
-        fullPage: true 
-      });
-      
-      console.log('✅ 故事列表页面已截图');
-    });
-  });
-
-  test.describe('📜 版本管理功能测试', () => {
-    
-    test('版本时间线组件', async ({ page }) => {
-      // 导航到场景页面（假设有版本管理功能）
-      await page.goto('/index.html#/scenes');
-      await page.waitForTimeout(3000);
-      
-      // 查找版本相关的元素
-      const versionElements = page.locator('text=/version|版本/i');
-      const count = await versionElements.count();
-      
-      console.log(`找到 ${count} 个版本相关元素`);
-      
-      await page.screenshot({ 
-        path: 'e2e/screenshots/version_timeline.png', 
-        fullPage: true 
-      });
-    });
-  });
-
-  test.describe('📊 响应式测试', () => {
-    
-    test('不同分辨率下的幕前界面', async ({ page }) => {
-      const viewports = [
-        { width: 1920, height: 1080, name: 'desktop' },
-        { width: 1366, height: 768, name: 'laptop' },
-        { width: 768, height: 1024, name: 'tablet' },
-      ];
-
-      for (const viewport of viewports) {
-        await page.setViewportSize(viewport);
-        await page.goto('/frontstage.html');
-        await page.waitForTimeout(2000);
-        
-        await page.screenshot({
-          path: `e2e/screenshots/frontstage_${viewport.name}.png`,
-          fullPage: true
-        });
-        
-        console.log(`✅ ${viewport.name} 分辨率截图完成`);
-      }
-    });
-  });
-
-  test.describe('🎯 功能交互测试', () => {
-
-    test('页面导航流畅度', async ({ page }) => {
+    test('幕后仪表盘截图回归测试', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
       await page.goto('/index.html');
       await page.waitForTimeout(2000);
 
-      // 测试导航到不同页面
-      const pages = ['#/stories', '#/characters', '#/scenes', '#/settings'];
+      await page.screenshot({
+        path: 'e2e/screenshots/backstage_regression.png',
+        fullPage: true,
+      });
 
-      for (const route of pages) {
-        const startTime = Date.now();
-        await page.goto(`/index.html${route}`);
-        await page.waitForLoadState('networkidle');
-        const loadTime = Date.now() - startTime;
+      await expect(page.locator('aside')).toBeVisible();
+    });
 
-        console.log(`页面 ${route} 加载时间: ${loadTime}ms`);
+    test('设置页面加载并显示标签页', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
+      await page.goto('/index.html');
 
-        await page.screenshot({
-          path: `e2e/screenshots/nav_${route.replace('#/', '')}.png`,
-          fullPage: true
-        });
+      // 点击设置导航
+      await page.locator('nav').locator('text=设置').first().click();
+      await page.waitForTimeout(800);
+
+      // 断言页面标题
+      await expect(page.locator('h1')).toContainText('工作室配置');
+
+      // 断言设置标签页存在（使用 first 避免 strict mode 冲突，页面标题和标签可能同名）
+      await expect(page.locator('text=模型管理').first()).toBeVisible();
+      await expect(page.locator('text=Agent配置').first()).toBeVisible();
+      await expect(page.locator('text=通用设置').first()).toBeVisible();
+    });
+  });
+
+  test.describe('🎯 页面导航测试', () => {
+    test('幕后各页面导航流畅', async ({ page }) => {
+      await page.addInitScript(getMockTauriInitScript());
+      await page.goto('/index.html');
+      await page.waitForTimeout(1000);
+
+      const routes: { navText: string; headingText: string }[] = [
+        { navText: '故事', headingText: '故事库' },
+        { navText: '角色', headingText: '角色管理' },
+        { navText: '场景', headingText: '场景' },
+        { navText: '设置', headingText: '工作室配置' },
+      ];
+
+      for (const route of routes) {
+        // 点击导航
+        await page.locator('nav').locator(`text=${route.navText}`).first().click();
+        await page.waitForTimeout(800);
+
+        // 断言页面内容变化
+        await expect(page.locator('main')).toContainText(route.headingText);
       }
     });
   });
 
   test.describe('💾 数据持久化核心断言', () => {
-
     test('保存章节后重进 Frontstage，内容仍存在', async ({ page }) => {
       const TEST_CONTENT = '这是E2E测试内容，保存后应仍然存在。';
 
-      // 捕获控制台错误，便于调试
       const consoleErrors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error') {
-          consoleErrors.push(msg.text());
-        }
+      page.on('console', msg => {
+        if (msg.type() === 'error') consoleErrors.push(msg.text());
       });
-      page.on('pageerror', (err) => {
-        consoleErrors.push(err.message);
-      });
+      page.on('pageerror', err => consoleErrors.push(err.message));
 
-      // 注入 mock Tauri API，模拟后端数据持久化
-      await page.addInitScript(() => {
-        // 使用 sessionStorage 跨页面刷新持久化 mock 内容
-        const STORAGE_KEY = '__e2e_mock_content__';
-        let mockContent = sessionStorage.getItem(STORAGE_KEY) || '';
-        const mockChapter = {
-          id: 'test-chapter-1',
-          story_id: 'test-story-1',
-          title: '测试章节',
-          chapter_number: 1,
-          content: ''
-        };
-
-        (window as any).__TAURI_INTERNALS__ = {
-          invoke: async (cmd: string, args?: any) => {
-            if (cmd === 'list_stories') {
-              return [{ id: 'test-story-1', title: '测试故事' }];
-            }
-            if (cmd === 'get_story_chapters') {
-              mockContent = sessionStorage.getItem(STORAGE_KEY) || '';
-              mockChapter.content = mockContent;
-              return [mockChapter];
-            }
-            if (cmd === 'get_story_scenes') {
-              return [];
-            }
-            if (cmd === 'get_chapter') {
-              mockContent = sessionStorage.getItem(STORAGE_KEY) || '';
-              mockChapter.content = mockContent;
-              return mockChapter;
-            }
-            if (cmd === 'update_chapter') {
-              mockContent = args?.content || '';
-              mockChapter.content = mockContent;
-              sessionStorage.setItem(STORAGE_KEY, mockContent);
-              return null;
-            }
-            if (cmd === 'notify_backstage_content_changed') {
-              return null;
-            }
-            if (cmd === 'get_subscription_status') {
-              return { tier: 'free', status: 'active', daily_used: 0, daily_limit: 10, quota_resets_at: '' };
-            }
-            if (cmd === 'get_quota_detail') {
-              return { auto_write_used: 0, auto_write_limit: 10, auto_revise_used: 0, auto_revise_limit: 10 };
-            }
-            if (cmd === 'check_auto_write_quota' || cmd === 'check_auto_revise_quota') {
-              return { allowed: true, remaining: 10, daily_limit: 10, daily_used: 0 };
-            }
-            if (cmd === 'plugin:event|listen') {
-              return Math.random().toString(36).substring(2);
-            }
-            if (cmd === 'plugin:event|unlisten') {
-              return null;
-            }
-            if (cmd === 'get_story_characters') {
-              return [];
-            }
-            if (cmd === 'get_settings') {
-              return {
-                version: '0.1.0',
-                updated_at: new Date().toISOString(),
-                models: { chat: [], embedding: [], multimodal: [], image: [] },
-                active_models: {},
-                agent_mappings: [],
-                general: { theme: 'dark', language: 'zh-CN', auto_save: true, auto_save_interval: 30, font_size: 16, line_height: 1.6 },
-                privacy: { share_usage_data: false, store_api_keys_securely: true },
-                book_deconstruction_concurrency: 3,
-                rewrite_threshold: 0.75,
-                max_feedback_loops: 2,
-                writing_strategy: { run_mode: 'fast', conflict_level: 50, pace: 'balanced', ai_freedom: 'medium' },
-              };
-            }
-            if (cmd === 'get_models') {
-              return [];
-            }
-            if (cmd === 'get_config') {
-              return { model: 'default', provider: 'mock', base_url: '', api_key: '', max_tokens: 4096, temperature: 0.8 };
-            }
-            if (cmd === 'check_model_status') {
-              return 'disconnected';
-            }
-            if (cmd === 'get_input_hint') {
-              return '';
-            }
-            if (cmd === 'get_ingest_jobs') {
-              return [];
-            }
-            if (cmd === 'record_feedback') {
-              return [];
-            }
-            // 其他命令静默返回 null，避免未定义错误阻断 UI
-            return null;
-          },
-          transformCallback: (callback: any, once: boolean = false) => {
-            const id = Math.random().toString(36).substring(2);
-            const internals = (window as any).__TAURI_INTERNALS__;
-            if (!internals.callbacks) internals.callbacks = {};
-            internals.callbacks[id] = { callback, once };
-            return id;
-          },
-          unregisterCallback: (id: string) => {
-            const internals = (window as any).__TAURI_INTERNALS__;
-            if (internals.callbacks) delete internals.callbacks[id];
-          },
-          convertFileSrc: (filePath: string, protocol: string = 'asset') => {
-            return `${protocol}://${filePath}`;
-          }
-        };
-
-        // mock Tauri 事件插件内部对象，避免组件卸载时 unregisterListener 报错
-        (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
-          unregisterListener: () => {},
-          registerListener: () => {}
-        };
-      });
+      await page.addInitScript(getMockTauriInitScript(), { enablePersistence: true });
 
       await page.goto('/frontstage.html');
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
 
-      // 断言编辑器已加载（增加超时到 10 秒，给异步初始化更多时间）
       const editor = page.locator('.ProseMirror, [contenteditable="true"]').first();
       try {
         await expect(editor).toBeVisible({ timeout: 10000 });
       } catch (e) {
-        // 失败时输出控制台错误和截图，便于调试
         console.error('=== Console errors ===', consoleErrors);
         await page.screenshot({ path: 'e2e/screenshots/frontstage_editor_failed.png', fullPage: true });
         throw e;
       }
 
-      // 在编辑器中输入内容
+      // 输入内容
       await editor.click();
       await editor.fill(TEST_CONTENT);
 
-      // 等待自动保存触发（FrontstageApp 中 autoSave 的 debounce 为 2000ms）
+      // 等待自动保存触发（debounce 2000ms + requestIdleCallback fallback）
       await page.waitForTimeout(3500);
 
-      // 断言编辑器中确实包含输入内容
+      // 断言编辑器包含输入内容
       const textBeforeReload = await editor.innerText();
       expect(textBeforeReload).toContain(TEST_CONTENT);
 
-      // 刷新页面模拟"重进 Frontstage"
+      // 刷新页面模拟“重进 Frontstage”
       await page.reload();
       await page.waitForTimeout(3000);
 
-      // 重新获取编辑器并断言内容仍然存在
       const editorAfterReload = page.locator('.ProseMirror, [contenteditable="true"]').first();
       try {
         await expect(editorAfterReload).toBeVisible({ timeout: 10000 });
@@ -340,10 +171,9 @@ test.describe('StoryForge 应用测试', () => {
         await page.screenshot({ path: 'e2e/screenshots/frontstage_reload_failed.png', fullPage: true });
         throw e;
       }
+
       const textAfterReload = await editorAfterReload.innerText();
       expect(textAfterReload).toContain(TEST_CONTENT);
-
-      console.log('✅ 保存后重进 Frontstage，内容持久化验证通过');
     });
   });
 });
