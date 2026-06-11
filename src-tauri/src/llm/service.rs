@@ -681,7 +681,7 @@ impl LlmService {
         }
 
         // chunk 超时：15 秒没有收到新数据就中断
-        let chunk_timeout = Duration::from_secs(15);
+        let chunk_timeout = Duration::from_secs(60);
 
         loop {
             tokio::select! {
