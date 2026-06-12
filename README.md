@@ -334,7 +334,8 @@ MCP（Model Context Protocol）让草苔连接外部模型或数据源，扩展 
 
 ### 从源码运行
 
-需要安装 [Node.js](https://nodejs.org/) 和 [Rust](https://rustup.rs/)。
+需要安装 [Node.js](https://nodejs.org/)（推荐 20 LTS）和 [Rust](https://rustup.rs/)。
+仓库通过 `rust-toolchain.toml` 固定 Rust 版本为 **1.95.0**，`rustup` 会自动下载对应工具链。
 
 ```bash
 # 1. 克隆仓库
@@ -349,6 +350,8 @@ cd ..
 npm install -g @tauri-apps/cli
 cargo tauri dev
 ```
+
+> **注意**：`Cargo.lock` 已纳入版本控制。如需升级依赖，请在本地验证 `cargo clippy` / `cargo test` 通过后再提交。
 
 ### 仅运行前端（开发调试）
 

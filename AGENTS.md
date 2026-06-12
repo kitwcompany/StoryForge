@@ -86,7 +86,8 @@ runTest(async (helper) => {
 
 - **版本**: v0.9.4
 - **GitHub**: https://github.com/91zgaoge/StoryForge
-- **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
+- **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
+- **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
 
 ### 双界面架构
 
@@ -193,6 +194,12 @@ node scripts/cdp-inspect.js
   - **设置入口移至顶部**：在顶部色调设置旁新增设置图标，点击打开幕后工作室
   - **Ingest 图标与右键菜单重绘**：Ingest 改为统一 VI 风格漏斗+下箭头 SVG；编辑器右键菜单仅保留剪切/复制/粘贴/全选，并继承全局色调
   - **编译测试通过**：`cargo check` 零错误，`npx tsc --noEmit` 零错误，`vitest run` 116 passed
+
+- **v0.9.4 构建修复：固定 Rust 1.95.0 并提交 Cargo.lock** (2026-06-12) — 修复 GitHub Actions 在 latest stable Rust 下的 E0119 编译失败，关键变更：
+  - **根因**：Rust 1.96（latest stable）与 `time` crate 0.3.47/0.3.48 存在 coherence 冲突，导致 `tracing-subscriber`、`tantivy-common`、`cookie`、`tauri-utils` 等 crate 报 `From<HourBase>` 冲突实现错误
+  - **修复**：新增 `rust-toolchain.toml` 固定 Rust 版本为 **1.95.0**；将 `Cargo.lock` 从 `.gitignore` 移除并纳入版本控制，锁定 `time` 在 0.3.47
+  - **影响**：CI 与本地构建依赖解析一致，避免 future Rust 版本导致 transitive crate 编译失败
+  - **本地验证**：`cargo clippy` 通过（301 warnings 均为既有历史 warning），`cargo test --lib` 318/318 通过
 
 - **v0.9.2 自动创作性能优化** (2026-06-11) — 全面优化自动创作速度与后台任务感知，重点解决"后台任务多"与"创作速度慢"问题，关键变更：
   - **后端并行化**：PlanExecutor 同 batch 步骤 `join_all` 并行；GenesisPipeline 后台阶段将世界观/大纲/角色合并为单一并行步骤，使用 `tokio::join!` 同时调用 LLM
