@@ -1058,9 +1058,7 @@ function GenreForm({ initial, onSave, onCancel }: GenreFormProps) {
       : '',
     typical_structure_json:
       initial?.typical_structure_json ??
-      (initial?.typical_structure
-        ? JSON.stringify(initial.typical_structure, null, 2)
-        : '[]'),
+      (initial?.typical_structure ? JSON.stringify(initial.typical_structure, null, 2) : '[]'),
   });
 
   const handleChange = (field: string, value: string) => {
@@ -1127,7 +1125,7 @@ function GenreForm({ initial, onSave, onCancel }: GenreFormProps) {
           className="w-full h-24 bg-cinema-800 border border-cinema-700 rounded px-3 py-1.5 text-white text-sm mt-1 resize-none font-mono"
           value={form.typical_structure_json}
           onChange={e => handleChange('typical_structure_json', e.target.value)}
-          placeholder='[{&quot;title&quot;: &quot;...&quot;, &quot;description&quot;: &quot;...&quot;}]'
+          placeholder='[{"title": "...", "description": "..."}]'
         />
         {!isJsonValid(form.typical_structure_json) && (
           <p className="text-red-400 text-xs mt-1">JSON 格式无效</p>

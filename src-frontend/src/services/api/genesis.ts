@@ -1,5 +1,10 @@
 import { loggedInvoke } from './core';
-import type { StoryOutline, CharacterRelationship, SelectedStrategy, StrategySelectionRequest } from '@/types/index';
+import type {
+  StoryOutline,
+  CharacterRelationship,
+  SelectedStrategy,
+  StrategySelectionRequest,
+} from '@/types/index';
 
 export const getStoryOutline = (storyId: string) =>
   loggedInvoke<StoryOutline | null>('get_story_outline', { story_id: storyId });

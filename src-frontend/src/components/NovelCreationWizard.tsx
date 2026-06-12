@@ -280,7 +280,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
               </div>
               {selectedStrategy.genre_profile_id && (
                 <div>
-                  <span className="text-xs text-cinema-gold uppercase tracking-wider">体裁画像</span>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">
+                    体裁画像
+                  </span>
                   <p className="text-sm text-gray-300 mt-1">{selectedStrategy.genre_profile_id}</p>
                 </div>
               )}
@@ -292,10 +294,15 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
               )}
               {selectedStrategy.style_dna_ids.length > 0 && (
                 <div>
-                  <span className="text-xs text-cinema-gold uppercase tracking-wider">风格 DNA</span>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">
+                    风格 DNA
+                  </span>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {selectedStrategy.style_dna_ids.map(id => (
-                      <span key={id} className="px-2 py-0.5 text-xs bg-cinema-700 rounded text-gray-300">
+                      <span
+                        key={id}
+                        className="px-2 py-0.5 text-xs bg-cinema-700 rounded text-gray-300"
+                      >
                         {id}
                       </span>
                     ))}
@@ -304,10 +311,15 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
               )}
               {selectedStrategy.skill_ids.length > 0 && (
                 <div>
-                  <span className="text-xs text-cinema-gold uppercase tracking-wider">推荐技能</span>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">
+                    推荐技能
+                  </span>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {selectedStrategy.skill_ids.map(id => (
-                      <span key={id} className="px-2 py-0.5 text-xs bg-cinema-700 rounded text-gray-300">
+                      <span
+                        key={id}
+                        className="px-2 py-0.5 text-xs bg-cinema-700 rounded text-gray-300"
+                      >
                         {id}
                       </span>
                     ))}

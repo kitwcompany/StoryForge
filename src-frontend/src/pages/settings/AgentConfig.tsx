@@ -52,7 +52,10 @@ function useModelOptions(type: ModelConfig['type']) {
   return useMemo(() => {
     const filtered = models.filter(m => m.type === type);
     return [
-      { id: '', name: `使用默认${type === 'chat' ? '聊天' : type === 'embedding' ? '嵌入' : '多模态'}模型` },
+      {
+        id: '',
+        name: `使用默认${type === 'chat' ? '聊天' : type === 'embedding' ? '嵌入' : '多模态'}模型`,
+      },
       ...filtered.map(m => ({ id: m.id, name: m.name })),
     ];
   }, [models, type]);
@@ -105,7 +108,11 @@ export function AgentConfig() {
     });
   }, [mappings]);
 
-  const handleChange = (agent: AgentModelMapping, field: keyof AgentModelMapping, value: string) => {
+  const handleChange = (
+    agent: AgentModelMapping,
+    field: keyof AgentModelMapping,
+    value: string
+  ) => {
     updateMapping.mutate({
       ...agent,
       [field]: value || undefined,
@@ -135,9 +142,15 @@ export function AgentConfig() {
               <thead>
                 <tr className="border-b border-cinema-800">
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Agent</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">聊天模型</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">嵌入模型</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">多模态模型</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+                    聊天模型
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+                    嵌入模型
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+                    多模态模型
+                  </th>
                 </tr>
               </thead>
               <tbody>

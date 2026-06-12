@@ -1236,7 +1236,9 @@ const FrontstageApp: React.FC = () => {
 
         // v0.9.5: 新故事创建后，第一章在后台生成，此时 final_content 为空是正常的
         if (isBackgroundBootstrap) {
-          frontstageLogger.info('[Bootstrap] Story created, first chapter generating in background');
+          frontstageLogger.info(
+            '[Bootstrap] Story created, first chapter generating in background'
+          );
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
             duration: 5000,
           });
