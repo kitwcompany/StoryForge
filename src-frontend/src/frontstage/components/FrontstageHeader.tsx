@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '@/utils/cn';
+import { Flame, Sparkles, ZapOff, Maximize } from 'lucide-react';
 import ColorThemeDot from './ColorThemeDot';
 import { IngestHealthIndicator } from './IngestHealthIndicator';
 import type { Scene } from '@/types/v3';
@@ -58,10 +59,10 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
 }) => {
   const wensiTooltip =
     wensiMode === 'active'
-      ? '文思活跃 — Ctrl+Enter 续写'
+      ? '文思活跃：按 Ctrl+Enter 触发 AI 续写'
       : wensiMode === 'passive'
-        ? '文思被动 — 仅萤火提示'
-        : '文思关闭';
+        ? '文思被动：AI 仅显示萤火提示，不主动续写'
+        : '文思已关闭';
 
   return (
     <header className="frontstage-header">
@@ -128,26 +129,28 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
           <IngestHealthIndicator storyId={currentStory?.id || null} />
           <ColorThemeDot isZenMode={isZenMode} />
           <button
-            className={`wensi-mode-toggle wensi-${wensiMode}`}
+            className={cn('wensi-mode-toggle', `wensi-${wensiMode}`)}
             onClick={onCycleWensiMode}
             title={wensiTooltip}
+            aria-label={wensiTooltip}
           >
             <span className="wensi-icon">
-              {wensiMode === 'active' ? '热' : wensiMode === 'passive' ? '温' : '·'}
+              {wensiMode === 'active' ? (
+                <Flame className="w-3.5 h-3.5" />
+              ) : wensiMode === 'passive' ? (
+                <Sparkles className="w-3.5 h-3.5" />
+              ) : (
+                <ZapOff className="w-3.5 h-3.5" />
+              )}
             </span>
           </button>
-          <button className="zen-mode-btn" onClick={onToggleZenMode} title="F11 禅模式">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M9 3v18" />
-            </svg>
+          <button
+            className="zen-mode-btn"
+            onClick={onToggleZenMode}
+            title="进入全屏禅写模式（F11）"
+            aria-label="进入全屏禅写模式（F11）"
+          >
+            <Maximize className="w-3.5 h-3.5" />
           </button>
         </div>
       )}

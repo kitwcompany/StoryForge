@@ -8,6 +8,11 @@ export default {
   theme: {
     extend: {
       colors: {
+        terracotta: {
+          DEFAULT: '#c76b4f',
+          light: '#d9896e',
+          dark: '#a85539',
+        },
         cinema: {
           950: '#050508',
           900: '#0a0a0f',

@@ -223,24 +223,24 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
         {/* v0.7.7: 统一后台活动状态栏 — 心跳式互动陪写 */}
         {hasAnyActivity && displayMessage && (
           <div className="generation-status-row" title={displayMessage}>
-            <div className="flex items-center gap-2 w-full">
+            <div className="generation-status-content">
               {/* 心跳脉冲图标 */}
-              <div className="relative flex items-center justify-center w-4 h-4">
-                <Activity className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              <div className="generation-status-pulse">
+                <Activity className="w-4 h-4 text-terracotta animate-pulse" />
                 <span
-                  className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-20 animate-ping"
+                  className="absolute inline-flex h-full w-full rounded-full bg-terracotta opacity-25 animate-ping"
                   style={{ animationDuration: '2s' }}
                 />
               </div>
 
               {/* 主要活动文案 */}
-              <span className="text-xs text-amber-300 truncate flex-1">{displayMessage}</span>
+              <span className="generation-status-message">{displayMessage}</span>
 
               {/* 进度条 */}
               {displayProgress > 0 && (
-                <div className="w-16 h-1 bg-slate-700 rounded-full overflow-hidden flex-shrink-0">
+                <div className="generation-status-progress">
                   <div
-                    className="h-full bg-amber-400 rounded-full transition-all duration-500"
+                    className="generation-status-progress-bar"
                     style={{ width: `${Math.round(displayProgress * 100)}%` }}
                   />
                 </div>
@@ -248,16 +248,21 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
 
               {/* 多任务计数 */}
               {activeCount > 1 && (
-                <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-full">
+                <span
+                  className="generation-status-badge"
+                  title={`还有 ${activeCount - 1} 个后台任务`}
+                >
                   +{activeCount - 1}
                 </span>
               )}
 
               {/* 类别标签 */}
               {primaryActivity && (
-                <span className="text-[10px] text-slate-500 hidden sm:inline">
-                  {categoryIcons[primaryActivity.category]}{' '}
-                  {categoryLabels[primaryActivity.category]}
+                <span className="generation-status-category" title="任务类型">
+                  {categoryIcons[primaryActivity.category]}
+                  <span className="generation-status-category-label">
+                    {categoryLabels[primaryActivity.category]}
+                  </span>
                 </span>
               )}
             </div>
