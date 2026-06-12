@@ -24,9 +24,10 @@ use crate::{
             KnowledgeGraphRepository, SceneRepository, SceneUpdate, StoryOutlineRepository,
             StoryRepository, WorldBuildingRepository,
         },
-        CreateCharacterRequest, CreateStoryRequest, DbPool,
+        CreateCharacterRequest, CreateStoryRequest, DbPool, UpdateStoryRequest,
     },
     llm::{service::PipelineContext as LlmPipelineContext, LlmService},
+    strategy::{load_all_assets, SelectionContext, StrategySelector},
 };
 
 // ==================== GenesisContext ====================
@@ -45,6 +46,8 @@ pub struct GenesisContext {
     pub pool: DbPool,
     /// 第一章正文内容（用于返回给前端）
     pub first_chapter_content: Option<String>,
+    /// 模型为当前故事选择的创作策略
+    pub selected_strategy: Option<crate::strategy::SelectedStrategy>,
 }
 
 impl StepContext for GenesisContext {
@@ -73,6 +76,7 @@ impl GenesisContext {
             app_handle,
             pool,
             first_chapter_content: None,
+            selected_strategy: None,
         }
     }
 
@@ -83,6 +87,7 @@ impl GenesisContext {
         session_id: String,
         user_premise: String,
         bundle: NarrativeBundle,
+        selected_strategy: Option<crate::strategy::SelectedStrategy>,
     ) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
         Self {
@@ -94,6 +99,7 @@ impl GenesisContext {
             app_handle,
             pool,
             first_chapter_content: None,
+            selected_strategy,
         }
     }
 
@@ -113,6 +119,65 @@ impl GenesisContext {
     }
 }
 
+/// 根据已选策略和体裁画像构建写作指令中的策略注解
+fn build_strategy_notes(
+    ctx: &GenesisContext,
+    genre: &str,
+) -> String {
+    let strategy = match &ctx.selected_strategy {
+        Some(s) => s,
+        None => return format!("（未选择策略，按题材 '{}' 自由发挥）", genre),
+    };
+
+    let mut notes = Vec::new();
+
+    if let Some(profile_id) = &strategy.genre_profile_id {
+        let repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+        if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
+            notes.push(format!("体裁画像：{}（{}）", profile.genre_name, profile.canonical_name));
+            if let Some(tone) = &profile.core_tone {
+                notes.push(format!("核心基调：{}", tone));
+            }
+            if let Some(pacing) = &profile.pacing_strategy {
+                notes.push(format!("节奏策略：\n{}", pacing));
+            }
+            if let Some(anti_patterns) = &profile.anti_patterns_json {
+                if let Ok(list) = serde_json::from_str::<Vec<String>>(anti_patterns) {
+                    if !list.is_empty() {
+                        notes.push(format!("应避免的反套路：\n- {}", list.join("\n- ")));
+                    }
+                }
+            }
+            if let Some(reference_tables) = &profile.reference_tables_json {
+                notes.push(format!("元素参考表：\n{}", reference_tables));
+            }
+            if let Some(typical_structure) = &profile.typical_structure_json {
+                notes.push(format!("典型结构：\n{}", typical_structure));
+            }
+        } else {
+            notes.push(format!("体裁画像 ID：{}（未找到详细内容）", profile_id));
+        }
+    }
+
+    if let Some(methodology_id) = &strategy.methodology_id {
+        notes.push(format!("\n应遵循的方法论：{}", methodology_id));
+    }
+
+    if !strategy.style_dna_ids.is_empty() {
+        notes.push(format!("\n参考风格 DNA：{}", strategy.style_dna_ids.join(", ")));
+    }
+
+    if !strategy.skill_ids.is_empty() {
+        notes.push(format!("\n建议激活的技能：{}", strategy.skill_ids.join(", ")));
+    }
+
+    if notes.is_empty() {
+        format!("（按题材 '{}' 自由发挥）", genre)
+    } else {
+        notes.join("\n")
+    }
+}
+
 // ==================== GenesisPipeline 构建器 ====================
 
 pub struct GenesisPipeline;
@@ -121,6 +186,11 @@ impl GenesisPipeline {
     /// 即时阶段：仅生成故事概念并创建 Story 记录，快速返回让前端先进入工作台
     pub fn concept_only_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![Box::new(ConceptGenerationStep)]
+    }
+
+    /// 策略选择阶段：根据概念自动选择体裁画像、方法论、风格 DNA 与技能
+    pub fn strategy_selection_step() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
+        vec![Box::new(StrategySelectionStep)]
     }
 
     /// 后台阶段：第一章 + 世界观/大纲/角色/场景/伏笔/知识图谱
@@ -213,6 +283,8 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                     description: Some(meta.description.clone()),
                     genre: Some(meta.genre.clone()),
                     style_dna_id: None,
+                    genre_profile_id: None,
+                    methodology_id: None,
                 })
                 .map_err(|e| PipelineError::StorageError(e.to_string()))?;
 
@@ -244,7 +316,131 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
     }
 }
 
-// ==================== Step 2: 第一章生成 ====================
+// ==================== Step 2: 策略选择 ====================
+
+struct StrategySelectionStep;
+
+impl PipelineStep<GenesisContext> for StrategySelectionStep {
+    fn name(&self) -> &'static str {
+        "选择创作策略"
+    }
+    fn description(&self) -> &'static str {
+        "根据故事概念自动选择体裁画像、方法论、风格 DNA 与技能"
+    }
+    fn step_number(&self) -> usize {
+        2
+    }
+
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut GenesisContext,
+        llm: &'a LlmService,
+        progress: std::sync::Arc<dyn Fn(PipelineProgressEvent) + Send + Sync>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PipelineError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 2,
+                status: StepStatus::Running,
+                message: "正在为故事匹配最优创作策略...".to_string(),
+                progress_percent: 55,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            let genre = {
+                let bundle = ctx.bundle.read().await;
+                bundle
+                    .story_meta
+                    .as_ref()
+                    .map(|m| m.genre.clone())
+                    .unwrap_or_default()
+            };
+
+            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
+            let word_count_target = crate::config::AppConfig::load(&app_dir)
+                .map(|c| c.genesis_first_chapter_word_count_target)
+                .unwrap_or(2000);
+
+            let genre_repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
+            let skills = crate::SKILL_MANAGER
+                .get()
+                .map(|m| m.lock().unwrap().get_all_skills())
+                .unwrap_or_default();
+
+            let assets = load_all_assets(&genre_repo, &skills)
+                .map_err(|e| PipelineError::StepFailed {
+                    step_name: self.name().to_string(),
+                    reason: format!("加载创作资产失败: {}", e),
+                })?;
+
+            let selector = StrategySelector::new(llm.clone());
+            let selection_ctx = SelectionContext {
+                user_input: ctx.user_premise.clone(),
+                genre_hint: Some(genre.clone()),
+                word_count_target: Some(word_count_target),
+                story_progress: "just_started".to_string(),
+                has_story: true,
+                ..Default::default()
+            };
+
+            let strategy = selector
+                .select_strategy(&selection_ctx, &assets, None)
+                .await
+                .map_err(|e| PipelineError::StepFailed {
+                    step_name: self.name().to_string(),
+                    reason: format!("策略选择失败: {}", e),
+                })?;
+
+            // 保存选择结果到 story 表
+            let story_repo = StoryRepository::new(ctx.pool.clone());
+            let update_req = UpdateStoryRequest {
+                title: None,
+                description: None,
+                genre: None,
+                tone: None,
+                pacing: None,
+                style_dna_id: strategy.style_dna_ids.first().cloned(),
+                genre_profile_id: strategy.genre_profile_id.clone(),
+                methodology_id: strategy.methodology_id.clone(),
+                methodology_step: None,
+            };
+            if let Err(e) = story_repo.update(&ctx.story_id, &update_req) {
+                log::warn!("[GenesisPipeline] 保存策略到 story 表失败: {}", e);
+            }
+
+            let strategy_summary = format!(
+                "体裁画像: {}, 方法论: {}, 风格 DNA: [{}], 技能: [{}]",
+                strategy.genre_profile_id.as_deref().unwrap_or("无"),
+                strategy.methodology_id.as_deref().unwrap_or("无"),
+                strategy.style_dna_ids.join(", "),
+                strategy.skill_ids.join(", ")
+            );
+            ctx.selected_strategy = Some(strategy);
+
+            progress(PipelineProgressEvent {
+                pipeline_id: ctx.session_id.clone(),
+                pipeline_type: PipelineType::Genesis,
+                step_name: self.name().to_string(),
+                step_number: self.step_number(),
+                total_steps: 2,
+                status: StepStatus::Completed,
+                message: format!("已选择创作策略：{}", strategy_summary),
+                progress_percent: 60,
+                elapsed_seconds: 0,
+                metadata: None,
+            });
+
+            Ok(())
+        })
+    }
+}
+
+// ==================== Step 3: 第一章生成 ====================
 
 struct FirstChapterGenerationStep;
 
@@ -256,7 +452,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
         "生成第一章正文（用户立即可见）"
     }
     fn step_number(&self) -> usize {
-        2
+        3
     }
 
     fn execute<'a>(
@@ -310,6 +506,9 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 })
                 .unwrap_or_else(|_| (crate::config::WritingStrategy::default(), 2000));
 
+            // 构建策略注解：将模型选择的体裁画像、方法论等注入写作指令
+            let strategy_notes = build_strategy_notes(ctx, &meta.genre);
+
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
             let task = crate::agents::service::AgentTask {
                 id: Uuid::new_v4().to_string(),
@@ -317,7 +516,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 context: agent_context,
                 input: format!(
                     "请撰写《{}》的第一章开头（目标字数：{}字，允许±15%）。\n\n【故事概念】\n题材：{}\n基调：\
-                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【写作策略】\n模式：{}\n冲突强度：{}/100\n叙事节奏：{}\nAI自由度：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
+                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【创作策略】\n{}\n\n【写作策略】\n模式：{}\n冲突强度：{}/100\n叙事节奏：{}\nAI自由度：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
                      需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. \
                      埋下至少一个伏笔\n4. \
                      在第一幕结尾制造一个冲突或悬念\n\n重要：\
@@ -329,6 +528,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                     meta.pacing,
                     meta.description,
                     meta.themes.join(", "),
+                    strategy_notes,
                     writing_strategy.run_mode,
                     writing_strategy.conflict_level,
                     writing_strategy.pace,

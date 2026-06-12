@@ -36,6 +36,7 @@ pub fn save_genre_profile(
     pacing_strategy: Option<String>,
     anti_patterns_json: Option<String>,
     reference_tables_json: Option<String>,
+    typical_structure_json: Option<String>,
 ) -> Result<crate::db::GenreProfile, AppError> {
     let pool = pool.inner().clone();
     let repo = crate::db::GenreProfileRepository::new(pool);
@@ -51,6 +52,7 @@ pub fn save_genre_profile(
             pacing_strategy.as_deref(),
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
+            typical_structure_json.as_deref(),
         )
         .map_err(AppError::from)?;
         repo.get_by_id(&existing_id)
@@ -66,6 +68,7 @@ pub fn save_genre_profile(
             pacing_strategy.as_deref(),
             anti_patterns_json.as_deref(),
             reference_tables_json.as_deref(),
+            typical_structure_json.as_deref(),
         )
         .map_err(AppError::from)
     }

@@ -143,6 +143,10 @@ pub enum CapabilitySource {
     Skill,
     McpTool,
     SystemCommand,
+    Methodology,
+    GenreProfile,
+    StyleDna,
+    Workflow,
 }
 
 pub struct CapabilityRegistry {
@@ -207,14 +211,86 @@ impl CapabilityRegistry {
         }
     }
 
+    /// 从统一资产注册一个能力（只读，供模型选择）
+    pub fn register_selectable_asset(&mut self, asset: &crate::strategy::SelectableAsset) {
+        let source_type = match asset.kind {
+            crate::strategy::AssetKind::Methodology => CapabilitySource::Methodology,
+            crate::strategy::AssetKind::GenreProfile => CapabilitySource::GenreProfile,
+            crate::strategy::AssetKind::StyleDna => CapabilitySource::StyleDna,
+            crate::strategy::AssetKind::Workflow => CapabilitySource::Workflow,
+            _ => {
+                // Agent / Skill / SystemCommand / McpTool 已有原生注册路径，
+                // 这里不重复处理，避免破坏执行逻辑。
+                return;
+            }
+        };
+
+        let params = vec![
+            CapabilityParam {
+                name: "context".to_string(),
+                description: "创作上下文或用户输入".to_string(),
+                required: false,
+                param_type: "string".to_string(),
+            },
+        ];
+
+        self.register(Capability {
+            id: asset.id.clone(),
+            name: asset.name.clone(),
+            description: asset.description.clone(),
+            when_to_use: asset.when_to_use.clone(),
+            input_description: asset.input_description.clone().unwrap_or_default(),
+            output_description: asset.output_description.clone().unwrap_or_default(),
+            parameters: params,
+            source_type,
+            metadata: asset.payload.as_object().map(|obj| {
+                obj.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<std::collections::HashMap<_, _>>()
+            }).unwrap_or_default(),
+        });
+    }
+
+    /// 批量注册统一资产
+    pub fn register_selectable_assets(&mut self, assets: &[crate::strategy::SelectableAsset]) {
+        for asset in assets {
+            self.register_selectable_asset(asset);
+        }
+    }
+
     pub fn to_llm_context(&self) -> String {
-        let mut ctx = String::from("Available capabilities:\n\n");
+        use std::collections::HashMap;
+
+        let mut by_source: HashMap<String, Vec<&Capability>> = HashMap::new();
         for cap in &self.capabilities {
-            ctx.push_str(&format!(
-                "- {} ({}): {}\n",
-                cap.name, cap.id, cap.description
-            ));
-            ctx.push_str(&format!("  when_to_use: {}\n", cap.when_to_use));
+            let key = format!("{:?}", cap.source_type).to_lowercase();
+            by_source.entry(key).or_default().push(cap);
+        }
+
+        let priority = [
+            "agent",
+            "skill",
+            "systemcommand",
+            "mcptool",
+            "methodology",
+            "genreprofile",
+            "styledna",
+            "workflow",
+        ];
+
+        let mut ctx = String::from("Available capabilities:\n\n");
+        for key in priority.iter() {
+            if let Some(caps) = by_source.get(*key) {
+                ctx.push_str(&format!("## {}\n", key));
+                for cap in caps {
+                    ctx.push_str(&format!(
+                        "- {} ({}): {}\n",
+                        cap.name, cap.id, cap.description
+                    ));
+                    ctx.push_str(&format!("  when_to_use: {}\n", cap.when_to_use));
+                }
+                ctx.push('\n');
+            }
         }
         ctx
     }

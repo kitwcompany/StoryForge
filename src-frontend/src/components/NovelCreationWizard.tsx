@@ -17,6 +17,7 @@ import {
   generateCharacterProfiles,
   generateWritingStyles,
   generateFirstScene,
+  selectCreationStrategy,
 } from '@/services/tauri';
 import type {
   WorldBuildingOption,
@@ -25,6 +26,7 @@ import type {
   SceneProposal,
   ConflictType,
 } from '@/types/v3';
+import type { SelectedStrategy } from '@/types/index';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
@@ -32,6 +34,7 @@ const novelWizardLogger = createLogger('ui:NovelCreationWizard');
 
 type WizardStep =
   | 'genre_input'
+  | 'selecting_strategy'
   | 'generating_world'
   | 'selecting_world'
   | 'generating_characters'
@@ -48,6 +51,7 @@ interface NovelCreationWizardProps {
     writingStyle: WritingStyleOption;
     firstScene: SceneProposal;
     genreInput: string;
+    selectedStrategy?: SelectedStrategy;
   }) => void;
   onCancel: () => void;
 }
@@ -64,9 +68,29 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   const [characterSets, setCharacterSets] = useState<CharacterProfileOption[][]>([]);
   const [styleOptions, setStyleOptions] = useState<WritingStyleOption[]>([]);
   const [firstScene, setFirstScene] = useState<SceneProposal | null>(null);
+  const [selectedStrategy, setSelectedStrategy] = useState<SelectedStrategy | null>(null);
 
   const handleStartGeneration = async () => {
     if (!genreInput.trim()) return;
+    setStep('selecting_strategy');
+    setIsGenerating(true);
+    try {
+      const strategy = await selectCreationStrategy({
+        user_input: genreInput.trim(),
+        genre_hint: genreInput.trim(),
+      });
+      setSelectedStrategy(strategy);
+      setStep('selecting_strategy');
+    } catch (error) {
+      novelWizardLogger.error('Failed to select strategy', { error });
+      toast.error('策略选择失败，请重试');
+      setStep('genre_input');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleConfirmStrategy = async () => {
     setStep('generating_world');
     setIsGenerating(true);
     try {
@@ -76,7 +100,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
     } catch (error) {
       novelWizardLogger.error('Failed to generate world building options', { error });
       toast.error('生成世界观失败，请重试');
-      setStep('genre_input');
+      setStep('selecting_strategy');
     } finally {
       setIsGenerating(false);
     }
@@ -155,13 +179,18 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       writingStyle: styleOptions[selectedStyle],
       firstScene,
       genreInput: genreInput.trim(),
+      selectedStrategy: selectedStrategy ?? undefined,
     });
   };
 
   const handleBack = () => {
     switch (step) {
-      case 'selecting_world':
+      case 'selecting_strategy':
         setStep('genre_input');
+        setSelectedStrategy(null);
+        break;
+      case 'selecting_world':
+        setStep('selecting_strategy');
         setSelectedWorld(null);
         break;
       case 'selecting_characters':
@@ -227,6 +256,88 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       </div>
       <h3 className="text-xl font-semibold text-white mb-2">{message}</h3>
       <p className="text-gray-400">AI正在发挥创意...</p>
+    </div>
+  );
+
+  const renderStrategySelection = () => (
+    <div className="space-y-6">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold text-white mb-2">AI 推荐创作策略</h2>
+        <p className="text-gray-400">基于你的输入，模型选择了以下策略组合</p>
+      </div>
+
+      {!selectedStrategy ? (
+        <div className="text-center text-gray-400">策略加载失败，请返回重试</div>
+      ) : (
+        <div className="space-y-4">
+          <Card className="bg-cinema-800/50 border-cinema-700">
+            <CardContent className="p-5 space-y-3">
+              <div>
+                <span className="text-xs text-cinema-gold uppercase tracking-wider">推荐理由</span>
+                <p className="text-sm text-gray-300 mt-1 leading-relaxed">
+                  {selectedStrategy.rationale || '未提供推荐理由'}
+                </p>
+              </div>
+              {selectedStrategy.genre_profile_id && (
+                <div>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">体裁画像</span>
+                  <p className="text-sm text-gray-300 mt-1">{selectedStrategy.genre_profile_id}</p>
+                </div>
+              )}
+              {selectedStrategy.methodology_id && (
+                <div>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">方法论</span>
+                  <p className="text-sm text-gray-300 mt-1">{selectedStrategy.methodology_id}</p>
+                </div>
+              )}
+              {selectedStrategy.style_dna_ids.length > 0 && (
+                <div>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">风格 DNA</span>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {selectedStrategy.style_dna_ids.map(id => (
+                      <span key={id} className="px-2 py-0.5 text-xs bg-cinema-700 rounded text-gray-300">
+                        {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedStrategy.skill_ids.length > 0 && (
+                <div>
+                  <span className="text-xs text-cinema-gold uppercase tracking-wider">推荐技能</span>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {selectedStrategy.skill_ids.map(id => (
+                      <span key={id} className="px-2 py-0.5 text-xs bg-cinema-700 rounded text-gray-300">
+                        {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <p className="text-xs text-gray-500 text-center">
+            策略将在后续章节生成、文风控制中自动生效。确认后继续生成世界观。
+          </p>
+        </div>
+      )}
+
+      <div className="flex justify-between">
+        <Button variant="ghost" onClick={handleBack}>
+          <ChevronLeft className="w-4 h-4 mr-1" />
+          上一步
+        </Button>
+        <Button
+          variant="primary"
+          onClick={handleConfirmStrategy}
+          disabled={!selectedStrategy || isGenerating}
+          isLoading={isGenerating}
+        >
+          <Sparkles className="w-4 h-4 mr-2" />
+          确认策略，生成世界观
+        </Button>
+      </div>
     </div>
   );
 
@@ -436,6 +547,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   return (
     <div className="w-full max-w-2xl mx-auto">
       {step === 'genre_input' && renderGenreInput()}
+      {step === 'selecting_strategy' && renderStrategySelection()}
       {step === 'generating_world' && renderGenerating('正在生成世界观...')}
       {step === 'selecting_world' && renderWorldSelection()}
       {step === 'generating_characters' && renderGenerating('正在生成角色谱...')}

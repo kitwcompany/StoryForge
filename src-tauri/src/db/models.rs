@@ -1061,6 +1061,7 @@ pub struct Story {
     pub tone: Option<String>,
     pub pacing: Option<String>,
     pub style_dna_id: Option<String>,
+    pub genre_profile_id: Option<String>,
     pub methodology_id: Option<String>,
     pub methodology_step: Option<i32>,
     pub created_at: DateTime<Local>,
@@ -1316,6 +1317,7 @@ pub struct GenreProfile {
     pub pacing_strategy: Option<String>,
     pub anti_patterns_json: Option<String>,
     pub reference_tables_json: Option<String>,
+    pub typical_structure_json: Option<String>,
     pub is_builtin: bool,
     pub created_at: DateTime<Local>,
 }

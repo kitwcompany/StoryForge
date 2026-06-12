@@ -37,6 +37,7 @@ mod skills;
 mod state; // RESERVED: runtime story state manager (Phase 4)
 mod state_sync;
 mod story_system;
+mod strategy;
 mod studio_commands;
 mod subscription;
 mod task_system;
@@ -209,17 +210,20 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                         if genre_name.is_empty() || canonical_name.is_empty() {
                             continue;
                         }
+                        let aliases_json = profile.get("aliases").map(|v| v.to_string());
+                        let core_tone = profile.get("core_tone").and_then(|v| v.as_str());
+                        let pacing_strategy =
+                            profile.get("pacing_strategy").and_then(|v| v.as_str());
+                        let anti_patterns_json =
+                            profile.get("anti_patterns").map(|v| v.to_string());
+                        let reference_tables_json =
+                            profile.get("reference_tables").and_then(|v| v.as_str());
+                        let typical_structure_json =
+                            profile.get("typical_structure").map(|v| v.to_string());
+
                         // 仅当不存在时才插入，避免覆盖用户自定义修改
                         match repo.get_by_name(genre_name) {
                             Ok(None) => {
-                                let aliases_json = profile.get("aliases").map(|v| v.to_string());
-                                let core_tone = profile.get("core_tone").and_then(|v| v.as_str());
-                                let pacing_strategy =
-                                    profile.get("pacing_strategy").and_then(|v| v.as_str());
-                                let anti_patterns_json =
-                                    profile.get("anti_patterns").map(|v| v.to_string());
-                                let reference_tables_json =
-                                    profile.get("reference_tables").and_then(|v| v.as_str());
                                 let _ = repo.create(
                                     genre_name,
                                     canonical_name,
@@ -228,10 +232,27 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
                                     pacing_strategy,
                                     anti_patterns_json.as_deref(),
                                     reference_tables_json,
+                                    typical_structure_json.as_deref(),
                                 );
                             }
-                            Ok(Some(_)) => {
-                                // 已存在，跳过
+                            Ok(Some(existing)) => {
+                                // 对已有内置体裁，仅当 typical_structure_json 缺失时回填，
+                                // 保证新字段能落地而不覆盖用户已有修改
+                                if existing.typical_structure_json.is_none()
+                                    || existing.typical_structure_json.as_deref() == Some("")
+                                {
+                                    let _ = repo.update(
+                                        &existing.id,
+                                        genre_name,
+                                        canonical_name,
+                                        aliases_json.as_deref(),
+                                        core_tone,
+                                        pacing_strategy,
+                                        anti_patterns_json.as_deref(),
+                                        reference_tables_json,
+                                        typical_structure_json.as_deref(),
+                                    );
+                                }
                             }
                             Err(e) => {
                                 log::warn!(
@@ -611,6 +632,26 @@ pub fn run() {
 
             if let Some(pool) = get_pool() {
                 seed_builtin_data(&pool, &app_dir);
+
+                // 注册可发现创作资产到全局 CapabilityRegistry
+                let genre_repo = db::GenreProfileRepository::new(pool.clone());
+                let skills = SKILL_MANAGER
+                    .get()
+                    .map(|m| m.lock().unwrap().get_all_skills())
+                    .unwrap_or_default();
+                match strategy::load_all_assets(&genre_repo, &skills) {
+                    Ok(assets) => {
+                        let mut registry = capabilities::get_capability_registry();
+                        registry.register_selectable_assets(&assets);
+                        log::info!(
+                            "[CapabilityRegistry] Registered {} selectable creative assets",
+                            assets.len()
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!("[CapabilityRegistry] Failed to load creative assets: {}", e);
+                    }
+                }
             }
 
             // Initialize embedding model

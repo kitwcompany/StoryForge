@@ -239,6 +239,8 @@ pub async fn writer_agent_execute(
                 description: Some(request.instruction.clone()),
                 genre: Some("小说".to_string()),
                 style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .map_err(AppError::from)?;
 

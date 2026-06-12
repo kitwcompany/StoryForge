@@ -19,6 +19,9 @@ pub fn create_story(
     title: String,
     description: Option<String>,
     genre: Option<String>,
+    style_dna_id: Option<String>,
+    genre_profile_id: Option<String>,
+    methodology_id: Option<String>,
     pool: State<'_, DbPool>,
     app: AppHandle,
     automation_service: tauri::State<crate::automation::service::AutomationService>,
@@ -28,7 +31,9 @@ pub fn create_story(
             title,
             description,
             genre,
-            style_dna_id: None,
+            style_dna_id,
+            genre_profile_id,
+            methodology_id,
         })
         .map_err(AppError::from)?;
     let _ = crate::state_sync::StateSync::emit_story_created(&app, &story.id, &story.title);
@@ -59,6 +64,7 @@ pub fn update_story(
     tone: Option<String>,
     pacing: Option<String>,
     style_dna_id: Option<String>,
+    genre_profile_id: Option<String>,
     methodology_id: Option<String>,
     methodology_step: Option<i32>,
     pool: State<'_, DbPool>,
@@ -71,6 +77,7 @@ pub fn update_story(
         tone,
         pacing,
         style_dna_id,
+        genre_profile_id,
         methodology_id,
         methodology_step,
     };

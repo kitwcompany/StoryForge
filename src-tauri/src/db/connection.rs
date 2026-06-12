@@ -3124,6 +3124,44 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 86)?;
     }
 
+    // Migration 87: 扩展 genre_profiles 表 — 添加 typical_structure_json 字段
+    if current_version < 87 {
+        let genre_profile_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(genre_profiles)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !genre_profile_cols.contains(&"typical_structure_json".to_string()) {
+            conn.execute(
+                "ALTER TABLE genre_profiles ADD COLUMN typical_structure_json TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 87)?;
+    }
+
+    // Migration 88: 扩展 stories 表 — 添加 genre_profile_id 字段
+    if current_version < 88 {
+        let story_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(stories)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !story_cols.contains(&"genre_profile_id".to_string()) {
+            conn.execute(
+                "ALTER TABLE stories ADD COLUMN genre_profile_id TEXT",
+                [],
+            )?;
+        }
+        record_migration(conn, 88)?;
+    }
+
     Ok(())
 }
 

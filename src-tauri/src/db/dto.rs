@@ -128,6 +128,8 @@ pub struct CreateStoryRequest {
     pub description: Option<String>,
     pub genre: Option<String>,
     pub style_dna_id: Option<String>,
+    pub genre_profile_id: Option<String>,
+    pub methodology_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +140,7 @@ pub struct UpdateStoryRequest {
     pub tone: Option<String>,
     pub pacing: Option<String>,
     pub style_dna_id: Option<String>,
+    pub genre_profile_id: Option<String>,
     pub methodology_id: Option<String>,
     pub methodology_step: Option<i32>,
 }

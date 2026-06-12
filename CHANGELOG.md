@@ -2,6 +2,63 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.10.0] - 能力发现与自动编排（2026-06-12）
+
+### 摘要
+
+- 实现「给模型完整的技能表，供其自动选取」：技能、方法论、43 个网文体裁画像、Style DNA 统一注册为可发现资产
+- 模型在小说世界生成、章节规划、正文写作各阶段自动选择并应用创作策略
+- GenesisPipeline 概念生成后自动选择体裁画像、方法论、风格 DNA 并持久化到故事
+- Planner 与 Writer prompt 自动注入已选策略上下文，43 个网文模板真正参与智能创作
+- 前端创建向导新增 AI 推荐策略确认步骤，故事卡片与编辑表单支持查看和人工覆盖策略
+
+### 后端改进
+
+- **统一资产目录与能力注册表**：`src-tauri/src/strategy/`
+  - 新增 `SelectableAsset` / `AssetKind` / `SelectedStrategy` / `SelectionContext` 统一抽象
+  - 技能、方法论、体裁画像、Style DNA、Workflow 全部转换为 `SelectableAsset`
+  - 应用启动时通过 `CapabilityRegistry::register_selectable_assets` 完成全局注册
+- **策略选择器**：`src-tauri/src/strategy/selector.rs` / `src-tauri/src/commands/strategy.rs`
+  - `StrategySelector` 支持精确匹配 + LLM 选择双模式
+  - 暴露 `select_creation_strategy` Tauri 命令，前端可预览模型推荐策略
+- **GenesisPipeline 接入策略选择**：`src-tauri/src/narrative/genesis.rs`
+  - 概念生成后增加 `StrategySelectionStep`，自动调用 `StrategySelector`
+  - 选择结果写入 `story.genre_profile_id` / `story.methodology_id` / `story.style_dna_id`
+  - 第一章 prompt 注入体裁画像完整内容（含 typical_structure）与方法论说明
+- **Planner / Writer 注入策略上下文**：`src-tauri/src/planner/mod.rs` / `src-tauri/src/agents/mod.rs` / `src-tauri/src/commands/orchestrator.rs`
+  - `PlanContext` 新增 `selected_strategy`
+  - `StoryContext` 新增 `genre_profile_id`
+  - `build_writer_prompt` 注入体裁画像策略与方法论参数
+- **数据层补齐**：`src-tauri/src/db/connection.rs` / `src-tauri/src/db/models.rs` / `src-tauri/src/db/dto.rs` / `src-tauri/src/db/repositories.rs`
+  - `genre_profiles` 表新增 `typical_structure_json`
+  - `stories` 表新增 `genre_profile_id`
+  - `CreateStoryRequest` / `UpdateStoryRequest` / `Story` 模型扩展对应字段
+- **旧向导兼容**：`src-tauri/src/creation_commands.rs` / `src-tauri/src/commands/story.rs`
+  - `create_story_with_wizard` 与 `create_story` 均接受 `style_dna_id` / `genre_profile_id` / `methodology_id`
+
+### 前端改进
+
+- **策略选择 API**：`src-frontend/src/services/api/genesis.ts` / `src-frontend/src/types/index.ts`
+  - 新增 `selectCreationStrategy` 与 `SelectedStrategy` / `StrategySelectionRequest` 类型
+- **创建向导策略确认**：`src-frontend/src/components/NovelCreationWizard.tsx`
+  - 用户输入后新增「AI 推荐创作策略」步骤，展示推荐理由、体裁画像、方法论、风格 DNA、推荐技能
+  - 确认后进入世界观生成，选择结果随 `create_story_with_wizard` 保存
+- **故事策略展示与人工覆盖**：`src-frontend/src/pages/Stories.tsx` / `src-frontend/src/types/index.ts`
+  - `Story` / `CreateStoryRequest` 类型扩展策略字段
+  - 故事卡片显示体裁/方法/风格标签
+  - 编辑表单增加体裁画像 ID、风格 DNA ID 输入框，支持人工修改
+- **体裁表单修复**：`src-frontend/src/pages/StorySystem.tsx` / `src-frontend/src/services/api/quality.ts` / `src-frontend/src/types/api.ts`
+  - 统一 `GenreProfile` 类型定义，修复 `typical_structure_json` 字段缺失导致的类型错误
+
+### 测试
+
+- `cargo test --lib` ✅ 332/332 通过
+- `cargo check --lib` ✅ 无警告
+- `npm run type-check`（src-frontend）✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+
+---
+
 ## [v0.9.7] - 技能与设置参数对智能创作真正生效（2026-06-13）
 
 ### 摘要

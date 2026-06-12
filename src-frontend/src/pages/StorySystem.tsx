@@ -1056,14 +1056,35 @@ function GenreForm({ initial, onSave, onCancel }: GenreFormProps) {
     reference_tables_json: initial?.reference_tables
       ? JSON.stringify(initial.reference_tables)
       : '',
+    typical_structure_json:
+      initial?.typical_structure_json ??
+      (initial?.typical_structure
+        ? JSON.stringify(initial.typical_structure, null, 2)
+        : '[]'),
   });
 
   const handleChange = (field: string, value: string) => {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
+  const isJsonValid = (json: string) => {
+    try {
+      JSON.parse(json);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const canSubmit =
+    form.genre_name &&
+    form.canonical_name &&
+    isJsonValid(form.anti_patterns_json) &&
+    isJsonValid(form.reference_tables_json) &&
+    isJsonValid(form.typical_structure_json);
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 max-h-[80vh] overflow-y-auto pr-2">
       <div>
         <label className="text-gray-400 text-xs">体裁名称</label>
         <input
@@ -1100,15 +1121,23 @@ function GenreForm({ initial, onSave, onCancel }: GenreFormProps) {
           placeholder="描述该体裁的节奏策略..."
         />
       </div>
+      <div>
+        <label className="text-gray-400 text-xs">典型结构（JSON 数组）</label>
+        <textarea
+          className="w-full h-24 bg-cinema-800 border border-cinema-700 rounded px-3 py-1.5 text-white text-sm mt-1 resize-none font-mono"
+          value={form.typical_structure_json}
+          onChange={e => handleChange('typical_structure_json', e.target.value)}
+          placeholder='[{&quot;title&quot;: &quot;...&quot;, &quot;description&quot;: &quot;...&quot;}]'
+        />
+        {!isJsonValid(form.typical_structure_json) && (
+          <p className="text-red-400 text-xs mt-1">JSON 格式无效</p>
+        )}
+      </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button size="sm" variant="ghost" onClick={onCancel}>
           取消
         </Button>
-        <Button
-          size="sm"
-          onClick={() => onSave(form as any)}
-          disabled={!form.genre_name || !form.canonical_name}
-        >
+        <Button size="sm" onClick={() => onSave(form as any)} disabled={!canSubmit}>
           保存
         </Button>
       </div>

@@ -86,6 +86,8 @@ pub struct PlanContext {
     pub style_weight: i32,
     // v0.8.0: 当前章节号（用于记忆构建）
     pub chapter_number: i32,
+    // v0.10.0: 当前故事的创作策略（模型选择或用户锁定）
+    pub selected_strategy: Option<crate::strategy::SelectedStrategy>,
 }
 
 /// 计划生成器
@@ -214,6 +216,26 @@ impl PlanGenerator {
             .style_dna_info
             .as_deref()
             .unwrap_or("No style DNA configured");
+        let strategy_text = context
+            .selected_strategy
+            .as_ref()
+            .map(|s| {
+                let mut lines = vec![format!("rationale: {}", s.rationale)];
+                if let Some(id) = &s.genre_profile_id {
+                    lines.push(format!("genre_profile_id: {}", id));
+                }
+                if let Some(id) = &s.methodology_id {
+                    lines.push(format!("methodology_id: {}", id));
+                }
+                if !s.style_dna_ids.is_empty() {
+                    lines.push(format!("style_dna_ids: {}", s.style_dna_ids.join(", ")));
+                }
+                if !s.skill_ids.is_empty() {
+                    lines.push(format!("skill_ids: {}", s.skill_ids.join(", ")));
+                }
+                format!("Selected creative strategy:\n{}", lines.join("\n"))
+            })
+            .unwrap_or_else(|| "No creative strategy selected".to_string());
         let mcp_tools_text = if context.mcp_tools_available.is_empty() {
             "No MCP tools available".to_string()
         } else {
@@ -234,8 +256,8 @@ impl PlanGenerator {
             format!("Available MCP tools:\n{}", lines.join("\n"))
         };
 
-        // 简化 Capability Registry — 只保留核心 capability 列表，减少 prompt 长度
-        let registry_clean = if registry_clean.chars().count() > 1500 {
+        // 简化 Capability Registry — 当资产过多时保留核心能力，避免 prompt 爆炸
+        let registry_clean = if registry_clean.chars().count() > 4000 {
             let core_caps = [
                 "writer: 生成故事正文",
                 "inspector: 质检内容",
@@ -249,6 +271,9 @@ impl PlanGenerator {
                 "builtin.character_voice: 角色声音",
                 "builtin.emotion_pacing: 情感节奏",
                 "mcp.*: 外部工具",
+                "methodology.*: 创作方法论（只读上下文）",
+                "genre_profile.*: 体裁画像（只读上下文）",
+                "style_dna.*: 风格 DNA（只读上下文）",
             ];
             format!(
                 "Available capabilities (simplified):\n{}",
@@ -285,6 +310,8 @@ World building:
 {}
 
 Style: {}
+
+{}
 
 {}
 
@@ -351,6 +378,7 @@ Rules:
             characters_text,
             foreshadowing_text,
             style_dna_text,
+            strategy_text,
             mcp_tools_text,
             preview_clean,
             user_input_clean,
@@ -531,6 +559,7 @@ mod tests {
             mcp_tools_available: vec![],
             style_weight: 50,
             chapter_number: 1,
+            selected_strategy: None,
         };
         assert!(!ctx.has_story);
         assert_eq!(ctx.story_progress, "just_started");

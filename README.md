@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.9.6-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.10.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.9.6 针对智能创作速度慢、易超时问题进行全面性能优化：统一延长 LLM 超时、共享 LlmService 单例、上下文/Prompt/Embedding 多级缓存、DB 查询异步化与连接池扩容、协作式取消、GenesisPipeline 故事创建后台化、AgentOrchestrator 高分初稿跳过改写。前端已适配 Genesis 后台生成中间态。完整报告见 [`PERFORMANCE_OPTIMIZATION_REPORT.md`](./PERFORMANCE_OPTIMIZATION_REPORT.md)。`cargo test` 323/323 通过，`vitest` 116 passed。
+**最新动态**：v0.10.0 实现「能力发现与自动编排」：技能、方法论、43 个网文体裁画像、Style DNA 统一注册为可发现资产，模型在小说世界生成、章节规划、正文写作各阶段自动选择并应用创作策略；GenesisPipeline 概念生成后自动选择体裁画像、方法论、风格 DNA 并持久化到故事；Planner 与 Writer prompt 自动注入已选策略上下文，43 个网文模板真正参与智能创作；前端创建向导新增 AI 推荐策略确认步骤，故事卡片与编辑表单支持查看和人工覆盖策略。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。`cargo test` 332/332 通过，`vitest` 116 passed。
 
 ---
 

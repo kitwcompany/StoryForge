@@ -110,7 +110,7 @@ pub async fn smart_execute(
         let concept_steps = crate::narrative::genesis::GenesisPipeline::concept_only_steps();
         let cancel_flag = crate::narrative::pipeline::register_pipeline_cancel(&session_id);
         let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(concept_steps)
-            .with_cancel_flag(cancel_flag);
+            .with_cancel_flag(cancel_flag.clone());
 
         // 进度回调：同时发射新旧两种事件（向后兼容）
         let app_handle_progress = app_handle.clone();
@@ -138,9 +138,23 @@ pub async fn smart_execute(
             .await
         {
             Ok(()) => {
+                // v0.10.0: 概念生成后立即选择创作策略（同步执行，快速完成）
+                let strategy_steps =
+                    crate::narrative::genesis::GenesisPipeline::strategy_selection_step();
+                let strategy_executor =
+                    crate::narrative::pipeline::NarrativePipelineExecutor::new(strategy_steps)
+                        .with_cancel_flag(cancel_flag.clone());
+                if let Err(e) = strategy_executor
+                    .execute(&mut ctx, &llm, progress_callback.clone())
+                    .await
+                {
+                    log::warn!("[GenesisPipeline] 策略选择失败，将使用默认策略继续: {}", e);
+                }
+
                 let story_id = ctx.story_id.clone();
                 let session_id = ctx.session_id.clone();
                 let bundle = ctx.bundle.read().await.clone();
+                let selected_strategy = ctx.selected_strategy.clone();
 
                 // 发射 story_created 同步事件，让前端立即进入工作台
                 let _ = crate::state_sync::StateSync::emit_story_created(
@@ -177,6 +191,7 @@ pub async fn smart_execute(
                         session_id_bg.clone(),
                         user_input_bg,
                         bundle,
+                        selected_strategy,
                     );
                     let llm_bg = crate::llm::LlmService::new(app_handle_bg.clone());
                     let bg_steps =
@@ -522,6 +537,9 @@ pub async fn smart_execute(
     let input_for_record = user_input.clone();
     let prev_content_for_record = current_content_preview.clone();
 
+    // v0.10.0: 构建当前故事的创作策略上下文
+    let selected_strategy = build_selected_strategy(&current_story, &pool);
+
     let plan_context = crate::planner::PlanContext {
         current_story_id,
         has_story: !stories.is_empty(),
@@ -544,6 +562,7 @@ pub async fn smart_execute(
         selected_text: None,
         style_weight,
         chapter_number,
+        selected_strategy,
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）
@@ -725,6 +744,46 @@ pub async fn get_input_hint(
     } else {
         Ok("输入指令开始创作".to_string())
     }
+}
+
+/// v0.10.0: 根据 Story 已保存的策略元数据构建 SelectedStrategy
+fn build_selected_strategy(
+    current_story: &Option<crate::db::Story>,
+    pool: &crate::db::DbPool,
+) -> Option<crate::strategy::SelectedStrategy> {
+    let story = current_story.as_ref()?;
+    if story.genre_profile_id.is_none()
+        && story.methodology_id.is_none()
+        && story.style_dna_id.is_none()
+    {
+        return None;
+    }
+
+    let mut rationale_parts = Vec::new();
+    let mut strategy = crate::strategy::SelectedStrategy::default();
+    strategy.genre_profile_id = story.genre_profile_id.clone();
+    strategy.methodology_id = story.methodology_id.clone();
+    if let Some(ref dna_id) = story.style_dna_id {
+        strategy.style_dna_ids.push(dna_id.clone());
+    }
+
+    if let Some(ref profile_id) = story.genre_profile_id {
+        let repo = crate::db::GenreProfileRepository::new(pool.clone());
+        if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
+            rationale_parts.push(format!("体裁画像：{}", profile.genre_name));
+        } else {
+            rationale_parts.push(format!("体裁画像 ID：{}", profile_id));
+        }
+    }
+    if let Some(ref methodology_id) = story.methodology_id {
+        rationale_parts.push(format!("方法论：{}", methodology_id));
+    }
+    if let Some(ref dna_id) = story.style_dna_id {
+        rationale_parts.push(format!("风格 DNA：{}", dna_id));
+    }
+
+    strategy.rationale = rationale_parts.join("，");
+    Some(strategy)
 }
 
 // ===== 模型驱动的智能编排命令 =====

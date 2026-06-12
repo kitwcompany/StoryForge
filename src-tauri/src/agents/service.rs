@@ -1374,6 +1374,41 @@ impl AgentService {
         }
         tokio::task::yield_now().await;
 
+        // v0.10.0: 注入体裁画像专家策略（所有版本）
+        emit_and_yield("正在加载体裁画像策略...", 0.168);
+        if let Some(ref genre_profile_id) = ctx.story.genre_profile_id {
+            let pool = self.app_handle.state::<crate::db::DbPool>();
+            let repo = crate::db::GenreProfileRepository::new(pool.inner().clone());
+            if let Ok(Some(profile)) = repo.get_by_id(genre_profile_id) {
+                let mut lines = vec![format!(
+                    "你正在创作的是 '{}'（{}）题材。请严格遵循以下体裁专家策略：",
+                    profile.genre_name, profile.canonical_name
+                )];
+                if let Some(tone) = &profile.core_tone {
+                    lines.push(format!("核心基调：{}", tone));
+                }
+                if let Some(pacing) = &profile.pacing_strategy {
+                    lines.push(format!("节奏策略：\n{}", pacing));
+                }
+                if let Some(anti_patterns_json) = &profile.anti_patterns_json {
+                    if let Ok(list) = serde_json::from_str::<Vec<String>>(anti_patterns_json) {
+                        if !list.is_empty() {
+                            lines.push(format!("应避免的反套路：\n- {}", list.join("\n- ")));
+                        }
+                    }
+                }
+                if let Some(reference_tables) = &profile.reference_tables_json {
+                    lines.push(format!("元素参考表：\n{}", reference_tables));
+                }
+                if let Some(typical_structure) = &profile.typical_structure_json {
+                    lines.push(format!("典型结构参考：\n{}", typical_structure));
+                }
+                system_prompt.push_str("\n\n【体裁画像策略】\n");
+                system_prompt.push_str(&lines.join("\n"));
+            }
+        }
+        tokio::task::yield_now().await;
+
         // 注入创作方法论扩展（仅专业版）
         if is_pro {
             emit_and_yield("正在加载创作方法论...", 0.17);

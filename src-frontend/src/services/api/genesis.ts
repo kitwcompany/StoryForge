@@ -1,5 +1,5 @@
 import { loggedInvoke } from './core';
-import type { StoryOutline, CharacterRelationship } from '@/types/index';
+import type { StoryOutline, CharacterRelationship, SelectedStrategy, StrategySelectionRequest } from '@/types/index';
 
 export const getStoryOutline = (storyId: string) =>
   loggedInvoke<StoryOutline | null>('get_story_outline', { story_id: storyId });
@@ -75,6 +75,7 @@ export const saveGenreProfile = (params: {
   pacing_strategy?: string;
   anti_patterns_json?: string;
   reference_tables_json?: string;
+  typical_structure_json?: string;
 }) => loggedInvoke<import('@/types/api').GenreProfile>('save_genre_profile', params);
 
 export const deleteGenreProfile = (id: string) =>
@@ -190,3 +191,6 @@ export const getNarrativeChunks = (storyId: string) =>
   loggedInvoke<{ count: number; chunks: NarrativeChunk[] }>('get_narrative_chunks', {
     story_id: storyId,
   });
+
+export const selectCreationStrategy = (req: StrategySelectionRequest) =>
+  loggedInvoke<SelectedStrategy>('select_creation_strategy', { ...req });

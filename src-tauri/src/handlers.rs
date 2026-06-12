@@ -234,6 +234,8 @@ tauri::generate_handler![
     commands::genre::get_genre_profile,
     commands::genre::save_genre_profile,
     commands::genre::delete_genre_profile,
+    // Strategy selection command
+    commands::strategy::select_creation_strategy,
     // Anti-AI Review command
     commands::anti_ai::anti_ai_review,
     commands::anti_ai::evolve_style_from_anti_ai_review,

@@ -586,6 +586,8 @@ impl PlanExecutor {
                 description,
                 genre,
                 style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .map_err(AppError::from)?;
 

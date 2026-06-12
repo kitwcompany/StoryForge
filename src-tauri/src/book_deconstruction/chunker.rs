@@ -472,16 +472,6 @@ pub fn extract_sample(text: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
 
-    fn create_test_chapters(count: usize, words_per_chapter: usize) -> Vec<ParsedChapter> {
-        (0..count)
-            .map(|i| ParsedChapter {
-                title: Some(format!("第{}章", i + 1)),
-                content: "测试内容 ".repeat(words_per_chapter),
-                word_count: words_per_chapter,
-            })
-            .collect()
-    }
-
     #[test]
     fn test_determine_strategy() {
         assert_eq!(determine_strategy(50_000), ChunkingStrategy::Full);

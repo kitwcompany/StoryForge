@@ -61,6 +61,9 @@ pub struct StoryContext {
     pub tone: String, // 文风
     #[serde(default)]
     pub pacing: String, // 节奏
+    /// v0.10.0: 体裁画像 ID，用于 Writer 注入体裁专家策略
+    #[serde(default)]
+    pub genre_profile_id: Option<String>,
     /// v0.9.3: 预计算的个性化偏好扩展，避免每个候选都查库
     #[serde(default)]
     pub personalizer_extension: Option<String>,

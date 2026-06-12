@@ -35,6 +35,8 @@ pub mod story;
 #[macro_use]
 pub mod story_system;
 #[macro_use]
+pub mod strategy;
+#[macro_use]
 pub mod sync;
 #[macro_use]
 pub mod vector;

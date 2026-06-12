@@ -95,18 +95,8 @@ export const createOverrideContract = (params: {
   due_chapter: number;
 }) => loggedInvoke<OverrideContract>('create_override_contract', params);
 
-export interface GenreProfile {
-  id: number;
-  genre_name: string;
-  canonical_name: string;
-  aliases: string[];
-  core_tone: string;
-  pacing_strategy: string;
-  anti_patterns: string[];
-  reference_tables: string[];
-  is_builtin: boolean;
-  created_at: string;
-}
+import type { GenreProfile } from '@/types/api';
+export type { GenreProfile } from '@/types/api';
 
 export const getGenreProfiles = () => loggedInvoke<GenreProfile[]>('get_genre_profiles');
 

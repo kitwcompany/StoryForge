@@ -19,6 +19,8 @@ mod tests {
             description: Some("描述".to_string()),
             genre: Some("科幻".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
 
         let story = repo.create(req).unwrap();
@@ -40,12 +42,16 @@ mod tests {
             description: None,
             genre: None,
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let req2 = CreateStoryRequest {
             title: "小说B".to_string(),
             description: None,
             genre: None,
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
 
         repo.create(req1).unwrap();
@@ -65,6 +71,8 @@ mod tests {
             description: None,
             genre: None,
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story = repo.create(req).unwrap();
 
@@ -75,6 +83,7 @@ mod tests {
             tone: Some("轻快".to_string()),
             pacing: Some("快速".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
             methodology_id: None,
             methodology_step: None,
         };
@@ -97,6 +106,8 @@ mod tests {
             description: None,
             genre: None,
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story = repo.create(req).unwrap();
 
@@ -129,6 +140,8 @@ mod tests {
             description: None,
             genre: None,
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story = story_repo.create(story_req).unwrap();
 
@@ -163,6 +176,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -194,6 +209,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -242,6 +259,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -278,6 +297,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -309,6 +330,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -337,6 +360,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -377,6 +402,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -408,6 +435,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -448,6 +477,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -474,6 +505,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -495,6 +528,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -557,6 +592,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -583,6 +620,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -616,6 +655,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 
@@ -652,6 +693,8 @@ mod tests {
                 description: None,
                 genre: None,
                 style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
             })
             .unwrap();
 

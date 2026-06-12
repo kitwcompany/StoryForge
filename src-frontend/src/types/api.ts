@@ -234,6 +234,8 @@ export interface GenreProfile {
   pacing_strategy: string;
   anti_patterns: string[];
   reference_tables: string[];
+  typical_structure: { title: string; description: string }[];
+  typical_structure_json?: string;
   is_builtin: boolean;
   created_at: string;
 }

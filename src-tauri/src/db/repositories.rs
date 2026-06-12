@@ -4913,8 +4913,8 @@ impl StoryRepository {
 
         tx.execute(
             "INSERT INTO stories (id, title, description, genre, tone, pacing, style_dna_id, \
-             methodology_id, methodology_step, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, \
-             ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             genre_profile_id, methodology_id, methodology_step, created_at, updated_at) VALUES \
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 &id,
                 &req.title,
@@ -4923,7 +4923,8 @@ impl StoryRepository {
                 "dark",
                 "medium",
                 req.style_dna_id,
-                None::<String>,
+                req.genre_profile_id,
+                req.methodology_id,
                 None::<i32>,
                 now.to_rfc3339(),
                 now.to_rfc3339()
@@ -4938,7 +4939,8 @@ impl StoryRepository {
             tone: Some("dark".to_string()),
             pacing: Some("medium".to_string()),
             style_dna_id: req.style_dna_id,
-            methodology_id: None,
+            genre_profile_id: req.genre_profile_id,
+            methodology_id: req.methodology_id,
             methodology_step: None,
             created_at: now,
             updated_at: now,
@@ -4962,14 +4964,15 @@ impl StoryRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, \
-             methodology_step, created_at, updated_at FROM stories ORDER BY updated_at DESC",
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, genre_profile_id, \
+             methodology_id, methodology_step, created_at, updated_at FROM stories ORDER BY \
+             updated_at DESC",
         )?;
 
         let stories = stmt
             .query_map([], |row| {
-                let created_str: String = row.get(9)?;
-                let updated_str: String = row.get(10)?;
+                let created_str: String = row.get(10)?;
+                let updated_str: String = row.get(11)?;
                 Ok(Story {
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -4978,8 +4981,9 @@ impl StoryRepository {
                     tone: row.get(4)?,
                     pacing: row.get(5)?,
                     style_dna_id: row.get(6)?,
-                    methodology_id: row.get(7)?,
-                    methodology_step: row.get(8)?,
+                    genre_profile_id: row.get(7)?,
+                    methodology_id: row.get(8)?,
+                    methodology_step: row.get(9)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
@@ -4995,14 +4999,14 @@ impl StoryRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, genre, tone, pacing, style_dna_id, methodology_id, \
-             methodology_step, created_at, updated_at FROM stories WHERE id = ?1",
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, genre_profile_id, \
+             methodology_id, methodology_step, created_at, updated_at FROM stories WHERE id = ?1",
         )?;
 
         let story = stmt
             .query_row([id], |row| {
-                let created_str: String = row.get(9)?;
-                let updated_str: String = row.get(10)?;
+                let created_str: String = row.get(10)?;
+                let updated_str: String = row.get(11)?;
                 Ok(Story {
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -5011,8 +5015,9 @@ impl StoryRepository {
                     tone: row.get(4)?,
                     pacing: row.get(5)?,
                     style_dna_id: row.get(6)?,
-                    methodology_id: row.get(7)?,
-                    methodology_step: row.get(8)?,
+                    genre_profile_id: row.get(7)?,
+                    methodology_id: row.get(8)?,
+                    methodology_step: row.get(9)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
@@ -5037,9 +5042,10 @@ impl StoryRepository {
             "UPDATE stories SET title = COALESCE(?2, title), description = COALESCE(?3, \
              description),
              genre = COALESCE(?4, genre), tone = COALESCE(?5, tone), pacing = COALESCE(?6, pacing),
-             style_dna_id = COALESCE(?7, style_dna_id), methodology_id = COALESCE(?8, \
-             methodology_id),
-             methodology_step = COALESCE(?9, methodology_step), updated_at = ?10 WHERE id = ?1",
+             style_dna_id = COALESCE(?7, style_dna_id), genre_profile_id = COALESCE(?8, \
+             genre_profile_id),
+             methodology_id = COALESCE(?9, methodology_id), methodology_step = COALESCE(?10, \
+             methodology_step), updated_at = ?11 WHERE id = ?1",
             params![
                 id,
                 req.title,
@@ -5048,6 +5054,7 @@ impl StoryRepository {
                 req.tone,
                 req.pacing,
                 req.style_dna_id,
+                req.genre_profile_id,
                 req.methodology_id,
                 req.methodology_step,
                 now

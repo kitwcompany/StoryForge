@@ -517,6 +517,8 @@ impl BookDeconstructionService {
                 description: analysis.book.plot_summary.clone(),
                 genre: analysis.book.genre.clone(),
                 style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
             })
             .map_err(AppError::from)?;
         let story_id = story.id;

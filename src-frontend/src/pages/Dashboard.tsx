@@ -96,6 +96,7 @@ export function Dashboard() {
     writingStyle: import('@/types/v3').WritingStyleOption;
     firstScene: import('@/types/v3').SceneProposal;
     genreInput: string;
+    selectedStrategy?: import('@/types/index').SelectedStrategy;
   }) => {
     setIsCreating(true);
     try {
@@ -103,6 +104,9 @@ export function Dashboard() {
         title: data.writingStyle.name || '未命名作品',
         description: data.genreInput,
         genre: data.genreInput,
+        style_dna_id: data.selectedStrategy?.style_dna_ids[0],
+        genre_profile_id: data.selectedStrategy?.genre_profile_id,
+        methodology_id: data.selectedStrategy?.methodology_id,
         world_building: data.worldBuilding,
         characters: data.characters,
         writing_style: data.writingStyle,

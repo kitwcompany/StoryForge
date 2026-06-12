@@ -1125,6 +1125,7 @@ impl GenreProfileRepository {
         pacing_strategy: Option<&str>,
         anti_patterns_json: Option<&str>,
         reference_tables_json: Option<&str>,
+        typical_structure_json: Option<&str>,
     ) -> Result<GenreProfile, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
@@ -1136,8 +1137,8 @@ impl GenreProfileRepository {
 
         conn.execute(
             "INSERT INTO genre_profiles (id, genre_name, canonical_name, aliases_json, core_tone, \
-             pacing_strategy, anti_patterns_json, reference_tables_json, is_builtin, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             pacing_strategy, anti_patterns_json, reference_tables_json, typical_structure_json, \
+             is_builtin, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 &id,
                 genre_name,
@@ -1147,6 +1148,7 @@ impl GenreProfileRepository {
                 pacing_strategy,
                 anti_patterns_json,
                 reference_tables_json,
+                typical_structure_json,
                 1,
                 now.to_rfc3339()
             ],
@@ -1161,6 +1163,7 @@ impl GenreProfileRepository {
             pacing_strategy: pacing_strategy.map(|s| s.to_string()),
             anti_patterns_json: anti_patterns_json.map(|s| s.to_string()),
             reference_tables_json: reference_tables_json.map(|s| s.to_string()),
+            typical_structure_json: typical_structure_json.map(|s| s.to_string()),
             is_builtin: true,
             created_at: now,
         })
@@ -1174,13 +1177,13 @@ impl GenreProfileRepository {
 
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
-             anti_patterns_json, reference_tables_json, is_builtin, created_at FROM \
-             genre_profiles ORDER BY genre_name",
+             anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
+             created_at FROM genre_profiles ORDER BY genre_name",
         )?;
 
         let profiles = stmt
             .query_map([], |row| {
-                let created_str: String = row.get(9)?;
+                let created_str: String = row.get(10)?;
                 Ok(GenreProfile {
                     id: row.get(0)?,
                     genre_name: row.get(1)?,
@@ -1190,7 +1193,8 @@ impl GenreProfileRepository {
                     pacing_strategy: row.get(5)?,
                     anti_patterns_json: row.get(6)?,
                     reference_tables_json: row.get(7)?,
-                    is_builtin: row.get::<_, i32>(8)? != 0,
+                    typical_structure_json: row.get(8)?,
+                    is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })?
@@ -1207,13 +1211,13 @@ impl GenreProfileRepository {
 
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
-             anti_patterns_json, reference_tables_json, is_builtin, created_at FROM \
-             genre_profiles WHERE genre_name = ?1 OR canonical_name = ?1 LIMIT 1",
+             anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
+             created_at FROM genre_profiles WHERE genre_name = ?1 OR canonical_name = ?1 LIMIT 1",
         )?;
 
         let profile = stmt
             .query_row([genre_name], |row| {
-                let created_str: String = row.get(9)?;
+                let created_str: String = row.get(10)?;
                 Ok(GenreProfile {
                     id: row.get(0)?,
                     genre_name: row.get(1)?,
@@ -1223,7 +1227,8 @@ impl GenreProfileRepository {
                     pacing_strategy: row.get(5)?,
                     anti_patterns_json: row.get(6)?,
                     reference_tables_json: row.get(7)?,
-                    is_builtin: row.get::<_, i32>(8)? != 0,
+                    typical_structure_json: row.get(8)?,
+                    is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })
@@ -1240,13 +1245,13 @@ impl GenreProfileRepository {
 
         let mut stmt = conn.prepare(
             "SELECT id, genre_name, canonical_name, aliases_json, core_tone, pacing_strategy, \
-             anti_patterns_json, reference_tables_json, is_builtin, created_at FROM \
-             genre_profiles WHERE id = ?1 LIMIT 1",
+             anti_patterns_json, reference_tables_json, typical_structure_json, is_builtin, \
+             created_at FROM genre_profiles WHERE id = ?1 LIMIT 1",
         )?;
 
         let profile = stmt
             .query_row([id], |row| {
-                let created_str: String = row.get(9)?;
+                let created_str: String = row.get(10)?;
                 Ok(GenreProfile {
                     id: row.get(0)?,
                     genre_name: row.get(1)?,
@@ -1256,7 +1261,8 @@ impl GenreProfileRepository {
                     pacing_strategy: row.get(5)?,
                     anti_patterns_json: row.get(6)?,
                     reference_tables_json: row.get(7)?,
-                    is_builtin: row.get::<_, i32>(8)? != 0,
+                    typical_structure_json: row.get(8)?,
+                    is_builtin: row.get::<_, i32>(9)? != 0,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })
@@ -1275,6 +1281,7 @@ impl GenreProfileRepository {
         pacing_strategy: Option<&str>,
         anti_patterns_json: Option<&str>,
         reference_tables_json: Option<&str>,
+        typical_structure_json: Option<&str>,
     ) -> Result<usize, rusqlite::Error> {
         let conn = self
             .pool
@@ -1284,7 +1291,7 @@ impl GenreProfileRepository {
         conn.execute(
             "UPDATE genre_profiles SET genre_name = ?2, canonical_name = ?3, aliases_json = ?4, \
              core_tone = ?5, pacing_strategy = ?6, anti_patterns_json = ?7, reference_tables_json \
-             = ?8 WHERE id = ?1",
+             = ?8, typical_structure_json = ?9 WHERE id = ?1",
             params![
                 id,
                 genre_name,
@@ -1293,7 +1300,8 @@ impl GenreProfileRepository {
                 core_tone,
                 pacing_strategy,
                 anti_patterns_json,
-                reference_tables_json
+                reference_tables_json,
+                typical_structure_json
             ],
         )
     }

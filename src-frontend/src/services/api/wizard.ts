@@ -36,6 +36,9 @@ export const createStoryWithWizard = (params: {
   title: string;
   description?: string;
   genre?: string;
+  style_dna_id?: string;
+  genre_profile_id?: string;
+  methodology_id?: string;
   world_building: WorldBuildingOption;
   characters: CharacterProfileOption[];
   writing_style: WritingStyleOption;

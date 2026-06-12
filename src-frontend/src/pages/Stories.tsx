@@ -303,6 +303,8 @@ export function Stories() {
     genre: '',
     methodology_id: '',
     methodology_step: 1,
+    genre_profile_id: '',
+    style_dna_id: '',
   });
   const [creatingStoryId, setCreatingStoryId] = useState<string | null>(null);
   const [styleDnaModalStory, setStyleDnaModalStory] = useState<Story | null>(null);
@@ -407,6 +409,8 @@ export function Stories() {
       genre: story.genre || '',
       methodology_id: story.methodology_id || '',
       methodology_step: story.methodology_step || 1,
+      genre_profile_id: story.genre_profile_id || '',
+      style_dna_id: story.style_dna_id || '',
     });
   };
 
@@ -422,6 +426,8 @@ export function Stories() {
           genre: editForm.genre || undefined,
           methodology_id: editForm.methodology_id || undefined,
           methodology_step: editForm.methodology_id ? editForm.methodology_step : undefined,
+          genre_profile_id: editForm.genre_profile_id || undefined,
+          style_dna_id: editForm.style_dna_id || undefined,
         },
       },
       {
@@ -434,7 +440,15 @@ export function Stories() {
 
   const handleEditCancel = () => {
     setEditingStory(null);
-    setEditForm({ title: '', description: '', genre: '', methodology_id: '', methodology_step: 1 });
+    setEditForm({
+      title: '',
+      description: '',
+      genre: '',
+      methodology_id: '',
+      methodology_step: 1,
+      genre_profile_id: '',
+      style_dna_id: '',
+    });
   };
 
   const handleDelete = (storyId: string, e: React.MouseEvent) => {
@@ -501,6 +515,7 @@ export function Stories() {
     writingStyle: import('@/types/v3').WritingStyleOption;
     firstScene: import('@/types/v3').SceneProposal;
     genreInput: string;
+    selectedStrategy?: import('@/types/index').SelectedStrategy;
   }) => {
     if (!wizardStory) return;
     setIsWizardCreating(true);
@@ -509,6 +524,9 @@ export function Stories() {
         title: wizardStory.title || data.writingStyle.name || '未命名作品',
         description: wizardStory.description || data.genreInput,
         genre: wizardStory.genre,
+        style_dna_id: data.selectedStrategy?.style_dna_ids[0],
+        genre_profile_id: data.selectedStrategy?.genre_profile_id,
+        methodology_id: data.selectedStrategy?.methodology_id,
         world_building: data.worldBuilding,
         characters: data.characters,
         writing_style: data.writingStyle,
@@ -669,6 +687,20 @@ export function Stories() {
                         ))}
                       </select>
                     )}
+                    <input
+                      type="text"
+                      value={editForm.genre_profile_id}
+                      onChange={e => setEditForm({ ...editForm, genre_profile_id: e.target.value })}
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                      placeholder="体裁画像 ID（可选，如 genre_profile_xiuxian）"
+                    />
+                    <input
+                      type="text"
+                      value={editForm.style_dna_id}
+                      onChange={e => setEditForm({ ...editForm, style_dna_id: e.target.value })}
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                      placeholder="风格 DNA ID（可选）"
+                    />
                     <textarea
                       value={editForm.description}
                       onChange={e => setEditForm({ ...editForm, description: e.target.value })}
@@ -699,6 +731,25 @@ export function Stories() {
                         <p className="text-sm text-gray-400 mt-1">
                           {story.genre || '未分类'} · {story.chapter_count || 0} 章
                         </p>
+                        {(story.genre_profile_id || story.methodology_id || story.style_dna_id) && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {story.genre_profile_id && (
+                              <span className="px-2 py-0.5 text-xs bg-cinema-800 text-cinema-gold rounded border border-cinema-gold/20">
+                                体裁: {story.genre_profile_id}
+                              </span>
+                            )}
+                            {story.methodology_id && (
+                              <span className="px-2 py-0.5 text-xs bg-cinema-800 text-cinema-gold rounded border border-cinema-gold/20">
+                                方法: {story.methodology_id}
+                              </span>
+                            )}
+                            {story.style_dna_id && (
+                              <span className="px-2 py-0.5 text-xs bg-cinema-800 text-cinema-gold rounded border border-cinema-gold/20">
+                                风格: {story.style_dna_id}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {story.description && (
                           <p className="text-sm text-gray-500 mt-2 line-clamp-2">
                             {truncateText(story.description, 100)}

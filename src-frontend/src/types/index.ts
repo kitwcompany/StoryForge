@@ -18,6 +18,7 @@ export interface Story {
   tone?: string;
   pacing?: string;
   style_dna_id?: string;
+  genre_profile_id?: string;
   methodology_id?: string;
   methodology_step?: number;
   character_count?: number;
@@ -199,6 +200,26 @@ export interface CreateStoryRequest {
   title: string;
   description?: string;
   genre?: string;
+  style_dna_id?: string;
+  genre_profile_id?: string;
+  methodology_id?: string;
+}
+
+export interface SelectedStrategy {
+  rationale: string;
+  genre_profile_id?: string;
+  methodology_id?: string;
+  style_dna_ids: string[];
+  skill_ids: string[];
+  workflow_id?: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface StrategySelectionRequest {
+  user_input: string;
+  genre_hint?: string;
+  methodology_hint?: string;
+  word_count_target?: number;
 }
 
 export interface CreateCharacterRequest {

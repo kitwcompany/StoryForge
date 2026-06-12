@@ -372,6 +372,7 @@ impl StoryContextBuilder {
                     .and_then(|s| s.pacing.clone())
                     .or(story.pacing)
                     .unwrap_or_else(|| "正常".to_string()),
+                genre_profile_id: story.genre_profile_id,
                 personalizer_extension,
             },
             narrative: NarrativeContext {
@@ -1393,6 +1394,7 @@ mod tests {
                 genre: "novel".to_string(),
                 tone: "neutral".to_string(),
                 pacing: "normal".to_string(),
+                genre_profile_id: None,
                 personalizer_extension: None,
             },
             narrative: NarrativeContext {

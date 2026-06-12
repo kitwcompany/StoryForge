@@ -22,6 +22,8 @@ mod cascade_delete_tests {
             description: Some("A test story for cascade delete".to_string()),
             genre: Some("Fantasy".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story = story_repo.create(story_request)?;
 
@@ -84,6 +86,8 @@ mod cascade_delete_tests {
             description: Some("A test story".to_string()),
             genre: Some("Fantasy".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story = story_repo.create(story_request)?;
 
@@ -126,6 +130,8 @@ mod cascade_delete_tests {
             description: Some("A test story".to_string()),
             genre: Some("Fantasy".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story = story_repo.create(story_request)?;
 
@@ -166,6 +172,8 @@ mod cascade_delete_tests {
             description: Some("First story".to_string()),
             genre: Some("Fantasy".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story1 = story_repo.create(story1_request)?;
 
@@ -174,6 +182,8 @@ mod cascade_delete_tests {
             description: Some("Second story".to_string()),
             genre: Some("Sci-Fi".to_string()),
             style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
         };
         let story2 = story_repo.create(story2_request)?;
 
