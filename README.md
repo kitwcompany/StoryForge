@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.9.0-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.9.4-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.9.1 已完成架构拆分（repositories.rs 6198→183 行、models.rs 8 领域文件、FrontstageApp.tsx 提取 5 hooks + 2 组件）与全面测试覆盖（前端 71 新测试、Rust 21 新测试、E2E 36 行为驱动测试）。`cargo check` 零警告，`cargo test` 318/318 通过。
+**最新动态**：v0.9.4 进一步优化智能创作进度感知与幕前界面：全局监听 orchestrator-step 让智能输入栏也能实时看到续写进度，细化上下文加载阶段提示，删除左侧边栏并将设置入口移至顶部，Ingest 与编辑器右键菜单按统一 VI 风格重绘。`cargo check` 零错误，`cargo test` 318/318 通过。
 
 ---
 
@@ -46,11 +46,8 @@
 | **字数** | 当前章节字数 / 总字数 |
 | **18px** | 当前字号，点击可调 |
 | **色调** | 暖赭 / 冷青 / 琥珀 / 靛紫 四种配色 |
+| **设置** | 打开设置 / 幕后工作室 |
 | **温** | 文思模式切换 |
-
-#### 左侧工具栏
-
-- **批**：生成古典评点，模拟金圣叹风格对当前内容点评。
 
 #### 中间编辑区
 

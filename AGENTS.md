@@ -84,7 +84,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v0.9.2
+- **版本**: v0.9.4
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 
@@ -183,6 +183,16 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+- **v0.9.4 智能创作进度感知与幕前界面精简** (2026-06-12) — 修复"智能创作进度提示长时间卡住"问题，并进一步精简幕前界面，关键变更：
+  - **全局进度监听**：`orchestrator-step` 监听从局部改为全局，智能输入栏（`handleSmartGeneration`）与 `Ctrl+Enter`（`handleRequestGeneration`）均能实时显示写作进度
+  - **初始阶段提示细化**：`smart_execute` 上下文加载阶段新增"读取故事信息 / 章节与场景结构 / 世界观、角色与伏笔 / 风格配置"等细粒度事件，避免初始阶段无反馈
+  - **意图识别文案优化**：识别明确续写意图时显示"正在续写..."，通用指令显示"正在理解创作意图并执行..."
+  - **删除"我学到这些"卡片**：接受/拒绝续写后的学习反馈改为统一 toast 进程提示
+  - **完全删除左侧边栏**：移除修订模式、生成古典评点、打开幕后工作室按钮；`FrontstageSidebar` 组件及相关样式已删除
+  - **设置入口移至顶部**：在顶部色调设置旁新增设置图标，点击打开幕后工作室
+  - **Ingest 图标与右键菜单重绘**：Ingest 改为统一 VI 风格漏斗+下箭头 SVG；编辑器右键菜单仅保留剪切/复制/粘贴/全选，并继承全局色调
+  - **编译测试通过**：`cargo check` 零错误，`npx tsc --noEmit` 零错误，`vitest run` 116 passed
 
 - **v0.9.2 自动创作性能优化** (2026-06-11) — 全面优化自动创作速度与后台任务感知，重点解决"后台任务多"与"创作速度慢"问题，关键变更：
   - **后端并行化**：PlanExecutor 同 batch 步骤 `join_all` 并行；GenesisPipeline 后台阶段将世界观/大纲/角色合并为单一并行步骤，使用 `tokio::join!` 同时调用 LLM
@@ -361,7 +371,7 @@ node scripts/cdp-inspect.js
   - **PlanGenerator（模型计划生成器）**: 取代 IntentParser + IntentExecutor。LLM 接收系统状态 + 用户输入 + 能力清单，自主输出执行计划（自由文本理解 + 步骤列表 + 参数 + 依赖关系）。
   - **PlanExecutor（计划执行引擎）**: Dumb executor，忠实执行 LLM 生成的计划。按顺序执行步骤、传递输出、处理失败。所有决策已在计划中。
   - **PromptEvolver（提示词进化器）**: LLM 根据故事上下文（题材、叙事阶段、用户偏好）自由改写整个 prompt。不是模板变量替换，而是真正的"进化"。
-  - **AiLearningIndicator（记忆显性化）**: 前端组件，每次 AI 交互后展示"系统学到了什么"。让"越写越懂"对用户可见。
+  - **AiLearningIndicator（记忆显性化）**: 前端组件，每次 AI 交互后展示"系统学到了什么"。让"越写越懂"对用户可见。（注：v0.9.4 已移除该卡片式提示，改为统一 toast 进程提示。）
   - **CapabilityEvolutionEngine（能力进化反馈环）**: 记录能力调用结果，长期优化能力描述准确性。
   - **PlanTemplateLibrary（计划模板学习）**: 记录成功执行计划，类似请求复用或微调。
   - **移除的程序式规则**: IntentType 枚举（11 类预设分类）、前端正则关键词检测、IntentExecutor.map_agents 写死映射、`if (!currentStory)` 强制报错流程。
@@ -373,7 +383,7 @@ node scripts/cdp-inspect.js
   - **P0 核心重构 (4 项)**:
     - 顶栏精简: 44px 细线设计，小说标题（点击进入幕后）、字数统计、字号调节、🔥 文思三态切换（off·/passive✨/active🔥）、禅模式。移除汉堡菜单、订阅徽章、"开启文思"按钮、"AI 续写"按钮、主行动按钮。
     - 底栏删除: 彻底删除底部聊天工具栏（chat input、模型状态点、WenSiPanel 嵌入、Slash textarea 菜单）。AI 结果以幽灵文本（ghost text）内联呈现，Tab 接受/Esc 拒绝。
-    - 侧边栏精简: 5 按钮→2 按钮：修（修订模式）/ 批（生成古典评点）/ 幕（幕后）。移除注释和评论显式 UI。
+    - 侧边栏精简: 5 按钮→2 按钮：修（修订模式）/ 批（生成古典评点）/ 幕（幕后）。移除注释和评论显式 UI。（注：v0.9.4 已进一步完全移除幕前左侧边栏，设置入口并入顶部状态栏。）
     - 键盘快捷键: `Ctrl+Enter` / `Cmd+Enter` 全局触发续写，`Ctrl+Space` 循环文思模式，`F11` 禅模式。
   - **P1 萤火系统 (3 项)**:
     - 幽灵文本: 编辑器末尾灰色斜体段落（`opacity: 0.35`），附带萤火操作栏（Tab 接受 / Esc 拒绝）。
