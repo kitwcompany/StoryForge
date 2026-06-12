@@ -100,7 +100,8 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           stage: p.stage,
           message: p.message,
           progress: p.progress,
-          status: p.stage === 'completed' ? 'completed' : p.stage === 'error' ? 'failed' : 'running',
+          status:
+            p.stage === 'completed' ? 'completed' : p.stage === 'error' ? 'failed' : 'running',
         });
       });
       unlistens.push(unlistenContract);
