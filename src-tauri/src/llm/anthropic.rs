@@ -20,6 +20,8 @@ struct AnthropicRequest {
     model: String,
     max_tokens: i32,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
     messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
@@ -96,6 +98,7 @@ impl LlmAdapter for AnthropicAdapter {
             model: self.model.clone(),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
+            top_p: request.top_p,
             messages: vec![AnthropicMessage {
                 role: "user".to_string(),
                 content: request.prompt,
@@ -153,6 +156,7 @@ impl LlmAdapter for AnthropicAdapter {
             model: self.model.clone(),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
+            top_p: request.top_p,
             messages: vec![AnthropicMessage {
                 role: "user".to_string(),
                 content: request.prompt,

@@ -707,7 +707,10 @@ impl PlanExecutor {
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
         let sw = (plan_context.style_weight as f32 / 100.0).clamp(0.0, 1.0);
-        let mut config = crate::agents::orchestrator::WorkflowConfig::default();
+        let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+        let mut config = crate::config::AppConfig::load(&app_dir)
+            .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+            .unwrap_or_default();
         config.style_weight = sw;
         config.narrative_weight = 1.0 - sw;
         let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(

@@ -227,6 +227,25 @@ impl AgentService {
 
     /// 获取Agent对应的聊天模型ID
     fn get_agent_chat_model_id(&self, agent_type: AgentType) -> Option<String> {
+        self.get_agent_model_id(agent_type, |m| m.chat_model_id.as_ref())
+    }
+
+    /// 获取Agent对应的嵌入模型ID
+    #[allow(dead_code)]
+    fn get_agent_embedding_model_id(&self, agent_type: AgentType) -> Option<String> {
+        self.get_agent_model_id(agent_type, |m| m.embedding_model_id.as_ref())
+    }
+
+    /// 获取Agent对应的多模态模型ID
+    #[allow(dead_code)]
+    fn get_agent_multimodal_model_id(&self, agent_type: AgentType) -> Option<String> {
+        self.get_agent_model_id(agent_type, |m| m.multimodal_model_id.as_ref())
+    }
+
+    fn get_agent_model_id<F>(&self, agent_type: AgentType, extractor: F) -> Option<String>
+    where
+        F: FnOnce(&crate::config::AgentMapping) -> Option<&String>,
+    {
         let app_dir = self
             .app_handle
             .path()
@@ -237,7 +256,51 @@ impl AgentService {
         config
             .agent_mappings
             .get(agent_type.agent_id())
-            .and_then(|m| m.chat_model_id.clone())
+            .and_then(|m| extractor(m).cloned())
+    }
+
+    /// 获取 Agent 对应的生成参数（max_tokens, temperature）。
+    /// 优先从 Agent 映射的 chat 模型 profile 读取；未设置则使用经验默认值。
+    fn get_agent_llm_params(
+        &self,
+        agent_type: AgentType,
+        default_max_tokens: i32,
+        default_temperature: f32,
+    ) -> (Option<i32>, Option<f32>) {
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
+        let Ok(config) = AppConfig::load(&app_dir) else {
+            return (Some(default_max_tokens), Some(default_temperature));
+        };
+
+        let Some(mapping) = config.agent_mappings.get(agent_type.agent_id()) else {
+            return (Some(default_max_tokens), Some(default_temperature));
+        };
+
+        let Some(model_id) = mapping.chat_model_id.as_ref() else {
+            return (Some(default_max_tokens), Some(default_temperature));
+        };
+
+        let Some(profile) = config.llm_profiles.get(model_id) else {
+            return (Some(default_max_tokens), Some(default_temperature));
+        };
+
+        let max_tokens = if profile.max_tokens > 0 {
+            Some(profile.max_tokens)
+        } else {
+            Some(default_max_tokens)
+        };
+        let temperature = if profile.temperature >= 0.0 {
+            Some(profile.temperature)
+        } else {
+            Some(default_temperature)
+        };
+
+        (max_tokens, temperature)
     }
 
     /// 获取当前用户 ID
@@ -835,15 +898,10 @@ impl AgentService {
             0.4,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::Inspector, 1500, 0.3);
         let (_, response) = self
-            .generate_for_agent(
-                &task,
-                prompt,
-                Some(1500),
-                Some(0.3), // 低temperature以获得更确定的分析
-                tier,
-                None,
-            )
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         // 解析质检结果
@@ -878,8 +936,10 @@ impl AgentService {
             0.3,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::OutlinePlanner, 3000, 0.9);
         let (_, response) = self
-            .generate_for_agent(&task, prompt, Some(3000), Some(0.9), tier, None)
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         Ok(AgentResult {
@@ -911,8 +971,10 @@ impl AgentService {
             0.4,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::StyleMimic, 2000, 0.85);
         let (_, response) = self
-            .generate_for_agent(&task, prompt, Some(2000), Some(0.85), tier, None)
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         Ok(AgentResult {
@@ -944,8 +1006,10 @@ impl AgentService {
             0.4,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::PlotAnalyzer, 2000, 0.4);
         let (_, response) = self
-            .generate_for_agent(&task, prompt, Some(2000), Some(0.4), tier, None)
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         let (score, suggestions) = self.parse_plot_analysis(&response.content);
@@ -1000,8 +1064,10 @@ impl AgentService {
             0.4,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::Commentator, 2048, 0.85);
         let (_, response) = self
-            .generate_for_agent(&task, prompt, Some(2048), Some(0.85), tier, None)
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         Ok(AgentResult::simple(response.content))
@@ -1062,8 +1128,10 @@ impl AgentService {
             0.4,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::MemoryCompressor, 2048, 0.3);
         let (_, response) = self
-            .generate_for_agent(&task, prompt, Some(2048), Some(0.3), tier, None)
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         let original_len = task.input.chars().count();
@@ -1126,8 +1194,10 @@ impl AgentService {
             0.4,
         );
 
+        let (max_tokens, temperature) =
+            self.get_agent_llm_params(AgentType::KnowledgeDistiller, 2048, 0.4);
         let (_, response) = self
-            .generate_for_agent(&task, prompt, Some(2048), Some(0.4), tier, None)
+            .generate_for_agent(&task, prompt, max_tokens, temperature, tier, None)
             .await?;
 
         Ok(AgentResult::with_score(response.content, 0.9))
@@ -1234,6 +1304,10 @@ impl AgentService {
         vars.insert(
             "must_cover".to_string(),
             ctx.narrative.outline_context.clone().unwrap_or_default(),
+        );
+        vars.insert(
+            "story_description".to_string(),
+            ctx.story.description.clone().unwrap_or_default(),
         );
         tokio::task::yield_now().await;
 
@@ -1380,6 +1454,50 @@ impl AgentService {
                             system_prompt.push_str(&extension);
                         }
                     }
+                }
+            }
+            tokio::task::yield_now().await;
+
+            // 注入写作风格详细设定（所有用户可用）
+            emit_and_yield("正在加载写作风格设定...", 0.177);
+            let mut style_detail_lines = Vec::new();
+            if let Some(ref name) = ctx.style.writing_style_name {
+                style_detail_lines.push(format!("风格名称: {}", name));
+            }
+            if let Some(ref desc) = ctx.style.writing_style_description {
+                style_detail_lines.push(format!("风格描述: {}", desc));
+            }
+            if let Some(ref vocab) = ctx.style.writing_style_vocabulary_level {
+                style_detail_lines.push(format!("词汇层级: {}", vocab));
+            }
+            if let Some(ref sentence) = ctx.style.writing_style_sentence_structure {
+                style_detail_lines.push(format!("句式结构: {}", sentence));
+            }
+            if let Some(ref rules) = ctx.style.writing_style_custom_rules {
+                if !rules.is_empty() {
+                    style_detail_lines.push("自定义规则:".to_string());
+                    for rule in rules.lines() {
+                        if !rule.trim().is_empty() {
+                            style_detail_lines.push(format!("- {}", rule.trim()));
+                        }
+                    }
+                }
+            }
+            if !style_detail_lines.is_empty() {
+                system_prompt.push_str("\n\n【写作风格约束】\n");
+                for line in style_detail_lines {
+                    system_prompt.push_str(&line);
+                    system_prompt.push('\n');
+                }
+            }
+            tokio::task::yield_now().await;
+
+            // 注入作品简介
+            if let Some(ref desc) = ctx.story.description {
+                if !desc.is_empty() {
+                    system_prompt.push_str("\n\n【作品简介】\n");
+                    system_prompt.push_str(desc);
+                    system_prompt.push('\n');
                 }
             }
             tokio::task::yield_now().await;

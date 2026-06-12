@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use super::{
     orchestrator::{AgentOrchestrator, GenerationMode, WorkflowConfig},
@@ -111,7 +111,10 @@ impl TaskExecutor for AiGenerationExecutor {
         ctx.heartbeat();
 
         let service = AgentService::new(self.app_handle.clone());
-        let config = WorkflowConfig::default();
+        let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+        let config = crate::config::AppConfig::load(&app_dir)
+            .map(|c| WorkflowConfig::from_app_config(&c))
+            .unwrap_or_default();
         let orchestrator = AgentOrchestrator::new(service, config, self.app_handle.clone());
 
         let agent_task = AgentTask {

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use super::{
     quality::QualityChecker, CreationMode, WorkflowExecutionResult, WorkflowProgressEvent,
@@ -283,13 +283,27 @@ impl CreationWorkflowEngine {
         }
     }
 
-    /// 创建标准工作流配置
-    pub fn create_standard_workflow(story_id: &str, mode: CreationMode) -> WorkflowConfig {
+    /// 创建标准工作流配置，优先读取用户应用配置中的阈值与迭代次数。
+    pub fn create_standard_workflow(
+        story_id: &str,
+        mode: CreationMode,
+        app_handle: &tauri::AppHandle,
+    ) -> WorkflowConfig {
+        let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+        let (review_threshold, max_iterations) = crate::config::AppConfig::load(&app_dir)
+            .map(|c| {
+                (
+                    c.creation_workflow_review_threshold,
+                    c.creation_workflow_max_iterations,
+                )
+            })
+            .unwrap_or((0.75, 2));
+
         WorkflowConfig {
             mode,
             auto_execute: mode == CreationMode::AiOnly,
-            review_threshold: 0.75,
-            max_iterations: 2,
+            review_threshold,
+            max_iterations,
             story_id: story_id.to_string(),
         }
     }

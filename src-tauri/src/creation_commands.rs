@@ -491,7 +491,7 @@ pub async fn run_creation_workflow(
 
     let agent_service = AgentService::new(app_handle.clone());
     let engine = CreationWorkflowEngine::new(agent_service, pool.inner().clone());
-    let config = CreationWorkflowEngine::create_standard_workflow(&story_id, mode);
+    let config = CreationWorkflowEngine::create_standard_workflow(&story_id, mode, &app_handle);
 
     match engine.execute_full_workflow(&config, &initial_input).await {
         Ok(result) => {
@@ -1068,8 +1068,13 @@ pub async fn generate_scene_draft(
     };
 
     let service = AgentService::new(app_handle.clone());
-    let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let orchestrator_config = crate::config::AppConfig::load(&app_dir)
+        .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+        .unwrap_or_default();
+    let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
         service,
+        orchestrator_config,
         app_handle.clone(),
     );
     let workflow_result = orchestrator

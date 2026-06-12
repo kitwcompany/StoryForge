@@ -1,5 +1,19 @@
 use super::*;
 
+/// 默认 skill 生成参数：可通过 SkillManifest.config 覆盖
+fn default_skill_config() -> HashMap<String, serde_json::Value> {
+    HashMap::from([
+        (
+            "temperature".to_string(),
+            serde_json::Value::Number(serde_json::Number::from_f64(0.6).unwrap()),
+        ),
+        (
+            "max_tokens".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(2000)),
+        ),
+    ])
+}
+
 pub fn get_builtin_skills() -> Vec<Skill> {
     vec![
         create_style_enhancer_skill(),
@@ -29,7 +43,7 @@ fn create_style_enhancer_skill() -> Skill {
             }],
             capabilities: vec!["style_enhancement".to_string()],
             hooks: vec![],
-            config: HashMap::new(),
+            config: default_skill_config(),
         },
         path: PathBuf::from("builtin"),
         is_enabled: true,
@@ -60,7 +74,7 @@ fn create_plot_twist_skill() -> Skill {
             }],
             capabilities: vec!["plot_generation".to_string()],
             hooks: vec![],
-            config: HashMap::new(),
+            config: default_skill_config(),
         },
         path: PathBuf::from("builtin"),
         is_enabled: true,
@@ -91,7 +105,7 @@ fn create_text_formatter_skill() -> Skill {
             }],
             capabilities: vec!["text_formatting".to_string()],
             hooks: vec![],
-            config: HashMap::new(),
+            config: default_skill_config(),
         },
         path: PathBuf::from("builtin"),
         is_enabled: true,
@@ -150,7 +164,7 @@ fn create_character_voice_skill() -> Skill {
             ],
             capabilities: vec!["character_voice".to_string()],
             hooks: vec![],
-            config: HashMap::new(),
+            config: default_skill_config(),
         },
         path: PathBuf::from("builtin"),
         is_enabled: true,
@@ -202,7 +216,7 @@ fn create_emotion_pacing_skill() -> Skill {
                 "pacing_optimization".to_string(),
             ],
             hooks: vec![],
-            config: HashMap::new(),
+            config: default_skill_config(),
         },
         path: PathBuf::from("builtin"),
         is_enabled: true,

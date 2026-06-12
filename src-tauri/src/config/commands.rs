@@ -31,6 +31,9 @@ pub struct ModelConfigInput {
     pub model_type: ModelType,
     pub temperature: Option<f32>,
     pub max_tokens: Option<i32>,
+    pub top_p: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
     pub dimensions: Option<usize>,
     pub capabilities: Option<Vec<String>>,
     pub is_default: Option<bool>,
@@ -121,6 +124,9 @@ fn build_llm_profile(
         api_base: config.api_base.clone(),
         max_tokens: config.max_tokens.unwrap_or(2000),
         temperature: normalize_temperature(config.temperature.unwrap_or(0.7)),
+        top_p: config.top_p.map(|v| v.clamp(0.0, 1.0)),
+        frequency_penalty: config.frequency_penalty.map(|v| v.clamp(-2.0, 2.0)),
+        presence_penalty: config.presence_penalty.map(|v| v.clamp(-2.0, 2.0)),
         timeout_seconds: super::settings::DEFAULT_LLM_TIMEOUT_SECONDS,
         is_default: config.is_default.unwrap_or(false),
         capabilities,
@@ -279,16 +285,24 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         active_models,
         agent_mappings,
         general: GeneralSettings {
-            theme: "dark".to_string(),
-            language: "zh-CN".to_string(),
-            auto_save: true,
-            auto_save_interval: 30,
-            font_size: 16,
-            line_height: 1.6,
+            theme: if config.theme.is_empty() {
+                "dark".to_string()
+            } else {
+                config.theme.clone()
+            },
+            language: if config.language.is_empty() {
+                "zh-CN".to_string()
+            } else {
+                config.language.clone()
+            },
+            auto_save: config.auto_save,
+            auto_save_interval: config.auto_save_interval,
+            font_size: config.font_size,
+            line_height: config.line_height,
         },
         privacy: PrivacySettings {
-            share_usage_data: false,
-            store_api_keys_securely: true,
+            share_usage_data: config.share_usage_data,
+            store_api_keys_securely: config.store_api_keys_securely,
         },
         book_deconstruction_concurrency: config.book_deconstruction_concurrency,
         rewrite_threshold: config.rewrite_threshold,
@@ -334,6 +348,15 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     config.max_feedback_loops = settings.max_feedback_loops.max(1).min(10);
     // 保存写作策略
     config.writing_strategy = settings.writing_strategy;
+    // 保存通用与隐私设置
+    config.theme = settings.general.theme;
+    config.language = settings.general.language;
+    config.auto_save = settings.general.auto_save;
+    config.auto_save_interval = settings.general.auto_save_interval;
+    config.font_size = settings.general.font_size;
+    config.line_height = settings.general.line_height;
+    config.share_usage_data = settings.privacy.share_usage_data;
+    config.store_api_keys_securely = settings.privacy.store_api_keys_securely;
 
     config.save(&app_dir).map_err(AppError::from)
 }

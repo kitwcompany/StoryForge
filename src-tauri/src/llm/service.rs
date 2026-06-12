@@ -553,6 +553,9 @@ impl LlmService {
             prompt,
             max_tokens,
             temperature,
+            top_p: profile.top_p,
+            frequency_penalty: profile.frequency_penalty,
+            presence_penalty: profile.presence_penalty,
         };
 
         let label = context_label.unwrap_or("");
@@ -835,6 +838,9 @@ impl LlmService {
             prompt,
             max_tokens,
             temperature,
+            top_p: profile.top_p,
+            frequency_penalty: profile.frequency_penalty,
+            presence_penalty: profile.presence_penalty,
         };
         let prompt_for_record = req.prompt.clone();
 
@@ -1010,6 +1016,9 @@ impl LlmService {
             prompt: enhanced_prompt,
             max_tokens,
             temperature,
+            top_p: profile.top_p,
+            frequency_penalty: profile.frequency_penalty,
+            presence_penalty: profile.presence_penalty,
         };
 
         // 整体流式生成启动超时 30 秒（建立连接 + 收到第一个 chunk）
@@ -1449,6 +1458,9 @@ mod tests {
             prompt: "Hello".to_string(),
             max_tokens: Some(100),
             temperature: Some(0.7),
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();
@@ -1487,6 +1499,9 @@ mod tests {
             api_base: None,
             max_tokens: 100,
             temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
             timeout_seconds: 300,
             is_default: false,
             capabilities: vec![],
@@ -1525,6 +1540,9 @@ mod tests {
             api_base: None,
             max_tokens: 100,
             temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
             timeout_seconds: 300,
             is_default: false,
             capabilities: vec![],

@@ -21,6 +21,12 @@ struct OpenAiRequest {
     messages: Vec<Message>,
     max_tokens: i32,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    presence_penalty: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,6 +48,12 @@ struct OpenAiStreamRequest {
     messages: Vec<Message>,
     max_tokens: i32,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    presence_penalty: Option<f32>,
     stream: bool,
 }
 
@@ -129,6 +141,9 @@ impl LlmAdapter for OpenAiAdapter {
             messages: self.build_messages(request.prompt),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
+            top_p: request.top_p,
+            frequency_penalty: request.frequency_penalty,
+            presence_penalty: request.presence_penalty,
         };
 
         let mut response = self
@@ -186,6 +201,9 @@ impl LlmAdapter for OpenAiAdapter {
             messages: self.build_messages(request.prompt),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
+            top_p: request.top_p,
+            frequency_penalty: request.frequency_penalty,
+            presence_penalty: request.presence_penalty,
             stream: true,
         };
 

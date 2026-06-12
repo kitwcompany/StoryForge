@@ -43,16 +43,20 @@ impl SkillExecutor {
             return Err(AppError::internal("Skill is disabled"));
         }
 
-        // Validate parameters
+        // Validate parameters and merge defaults / config / caller params
         self.validate_params(&skill.manifest, &params)?;
+        let merged_params = self.merge_params(&skill.manifest, params);
 
         // Execute based on runtime
         let result = match &skill.runtime {
-            SkillRuntime::Prompt(runtime) => self.execute_prompt(runtime, context, params).await,
-            SkillRuntime::Mcp(runtime) => self.execute_mcp(runtime, context, params).await,
+            SkillRuntime::Prompt(runtime) => {
+                self.execute_prompt(runtime, &skill.manifest, context, merged_params)
+                    .await
+            }
+            SkillRuntime::Mcp(runtime) => self.execute_mcp(runtime, context, merged_params).await,
             SkillRuntime::Native(runtime) => runtime
                 .handler
-                .execute(context, params)
+                .execute(context, merged_params)
                 .map_err(AppError::from),
         };
 
@@ -118,9 +122,52 @@ impl SkillExecutor {
         Ok(())
     }
 
+    /// 合并参数优先级：调用参数 > skill config > parameter default
+    fn merge_params(
+        &self,
+        manifest: &SkillManifest,
+        params: HashMap<String, serde_json::Value>,
+    ) -> HashMap<String, serde_json::Value> {
+        let mut merged = HashMap::new();
+
+        // 1. parameter defaults
+        for param in &manifest.parameters {
+            if let Some(default) = &param.default {
+                merged.insert(param.name.clone(), default.clone());
+            }
+        }
+
+        // 2. skill config (lower priority than explicit params)
+        for (key, value) in &manifest.config {
+            merged.insert(key.clone(), value.clone());
+        }
+
+        // 3. caller params (highest priority)
+        for (key, value) in params {
+            merged.insert(key, value);
+        }
+
+        merged
+    }
+
+    /// 从 skill config 解析 f64 配置项
+    fn config_f64(
+        &self,
+        manifest: &SkillManifest,
+        key: &str,
+        fallback: f64,
+    ) -> f64 {
+        manifest
+            .config
+            .get(key)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(fallback)
+    }
+
     async fn execute_prompt(
         &self,
         runtime: &PromptRuntime,
+        manifest: &SkillManifest,
         context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
     ) -> Result<SkillResult, AppError> {
@@ -148,6 +195,12 @@ impl SkillExecutor {
 
         user_prompt = format!("{}\n\n{}", context_info, user_prompt);
 
+        // Resolve generation parameters from skill config
+        let max_tokens = self
+            .config_f64(manifest, "max_tokens", 2000.0)
+            .clamp(1.0, 16384.0) as i32;
+        let temperature = self.config_f64(manifest, "temperature", 0.7).clamp(0.0, 2.0) as f32;
+
         // Call LLM if service is available
         if let Some(ref llm) = self.llm_service {
             let full_prompt = if runtime.system_prompt.is_empty() {
@@ -159,7 +212,9 @@ impl SkillExecutor {
                 )
             };
 
-            let response = llm.generate(full_prompt, Some(2000), Some(0.7)).await?;
+            let response = llm
+                .generate(full_prompt, Some(max_tokens), Some(temperature))
+                .await?;
 
             Ok(SkillResult {
                 success: true,
@@ -178,6 +233,8 @@ impl SkillExecutor {
                 data: serde_json::json!({
                     "system_prompt": runtime.system_prompt,
                     "user_prompt": user_prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
                 }),
                 error: None,
                 execution_time_ms: 0,

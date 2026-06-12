@@ -360,6 +360,7 @@ impl StoryContextBuilder {
             story: StoryContext {
                 story_id: story_id.to_string(),
                 story_title: story.title,
+                description: story.description.clone(),
                 genre: story.genre.unwrap_or_else(|| "小说".to_string()),
                 tone: style
                     .as_ref()
@@ -388,6 +389,17 @@ impl StoryContextBuilder {
                 style_blend,
                 style_fingerprint: None,
                 style_dna_extension,
+                writing_style_name: style.as_ref().and_then(|s| s.name.clone()),
+                writing_style_description: style.as_ref().and_then(|s| s.description.clone()),
+                writing_style_vocabulary_level: style.as_ref().and_then(|s| s.vocabulary_level.clone()),
+                writing_style_sentence_structure: style.as_ref().and_then(|s| s.sentence_structure.clone()),
+                writing_style_custom_rules: style.as_ref().and_then(|s| {
+                    if s.custom_rules.is_empty() {
+                        None
+                    } else {
+                        Some(s.custom_rules.join("\n"))
+                    }
+                }),
             },
             world: WorldContext {
                 world_rules: world_rules_text,
@@ -791,6 +803,9 @@ impl StoryContextBuilder {
             }
             if let Some(ref time) = s.setting_time {
                 parts.push(format!("时间: {}", time));
+            }
+            if let Some(ref atmosphere) = s.setting_atmosphere {
+                parts.push(format!("氛围: {}", atmosphere));
             }
             if !s.characters_present.is_empty() {
                 parts.push(format!("出场角色: {}", s.characters_present.join(", ")));
@@ -1374,6 +1389,7 @@ mod tests {
             story: StoryContext {
                 story_id: story_id.to_string(),
                 story_title: "Test".to_string(),
+                description: None,
                 genre: "novel".to_string(),
                 tone: "neutral".to_string(),
                 pacing: "normal".to_string(),
@@ -1394,6 +1410,11 @@ mod tests {
                 style_blend: None,
                 style_fingerprint: None,
                 style_dna_extension: None,
+                writing_style_name: None,
+                writing_style_description: None,
+                writing_style_vocabulary_level: None,
+                writing_style_sentence_structure: None,
+                writing_style_custom_rules: None,
             },
             world: WorldContext {
                 world_rules: None,

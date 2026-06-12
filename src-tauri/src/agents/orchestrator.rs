@@ -58,6 +58,20 @@ pub struct WorkflowConfig {
     pub skip_rewrite_threshold: f32,
 }
 
+impl WorkflowConfig {
+    /// 从应用配置构造工作流配置，确保用户设置优先于硬编码默认值。
+    pub fn from_app_config(config: &crate::config::AppConfig) -> Self {
+        Self {
+            rewrite_threshold: config.rewrite_threshold,
+            max_feedback_loops: config.max_feedback_loops,
+            keep_revision_history: config.keep_revision_history,
+            style_weight: config.style_weight,
+            narrative_weight: config.narrative_weight,
+            skip_rewrite_threshold: config.skip_rewrite_threshold,
+        }
+    }
+}
+
 impl Default for WorkflowConfig {
     fn default() -> Self {
         Self {

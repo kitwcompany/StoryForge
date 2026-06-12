@@ -172,6 +172,45 @@ pub struct AppConfig {
     /// AgentOrchestrator 最大反馈循环次数（默认 2）
     #[serde(default = "default_max_feedback_loops")]
     pub max_feedback_loops: u32,
+    /// 风格评分在最终综合分中的权重（0-1，默认 0.5）
+    #[serde(default = "default_style_weight")]
+    pub style_weight: f32,
+    /// 叙事评分在最终综合分中的权重（0-1，默认 0.5）
+    #[serde(default = "default_narrative_weight")]
+    pub narrative_weight: f32,
+    /// 综合分数达到该阈值时跳过改写闭环，直接返回结果（默认 0.90）
+    #[serde(default = "default_skip_rewrite_threshold")]
+    pub skip_rewrite_threshold: f32,
+    /// 是否在改写闭环中保留历史版本（默认 true）
+    #[serde(default = "default_keep_revision_history")]
+    pub keep_revision_history: bool,
+    /// Genesis 向导第一章目标字数（默认 2000）
+    #[serde(default = "default_genesis_first_chapter_word_count_target")]
+    pub genesis_first_chapter_word_count_target: i32,
+    /// 创作工作流 Inspector 通过阈值（默认 0.75）
+    #[serde(default = "default_creation_workflow_review_threshold")]
+    pub creation_workflow_review_threshold: f32,
+    /// 创作工作流最大迭代次数（默认 2）
+    #[serde(default = "default_creation_workflow_max_iterations")]
+    pub creation_workflow_max_iterations: u32,
+    /// 通用 UI 设置
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(default = "default_auto_save")]
+    pub auto_save: bool,
+    #[serde(default = "default_auto_save_interval")]
+    pub auto_save_interval: u64,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
+    /// 隐私设置
+    #[serde(default = "default_share_usage_data")]
+    pub share_usage_data: bool,
+    #[serde(default = "default_store_api_keys_securely")]
+    pub store_api_keys_securely: bool,
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
     /// OAuth 客户端配置
@@ -189,6 +228,66 @@ fn default_max_feedback_loops() -> u32 {
 
 fn default_concurrency() -> usize {
     3
+}
+
+fn default_style_weight() -> f32 {
+    0.5
+}
+
+fn default_narrative_weight() -> f32 {
+    0.5
+}
+
+fn default_skip_rewrite_threshold() -> f32 {
+    0.90
+}
+
+fn default_keep_revision_history() -> bool {
+    true
+}
+
+fn default_genesis_first_chapter_word_count_target() -> i32 {
+    2000
+}
+
+fn default_creation_workflow_review_threshold() -> f32 {
+    0.75
+}
+
+fn default_creation_workflow_max_iterations() -> u32 {
+    2
+}
+
+fn default_theme() -> String {
+    "dark".to_string()
+}
+
+fn default_language() -> String {
+    "zh-CN".to_string()
+}
+
+fn default_auto_save() -> bool {
+    true
+}
+
+fn default_auto_save_interval() -> u64 {
+    30
+}
+
+fn default_font_size() -> u32 {
+    16
+}
+
+fn default_line_height() -> f32 {
+    1.6
+}
+
+fn default_share_usage_data() -> bool {
+    false
+}
+
+fn default_store_api_keys_securely() -> bool {
+    true
 }
 
 /// 语言模型配置（向后兼容）
@@ -244,6 +343,12 @@ pub struct LlmProfile {
     pub max_tokens: i32,
     #[serde(with = "temperature_serde")]
     pub temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f32>,
     pub timeout_seconds: u64,
     #[serde(default)]
     pub is_default: bool,
@@ -368,6 +473,9 @@ impl Default for AppConfig {
             )),
             max_tokens: 8192,
             temperature: 0.8,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
             timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: true,
             capabilities: vec![
@@ -393,6 +501,9 @@ impl Default for AppConfig {
             )),
             max_tokens: 8192,
             temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
             timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: false,
             capabilities: vec![
@@ -498,6 +609,21 @@ impl Default for AppConfig {
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
             max_feedback_loops: 2,
+            style_weight: 0.5,
+            narrative_weight: 0.5,
+            skip_rewrite_threshold: 0.90,
+            keep_revision_history: true,
+            genesis_first_chapter_word_count_target: 2000,
+            creation_workflow_review_threshold: 0.75,
+            creation_workflow_max_iterations: 2,
+            theme: default_theme(),
+            language: default_language(),
+            auto_save: default_auto_save(),
+            auto_save_interval: default_auto_save_interval(),
+            font_size: default_font_size(),
+            line_height: default_line_height(),
+            share_usage_data: default_share_usage_data(),
+            store_api_keys_securely: default_store_api_keys_securely(),
             writing_strategy: WritingStrategy::default(),
             auth_clients: Default::default(),
         }
@@ -749,7 +875,10 @@ impl AppConfig {
                 )),
                 max_tokens: 8192,
                 temperature: 0.8,
-                timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
+                top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
                 is_default: config.llm_profiles.values().all(|p| !p.is_default),
                 capabilities: vec![
                     ModelCapability::Chat,
@@ -780,7 +909,10 @@ impl AppConfig {
                 )),
                 max_tokens: 8192,
                 temperature: 0.7,
-                timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
+                top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
                 is_default: false,
                 capabilities: vec![
                     ModelCapability::Chat,
@@ -999,6 +1131,9 @@ impl AppConfig {
             api_base: self.llm.api_base.clone(),
             max_tokens: self.llm.max_tokens,
             temperature: self.llm.temperature,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
             timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: true,
             capabilities: vec![ModelCapability::Chat, ModelCapability::Completion],

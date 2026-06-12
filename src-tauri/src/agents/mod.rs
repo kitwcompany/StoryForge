@@ -54,6 +54,8 @@ pub struct StoryContext {
     #[serde(default)]
     pub story_title: String,
     #[serde(default)]
+    pub description: Option<String>, // 作品简介
+    #[serde(default)]
     pub genre: String, // 题材
     #[serde(default)]
     pub tone: String, // 文风
@@ -122,6 +124,17 @@ pub struct StyleContext {
     /// v0.9.3: 预计算的风格 DNA 提示词扩展，避免每个候选都查库
     #[serde(default)]
     pub style_dna_extension: Option<String>,
+    /// 写作风格详细设定（来自 writing_styles 表）
+    #[serde(default)]
+    pub writing_style_name: Option<String>,
+    #[serde(default)]
+    pub writing_style_description: Option<String>,
+    #[serde(default)]
+    pub writing_style_vocabulary_level: Option<String>,
+    #[serde(default)]
+    pub writing_style_sentence_structure: Option<String>,
+    #[serde(default)]
+    pub writing_style_custom_rules: Option<String>,
 }
 
 /// 世界观与方法论上下文

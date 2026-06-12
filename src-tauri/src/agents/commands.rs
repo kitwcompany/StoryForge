@@ -313,14 +313,7 @@ pub async fn writer_agent_execute(
     // 读取 AgentOrchestrator 配置
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let orchestrator_config = crate::config::AppConfig::load(&app_dir)
-        .map(|c| super::orchestrator::WorkflowConfig {
-            rewrite_threshold: c.rewrite_threshold,
-            max_feedback_loops: c.max_feedback_loops,
-            keep_revision_history: true,
-            style_weight: 0.5,
-            narrative_weight: 0.5,
-            skip_rewrite_threshold: 0.90,
-        })
+        .map(|c| super::orchestrator::WorkflowConfig::from_app_config(&c))
         .unwrap_or_default();
 
     // 使用 AgentOrchestrator 执行 Writer → Inspector → Writer 闭环优化
@@ -675,7 +668,10 @@ pub async fn auto_write(
                 (None, 0.0, Vec::new())
             };
 
-            let mut config = crate::agents::orchestrator::WorkflowConfig::default();
+            let app_dir = app_handle_clone.path().app_data_dir().unwrap_or_default();
+            let mut config = crate::config::AppConfig::load(&app_dir)
+                .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+                .unwrap_or_default();
             config.style_weight = style_weight;
             config.narrative_weight = 1.0 - style_weight;
 
@@ -1084,8 +1080,13 @@ pub async fn auto_revise(
         };
 
         let service = AgentService::new(app_handle_clone.clone());
-        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+        let app_dir = app_handle_clone.path().app_data_dir().unwrap_or_default();
+        let orchestrator_config = crate::config::AppConfig::load(&app_dir)
+            .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+            .unwrap_or_default();
+        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
             service,
+            orchestrator_config,
             app_handle_clone.clone(),
         );
 

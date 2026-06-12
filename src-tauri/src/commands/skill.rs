@@ -188,8 +188,21 @@ pub async fn execute_skill(
         )
     };
 
+    let max_tokens = result
+        .data
+        .get("max_tokens")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.clamp(1, 16384) as i32)
+        .unwrap_or(2000);
+    let temperature = result
+        .data
+        .get("temperature")
+        .and_then(|v| v.as_f64())
+        .map(|v| v.clamp(0.0, 2.0) as f32)
+        .unwrap_or(0.7);
+
     let response = llm_service
-        .generate(full_prompt, Some(2000), Some(0.7))
+        .generate(full_prompt, Some(max_tokens), Some(temperature))
         .await?;
 
     Ok(serde_json::json!({

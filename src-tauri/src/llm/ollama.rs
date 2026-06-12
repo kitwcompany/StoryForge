@@ -27,6 +27,8 @@ struct OllamaRequest {
 struct OllamaOptions {
     temperature: f32,
     num_predict: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +76,7 @@ impl LlmAdapter for OllamaAdapter {
             options: Some(OllamaOptions {
                 temperature: request.temperature.unwrap_or(self.default_temperature),
                 num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
+                top_p: request.top_p,
             }),
         };
 
@@ -114,6 +117,7 @@ impl LlmAdapter for OllamaAdapter {
             options: Some(OllamaOptions {
                 temperature: request.temperature.unwrap_or(self.default_temperature),
                 num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
+                top_p: request.top_p,
             }),
         };
 

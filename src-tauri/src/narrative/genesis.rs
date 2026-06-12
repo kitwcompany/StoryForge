@@ -172,14 +172,27 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 metadata: None,
             });
 
+            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
+            let (concept_max_tokens, concept_temperature) =
+                crate::config::AppConfig::load(&app_dir)
+                    .map(|c| {
+                        let profile_id = c.active_llm_profile.as_deref();
+                        let profile = profile_id.and_then(|id| c.llm_profiles.get(id));
+                        (
+                            profile.map(|p| p.max_tokens).unwrap_or(512),
+                            profile.map(|p| p.temperature).unwrap_or(0.7),
+                        )
+                    })
+                    .unwrap_or((512, 0.7));
+
             let prompt = story_concept_prompt(PromptMode::Generate, &ctx.user_premise);
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 2, "生成故事概念");
             let response = llm
                 .generate_with_context_and_pipeline(
                     prompt,
-                    Some(512),
-                    Some(0.7),
+                    Some(concept_max_tokens),
+                    Some(concept_temperature),
                     Some("生成故事概念"),
                     Some(pipeline_ctx),
                 )
@@ -287,24 +300,39 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
+            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
+            let (writing_strategy, word_count_target) = crate::config::AppConfig::load(&app_dir)
+                .map(|c| {
+                    (
+                        c.writing_strategy.clone(),
+                        c.genesis_first_chapter_word_count_target,
+                    )
+                })
+                .unwrap_or_else(|_| (crate::config::WritingStrategy::default(), 2000));
+
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());
             let task = crate::agents::service::AgentTask {
                 id: Uuid::new_v4().to_string(),
                 agent_type: crate::agents::service::AgentType::Writer,
                 context: agent_context,
                 input: format!(
-                    "请撰写《{}》的第一章开头（1500-2500字）。\n\n【故事概念】\n题材：{}\n基调：\
-                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
+                    "请撰写《{}》的第一章开头（目标字数：{}字，允许±15%）。\n\n【故事概念】\n题材：{}\n基调：\
+                     {}\n节奏：{}\n简介：{}\n主题：{}\n\n【写作策略】\n模式：{}\n冲突强度：{}/100\n叙事节奏：{}\nAI自由度：{}\n\n【用户原始要求】\n{}\n\n这是故事的开篇，\
                      需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. \
                      埋下至少一个伏笔\n4. \
                      在第一幕结尾制造一个冲突或悬念\n\n重要：\
                      必须严格遵循用户原始要求中的题材设定，不得偏离。",
                     meta.title,
+                    word_count_target,
                     meta.genre,
                     meta.tone,
                     meta.pacing,
                     meta.description,
                     meta.themes.join(", "),
+                    writing_strategy.run_mode,
+                    writing_strategy.conflict_level,
+                    writing_strategy.pace,
+                    writing_strategy.ai_freedom,
                     ctx.user_premise
                 ),
                 parameters: HashMap::new(),
@@ -325,8 +353,13 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             });
 
             // v0.9.6: Bootstrap 初稿走 Orchestrator Full 模式，确保第一章质量
-            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::with_default_config(
+            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
+            let orchestrator_config = crate::config::AppConfig::load(&app_dir)
+                .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+                .unwrap_or_default();
+            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
                 service,
+                orchestrator_config,
                 ctx.app_handle.clone(),
             );
             let result = match orchestrator

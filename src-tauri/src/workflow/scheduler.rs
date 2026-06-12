@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{NodeExecutionStatus, NodeType, WorkflowEngine, WorkflowInstance, WorkflowStatus};
 
@@ -422,11 +422,15 @@ impl WorkflowScheduler {
 
                 // W2-B3: Workflow 节点嵌套 Orchestrator，禁止直接调用 Writer Agent
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let orchestrator =
-                    crate::agents::orchestrator::AgentOrchestrator::with_default_config(
-                        agent_service,
-                        app_handle.clone(),
-                    );
+                let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+                let orchestrator_config = crate::config::AppConfig::load(&app_dir)
+                    .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+                    .unwrap_or_default();
+                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
+                    agent_service,
+                    orchestrator_config,
+                    app_handle.clone(),
+                );
                 let context = crate::agents::AgentContext::minimal(story_id, String::new());
                 let task = crate::agents::service::AgentTask {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -515,11 +519,15 @@ impl WorkflowScheduler {
                 );
 
                 let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let orchestrator =
-                    crate::agents::orchestrator::AgentOrchestrator::with_default_config(
-                        agent_service,
-                        app_handle.clone(),
-                    );
+                let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+                let orchestrator_config = crate::config::AppConfig::load(&app_dir)
+                    .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
+                    .unwrap_or_default();
+                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
+                    agent_service,
+                    orchestrator_config,
+                    app_handle.clone(),
+                );
                 let context =
                     crate::agents::AgentContext::minimal(instance.story_id.clone(), String::new());
                 let task = crate::agents::service::AgentTask {
