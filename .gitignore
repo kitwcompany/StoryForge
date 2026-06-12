@@ -1,6 +1,7 @@
 # Rust
 target/
-Cargo.lock
+# Cargo.lock 已纳入版本控制，确保二进制应用构建可复现
+# Cargo.lock
 **/*.rs.bk
 
 # Node
@@ -12,7 +13,7 @@ npm-debug.log*
 
 # Tauri
 src-tauri/target/
-src-tauri/Cargo.lock
+# src-tauri/Cargo.lock
 
 # IDE
 .idea/
