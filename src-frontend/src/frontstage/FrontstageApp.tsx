@@ -1279,8 +1279,9 @@ const FrontstageApp: React.FC = () => {
   const handleAcceptGeneration = useCallback(() => {
     if (generatedText && editorRef.current) {
       // v0.7.4: 续写内容自动排版（智能分段 + 引号规范化）
+      // v0.9.2-fix: 续写内容接受后始终追加到正文最后，避免插入光标处导致段落混乱
       const formatted = autoFormatText(generatedText);
-      editorRef.current.insertText(formatted);
+      editorRef.current.appendText(formatted);
       if (currentStory?.id) {
         recordFeedback({
           story_id: currentStory.id,

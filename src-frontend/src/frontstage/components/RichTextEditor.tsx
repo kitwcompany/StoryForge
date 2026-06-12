@@ -102,6 +102,8 @@ interface RichTextEditorProps {
 
 export interface RichTextEditorRef {
   insertText: (text: string) => void;
+  /** 在文档末尾追加文本（用于 AI 续写接受后始终追加到正文最后） */
+  appendText: (text: string) => void;
   getText: () => string;
   getSelectedText: () => string;
   focus: () => void;
@@ -826,6 +828,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             } else {
               editor.chain().focus().insertContent(text).run();
             }
+          }
+        },
+        appendText: (text: string) => {
+          if (editor) {
+            const endPos = editor.state.doc.content.size;
+            editor.chain().focus().insertContentAt(endPos, text).run();
           }
         },
         getText: () => editor?.getText() || '',
