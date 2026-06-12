@@ -193,16 +193,64 @@ impl AgentOrchestrator {
         };
 
         // v0.8.0: 自动写入记忆（创作完成后）
+        // v0.9.5: 同时触发完整采摘（IngestPipeline → KG + 向量索引）
         if let Ok(ref workflow_result) = result {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let writer = crate::memory::writer::MemoryWriter::new(pool.inner().clone());
             let story_id = task.context.story.story_id.clone();
             let chapter_number = task.context.narrative.chapter_number as i32;
             let content = workflow_result.final_content.clone();
+            let app_handle = self.app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 match writer.write(&story_id, chapter_number, &content).await {
                     Ok(_) => {
-                        log::info!("[AgentOrchestrator] Memory updated for story {}", story_id)
+                        log::info!("[AgentOrchestrator] Memory updated for story {}", story_id);
+
+                        // 触发完整采摘
+                        let pool_for_ingest = app_handle.state::<crate::db::DbPool>();
+                        let llm_service = crate::llm::LlmService::new(app_handle.clone());
+                        let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+                            .with_pool(pool_for_ingest.inner().clone())
+                            .with_app_handle(app_handle.clone());
+                        let ingest_content = crate::memory::ingest::IngestContent {
+                            text: content,
+                            source: format!("smart_execute:chapter:{}", chapter_number),
+                            story_id: story_id.clone(),
+                            scene_id: None,
+                        };
+
+                        match pipeline.ingest(&ingest_content).await {
+                            Ok(ingest_result) => {
+                                let kg_repo =
+                                    crate::db::repositories::KnowledgeGraphRepository::new(
+                                        pool_for_ingest.inner().clone(),
+                                    );
+                                if let Err(e) = kg_repo.save_entities_batch(&ingest_result.entities)
+                                {
+                                    log::warn!(
+                                        "[AgentOrchestrator] Failed to save ingest entities: {}",
+                                        e
+                                    );
+                                }
+                                if let Err(e) =
+                                    kg_repo.save_relations_batch(&ingest_result.relations)
+                                {
+                                    log::warn!(
+                                        "[AgentOrchestrator] Failed to save ingest relations: {}",
+                                        e
+                                    );
+                                }
+                                log::info!(
+                                    "[AgentOrchestrator] Ingest completed for story {}: {} entities, {} relations",
+                                    story_id,
+                                    ingest_result.entities.len(),
+                                    ingest_result.relations.len()
+                                );
+                            }
+                            Err(e) => {
+                                log::warn!("[AgentOrchestrator] IngestPipeline failed: {}", e)
+                            }
+                        }
                     }
                     Err(e) => log::warn!("[AgentOrchestrator] Memory write failed: {}", e),
                 }

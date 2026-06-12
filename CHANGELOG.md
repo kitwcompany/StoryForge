@@ -2,6 +2,29 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.9.5] - 智能创作补齐采摘闭环（2026-06-12）
+
+### 摘要
+
+- 修复智能创作（`smart_execute` / `AgentOrchestrator::generate`）生成成功后未触发完整采摘（Ingest）的问题
+- 生成内容现在会异步进入 `IngestPipeline`，提取实体/关系并更新知识图谱，与 `auto_write` 保持一致
+
+### 后端改进
+
+- **`AgentOrchestrator::generate` 触发完整采摘**：`src-tauri/src/agents/orchestrator.rs`
+  - 在 `MemoryWriter::write` 成功后，异步启动 `IngestPipeline::ingest`
+  - 将提取到的实体/关系批量保存到知识图谱（`KnowledgeGraphRepository::save_entities_batch` / `save_relations_batch`）
+  - source 标记为 `smart_execute:chapter:{chapter_number}`，便于追踪
+  - 失败时仅记录 warn 日志，不阻塞创作结果返回
+
+### 编译与测试状态
+
+- `cargo check --manifest-path src-tauri/Cargo.toml` ✅
+- `cargo clippy` ✅（301 warnings 均为既有历史 warning）
+- `cargo test --lib` ✅ 318/318 通过
+
+---
+
 ## [v0.9.4] - 修复智能创作进度提示长时间卡住的问题（2026-06-12）
 
 ### 摘要

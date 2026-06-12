@@ -208,6 +208,12 @@ node scripts/cdp-inspect.js
   - 移动并更新注释：E2E 在缺少真实 Tauri 后端的 Vite dev server 上运行，settings 页 IPC 调用会挂起，因此不作为发布阻塞项
   - 单元测试与构建检查（rust-check / frontend-check / tauri-build）仍是可靠质量门
 
+- **v0.9.5 智能创作补齐采摘（Ingest）闭环** (2026-06-12) — 修复智能创作（`smart_execute` / `AgentOrchestrator::generate`）生成成功后未触发完整采摘的问题：
+  - **现状**：查询侧已正常调用（`StoryContextBuilder` → `MemoryOrchestrator::build_memory_pack`），但生成后只写入 `memory_items` / `scene_commits` 摘要，未调用 `IngestPipeline` 提取实体/关系并更新知识图谱
+  - **修复**：在 `AgentOrchestrator::generate` 的 `MemoryWriter::write` 成功后，异步启动 `IngestPipeline::ingest`，并将提取到的实体/关系批量保存到知识图谱（`KnowledgeGraphRepository::save_entities_batch` / `save_relations_batch`）
+  - **影响**：智能创作续写/生成的内容与 `auto_write` 保持一致，都会进入知识图谱和向量索引，后续查询能检索到最新实体与关系
+  - **本地验证**：`cargo check` 零错误，`cargo clippy` 通过，`cargo test --lib` 318/318 通过
+
 - **v0.9.4 构建修复：固定 Rust 1.95.0 并提交 Cargo.lock** (2026-06-12) — 修复 GitHub Actions 在 latest stable Rust 下的 E0119 编译失败，关键变更：
   - **根因**：Rust 1.96（latest stable）与 `time` crate 0.3.47/0.3.48 存在 coherence 冲突，导致 `tracing-subscriber`、`tantivy-common`、`cookie`、`tauri-utils` 等 crate 报 `From<HourBase>` 冲突实现错误
   - **修复**：新增 `rust-toolchain.toml` 固定 Rust 版本为 **1.95.0**；将 `Cargo.lock` 从 `.gitignore` 移除并纳入版本控制，锁定 `time` 在 0.3.47
