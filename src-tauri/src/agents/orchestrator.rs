@@ -283,7 +283,7 @@ impl AgentOrchestrator {
                     .map(|c| c.len() > 100)
                     .unwrap_or(false)
             {
-                let (r, req_id, content) = self.generate_candidates(&task, 3).await?;
+                let (r, req_id, content) = self.generate_candidates(&task, 2).await?;
                 (r, Some(req_id), content)
             } else {
                 let result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
@@ -663,17 +663,17 @@ impl AgentOrchestrator {
     }
 
     /// v0.7.8: 并行生成 N 个候选，用风格指纹打分选优
+    /// v0.9.3: 默认候选数从 3 降到 2，平衡质量与本地模型响应时间
     ///
     /// 每个候选使用不同的 temperature 产生多样性：
     /// - 候选1: base_temp * 0.9 (更保守，接近训练分布)
-    /// - 候选2: base_temp * 1.0 (基准)
-    /// - 候选3: base_temp * 1.1 (更发散，探索性)
+    /// - 候选2: base_temp * 1.1 (更发散，探索性)
     async fn generate_candidates(
         &self,
         task: &AgentTask,
         count: usize,
     ) -> Result<(AgentResult, String, String), AppError> {
-        let temps = [0.75_f32, 0.9_f32, 1.05_f32];
+        let temps = [0.82_f32, 1.0_f32];
         let mut tasks = Vec::with_capacity(count);
 
         for i in 0..count {

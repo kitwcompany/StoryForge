@@ -278,7 +278,8 @@ impl IntentExecutor {
             });
         }
 
-        let context = Self::build_context(&story_id, &intent, self.agent_service.app_handle());
+        let context =
+            Self::build_context(&story_id, &intent, self.agent_service.app_handle()).await;
         let steps = match intent.execution_mode {
             ExecutionMode::Serial => self.execute_serial(agents, context, &intent).await,
             ExecutionMode::Parallel => self.execute_parallel(agents, context, &intent).await,
@@ -318,7 +319,7 @@ impl IntentExecutor {
     ///
     /// 使用 StoryContextBuilder 从数据库读取真实故事数据，
     /// 替代原有的硬编码默认值。
-    fn build_context(
+    async fn build_context(
         story_id: &str,
         _intent: &Intent,
         app_handle: &tauri::AppHandle,
@@ -331,7 +332,7 @@ impl IntentExecutor {
             Some(pool_state) => {
                 let pool = pool_state.inner().clone();
                 let builder = StoryContextBuilder::new(pool);
-                match builder.build_quick(story_id) {
+                match builder.build_quick(story_id).await {
                     Ok(ctx) => ctx,
                     Err(e) => {
                         log::warn!(

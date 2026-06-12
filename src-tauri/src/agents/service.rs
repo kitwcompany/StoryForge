@@ -1303,8 +1303,12 @@ impl AgentService {
             tokio::task::yield_now().await;
 
             // 注入风格（混合优先，单一 DNA 回退，仅专业版）
+            // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
             emit_and_yield("正在加载风格 DNA...", 0.175);
-            if let Some(ref blend) = ctx.style.style_blend {
+            if let Some(ref extension) = ctx.style.style_dna_extension {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(extension);
+            } else if let Some(ref blend) = ctx.style.style_blend {
                 use tauri::Manager;
 
                 use crate::{
@@ -1352,8 +1356,12 @@ impl AgentService {
             tokio::task::yield_now().await;
 
             // 注入个性化偏好（自适应学习，仅专业版）
+            // v0.9.3: 优先使用 StoryContextBuilder 预计算的扩展，避免每个候选重复查库
             emit_and_yield("正在加载个性化偏好...", 0.18);
-            {
+            if let Some(ref extension) = ctx.story.personalizer_extension {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(extension);
+            } else {
                 use tauri::Manager;
 
                 use crate::{creative_engine::adaptive::PromptPersonalizer, db::DbPool};

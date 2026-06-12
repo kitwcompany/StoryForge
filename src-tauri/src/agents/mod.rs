@@ -59,6 +59,9 @@ pub struct StoryContext {
     pub tone: String, // 文风
     #[serde(default)]
     pub pacing: String, // 节奏
+    /// v0.9.3: 预计算的个性化偏好扩展，避免每个候选都查库
+    #[serde(default)]
+    pub personalizer_extension: Option<String>,
 }
 
 /// 叙事内容上下文
@@ -113,6 +116,9 @@ pub struct StyleContext {
     /// 风格指纹（v0.7.8: 续写加固 — 从参考文本提取的量化风格约束）
     #[serde(default)]
     pub style_fingerprint: Option<crate::creative_engine::style::fingerprint::StyleFingerprint>,
+    /// v0.9.3: 预计算的风格 DNA 提示词扩展，避免每个候选都查库
+    #[serde(default)]
+    pub style_dna_extension: Option<String>,
 }
 
 /// 世界观与方法论上下文
@@ -251,6 +257,7 @@ impl AgentContext {
                 genre: "小说".to_string(),
                 tone: "中性".to_string(),
                 pacing: "正常".to_string(),
+                ..Default::default()
             },
             narrative: NarrativeContext {
                 chapter_number: 1,
@@ -265,6 +272,7 @@ impl AgentContext {
                 style_dna_id: None,
                 style_blend: None,
                 style_fingerprint: None,
+                ..Default::default()
             },
             world: WorldContext {
                 world_rules: None,

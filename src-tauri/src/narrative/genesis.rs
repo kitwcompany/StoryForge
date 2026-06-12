@@ -284,6 +284,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 crate::creative_engine::context_builder::StoryContextBuilder::new(ctx.pool.clone());
             let agent_context = builder
                 .build(&ctx.story_id, Some(1), None, None)
+                .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
 
             let service = crate::agents::service::AgentService::new(ctx.app_handle.clone());

@@ -295,10 +295,10 @@ impl CreationWorkflowEngine {
     }
 
     /// 构建 AgentContext（使用 StoryContextBuilder）
-    pub fn build_context(&self, story_id: &str) -> Result<AgentContext, AppError> {
+    pub async fn build_context(&self, story_id: &str) -> Result<AgentContext, AppError> {
         use crate::creative_engine::StoryContextBuilder;
         let builder = StoryContextBuilder::new(self.pool.clone());
-        builder.build_quick(story_id)
+        builder.build_quick(story_id).await
     }
 
     /// 执行单阶段
@@ -496,7 +496,7 @@ impl CreationWorkflowEngine {
     ) -> Result<WorkflowExecutionResult, AppError> {
         let mut state = WorkflowState::new(format!("wf-{}", config.story_id));
         let mut current_input = initial_input.to_string();
-        let mut context = self.build_context(&config.story_id)?;
+        let mut context = self.build_context(&config.story_id).await?;
 
         self.emit_progress(
             &state,
@@ -856,7 +856,7 @@ impl CreationWorkflowEngine {
         story_id: &str,
         input: &str,
     ) -> Result<AgentResult, AppError> {
-        let mut context = self.build_context(story_id)?;
+        let mut context = self.build_context(story_id).await?;
         let result = self.execute_phase(phase, &context, input).await?;
         Self::update_context_after_phase(&mut context, phase, &result.content);
         Ok(result)

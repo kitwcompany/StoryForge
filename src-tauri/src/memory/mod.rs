@@ -127,6 +127,7 @@ impl ShortTermMemory {
                 genre: story.genre.clone().unwrap_or_else(|| "general".to_string()),
                 tone: story.tone.clone().unwrap_or_else(|| "neutral".to_string()),
                 pacing: story.pacing.clone().unwrap_or_else(|| "medium".to_string()),
+                ..Default::default()
             },
             narrative: NarrativeContext {
                 chapter_number: target_chapter_number,
@@ -141,6 +142,7 @@ impl ShortTermMemory {
                 style_dna_id: None,
                 style_blend: None,
                 style_fingerprint: None,
+                ..Default::default()
             },
             world: WorldContext {
                 world_rules: None,

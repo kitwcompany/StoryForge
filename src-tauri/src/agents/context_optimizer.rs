@@ -462,6 +462,7 @@ impl ContextOptimizer {
                 genre: l0.genre,
                 tone: l0.tone,
                 pacing: l0.pacing,
+                ..Default::default()
             },
             narrative: NarrativeContext {
                 chapter_number,
@@ -484,6 +485,7 @@ impl ContextOptimizer {
                 style_dna_id: l0.style_dna_id,
                 style_blend: l0.style_blend,
                 style_fingerprint: None,
+                ..Default::default()
             },
             world: WorldContext {
                 world_rules: l1.world_rules,

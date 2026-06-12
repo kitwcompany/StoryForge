@@ -499,7 +499,7 @@ impl PlanExecutor {
 
     /// Build a rich AgentContext using StoryContextBuilder instead of the
     /// minimal stub.
-    fn build_agent_context(
+    async fn build_agent_context(
         &self,
         story_id: &str,
         current_content: Option<String>,
@@ -519,7 +519,9 @@ impl PlanExecutor {
         // Resolve current scene number from DB (latest scene for the story)
         let scene_number = self.get_current_scene_number(story_id).unwrap_or(None);
 
-        Ok(builder.build(story_id, scene_number, current_content, selected_text)?)
+        Ok(builder
+            .build(story_id, scene_number, current_content, selected_text)
+            .await?)
     }
 
     fn get_current_scene_number(&self, story_id: &str) -> Result<Option<i32>, AppError> {
@@ -714,7 +716,9 @@ impl PlanExecutor {
             self.app_handle.clone(),
         );
         let selected_text = plan_context.selected_text.clone();
-        let mut context = self.build_agent_context(&story_id, current_content, selected_text)?;
+        let mut context = self
+            .build_agent_context(&story_id, current_content, selected_text)
+            .await?;
         // v0.8.0: 使用 PlanContext 中的章节号（用户当前编辑的场景），而非最新场景
         context.narrative.chapter_number = plan_context.chapter_number.max(1) as u32;
 
@@ -785,7 +789,9 @@ impl PlanExecutor {
             .or_else(|| plan_context.current_content_preview.clone());
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
-        let context = self.build_agent_context(&story_id, current_content, None)?;
+        let context = self
+            .build_agent_context(&story_id, current_content, None)
+            .await?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::Inspector,
@@ -820,7 +826,7 @@ impl PlanExecutor {
             .to_string();
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
-        let context = self.build_agent_context(&story_id, None, None)?;
+        let context = self.build_agent_context(&story_id, None, None).await?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::OutlinePlanner,
@@ -863,7 +869,7 @@ impl PlanExecutor {
                 .unwrap_or(serde_json::Value::Null),
         );
 
-        let context = self.build_agent_context(&story_id, None, None)?;
+        let context = self.build_agent_context(&story_id, None, None).await?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::StyleMimic,
@@ -894,7 +900,7 @@ impl PlanExecutor {
             .to_string();
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
-        let context = self.build_agent_context(&story_id, None, None)?;
+        let context = self.build_agent_context(&story_id, None, None).await?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::PlotAnalyzer,
@@ -934,7 +940,7 @@ impl PlanExecutor {
             .ok_or("Skill manager not initialized")?;
         let skill_manager = manager.lock().map_err(AppError::from)?.clone();
 
-        let agent_context = self.build_agent_context(&story_id, None, None)?;
+        let agent_context = self.build_agent_context(&story_id, None, None).await?;
 
         let result = skill_manager
             .execute_skill(skill_id, &agent_context, params)

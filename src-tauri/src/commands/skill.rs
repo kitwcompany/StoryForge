@@ -112,7 +112,7 @@ pub async fn execute_skill(
             Some(pool_state) => {
                 let pool = pool_state.inner().clone();
                 let builder = crate::creative_engine::StoryContextBuilder::new(pool);
-                match builder.build_quick(&story_id) {
+                match builder.build_quick(&story_id).await {
                     Ok(ctx) => ctx,
                     Err(e) => {
                         log::warn!(

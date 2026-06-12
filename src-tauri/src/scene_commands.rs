@@ -653,7 +653,7 @@ pub async fn generate_paragraph_commentaries(
     );
     let pool = app_handle.state::<crate::db::DbPool>();
     let builder = crate::creative_engine::StoryContextBuilder::new(pool.inner().clone());
-    let mut context = match builder.build_quick(&story_id) {
+    let mut context = match builder.build_quick(&story_id).await {
         Ok(ctx) => ctx,
         Err(e) => {
             log::warn!(
