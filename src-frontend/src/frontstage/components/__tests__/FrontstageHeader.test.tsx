@@ -54,13 +54,13 @@ describe('FrontstageHeader', () => {
 
   it('应该显示禅模式按钮和文思模式按钮', () => {
     render(<FrontstageHeader {...defaultProps} />);
-    expect(screen.getByTitle('F11 禅模式')).toBeInTheDocument();
+    expect(screen.getByTitle('进入全屏禅写模式（F11）')).toBeInTheDocument();
     expect(screen.getByTitle(/文思/)).toBeInTheDocument();
   });
 
   it('禅模式下右侧控制按钮应该隐藏', () => {
     render(<FrontstageHeader {...defaultProps} isZenMode={true} />);
-    expect(screen.queryByTitle('F11 禅模式')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('进入全屏禅写模式（F11）')).not.toBeInTheDocument();
     expect(screen.queryByTitle(/文思/)).not.toBeInTheDocument();
   });
 
@@ -76,7 +76,7 @@ describe('FrontstageHeader', () => {
     const onToggleZenMode = vi.fn();
     render(<FrontstageHeader {...defaultProps} onToggleZenMode={onToggleZenMode} />);
 
-    await userEvent.click(screen.getByTitle('F11 禅模式'));
+    await userEvent.click(screen.getByTitle('进入全屏禅写模式（F11）'));
     expect(onToggleZenMode).toHaveBeenCalledTimes(1);
   });
 
@@ -90,11 +90,11 @@ describe('FrontstageHeader', () => {
 
   it('文思活跃模式应该显示正确的提示', () => {
     render(<FrontstageHeader {...defaultProps} wensiMode="active" />);
-    expect(screen.getByTitle('文思活跃 — Ctrl+Enter 续写')).toBeInTheDocument();
+    expect(screen.getByTitle('文思活跃：按 Ctrl+Enter 触发 AI 续写')).toBeInTheDocument();
   });
 
   it('文思关闭模式应该显示正确的提示', () => {
     render(<FrontstageHeader {...defaultProps} wensiMode="off" />);
-    expect(screen.getByTitle('文思关闭')).toBeInTheDocument();
+    expect(screen.getByTitle('文思已关闭')).toBeInTheDocument();
   });
 });

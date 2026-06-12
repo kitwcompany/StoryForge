@@ -102,12 +102,12 @@ describe('FrontstageApp', () => {
   it('点击禅模式按钮应该进入禅模式并隐藏干扰元素', async () => {
     render(<FrontstageApp />);
 
-    const zenBtn = screen.getByTitle('F11 禅模式');
+    const zenBtn = screen.getByTitle('进入全屏禅写模式（F11）');
     await userEvent.click(zenBtn);
 
     // 禅模式下 Header 右侧按钮应该消失
     await waitFor(() => {
-      expect(screen.queryByTitle('F11 禅模式')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('进入全屏禅写模式（F11）')).not.toBeInTheDocument();
     });
 
     // 禅模式下 Sidebar 应该消失
@@ -124,9 +124,9 @@ describe('FrontstageApp', () => {
     render(<FrontstageApp />);
 
     // 进入禅模式
-    await userEvent.click(screen.getByTitle('F11 禅模式'));
+    await userEvent.click(screen.getByTitle('进入全屏禅写模式（F11）'));
     await waitFor(() => {
-      expect(screen.queryByTitle('F11 禅模式')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('进入全屏禅写模式（F11）')).not.toBeInTheDocument();
     });
 
     // 退出禅模式
@@ -134,7 +134,7 @@ describe('FrontstageApp', () => {
 
     // 恢复正常
     await waitFor(() => {
-      expect(screen.getByTitle('F11 禅模式')).toBeInTheDocument();
+      expect(screen.getByTitle('进入全屏禅写模式（F11）')).toBeInTheDocument();
       expect(screen.getByTitle('修订模式')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('输入任意指令…')).toBeInTheDocument();
     });
