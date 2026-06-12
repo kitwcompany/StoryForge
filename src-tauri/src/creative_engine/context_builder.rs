@@ -270,10 +270,7 @@ impl StoryContextBuilder {
             .map_err(|e| format!("获取角色失败: {}", e))
     }
 
-    fn fetch_all_scenes(
-        &self,
-        story_id: &str,
-    ) -> Result<Vec<crate::db::models::Scene>, String> {
+    fn fetch_all_scenes(&self, story_id: &str) -> Result<Vec<crate::db::models::Scene>, String> {
         let repo = SceneRepository::new(self.pool.clone());
         repo.get_by_story(story_id)
             .map_err(|e| format!("获取场景失败: {}", e))

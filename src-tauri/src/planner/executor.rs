@@ -2,7 +2,10 @@
 //!
 //! All intelligence is in the plan. This executor just follows instructions.
 
-use std::{collections::HashMap, sync::Arc, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -144,10 +147,9 @@ impl PlanExecutor {
         plan_context: &PlanContext,
     ) -> PlanExecutionResult {
         let mut messages = Vec::new();
-        let step_outputs = Arc::new(tokio::sync::Mutex::new(HashMap::<
-            String,
-            serde_json::Value,
-        >::new()));
+        let step_outputs = Arc::new(tokio::sync::Mutex::new(
+            HashMap::<String, serde_json::Value>::new(),
+        ));
         let mut steps_completed = 0;
         let mut final_content: Option<String> = None;
 
@@ -335,10 +337,10 @@ impl PlanExecutor {
 
                 match result {
                     Ok(output) => {
-                        step_outputs.lock().await.insert(
-                            step.step_id.clone(),
-                            output.clone(),
-                        );
+                        step_outputs
+                            .lock()
+                            .await
+                            .insert(step.step_id.clone(), output.clone());
                         messages.push(format!(
                             "Step {} completed: {}",
                             step.step_id, step.capability_id

@@ -245,11 +245,7 @@ pub async fn smart_execute(
                         counts.scenes = bundle.scenes.len();
                         counts.foreshadowings = bundle.foreshadowings.len();
                         // outline 映射到 plot_points
-                        counts.plot_points = if bundle.outline.is_some() {
-                            1
-                        } else {
-                            0
-                        };
+                        counts.plot_points = if bundle.outline.is_some() { 1 } else { 0 };
                         counts
                     } else {
                         crate::narrative::progress::ElementsCount::default()

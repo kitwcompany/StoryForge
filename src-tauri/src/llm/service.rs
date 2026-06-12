@@ -418,9 +418,8 @@ impl LlmService {
         let max_retries = 2u32;
 
         // 带超时与重试的生成循环
-        let mut result: Result<GenerateResponse, AppError> = Err(AppError::internal(
-            "Generation did not run".to_string(),
-        ));
+        let mut result: Result<GenerateResponse, AppError> =
+            Err(AppError::internal("Generation did not run".to_string()));
         for attempt in 0..=max_retries {
             let adapter = adapter.box_clone();
             let req = req.clone();
@@ -459,7 +458,11 @@ impl LlmService {
                     }
                     // 指数退避：500ms, 1000ms, 2000ms...
                     let backoff_ms = 500u64 * 2u64.pow(attempt);
-                    log::info!("[LLM] Retrying generation in {}ms (attempt {})", backoff_ms, attempt + 2);
+                    log::info!(
+                        "[LLM] Retrying generation in {}ms (attempt {})",
+                        backoff_ms,
+                        attempt + 2
+                    );
                     tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                 }
             }

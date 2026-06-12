@@ -220,10 +220,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 step_number: self.step_number(),
                 total_steps: 2,
                 status: StepStatus::Completed,
-                message: format!(
-                    "故事概念已生成：《{}",
-                    title
-                ),
+                message: format!("故事概念已生成：《{}", title),
                 progress_percent: 50,
                 elapsed_seconds: 0,
                 metadata: None,
@@ -259,10 +256,13 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
         Box::pin(async move {
             let meta = {
                 let bundle = ctx.bundle.read().await;
-                bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
-                    step_name: self.name().to_string(),
-                    reason: "故事概念未生成".to_string(),
-                })?
+                bundle
+                    .story_meta
+                    .clone()
+                    .ok_or_else(|| PipelineError::StepFailed {
+                        step_name: self.name().to_string(),
+                        reason: "故事概念未生成".to_string(),
+                    })?
             };
 
             progress(PipelineProgressEvent {
@@ -439,7 +439,6 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
 }
 
 // ==================== Step 3: 世界观/大纲/角色并行生成 ====================
-///
 /// 原后台阶段的世界观、大纲、角色三步互相独立（均只依赖故事概念），
 /// 合并为一个步骤后内部使用 tokio::join! 并行调用 LLM，减少整体等待时间。
 struct ParallelWorldOutlineCharacterStep;
@@ -465,10 +464,13 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
         Box::pin(async move {
             let meta = {
                 let bundle = ctx.bundle.read().await;
-                bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
-                    step_name: self.name().to_string(),
-                    reason: "故事概念未生成".to_string(),
-                })?
+                bundle
+                    .story_meta
+                    .clone()
+                    .ok_or_else(|| PipelineError::StepFailed {
+                        step_name: self.name().to_string(),
+                        reason: "故事概念未生成".to_string(),
+                    })?
             };
 
             progress(PipelineProgressEvent {
@@ -753,10 +755,11 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         #[serde(default)]
                         characters: Vec<CharacterElement>,
                     }
-                    let char_data: CharacterResponse = serde_json::from_str(&json_str).map_err(|e| {
-                        log::warn!("角色 JSON 解析失败: {}\n原始 JSON:\n{}", e, json_str);
-                        PipelineError::ParseError(format!("解析角色失败: {}", e))
-                    })?;
+                    let char_data: CharacterResponse =
+                        serde_json::from_str(&json_str).map_err(|e| {
+                            log::warn!("角色 JSON 解析失败: {}\n原始 JSON:\n{}", e, json_str);
+                            PipelineError::ParseError(format!("解析角色失败: {}", e))
+                        })?;
 
                     let repo = CharacterRepository::new(pool.clone());
                     let rel_repo = CharacterRelationshipRepository::new(pool.clone());
@@ -888,10 +891,13 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
         Box::pin(async move {
             let (meta, character_names) = {
                 let bundle = ctx.bundle.read().await;
-                let meta = bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
-                    step_name: self.name().to_string(),
-                    reason: "故事概念未生成".to_string(),
-                })?;
+                let meta = bundle
+                    .story_meta
+                    .clone()
+                    .ok_or_else(|| PipelineError::StepFailed {
+                        step_name: self.name().to_string(),
+                        reason: "故事概念未生成".to_string(),
+                    })?;
                 let character_names = bundle
                     .characters
                     .iter()
@@ -1067,10 +1073,13 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
         Box::pin(async move {
             let (meta, outline_summary, first_scene_id) = {
                 let bundle = ctx.bundle.read().await;
-                let meta = bundle.story_meta.clone().ok_or_else(|| PipelineError::StepFailed {
-                    step_name: self.name().to_string(),
-                    reason: "故事概念未生成".to_string(),
-                })?;
+                let meta = bundle
+                    .story_meta
+                    .clone()
+                    .ok_or_else(|| PipelineError::StepFailed {
+                        step_name: self.name().to_string(),
+                        reason: "故事概念未生成".to_string(),
+                    })?;
                 let outline_summary = bundle
                     .outline
                     .as_ref()
@@ -1135,7 +1144,11 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
             let mut generated = Vec::new();
 
             for (idx, fw) in fw_data.foreshadowings.into_iter().enumerate() {
-                let setup_scene = if idx == 0 { first_scene_id.as_deref() } else { None };
+                let setup_scene = if idx == 0 {
+                    first_scene_id.as_deref()
+                } else {
+                    None
+                };
                 let id = tracker
                     .add_foreshadowing(&ctx.story_id, &fw.content, setup_scene, fw.importance)
                     .map_err(|e| PipelineError::StorageError(e.to_string()))?;
