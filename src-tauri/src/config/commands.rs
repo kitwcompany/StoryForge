@@ -764,7 +764,11 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
         changed = true;
     }
 
-    log::info!("[delete_model] removed model {}, changed={}, saving...", id, changed);
+    log::info!(
+        "[delete_model] removed model {}, changed={}, saving...",
+        id,
+        changed
+    );
 
     // v0.11.2: 只要走到这里说明删除成功，必须保存配置，不再受 changed 条件限制
     config.save(&app_dir).map_err(AppError::from)?;

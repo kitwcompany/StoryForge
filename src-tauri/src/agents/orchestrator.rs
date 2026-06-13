@@ -914,9 +914,9 @@ impl AgentOrchestrator {
         task: &AgentTask,
         count: usize,
     ) -> Result<(AgentResult, String, String), AppError> {
-        // v0.11.2: 为整个候选阶段设置总超时，避免单次 120s 超时 × 重试 × 候选数 × fallback
-        // 叠加后让用户等待 500s 以上。总超时按"单个候选超时 × 候选数 + 60s 缓冲"计算，
-        // 且不低于 240s，确保正常生成也有足够时间。
+        // v0.11.2: 为整个候选阶段设置总超时，避免单次 120s 超时 × 重试 × 候选数 ×
+        // fallback 叠加后让用户等待 500s 以上。总超时按"单个候选超时 × 候选数 +
+        // 60s 缓冲"计算， 且不低于 240s，确保正常生成也有足够时间。
         let total_timeout_seconds = self
             .config
             .candidate_timeout_seconds
@@ -1056,7 +1056,11 @@ impl AgentOrchestrator {
                             "候选 {} / {} 生成失败：{}，继续下一个...",
                             i + 1,
                             count,
-                            result.as_ref().err().map(|e| e.to_string()).unwrap_or_default()
+                            result
+                                .as_ref()
+                                .err()
+                                .map(|e| e.to_string())
+                                .unwrap_or_default()
                         )),
                     );
                 }
@@ -1064,48 +1068,57 @@ impl AgentOrchestrator {
             }
             results
         } else {
-            futures::future::join_all(candidate_tasks.into_iter().enumerate().map(|(i, candidate_task)| {
-                let this = self;
-                let prepared = prepared.clone();
-                async move {
-                    this.emit_step_event(
-                        &task.id,
-                        WorkflowStepType::Generation,
-                        None,
-                        None,
-                        Some(&format!("生成候选 {} / {}", i + 1, count)),
-                    );
-                    let result = this.service.execute_writer_prepared(
-                        candidate_task,
-                        prepared,
-                        timeout_override,
-                        retries_override,
-                    ).await;
-                    if result.is_ok() {
+            futures::future::join_all(candidate_tasks.into_iter().enumerate().map(
+                |(i, candidate_task)| {
+                    let this = self;
+                    let prepared = prepared.clone();
+                    async move {
                         this.emit_step_event(
                             &task.id,
                             WorkflowStepType::Generation,
                             None,
                             None,
-                            Some(&format!("候选 {} / {} 生成完成", i + 1, count)),
+                            Some(&format!("生成候选 {} / {}", i + 1, count)),
                         );
-                    } else {
-                        this.emit_step_event(
-                            &task.id,
-                            WorkflowStepType::Generation,
-                            None,
-                            None,
-                            Some(&format!(
-                                "候选 {} / {} 生成失败：{}",
-                                i + 1,
-                                count,
-                                result.as_ref().err().map(|e| e.to_string()).unwrap_or_default()
-                            )),
-                        );
+                        let result = this
+                            .service
+                            .execute_writer_prepared(
+                                candidate_task,
+                                prepared,
+                                timeout_override,
+                                retries_override,
+                            )
+                            .await;
+                        if result.is_ok() {
+                            this.emit_step_event(
+                                &task.id,
+                                WorkflowStepType::Generation,
+                                None,
+                                None,
+                                Some(&format!("候选 {} / {} 生成完成", i + 1, count)),
+                            );
+                        } else {
+                            this.emit_step_event(
+                                &task.id,
+                                WorkflowStepType::Generation,
+                                None,
+                                None,
+                                Some(&format!(
+                                    "候选 {} / {} 生成失败：{}",
+                                    i + 1,
+                                    count,
+                                    result
+                                        .as_ref()
+                                        .err()
+                                        .map(|e| e.to_string())
+                                        .unwrap_or_default()
+                                )),
+                            );
+                        }
+                        result
                     }
-                    result
-                }
-            }))
+                },
+            ))
             .await
         };
 
