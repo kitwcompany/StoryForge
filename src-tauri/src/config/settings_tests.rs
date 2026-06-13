@@ -279,9 +279,23 @@ mod tests {
     fn test_get_active_llm_profile_fallback_to_default() {
         let mut config = AppConfig::default();
         config.active_llm_profile = None;
+        // v0.11.2: 默认占位模型 enabled=false，不应被用作活跃模型
+        let profile = config.get_active_llm_profile();
+        assert!(profile.is_none());
+    }
+
+    #[test]
+    fn test_get_active_llm_profile_returns_enabled_default() {
+        let mut config = AppConfig::default();
+        config.active_llm_profile = None;
+        // 手动启用默认模型，验证回退逻辑只返回 enabled 模型
+        config
+            .llm_profiles
+            .get_mut("Qwen3.5-27B-Uncensored-Q4_K_M")
+            .unwrap()
+            .enabled = true;
         let profile = config.get_active_llm_profile();
         assert!(profile.is_some());
-        // 默认配置是 Qwen3.5
         assert_eq!(profile.unwrap().id, "Qwen3.5-27B-Uncensored-Q4_K_M");
     }
 

@@ -1,11 +1,45 @@
-# StoryForge (草苔) v0.9.1 项目完成状态
+# StoryForge (草苔) v0.11.4 项目完成状态
 
-> 最后更新: 2026-06-10（v0.9.1 + 架构拆分 + 全面测试覆盖）
+> 最后更新: 2026-06-12（v0.11.4 + 智能创作超时根因根治）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.11.4 智能创作超时根因根治（2026-06-12）
+
+#### 模型层：任何指令都超时
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 活跃模型过滤 disabled | ✅ | `get_active_llm_profile` 只返回 enabled 模型，避免默认占位模型导致长超时 |
+| 生成入口 enabled 校验 | ✅ | `execute_generation` / `generate_stream` / `get_profile_by_id` 统一拒绝 disabled 模型 |
+| 配置变更热重载 | ✅ | `create/update/delete_model` 保存后调用 `LlmService::reload_config()` |
+| 流式首 chunk 动态超时 | ✅ | 按 profile 超时计算 30–120s，避免本地模型冷启动被误杀 |
+
+#### 后端准备阶段："系统正在处理中..."
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| AppConfig 全局缓存 | ✅ | 避免每次命令新建 `max_size=1` SQLite pool |
+| 同步 DB 操作 spawn_blocking 化 | ✅ | 覆盖 `build_writer_prompt`、`context_optimizer`、`context_builder`、`adaptive_generator`、`memory_orchestrator` |
+| 准备阶段 60s 整体超时 | ✅ | `prepare_writer_context` 与 `generate_plan` 外层套 timeout |
+
+#### 错误传递与前端状态
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| LlmTimeout 透传 | ✅ | `PlanExecutionResult` 新增 `error` 字段，底层错误直达前端 |
+| orchestrator 活动生命周期 | ✅ | 后端 emit completed/failed，前端正确结束活动 |
+| 取消按钮清理残留状态 | ✅ | `failAllRunning` + `cancelGenerationRef` 双保险 |
+
+#### 质量门禁
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `cargo check --lib` | ✅ | 通过 |
+| `cargo check --tests` | ✅ | 通过 |
+| `cargo test --lib` | ✅ | 333/333 通过 |
+| `npm run type-check` | ✅ | 通过 |
+
+---
 
 ### v0.9.1 架构拆分与全面测试覆盖（2026-06-10）
 

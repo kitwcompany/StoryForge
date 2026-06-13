@@ -283,10 +283,14 @@ impl LlmService {
         guard.get_active_llm_profile().cloned()
     }
 
-    /// 获取指定ID的LLM配置
+    /// 获取指定ID的LLM配置（仅返回 enabled 的模型）
     fn get_profile_by_id(&self, profile_id: &str) -> Option<LlmProfile> {
         let guard = self.config.lock().ok()?;
-        guard.llm_profiles.get(profile_id).cloned()
+        guard
+            .llm_profiles
+            .get(profile_id)
+            .filter(|p| p.enabled)
+            .cloned()
     }
 
     /// 根据路由请求选择最合适的 LLM 配置
@@ -654,14 +658,32 @@ impl LlmService {
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
     ) -> (String, Result<GenerateResponse, AppError>) {
+        if !profile.enabled {
+            let msg = format!("模型 {} 已被禁用，请在设置中启用或切换可用模型", profile.id);
+            log::warn!(
+                "[LLM] Refusing generation for disabled profile: {}",
+                profile.id
+            );
+            return (
+                request_id.unwrap_or_default(),
+                Err(AppError::validation_failed(msg, Some("model_disabled"))),
+            );
+        }
+
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
+        let effective_timeout =
+            timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
+        let effective_retries = max_retries_override.unwrap_or(2u32);
 
-        log::debug!(
-            "[LLM] Adapter selected: {:?} model={}",
+        log::info!(
+            target: "llm_metrics",
+            "[LLM] execute_generation start: model={}, provider={:?}, timeout_seconds={}, max_retries={}",
+            model_name,
             provider,
-            model_name
+            effective_timeout,
+            effective_retries
         );
         let adapter = match self.create_adapter(&profile) {
             Ok(a) => a,
@@ -1082,9 +1104,19 @@ impl LlmService {
     ) -> Result<(), AppError> {
         let start_time = std::time::Instant::now();
 
-        let profile = self
-            .get_active_profile()
-            .ok_or_else(|| AppError::internal("No active LLM profile configured"))?;
+        let profile = self.get_active_profile().ok_or_else(|| {
+            AppError::validation_failed(
+                "没有可用的活跃语言模型，请先在设置中启用模型",
+                Some("no_active_model"),
+            )
+        })?;
+
+        if !profile.enabled {
+            return Err(AppError::validation_failed(
+                format!("活跃模型 {} 已被禁用，请在设置中启用或切换", profile.id),
+                Some("model_disabled"),
+            ));
+        }
 
         // 构建增强提示词
         let enhanced_prompt = self.build_writing_prompt(&prompt, context.as_deref());
@@ -1109,11 +1141,16 @@ impl LlmService {
             presence_penalty: profile.presence_penalty,
         };
 
-        // 整体流式生成启动超时 30 秒（建立连接 + 收到第一个 chunk）
-        let mut rx = timeout(Duration::from_secs(30), adapter.generate_stream(request))
-            .await
-            .map_err(|_| AppError::llm_timeout(30_000))?
-            .map_err(|e| AppError::internal(format!("Stream setup failed: {}", e)))?;
+        // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile 超时动态计算，
+        // 最低 30 秒、最高 120 秒，避免硬编码 30 秒误杀本地大模型。
+        let startup_timeout_seconds = Self::effective_timeout_seconds(&profile).min(120).max(30);
+        let mut rx = timeout(
+            Duration::from_secs(startup_timeout_seconds),
+            adapter.generate_stream(request),
+        )
+        .await
+        .map_err(|_| AppError::llm_timeout(startup_timeout_seconds * 1000))?
+        .map_err(|e| AppError::internal(format!("Stream setup failed: {}", e)))?;
 
         let mut full_text = String::new();
         let mut is_first = true;

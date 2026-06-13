@@ -37,6 +37,7 @@ interface BackendActivityState {
   failActivity: (id: string, message: string) => void;
   removeActivity: (id: string) => void;
   clearCompleted: (olderThanMs?: number) => void;
+  failAllRunning: (message: string) => void;
 
   // 派生状态（getter）
   getPrimaryActivity: () => BackendActivity | null;
@@ -153,6 +154,22 @@ export const useBackendActivityStore = create<BackendActivityState>((set, get) =
     set(state => ({
       activities: state.activities.filter(a => a.status === 'running' || a.updatedAt > cutoff),
     }));
+  },
+
+  failAllRunning: (message: string) => {
+    set(state => ({
+      activities: state.activities.map(a =>
+        a.status === 'running'
+          ? { ...a, status: 'failed' as const, message, updatedAt: Date.now() }
+          : a
+      ),
+    }));
+    // 5 秒后自动清理失败活动
+    setTimeout(() => {
+      set(state => ({
+        activities: state.activities.filter(a => a.status !== 'failed'),
+      }));
+    }, 5000);
   },
 
   getPrimaryActivity: () => selectPrimary(get().activities),

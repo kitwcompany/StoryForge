@@ -553,6 +553,24 @@ pub fn create_model(
 
     app_config.save(&app_dir).map_err(AppError::from)?;
 
+    // v0.11.2: 刷新 LLM 服务内存配置，避免新增/修改模型后仍使用旧适配器或旧活跃模型
+    if let Some(service) = crate::llm::service::get_llm_service() {
+        service.reload_config();
+        log::info!(
+            "[create_model] reloaded LLM service config for {}",
+            model_id
+        );
+    }
+
+    // 通知 frontstage 刷新模型列表
+    let _ = crate::window::WindowManager::send_to_frontstage(
+        &app_handle,
+        crate::window::FrontstageEvent::DataRefresh {
+            entity: "model_config".to_string(),
+        },
+    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "model_config");
+
     Ok(serde_json::json!({
         "id": model_id,
         "name": model_name,
@@ -674,6 +692,22 @@ pub fn update_model(
     }
 
     app_config.save(&app_dir).map_err(AppError::from)?;
+
+    // v0.11.2: 刷新 LLM 服务内存配置，确保 api_base/api_key 等变更立即生效
+    if let Some(service) = crate::llm::service::get_llm_service() {
+        service.reload_config();
+        log::info!("[update_model] reloaded LLM service config for {}", id);
+    }
+
+    // 通知 frontstage 刷新模型列表
+    let _ = crate::window::WindowManager::send_to_frontstage(
+        &app_handle,
+        crate::window::FrontstageEvent::DataRefresh {
+            entity: "model_config".to_string(),
+        },
+    );
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "model_config");
+
     Ok(())
 }
 
@@ -772,6 +806,15 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
 
     // v0.11.2: 只要走到这里说明删除成功，必须保存配置，不再受 changed 条件限制
     config.save(&app_dir).map_err(AppError::from)?;
+
+    // v0.11.2: 删除模型后立即刷新 LLM 服务内存配置，避免后续生成仍使用已删除模型
+    if let Some(service) = crate::llm::service::get_llm_service() {
+        service.reload_config();
+        log::info!(
+            "[delete_model] reloaded LLM service config after removing {}",
+            id
+        );
+    }
 
     // v0.11.2: 通知 frontstage 刷新模型状态，保持多窗口/多组件数据一致
     let _ = crate::window::WindowManager::send_to_frontstage(

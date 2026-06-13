@@ -219,13 +219,23 @@ impl StoryContextBuilder {
         }
 
         // v0.9.3: 并行获取互相独立的上下文数据，减少构建时间
-        let (story, characters, all_scenes, world_rules, style, relevant_entities) = tokio::try_join!(
+        // personalizer_extension 仅依赖 story_id，可与其他查询并行
+        let (
+            story,
+            characters,
+            all_scenes,
+            world_rules,
+            style,
+            relevant_entities,
+            personalizer_extension,
+        ) = tokio::try_join!(
             self.fetch_story_async(story_id),
             self.fetch_characters_async(story_id),
             self.fetch_all_scenes_async(story_id),
             self.fetch_world_rules_async(story_id),
             self.fetch_writing_style_async(story_id),
             self.fetch_relevant_entities_async(story_id, 10),
+            self.compute_personalizer_extension_async(story_id),
         )?;
 
         // 从 all_scenes 推导依赖数据
@@ -306,56 +316,24 @@ impl StoryContextBuilder {
         let world_rules_text = Self::format_world_rules(&world_rules);
         let scene_structure_text =
             Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
-        let outline_context_text = self.build_outline_context(story_id, current_scene.as_ref());
-        let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
 
-        // v0.9.3: 预计算风格 DNA 扩展与个性化扩展，候选间共享，避免每个候选重复查库
-        let style_dna_extension = self.compute_style_dna_extension(story_id, &style_blend);
-        let personalizer_extension = self.compute_personalizer_extension(story_id);
+        // v0.9.3: 风格混合、大纲上下文、叙事结构、活跃线索互相独立，并行构建
+        let (style_blend, outline_context_text, narrative_structure, active_threads) = tokio::try_join!(
+            self.fetch_style_blend_async(story_id, scene_number, current_scene.clone()),
+            self.build_outline_context_async(story_id, current_scene.clone()),
+            self.build_narrative_structure_context_async(story_id, scene_number),
+            self.fetch_active_threads_async(story_id),
+        )?;
 
-        // v0.9.3: MemoryPack、叙事结构、活跃线索互相独立，并行构建
-        let story_id_owned = story_id.to_string();
-        let scene_number_owned = scene_number;
-        let current_scene_owned = current_scene.clone();
-        let previous_chapters_owned = previous_chapters.clone();
-        let pool = self.pool.clone();
-        let (memory_pack, narrative_structure, active_threads) = tokio::try_join!(
-            async move {
-                let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(pool);
-                match orchestrator.build_memory_pack(
-                    &story_id_owned,
-                    scene_number_owned.map(|n| n.max(0) as i32).unwrap_or(1),
-                    "write",
-                    current_scene_owned
-                        .as_ref()
-                        .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
-                ) {
-                    Ok(mut pack) => {
-                        // 将 previous_chapters 吸收进 working_memory
-                        for chapter in &previous_chapters_owned {
-                            pack.working_memory
-                                .push(crate::memory::orchestrator::MemoryEntry {
-                                    layer: "working".to_string(),
-                                    source: "previous_chapter".to_string(),
-                                    chapter: chapter.number as i32,
-                                    content: serde_json::json!({
-                                        "title": chapter.title,
-                                        "summary": chapter.summary
-                                    }),
-                                });
-                        }
-                        Ok(Some(pack))
-                    }
-                    Err(e) => {
-                        log::warn!("[StoryContextBuilder] 记忆包构建失败: {}, 继续无记忆包", e);
-                        Ok(None)
-                    }
-                }
-            },
-            async move {
-                Ok::<_, AppError>(self.build_narrative_structure_context(story_id, scene_number))
-            },
-            async move { Ok::<_, AppError>(self.fetch_active_threads(story_id)) },
+        // v0.9.3: 预计算风格 DNA 扩展（依赖 style_blend）与 MemoryPack 互相独立，并行构建
+        let (style_dna_extension, memory_pack) = tokio::try_join!(
+            self.compute_style_dna_extension_async(story_id, &style_blend),
+            self.build_memory_pack_async(
+                story_id,
+                scene_number,
+                current_scene.clone(),
+                previous_chapters.clone(),
+            ),
         )?;
 
         let context = AgentContext {
@@ -626,6 +604,129 @@ impl StoryContextBuilder {
         .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
     }
 
+    // v0.9.3: 异步包装，用于隔离同步 DB 查询/格式化操作
+    async fn fetch_style_blend_async(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_scene: Option<crate::db::models::Scene>,
+    ) -> Result<Option<crate::creative_engine::style::blend::StyleBlendConfig>, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let builder = Self::new(pool);
+            Ok::<_, AppError>(builder.fetch_style_blend(
+                &story_id,
+                scene_number,
+                current_scene.as_ref(),
+            ))
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
+    async fn compute_style_dna_extension_async(
+        &self,
+        story_id: &str,
+        style_blend: &Option<crate::creative_engine::style::blend::StyleBlendConfig>,
+    ) -> Result<Option<String>, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        let style_blend = style_blend.clone();
+        tokio::task::spawn_blocking(move || {
+            let builder = Self::new(pool);
+            Ok::<_, AppError>(builder.compute_style_dna_extension(&story_id, &style_blend))
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
+    async fn build_outline_context_async(
+        &self,
+        story_id: &str,
+        current_scene: Option<crate::db::models::Scene>,
+    ) -> Result<Option<String>, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let builder = Self::new(pool);
+            Ok::<_, AppError>(builder.build_outline_context(&story_id, current_scene.as_ref()))
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
+    async fn build_narrative_structure_context_async(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+    ) -> Result<NarrativeStructureContext, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let builder = Self::new(pool);
+            Ok::<_, AppError>(builder.build_narrative_structure_context(&story_id, scene_number))
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
+    async fn fetch_active_threads_async(&self, story_id: &str) -> Result<Vec<String>, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let builder = Self::new(pool);
+            Ok::<_, AppError>(builder.fetch_active_threads(&story_id))
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
+    async fn build_memory_pack_async(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_scene: Option<crate::db::models::Scene>,
+        previous_chapters: Vec<ChapterSummary>,
+    ) -> Result<Option<crate::memory::orchestrator::MemoryPack>, AppError> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let orchestrator = crate::memory::orchestrator::MemoryOrchestrator::new(pool);
+            match orchestrator.build_memory_pack(
+                &story_id,
+                scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
+                "write",
+                current_scene
+                    .as_ref()
+                    .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
+            ) {
+                Ok(mut pack) => {
+                    // 将 previous_chapters 吸收进 working_memory
+                    for chapter in &previous_chapters {
+                        pack.working_memory
+                            .push(crate::memory::orchestrator::MemoryEntry {
+                                layer: "working".to_string(),
+                                source: "previous_chapter".to_string(),
+                                chapter: chapter.number as i32,
+                                content: serde_json::json!({
+                                    "title": chapter.title,
+                                    "summary": chapter.summary
+                                }),
+                            });
+                    }
+                    Ok(Some(pack))
+                }
+                Err(e) => {
+                    log::warn!("[StoryContextBuilder] 记忆包构建失败: {}, 继续无记忆包", e);
+                    Ok(None)
+                }
+            }
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("上下文任务执行失败: {}", e)))?
+    }
+
     fn fetch_relevant_entities(
         &self,
         story_id: &str,
@@ -750,19 +851,22 @@ impl StoryContextBuilder {
     }
 
     /// v0.9.3: 预计算个性化偏好扩展，供候选间共享
-    fn compute_personalizer_extension(&self, story_id: &str) -> Option<String> {
+    async fn compute_personalizer_extension_async(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<String>, AppError> {
         use crate::creative_engine::adaptive::PromptPersonalizer;
 
         let personalizer = PromptPersonalizer::new(self.pool.clone());
-        match personalizer.build_prompt_extension(story_id) {
-            Ok(ext) if !ext.is_empty() => Some(ext),
-            Ok(_) => None,
+        match personalizer.build_prompt_extension(story_id).await {
+            Ok(ext) if !ext.is_empty() => Ok(Some(ext)),
+            Ok(_) => Ok(None),
             Err(e) => {
                 log::warn!(
                     "[StoryContextBuilder] 个性化扩展构建失败: {}, 继续无个性化扩展",
                     e
                 );
-                None
+                Ok(None)
             }
         }
     }

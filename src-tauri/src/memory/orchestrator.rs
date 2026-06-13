@@ -235,6 +235,32 @@ impl MemoryOrchestrator {
         })
     }
 
+    /// 构建记忆包（异步版本，避免在 async 运行时中阻塞 tokio worker 线程）
+    pub async fn build_memory_pack_async(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+        task_type: &str,
+        outline: Option<&str>,
+    ) -> Result<MemoryPack, String> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        let task_type = task_type.to_string();
+        let outline = outline.map(|s| s.to_string());
+
+        tokio::task::spawn_blocking(move || {
+            let orchestrator = MemoryOrchestrator::new(pool);
+            orchestrator.build_memory_pack(
+                &story_id,
+                chapter_number,
+                &task_type,
+                outline.as_deref(),
+            )
+        })
+        .await
+        .map_err(|e| format!("memory pack task failed: {}", e))?
+    }
+
     fn build_working_memory(
         &self,
         story_id: &str,

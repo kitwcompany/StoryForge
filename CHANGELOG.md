@@ -2,6 +2,75 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.4] - 智能创作超时根因根治（2026-06-12）
+
+### 修复：任何指令都陷入"系统正在处理中..."超时
+
+- **活跃模型只返回 enabled 模型**：`src-tauri/src/config/settings.rs`
+  - `get_active_llm_profile` 过滤 `enabled=false` 的占位模型
+  - 默认 disabled 占位模型不再被自动选中，避免向 `localhost:11434` 空等 300s
+- **生成入口强制校验 enabled**：`src-tauri/src/llm/service.rs`
+  - `execute_generation` / `generate_stream` / `generate_with_request_id` / `get_profile_by_id` 统一拒绝 disabled 模型
+  - 立即返回 `VALIDATION_FAILED` 并提示用户启用或切换模型
+- **配置变更后自动刷新 LLM 服务**：`src-tauri/src/config/commands.rs`
+  - `create_model` / `update_model` / `delete_model` 保存后调用 `LlmService::reload_config()`
+  - 删除/禁用模型后立即生效，不再依赖重启
+
+### 修复：后端准备阶段阻塞 tokio worker
+
+- **全局缓存 `AppConfig`**：`src-tauri/src/config/settings.rs`
+  - 避免每次命令都新建 `max_size=1` 的 SQLite pool
+  - 5 秒 TTL，save() 主动刷新，显著降低 SQLite 锁竞争
+- **同步 DB 操作隔离到 `spawn_blocking`**：
+  - `src-tauri/src/agents/service.rs::build_writer_prompt`
+  - `src-tauri/src/agents/context_optimizer.rs`（L0/L1/L2/完整上下文）
+  - `src-tauri/src/creative_engine/context_builder.rs`
+  - `src-tauri/src/creative_engine/adaptive/generator.rs`
+  - `src-tauri/src/memory/orchestrator.rs`
+- **关键准备阶段加整体 60s 超时**：
+  - `src-tauri/src/agents/service.rs::prepare_writer_context`
+  - `src-tauri/src/planner/mod.rs::generate_plan`
+  - 卡住时快速失败，不再让前端显示"系统正在处理中..."
+
+### 修复：超时错误被包装成普通内部错误
+
+- **透传 `LlmTimeout`**：`src-tauri/src/planner/executor.rs`、`src-tauri/src/commands/orchestrator.rs`
+  - `PlanExecutionResult` 新增 `error: Option<AppError>` 字段
+  - 底层 `LLM_TIMEOUT` 直接返回前端，可触发"检查模型"恢复动作
+- **GenesisPipeline 错误正确转换**：`src-tauri/src/commands/orchestrator.rs`
+  - `PipelineError::LlmError(timeout)` 映射为 `AppError::LlmTimeout`
+  - `PipelineError::Cancelled` 映射为 `AppError::Cancellation`
+
+### 修复：取消后状态栏仍显示"系统正在处理中"
+
+- **orchestrator 活动生命周期**：`src-tauri/src/agents/orchestrator.rs`
+  - 编排结束/失败时 emit `orchestrator-step` with `status: completed/failed`
+- **前端正确结束活动**：`src-frontend/src/hooks/useBackendActivityListener.ts`
+  - 收到 completed/failed 时结束 orchestrator 后台活动
+- **取消按钮清理残留活动**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - `handleCancelGeneration` 调用 `backendActivityStore.failAllRunning('用户已取消')`
+  - 补齐 `handleRequestGeneration` 的 `cancelGenerationRef` 设置
+- **新增 `failAllRunning` API**：`src-frontend/src/stores/backendActivityStore.ts`
+
+### 体验优化
+
+- **流式首 chunk 超时动态化**：`src-tauri/src/llm/service.rs::generate_stream`
+  - 按 `profile.timeout_seconds` 计算，范围 30–120s
+  - 本地模型冷启动不再被硬编码 30s 误杀
+- **关键路径结构化日志**：`src-tauri/src/llm/service.rs`、`src-tauri/src/agents/service.rs`
+  - `execute_generation` 入口记录 model/provider/timeout/max_retries
+  - `generate_for_agent_with_options` 记录 agent/story_id/prompt_len/max_tokens
+  - `prepare_writer_context` 记录入口/出口耗时
+
+### 验证
+
+- `cargo check --lib` ✅
+- `cargo check --tests` ✅
+- `cargo test --lib` ✅ 333 passed, 0 failed
+- `npm run type-check` ✅
+
+---
+
 ## [v0.11.3] - 模型状态光晕与设为当前模型同步（2026-06-13）
 
 ### 新增：底部模型状态绿点心跳光晕

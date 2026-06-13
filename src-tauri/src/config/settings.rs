@@ -1,7 +1,14 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::RwLock,
+    time::{Duration, Instant},
+};
 
 // W4-B3: SQLite-backed config storage
+use once_cell::sync::Lazy;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
@@ -758,6 +765,21 @@ impl Default for AppConfig {
     }
 }
 
+/// AppConfig 内存缓存项，避免每次 `AppConfig::load` 都新建 SQLite pool。
+struct AppConfigCacheEntry {
+    config_dir: PathBuf,
+    config: AppConfig,
+    loaded_at: Instant,
+}
+
+/// 全局 AppConfig 缓存。`save()` 会主动刷新；`load()` 在 TTL 内直接返回克隆。
+static APP_CONFIG_CACHE: Lazy<RwLock<Option<AppConfigCacheEntry>>> =
+    Lazy::new(|| RwLock::new(None));
+
+/// 缓存有效期。生产环境命令密集，5 秒足够抵消反复 load 的开销，又不会因为
+/// 外部修改（如多窗口）长期不一致。
+const APP_CONFIG_CACHE_TTL: Duration = Duration::from_secs(5);
+
 impl AppConfig {
     /// 打开配置数据库（内部 helper）
     fn open_config_db(
@@ -843,6 +865,20 @@ impl AppConfig {
     }
 
     pub fn load(config_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        // 0. 优先使用内存缓存，避免每次 load 都新建 max_size=1 的 SQLite pool
+        {
+            if let Ok(cache) = APP_CONFIG_CACHE.read() {
+                if let Some(entry) = cache.as_ref() {
+                    if entry.config_dir == config_dir
+                        && entry.loaded_at.elapsed() < APP_CONFIG_CACHE_TTL
+                    {
+                        log::debug!("[AppConfig] Returning cached config");
+                        return Ok(entry.config.clone());
+                    }
+                }
+            }
+        }
+
         // W4-B3: 优先从 SQLite 加载；如不存在则从 config.json 回退并自动迁移
         let mut config = match Self::load_from_db(config_dir)? {
             Some(cfg) => cfg,
@@ -1063,6 +1099,15 @@ impl AppConfig {
             let _ = config.save(config_dir);
         }
 
+        // 写入缓存，后续命令直接读取克隆，避免反复访问 SQLite
+        if let Ok(mut cache) = APP_CONFIG_CACHE.write() {
+            *cache = Some(AppConfigCacheEntry {
+                config_dir: config_dir.to_path_buf(),
+                config: config.clone(),
+                loaded_at: Instant::now(),
+            });
+        }
+
         Ok(config)
     }
 
@@ -1107,19 +1152,29 @@ impl AppConfig {
     }
 
     /// 获取当前活跃的LLM配置
+    ///
+    /// 只返回 `enabled=true` 的模型。若用户显式指定的活跃模型被禁用，或默认模型
+    /// 被禁用，均不回退到禁用模型，避免生成请求陷入长超时。
     pub fn get_active_llm_profile(&self) -> Option<&LlmProfile> {
-        self.active_llm_profile
+        let explicit = self
+            .active_llm_profile
             .as_ref()
             .and_then(|id| self.llm_profiles.get(id))
-            .or_else(|| self.llm_profiles.values().find(|p| p.is_default))
+            .filter(|p| p.enabled);
+        explicit.or_else(|| {
+            self.llm_profiles
+                .values()
+                .find(|p| p.is_default && p.enabled)
+        })
     }
 
     /// 获取当前活跃的嵌入模型配置
     pub fn get_active_embedding_profile(&self) -> Option<&EmbeddingProfile> {
-        self.active_embedding_profile
+        let explicit = self
+            .active_embedding_profile
             .as_ref()
-            .and_then(|id| self.embedding_profiles.get(id))
-            .or_else(|| self.embedding_profiles.values().find(|p| p.is_default))
+            .and_then(|id| self.embedding_profiles.get(id));
+        explicit.or_else(|| self.embedding_profiles.values().find(|p| p.is_default))
     }
 
     /// 设置活跃的LLM配置

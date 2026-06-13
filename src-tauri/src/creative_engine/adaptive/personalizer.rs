@@ -21,12 +21,19 @@ impl PromptPersonalizer {
     }
 
     /// 为故事构建个性化提示词扩展
-    pub fn build_prompt_extension(&self, story_id: &str) -> Result<String, AppError> {
+    pub async fn build_prompt_extension(&self, story_id: &str) -> Result<String, AppError> {
         let mut parts = Vec::new();
 
-        // 1. 获取用户偏好
-        let pref_repo = UserPreferenceRepository::new(self.pool.clone());
-        let prefs = pref_repo.get_by_story(story_id).map_err(AppError::from)?;
+        // 1. 获取用户偏好（隔离到阻塞线程池，避免卡住 tokio worker）
+        let pool = self.pool.clone();
+        let story_id_owned = story_id.to_string();
+        let prefs = tokio::task::spawn_blocking(move || {
+            let pref_repo = UserPreferenceRepository::new(pool);
+            pref_repo.get_by_story(&story_id_owned)
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("Preference load panicked: {}", e)))?
+        .map_err(AppError::from)?;
 
         // 2. 过滤高置信度偏好
         let high_confidence: Vec<_> = prefs.into_iter().filter(|p| p.confidence >= 0.6).collect();
@@ -105,7 +112,7 @@ impl PromptPersonalizer {
 
         // 5. 添加生成策略调整
         let generator = AdaptiveGenerator::new(self.pool.clone());
-        if let Ok(strategy) = generator.build_strategy(story_id, None) {
+        if let Ok(strategy) = generator.build_strategy(&story_id, None).await {
             let strategy_prompt = AdaptiveGenerator::strategy_to_prompt(&strategy);
             if !strategy_prompt.is_empty() {
                 parts.push(strategy_prompt);

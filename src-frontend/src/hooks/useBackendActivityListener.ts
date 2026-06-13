@@ -113,8 +113,20 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         loop_idx?: number;
         score?: number;
         detail?: string;
+        status?: string;
       }>('orchestrator-step', event => {
         const p = event.payload;
+        // v0.11.2: 后端 emits 完成/失败状态事件，status 为 completed/failed 时结束活动
+        if (p.status === 'completed' || p.status === 'failed') {
+          updatePrimary({
+            category: 'orchestrator',
+            stage: p.step_type,
+            message: p.detail || p.step_type,
+            progress: p.status === 'completed' ? 1 : 0,
+            status: p.status,
+          });
+          return;
+        }
         // v0.9.4: 后端实际发射的是中文 step_type（生成 / 质检 / 改写）
         const stepNames: Record<string, string> = {
           生成: 'AI 生成中...',

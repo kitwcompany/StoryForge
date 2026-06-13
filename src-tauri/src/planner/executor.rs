@@ -25,6 +25,9 @@ pub struct PlanExecutionResult {
     pub steps_completed: usize,
     pub final_content: Option<String>,
     pub messages: Vec<String>,
+    /// 若计划执行过程中产生可恢复的结构化错误（如 LLM_TIMEOUT），透传给前端。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<AppError>,
 }
 
 pub struct PlanExecutor {
@@ -153,6 +156,7 @@ impl PlanExecutor {
         ));
         let mut steps_completed = 0;
         let mut final_content: Option<String> = None;
+        let mut first_error: Option<AppError> = None;
 
         log::info!("[PlanExecutor] Understanding: {}", plan.understanding);
         log::info!("[PlanExecutor] Executing {} steps", plan.steps.len());
@@ -353,6 +357,9 @@ impl PlanExecutor {
                     }
                     Err(e) => {
                         messages.push(format!("Step {} failed: {}", step.step_id, e));
+                        if first_error.is_none() {
+                            first_error = Some(e.clone());
+                        }
                     }
                 }
             }
@@ -432,6 +439,7 @@ impl PlanExecutor {
             steps_completed,
             final_content,
             messages,
+            error: first_error,
         }
     }
 
@@ -764,8 +772,7 @@ impl PlanExecutor {
 
         let workflow_result = orchestrator
             .generate(task, crate::agents::orchestrator::GenerationMode::Full)
-            .await
-            .map_err(|e| AppError::internal(format!("AgentOrchestrator failed: {}", e)))?;
+            .await?;
         Ok(serde_json::json!({
             "content": workflow_result.final_content,
             "score": Some(workflow_result.final_score as f64),

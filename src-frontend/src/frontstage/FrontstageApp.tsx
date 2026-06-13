@@ -1241,6 +1241,9 @@ const FrontstageApp: React.FC = () => {
           );
         }, 600000);
       });
+      cancelGenerationRef.current = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
 
       try {
         const result = await Promise.race([
@@ -1465,6 +1468,8 @@ const FrontstageApp: React.FC = () => {
       cancelGenerationRef.current();
       cancelGenerationRef.current = null;
     }
+    // v0.11.2: 清理所有残留的后台活动，避免取消后状态栏仍显示"系统正在处理中"
+    useBackendActivityStore.getState().failAllRunning('用户已取消');
     // v5.4.0: 如果有 session_id，调用后端取消 GenesisPipeline
     if (sessionIdRef.current) {
       try {

@@ -190,6 +190,19 @@ impl AgentOrchestrator {
         let _ = self.app_handle.emit("orchestrator-step", event);
     }
 
+    /// 发射工作流整体完成/失败事件，让前端 backendActivityStore 结束 orchestrator 活动。
+    fn emit_step_status_event(&self, task_id: &str, status: &str, message: &str) {
+        let _ = self.app_handle.emit(
+            "orchestrator-step",
+            serde_json::json!({
+                "task_id": task_id,
+                "step_type": "完成",
+                "status": status,
+                "detail": message,
+            }),
+        );
+    }
+
     /// 统一生成入口 — 根据 GenerationMode 选择执行路径
     ///
     /// - Fast: 单轮 Writer 生成，跳过质检，最低延迟
@@ -312,6 +325,12 @@ impl AgentOrchestrator {
                     });
                 }
             }
+        }
+
+        // v0.11.2: 发出完成/失败状态事件，让前端 backendActivityStore 正确结束活动
+        match &result {
+            Ok(_) => self.emit_step_status_event(&task.id, "completed", "创作完成"),
+            Err(e) => self.emit_step_status_event(&task.id, "failed", &e.to_string()),
         }
 
         result

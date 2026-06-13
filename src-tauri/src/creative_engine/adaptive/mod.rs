@@ -66,14 +66,17 @@ impl AdaptiveLearningEngine {
     }
 
     /// 获取个性化生成策略
-    pub fn get_generation_strategy(&self, story_id: &str) -> Result<GenerationStrategy, AppError> {
+    pub async fn get_generation_strategy(
+        &self,
+        story_id: &str,
+    ) -> Result<GenerationStrategy, AppError> {
         let generator = AdaptiveGenerator::new(self.pool.clone());
-        generator.build_strategy(story_id, None)
+        generator.build_strategy(story_id, None).await
     }
 
     /// 构建个性化提示词扩展
-    pub fn build_personalized_prompt(&self, story_id: &str) -> Result<String, AppError> {
+    pub async fn build_personalized_prompt(&self, story_id: &str) -> Result<String, AppError> {
         let personalizer = PromptPersonalizer::new(self.pool.clone());
-        personalizer.build_prompt_extension(story_id)
+        personalizer.build_prompt_extension(story_id).await
     }
 }

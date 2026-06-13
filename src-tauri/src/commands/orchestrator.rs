@@ -287,6 +287,7 @@ pub async fn smart_execute(
                         format!("session_id:{}", session_id),
                         "novel_bootstrap_background_started".to_string(),
                     ],
+                    error: None,
                 });
             }
             Err(e) => {
@@ -294,7 +295,20 @@ pub async fn smart_execute(
                     "[smart_execute] GenesisPipeline concept generation failed: {}",
                     e
                 );
-                return Err(AppError::internal(format!("小说初始化失败: {}", e)));
+                // 将 PipelineError 转换为 AppError，保留 LLM 超时语义
+                let app_err = match e {
+                    crate::narrative::pipeline::PipelineError::LlmError(ref msg)
+                        if msg.to_lowercase().contains("timeout")
+                            || msg.to_lowercase().contains("timed out") =>
+                    {
+                        AppError::llm_timeout(300_000)
+                    }
+                    crate::narrative::pipeline::PipelineError::Cancelled(msg) => {
+                        AppError::cancelled(msg)
+                    }
+                    _ => AppError::internal(format!("小说初始化失败: {}", e)),
+                };
+                return Err(app_err);
             }
         }
     }
@@ -602,6 +616,10 @@ pub async fn smart_execute(
         .map(|s| s.trim().is_empty())
         .unwrap_or(true);
     if !result.success || is_empty_content {
+        // 优先透传底层错误（如 LLM_TIMEOUT），让前端能展示"检查模型"等恢复动作
+        if let Some(ref err) = result.error {
+            return Err(err.clone());
+        }
         let error_msg = if result
             .messages
             .iter()

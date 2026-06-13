@@ -304,11 +304,11 @@ impl ContextOptimizer {
     // ==================== L0 构建 ====================
 
     /// 构建 L0 静态元数据上下文
-    pub fn build_l0(&self, story_id: &str) -> Result<L0Context, String> {
-        let story = self.fetch_story(story_id)?;
-        let style = self.fetch_writing_style(story_id).ok().flatten();
+    pub async fn build_l0(&self, story_id: &str) -> Result<L0Context, String> {
+        let story = self.fetch_story(story_id).await?;
+        let style = self.fetch_writing_style(story_id).await.ok().flatten();
 
-        let style_blend = self.fetch_style_blend(story_id);
+        let style_blend = self.fetch_style_blend(story_id).await;
 
         Ok(L0Context {
             story_title: story.title,
@@ -337,15 +337,22 @@ impl ContextOptimizer {
         let chapter_number_i32 = chapter_number as i32;
 
         // 并行获取数据
-        let blueprint = self.fetch_blueprint_summary(story_id, chapter_number_i32);
-        let character_cards = self.fetch_character_cards(story_id);
-        let recent_chapters = self.fetch_recent_chapters(story_id, chapter_number);
-        let world_rules = self.fetch_world_rules_text(story_id);
-        let scene_structure = self.fetch_scene_structure_text(story_id, chapter_number_i32);
-        let recent_draft = self.fetch_recent_draft(story_id, chapter_number_i32);
+        let (
+            blueprint,
+            character_cards,
+            recent_chapters,
+            world_rules,
+            scene_structure,
+            recent_draft,
+        ) = tokio::join!(
+            self.fetch_blueprint_summary(story_id, chapter_number_i32),
+            self.fetch_character_cards(story_id),
+            self.fetch_recent_chapters(story_id, chapter_number),
+            self.fetch_world_rules_text(story_id),
+            self.fetch_scene_structure_text(story_id, chapter_number_i32),
+            self.fetch_recent_draft(story_id, chapter_number_i32),
+        );
 
-        // 由于目前都是同步的数据库操作，按顺序执行
-        // 如果后续有异步IO，可以改为 futures::join!
         Ok(L1Context {
             blueprint,
             character_cards: character_cards.unwrap_or_default(),
@@ -413,8 +420,13 @@ impl ContextOptimizer {
         selected_text: Option<String>,
         l2_tools: Vec<L2Tool>,
     ) -> Result<AgentContext, String> {
-        let l0 = self.build_l0(story_id)?;
-        let l1 = self.build_l1(story_id, chapter_number).await?;
+        // 并行构建 L0 / L1
+        let (l0, l1) = tokio::join!(
+            self.build_l0(story_id),
+            self.build_l1(story_id, chapter_number),
+        );
+        let l0 = l0?;
+        let l1 = l1?;
 
         // 执行 L2 工具
         let mut l2_results = Vec::new();
@@ -431,7 +443,10 @@ impl ContextOptimizer {
         let memory_pack = {
             let orchestrator =
                 crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
-            match orchestrator.build_memory_pack(story_id, chapter_number as i32, "write", None) {
+            match orchestrator
+                .build_memory_pack_async(story_id, chapter_number as i32, "write", None)
+                .await
+            {
                 Ok(mut pack) => {
                     // 将前文摘要吸收进 working_memory
                     for chapter in &l1.recent_chapters {
@@ -565,23 +580,35 @@ impl ContextOptimizer {
 
     // ==================== 数据获取方法 ====================
 
-    fn fetch_story(&self, story_id: &str) -> Result<crate::db::Story, String> {
-        let repo = StoryRepository::new(self.pool.clone());
-        repo.get_by_id(story_id)
-            .map_err(|e| format!("获取故事失败: {}", e))?
-            .ok_or_else(|| "故事不存在".to_string())
+    async fn fetch_story(&self, story_id: &str) -> Result<crate::db::Story, String> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = StoryRepository::new(pool);
+            repo.get_by_id(&story_id)
+                .map_err(|e| format!("获取故事失败: {}", e))?
+                .ok_or_else(|| "故事不存在".to_string())
+        })
+        .await
+        .map_err(|e| format!("获取故事任务失败: {}", e))?
     }
 
-    fn fetch_writing_style(
+    async fn fetch_writing_style(
         &self,
         story_id: &str,
     ) -> Result<Option<crate::db::models::WritingStyle>, String> {
-        let repo = WritingStyleRepository::new(self.pool.clone());
-        repo.get_by_story(story_id)
-            .map_err(|e| format!("获取文风失败: {}", e))
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = WritingStyleRepository::new(pool);
+            repo.get_by_story(&story_id)
+                .map_err(|e| format!("获取文风失败: {}", e))
+        })
+        .await
+        .map_err(|e| format!("获取文风任务失败: {}", e))?
     }
 
-    fn fetch_style_blend(
+    async fn fetch_style_blend(
         &self,
         story_id: &str,
     ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
@@ -590,213 +617,263 @@ impl ContextOptimizer {
             db::repositories::StoryStyleConfigRepository,
         };
 
-        let repo = StoryStyleConfigRepository::new(self.pool.clone());
-        if let Ok(Some(config)) = repo.get_active_by_story(story_id) {
-            if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(&config.blend_json) {
-                return Some(blend);
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = StoryStyleConfigRepository::new(pool);
+            if let Ok(Some(config)) = repo.get_active_by_story(&story_id) {
+                if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(&config.blend_json) {
+                    return Some(blend);
+                }
             }
-        }
-        None
+            None
+        })
+        .await
+        .ok()?
     }
 
-    fn fetch_blueprint_summary(
+    async fn fetch_blueprint_summary(
         &self,
         story_id: &str,
         chapter_number: i32,
     ) -> Option<BlueprintSummary> {
-        let repo = BlueprintRepository::new(self.pool.clone());
-        match repo.get_by_chapter(story_id, chapter_number) {
-            Ok(Some(bp)) => {
-                let key_events: Vec<String> = bp
-                    .key_events
-                    .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
-                    .unwrap_or_default();
-                let characters: Vec<String> = bp
-                    .characters
-                    .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
-                    .unwrap_or_default();
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = BlueprintRepository::new(pool);
+            match repo.get_by_chapter(&story_id, chapter_number) {
+                Ok(Some(bp)) => {
+                    let key_events: Vec<String> = bp
+                        .key_events
+                        .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+                        .unwrap_or_default();
+                    let characters: Vec<String> = bp
+                        .characters
+                        .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+                        .unwrap_or_default();
 
-                Some(BlueprintSummary {
-                    chapter_number: bp.chapter_number,
-                    title: bp.title,
-                    role: bp.role,
-                    purpose: bp.purpose,
-                    key_events,
-                    characters,
-                    suspense_hook: bp.suspense_hook,
-                    user_guidance: bp.user_guidance,
-                    notes: bp.notes,
-                })
-            }
-            _ => None,
-        }
-    }
-
-    fn fetch_character_cards(&self, story_id: &str) -> Result<Vec<CharacterCard>, String> {
-        let repo = CharacterRepository::new(self.pool.clone());
-        let characters = repo
-            .get_by_story(story_id)
-            .map_err(|e| format!("获取角色失败: {}", e))?;
-
-        Ok(characters
-            .into_iter()
-            .map(|c| {
-                let role = c
-                    .background
-                    .clone()
-                    .unwrap_or_else(|| "主要角色".to_string());
-                let personality = match (c.personality.as_ref(), c.goals.as_ref()) {
-                    (Some(p), Some(g)) => format!("{}；目标：{}", p, g),
-                    (Some(p), None) => p.clone(),
-                    (None, Some(g)) => format!("目标：{}", g),
-                    (None, None) => "性格未定".to_string(),
-                };
-
-                CharacterCard {
-                    name: c.name,
-                    personality,
-                    role,
-                    appearance: c.appearance,
-                    gender: c.gender,
-                    age: c.age,
-                    location: c.cs_location,
-                    power_level: c.cs_power_level,
-                    physical_state: c.cs_physical_state,
-                    mental_state: c.cs_mental_state,
-                    key_items: c.cs_key_items,
-                    recent_events: c.cs_recent_events,
-                    updated_at_chapter: c.cs_updated_at_chapter,
+                    Some(BlueprintSummary {
+                        chapter_number: bp.chapter_number,
+                        title: bp.title,
+                        role: bp.role,
+                        purpose: bp.purpose,
+                        key_events,
+                        characters,
+                        suspense_hook: bp.suspense_hook,
+                        user_guidance: bp.user_guidance,
+                        notes: bp.notes,
+                    })
                 }
-            })
-            .collect())
+                _ => None,
+            }
+        })
+        .await
+        .ok()?
     }
 
-    fn fetch_recent_chapters(
+    async fn fetch_character_cards(&self, story_id: &str) -> Result<Vec<CharacterCard>, String> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = CharacterRepository::new(pool);
+            let characters = repo
+                .get_by_story(&story_id)
+                .map_err(|e| format!("获取角色失败: {}", e))?;
+
+            Ok(characters
+                .into_iter()
+                .map(|c| {
+                    let role = c
+                        .background
+                        .clone()
+                        .unwrap_or_else(|| "主要角色".to_string());
+                    let personality = match (c.personality.as_ref(), c.goals.as_ref()) {
+                        (Some(p), Some(g)) => format!("{}；目标：{}", p, g),
+                        (Some(p), None) => p.clone(),
+                        (None, Some(g)) => format!("目标：{}", g),
+                        (None, None) => "性格未定".to_string(),
+                    };
+
+                    CharacterCard {
+                        name: c.name,
+                        personality,
+                        role,
+                        appearance: c.appearance,
+                        gender: c.gender,
+                        age: c.age,
+                        location: c.cs_location,
+                        power_level: c.cs_power_level,
+                        physical_state: c.cs_physical_state,
+                        mental_state: c.cs_mental_state,
+                        key_items: c.cs_key_items,
+                        recent_events: c.cs_recent_events,
+                        updated_at_chapter: c.cs_updated_at_chapter,
+                    }
+                })
+                .collect())
+        })
+        .await
+        .map_err(|e| format!("获取角色任务失败: {}", e))?
+    }
+
+    async fn fetch_recent_chapters(
         &self,
         story_id: &str,
         current_chapter: u32,
     ) -> Result<Vec<ChapterSummary>, String> {
-        let repo = SceneRepository::new(self.pool.clone());
-        let all_scenes = repo
-            .get_by_story(story_id)
-            .map_err(|e| format!("获取场景失败: {}", e))?;
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = SceneRepository::new(pool);
+            let all_scenes = repo
+                .get_by_story(&story_id)
+                .map_err(|e| format!("获取场景失败: {}", e))?;
 
-        let mut prev: Vec<_> = all_scenes
-            .into_iter()
-            .filter(|s| s.sequence_number < current_chapter as i32)
-            .collect();
-        prev.sort_by_key(|s| s.sequence_number);
+            let mut prev: Vec<_> = all_scenes
+                .into_iter()
+                .filter(|s| s.sequence_number < current_chapter as i32)
+                .collect();
+            prev.sort_by_key(|s| s.sequence_number);
 
-        // 只保留最近 3 个场景（比之前减少，节省 token）
-        if prev.len() > 3 {
-            prev = prev.into_iter().rev().take(3).rev().collect();
-        }
+            // 只保留最近 3 个场景（比之前减少，节省 token）
+            if prev.len() > 3 {
+                prev = prev.into_iter().rev().take(3).rev().collect();
+            }
 
-        Ok(prev
-            .into_iter()
-            .map(|s| {
-                let summary = s
-                    .content
-                    .clone()
-                    .or(s.dramatic_goal.clone())
-                    .unwrap_or_else(|| "无内容".to_string());
-                let preview = if summary.chars().count() > 150 {
-                    format!("{}...", summary.chars().take(150).collect::<String>())
-                } else {
-                    summary
-                };
-                ChapterSummary {
-                    title: s
-                        .title
-                        .unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
-                    number: s.sequence_number.max(0) as u32,
-                    summary: preview,
-                }
-            })
-            .collect())
+            Ok(prev
+                .into_iter()
+                .map(|s| {
+                    let summary = s
+                        .content
+                        .clone()
+                        .or(s.dramatic_goal.clone())
+                        .unwrap_or_else(|| "无内容".to_string());
+                    let preview = if summary.chars().count() > 150 {
+                        format!("{}...", summary.chars().take(150).collect::<String>())
+                    } else {
+                        summary
+                    };
+                    ChapterSummary {
+                        title: s
+                            .title
+                            .unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
+                        number: s.sequence_number.max(0) as u32,
+                        summary: preview,
+                    }
+                })
+                .collect())
+        })
+        .await
+        .map_err(|e| format!("获取场景任务失败: {}", e))?
     }
 
-    fn fetch_world_rules_text(&self, story_id: &str) -> Option<String> {
-        let wb_repo = WorldBuildingRepository::new(self.pool.clone());
-        let world_building = match wb_repo.get_by_story(story_id) {
-            Ok(Some(wb)) => wb,
-            _ => return None,
-        };
+    async fn fetch_world_rules_text(&self, story_id: &str) -> Option<String> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let wb_repo = WorldBuildingRepository::new(pool);
+            let world_building = match wb_repo.get_by_story(&story_id) {
+                Ok(Some(wb)) => wb,
+                _ => return None,
+            };
 
-        let rules: Vec<String> = world_building
-            .rules
-            .into_iter()
-            .take(5)
-            .map(|r| {
-                format!(
-                    "- {}（{}）: {}",
-                    r.name,
-                    r.rule_type,
-                    r.description.unwrap_or_default()
-                )
-            })
-            .collect();
+            let rules: Vec<String> = world_building
+                .rules
+                .into_iter()
+                .take(5)
+                .map(|r| {
+                    format!(
+                        "- {}（{}）: {}",
+                        r.name,
+                        r.rule_type,
+                        r.description.unwrap_or_default()
+                    )
+                })
+                .collect();
 
-        if rules.is_empty() {
-            None
-        } else {
-            Some(rules.join("\n"))
-        }
+            if rules.is_empty() {
+                None
+            } else {
+                Some(rules.join("\n"))
+            }
+        })
+        .await
+        .ok()?
     }
 
-    fn fetch_scene_structure_text(&self, story_id: &str, scene_number: i32) -> Option<String> {
-        let repo = SceneRepository::new(self.pool.clone());
-        let scenes = match repo.get_by_story(story_id) {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
+    async fn fetch_scene_structure_text(
+        &self,
+        story_id: &str,
+        scene_number: i32,
+    ) -> Option<String> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = SceneRepository::new(pool);
+            let scenes = match repo.get_by_story(&story_id) {
+                Ok(s) => s,
+                Err(_) => return None,
+            };
 
-        let scene = scenes
-            .into_iter()
-            .find(|s| s.sequence_number == scene_number)?;
+            let scene = scenes
+                .into_iter()
+                .find(|s| s.sequence_number == scene_number)?;
 
-        let mut parts = Vec::new();
-        if let Some(ref goal) = scene.dramatic_goal {
-            parts.push(format!("戏剧目标: {}", goal));
-        }
-        if let Some(ref pressure) = scene.external_pressure {
-            parts.push(format!("外部压迫: {}", pressure));
-        }
-        if let Some(ref ct) = scene.conflict_type {
-            parts.push(format!("冲突类型: {}", ct));
-        }
-        if let Some(ref loc) = scene.setting_location {
-            parts.push(format!("地点: {}", loc));
-        }
-        if let Some(ref time) = scene.setting_time {
-            parts.push(format!("时间: {}", time));
-        }
-        if !scene.characters_present.is_empty() {
-            parts.push(format!("出场角色: {}", scene.characters_present.join(", ")));
-        }
+            let mut parts = Vec::new();
+            if let Some(ref goal) = scene.dramatic_goal {
+                parts.push(format!("戏剧目标: {}", goal));
+            }
+            if let Some(ref pressure) = scene.external_pressure {
+                parts.push(format!("外部压迫: {}", pressure));
+            }
+            if let Some(ref ct) = scene.conflict_type {
+                parts.push(format!("冲突类型: {}", ct));
+            }
+            if let Some(ref loc) = scene.setting_location {
+                parts.push(format!("地点: {}", loc));
+            }
+            if let Some(ref time) = scene.setting_time {
+                parts.push(format!("时间: {}", time));
+            }
+            if !scene.characters_present.is_empty() {
+                parts.push(format!("出场角色: {}", scene.characters_present.join(", ")));
+            }
 
-        if parts.is_empty() {
-            None
-        } else {
-            Some(parts.join("\n"))
-        }
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("\n"))
+            }
+        })
+        .await
+        .ok()?
     }
 
-    fn fetch_recent_draft(&self, story_id: &str, chapter_number: i32) -> Option<DraftSummary> {
-        let repo = DraftRepository::new(self.pool.clone());
-        match repo.get_by_story_chapter(story_id, chapter_number) {
-            Ok(drafts) => drafts.into_iter().max_by_key(|d| d.version).map(|d| {
-                let preview = d.content.chars().take(100).collect::<String>();
-                DraftSummary {
-                    draft_id: d.id,
-                    version: d.version,
-                    status: d.status.to_string(),
-                    word_count: d.word_count,
-                    content_preview: preview,
-                }
-            }),
-            Err(_) => None,
-        }
+    async fn fetch_recent_draft(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Option<DraftSummary> {
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let repo = DraftRepository::new(pool);
+            match repo.get_by_story_chapter(&story_id, chapter_number) {
+                Ok(drafts) => drafts.into_iter().max_by_key(|d| d.version).map(|d| {
+                    let preview = d.content.chars().take(100).collect::<String>();
+                    DraftSummary {
+                        draft_id: d.id,
+                        version: d.version,
+                        status: d.status.to_string(),
+                        word_count: d.word_count,
+                        content_preview: preview,
+                    }
+                }),
+                Err(_) => None,
+            }
+        })
+        .await
+        .ok()?
     }
 
     // ==================== L2 工具实现 ====================

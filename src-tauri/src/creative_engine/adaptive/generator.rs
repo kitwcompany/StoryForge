@@ -63,12 +63,13 @@ impl AdaptiveGenerator {
     /// 为故事构建生成策略
     ///
     /// `base_temperature`: 用户模型配置中的 temperature，作为策略基础值
-    pub fn build_strategy(
+    pub async fn build_strategy(
         &self,
         story_id: &str,
         base_temperature: Option<f32>,
     ) -> Result<GenerationStrategy, AppError> {
         self.build_strategy_with_context(story_id, base_temperature, None, None)
+            .await
     }
 
     /// Phase 5: 带上下文感知的生成策略构建
@@ -76,7 +77,7 @@ impl AdaptiveGenerator {
     /// `story_progress`: 故事整体进度
     /// (just_started/developing/midpoint/climax/resolution) `scene_stage`:
     /// 当前场景执行阶段 (planning/outline/drafting/review/final)
-    pub fn build_strategy_with_context(
+    pub async fn build_strategy_with_context(
         &self,
         story_id: &str,
         base_temperature: Option<f32>,
@@ -89,8 +90,14 @@ impl AdaptiveGenerator {
             strategy.temperature = base.clamp(0.0, 2.0);
         }
 
-        let pref_repo = UserPreferenceRepository::new(self.pool.clone());
-        let prefs = pref_repo.get_by_story(story_id).map_err(AppError::from)?;
+        let pool = self.pool.clone();
+        let story_id = story_id.to_string();
+        let prefs = tokio::task::spawn_blocking(move || {
+            let pref_repo = UserPreferenceRepository::new(pool);
+            pref_repo.get_by_story(&story_id).map_err(AppError::from)
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("策略任务执行失败: {}", e)))??;
 
         for pref in &prefs {
             if pref.confidence < 0.6 {

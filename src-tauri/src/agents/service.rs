@@ -602,6 +602,15 @@ impl AgentService {
         };
         let agent_type = task.agent_type;
 
+        log::info!(
+            "[AgentService] generate_for_agent_with_options: agent={:?}, story_id={}, prompt_len={}, max_tokens={:?}, temperature={:?}",
+            agent_type,
+            task.context.story.story_id,
+            prompt.chars().count(),
+            effective_max,
+            temperature
+        );
+
         // 发送准备调用LLM事件
         self.emit_event(
             &task.id,
@@ -730,10 +739,45 @@ impl AgentService {
 
     /// 预准备 Writer 上下文：执行预检、自动补齐、构建 prompt 与生成策略。
     /// 多个候选可共享同一份预准备结果，避免重复 LLM 调用与重复构建。
+    ///
+    /// 外层套 60 秒整体超时：若 SQLite 锁竞争或某同步步骤仍阻塞，超时后返回明确错误，
+    /// 避免前端长期显示"系统正在处理中..."。
     pub async fn prepare_writer_context(
         &self,
         task: &AgentTask,
     ) -> Result<WriterPreparedContext, AppError> {
+        let start = std::time::Instant::now();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.prepare_writer_context_inner(task),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                log::error!(
+                    "[AgentService] prepare_writer_context timed out after {}ms for story {}",
+                    start.elapsed().as_millis(),
+                    task.context.story.story_id
+                );
+                Err(AppError::internal(
+                    "写作上下文准备超时（60秒），请检查数据库或模型配置后重试".to_string(),
+                ))
+            }
+        }
+    }
+
+    async fn prepare_writer_context_inner(
+        &self,
+        task: &AgentTask,
+    ) -> Result<WriterPreparedContext, AppError> {
+        let start = std::time::Instant::now();
+        log::info!(
+            "[AgentService] prepare_writer_context start: story_id={}, chapter_number={}, agent_task_id={}",
+            task.context.story.story_id,
+            task.context.narrative.chapter_number,
+            task.id
+        );
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let checker = crate::story_system::preflight::PreflightChecker::new();
         let preflight = checker
@@ -916,12 +960,15 @@ impl AgentService {
                 "正在计算生成策略...",
                 0.285,
             );
-            match generator.build_strategy_with_context(
-                &task.context.story.story_id,
-                Some(user_temperature),
-                story_progress,
-                scene_stage,
-            ) {
+            match generator
+                .build_strategy_with_context(
+                    &task.context.story.story_id,
+                    Some(user_temperature),
+                    story_progress,
+                    scene_stage,
+                )
+                .await
+            {
                 Ok(strategy) => {
                     log::info!(
                         "[AgentService] Adaptive strategy for story {}: progress={:?}, \
@@ -961,6 +1008,13 @@ impl AgentService {
                 }
             }
         };
+
+        log::info!(
+            "[AgentService] prepare_writer_context end: story_id={}, elapsed_ms={}, prompt_len={}",
+            task.context.story.story_id,
+            start.elapsed().as_millis(),
+            prompt.chars().count()
+        );
 
         Ok(WriterPreparedContext {
             prompt,
@@ -1501,14 +1555,26 @@ impl AgentService {
         };
 
         emit_and_yield("正在读取写作策略配置...", 0.15);
-        let strategy = {
-            let app_dir = self
-                .app_handle
-                .path()
-                .app_data_dir()
-                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-            AppConfig::load(&app_dir).ok().map(|c| c.writing_strategy)
-        };
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        let strategy = tokio::task::spawn_blocking(move || match AppConfig::load(&app_dir) {
+            Ok(c) => Some(c.writing_strategy),
+            Err(e) => {
+                log::warn!("[build_writer_prompt] Failed to load app config: {}", e);
+                None
+            }
+        })
+        .await
+        .unwrap_or_else(|e| {
+            log::warn!(
+                "[build_writer_prompt] App config blocking task failed: {}",
+                e
+            );
+            None
+        });
         tokio::task::yield_now().await;
 
         emit_and_yield("正在准备模板变量...", 0.155);
@@ -1651,9 +1717,29 @@ impl AgentService {
         // v0.10.0: 注入体裁画像专家策略（所有版本）
         emit_and_yield("正在加载体裁画像策略...", 0.168);
         if let Some(ref genre_profile_id) = ctx.story.genre_profile_id {
-            let pool = self.app_handle.state::<crate::db::DbPool>();
-            let repo = crate::db::GenreProfileRepository::new(pool.inner().clone());
-            if let Ok(Some(profile)) = repo.get_by_id(genre_profile_id) {
+            let pool = self.app_handle.state::<crate::db::DbPool>().inner().clone();
+            let genre_profile_id = genre_profile_id.clone();
+            let profile = match tokio::task::spawn_blocking(move || {
+                let repo = crate::db::GenreProfileRepository::new(pool);
+                repo.get_by_id(&genre_profile_id)
+            })
+            .await
+            {
+                Ok(Ok(p)) => p,
+                Ok(Err(e)) => {
+                    log::warn!("[build_writer_prompt] Failed to load genre profile: {}", e);
+                    None
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[build_writer_prompt] Genre profile blocking task panicked: {}",
+                        e
+                    );
+                    None
+                }
+            };
+
+            if let Some(profile) = profile {
                 let mut lines = vec![format!(
                     "你正在创作的是 '{}'（{}）题材。请严格遵循以下体裁专家策略：",
                     profile.genre_name, profile.canonical_name
@@ -1721,23 +1807,57 @@ impl AgentService {
                 system_prompt.push_str("\n\n");
                 system_prompt.push_str(extension);
             } else if let Some(ref blend) = ctx.style.style_blend {
-                use tauri::Manager;
+                use futures::future::join_all;
 
                 use crate::{
                     creative_engine::style::dna::StyleDNA,
                     db::{repositories::StyleDnaRepository, DbPool},
                 };
 
-                let pool = self.app_handle.state::<DbPool>();
-                let dna_repo = StyleDnaRepository::new(pool.inner().clone());
-                let mut dnas = Vec::new();
-                for comp in &blend.components {
-                    if let Ok(Some(db_dna)) = dna_repo.get_by_id(&comp.dna_id) {
-                        if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                            dnas.push(dna);
+                let pool = self.app_handle.state::<DbPool>().inner().clone();
+                let dna_futures = blend.components.iter().map(|comp| {
+                    let pool = pool.clone();
+                    let dna_id = comp.dna_id.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let repo = StyleDnaRepository::new(pool);
+                        match repo.get_by_id(&dna_id) {
+                            Ok(Some(db_dna)) => {
+                                match serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                                    Ok(dna) => Some(dna),
+                                    Err(e) => {
+                                        log::warn!(
+                                            "[build_writer_prompt] Failed to parse style DNA {}: {}",
+                                            dna_id, e
+                                        );
+                                        None
+                                    }
+                                }
+                            }
+                            Ok(None) => None,
+                            Err(e) => {
+                                log::warn!(
+                                    "[build_writer_prompt] Failed to load style DNA {}: {}",
+                                    dna_id, e
+                                );
+                                None
+                            }
                         }
-                    }
-                }
+                    })
+                });
+                let dnas: Vec<_> = join_all(dna_futures)
+                    .await
+                    .into_iter()
+                    .filter_map(|res| match res {
+                        Ok(dna) => dna,
+                        Err(e) => {
+                            log::warn!(
+                                "[build_writer_prompt] Style DNA blocking task failed: {}",
+                                e
+                            );
+                            None
+                        }
+                    })
+                    .collect();
                 if !dnas.is_empty() {
                     let extension = blend.to_prompt_extension(&dnas);
                     if !extension.is_empty() {
@@ -1746,22 +1866,57 @@ impl AgentService {
                     }
                 }
             } else if let Some(ref style_id) = ctx.style.style_dna_id {
-                use tauri::Manager;
-
                 use crate::{
                     creative_engine::style::dna::StyleDNA,
                     db::{repositories::StyleDnaRepository, DbPool},
                 };
 
-                let pool = self.app_handle.state::<DbPool>();
-                let repo = StyleDnaRepository::new(pool.inner().clone());
-                if let Ok(Some(db_dna)) = repo.get_by_id(style_id) {
-                    if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                        let extension = dna.to_prompt_extension();
-                        if !extension.is_empty() {
-                            system_prompt.push_str("\n\n");
-                            system_prompt.push_str(&extension);
+                let pool = self.app_handle.state::<DbPool>().inner().clone();
+                let style_id = style_id.clone();
+                let dna = match tokio::task::spawn_blocking(move || {
+                    let repo = StyleDnaRepository::new(pool);
+                    match repo.get_by_id(&style_id) {
+                        Ok(Some(db_dna)) => {
+                            match serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                                Ok(dna) => Some(dna),
+                                Err(e) => {
+                                    log::warn!(
+                                        "[build_writer_prompt] Failed to parse style DNA {}: {}",
+                                        style_id,
+                                        e
+                                    );
+                                    None
+                                }
+                            }
                         }
+                        Ok(None) => None,
+                        Err(e) => {
+                            log::warn!(
+                                "[build_writer_prompt] Failed to load style DNA {}: {}",
+                                style_id,
+                                e
+                            );
+                            None
+                        }
+                    }
+                })
+                .await
+                {
+                    Ok(dna) => dna,
+                    Err(e) => {
+                        log::warn!(
+                            "[build_writer_prompt] Style DNA blocking task failed: {}",
+                            e
+                        );
+                        None
+                    }
+                };
+
+                if let Some(dna) = dna {
+                    let extension = dna.to_prompt_extension();
+                    if !extension.is_empty() {
+                        system_prompt.push_str("\n\n");
+                        system_prompt.push_str(&extension);
                     }
                 }
             }
@@ -1818,13 +1973,25 @@ impl AgentService {
                 system_prompt.push_str("\n\n");
                 system_prompt.push_str(extension);
             } else {
-                use tauri::Manager;
-
                 use crate::{creative_engine::adaptive::PromptPersonalizer, db::DbPool};
 
-                let pool = self.app_handle.state::<DbPool>();
-                let personalizer = PromptPersonalizer::new(pool.inner().clone());
-                if let Ok(extension) = personalizer.build_prompt_extension(&ctx.story.story_id) {
+                let pool = self.app_handle.state::<DbPool>().inner().clone();
+                let story_id = ctx.story.story_id.clone();
+                let extension = match PromptPersonalizer::new(pool)
+                    .build_prompt_extension(&story_id)
+                    .await
+                {
+                    Ok(ext) => Some(ext),
+                    Err(e) => {
+                        log::warn!(
+                            "[build_writer_prompt] Failed to build personalizer extension: {}",
+                            e
+                        );
+                        None
+                    }
+                };
+
+                if let Some(extension) = extension {
                     if !extension.is_empty() {
                         system_prompt.push_str("\n\n");
                         system_prompt.push_str(&extension);

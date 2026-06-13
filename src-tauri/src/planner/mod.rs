@@ -124,7 +124,31 @@ impl PlanGenerator {
     }
 
     /// 根据用户输入和系统状态生成执行计划
+    ///
+    /// 外层套 60 秒整体超时：计划生成只应消耗几百 tokens，若卡住可快速失败，
+    /// 避免前端"系统正在处理中..."长期不消失。
     pub async fn generate_plan(&self, context: &PlanContext) -> Result<ExecutionPlan, AppError> {
+        let start = std::time::Instant::now();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.generate_plan_inner(context),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                log::error!(
+                    "[PlanGenerator] generate_plan timed out after {}ms",
+                    start.elapsed().as_millis()
+                );
+                Err(AppError::internal(
+                    "执行计划生成超时（60秒），请检查模型配置后重试".to_string(),
+                ))
+            }
+        }
+    }
+
+    async fn generate_plan_inner(&self, context: &PlanContext) -> Result<ExecutionPlan, AppError> {
         self.emit_progress("context", "正在分析故事上下文...");
         let registry_context = get_capability_registry().to_llm_context();
 
