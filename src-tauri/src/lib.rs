@@ -64,7 +64,7 @@ use db::{init_db, DbPool};
 use once_cell::sync::{Lazy, OnceCell};
 use serde::Deserialize;
 use skills::SkillManager;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
@@ -493,44 +493,12 @@ fn init_windows(app: &mut tauri::App) {
 }
 
 /// 启动后台任务：能力进化自动触发
-fn spawn_background_tasks(app_handle: tauri::AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        let llm = llm::LlmService::new(app_handle.clone());
-        let engine = capabilities::evolution::CapabilityEvolutionEngine::new(llm, &app_handle);
-        let stats = engine.get_statistics();
-        let total_records: usize = stats.values().map(|(t, _)| t).sum();
-        if total_records >= 5 {
-            log::info!(
-                "[CapabilityEvolution] Auto-triggering evolution with {} total records",
-                total_records
-            );
-            match engine.evolve_capability_descriptions().await {
-                Ok(improvements) => {
-                    log::info!(
-                        "[CapabilityEvolution] Auto-evolution completed with {} improvements",
-                        improvements.len()
-                    );
-                    let _ = app_handle.emit(
-                        "capabilities-evolved",
-                        serde_json::json!({
-                            "improvements": improvements,
-                            "auto_triggered": true,
-                            "timestamp": chrono::Utc::now().to_rfc3339(),
-                        }),
-                    );
-                }
-                Err(e) => {
-                    log::warn!("[CapabilityEvolution] Auto-evolution failed: {}", e)
-                }
-            }
-        } else {
-            log::info!(
-                "[CapabilityEvolution] Not enough records ({}) to trigger auto-evolution",
-                total_records
-            );
-        }
-    });
+///
+/// v0.11.5-hotfix: 默认禁用启动时自动触发能力进化。早期实现会在启动 30s 后
+/// 无条件调用 LLM 分析所有能力执行记录，若模型未配置或响应慢，会让应用在
+/// 用户未输入任何指令的情况下卡住 500s 以上。
+fn spawn_background_tasks(_app_handle: tauri::AppHandle) {
+    log::info!("[BackgroundTasks] Auto capability evolution disabled by default");
 }
 
 pub fn run() {

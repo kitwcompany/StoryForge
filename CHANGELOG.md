@@ -2,6 +2,28 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.6] - 紧急修复：启动时 capability_evolution 后台挂起 + 版本号遗漏（2026-06-13）
+
+### 修复：应用启动后未输入任何指令就进入后台进程并卡顿 500s
+
+- **禁用启动时自动能力进化**：`src-tauri/src/lib.rs`
+  - `spawn_background_tasks` 原会在启动 30s 后无条件调用 LLM 分析所有能力执行记录，若模型未启用或响应慢，会导致应用在用户未输入任何指令时卡住 500s 以上
+  - v0.11.6 默认禁用该自动任务，改为空实现并记录日志
+- **禁用计划执行后自动能力进化**：`src-tauri/src/planner/executor.rs`
+  - 每次 `smart_execute` / 计划执行完成后也会异步触发能力进化，v0.11.6 移除该自动触发
+- **禁用每 5 条记录自动触发能力进化**：`src-tauri/src/capabilities/evolution.rs`
+  - `record_execution` 不再每累计 5 条记录就发起后台 LLM 调用
+- **能力进化手动触发增加 60s 超时保护**：`src-tauri/src/capabilities/evolution.rs`
+  - 保留 `evolve_capabilities` 手动命令，但单次 LLM 分析最多等待 60s，超时则跳过该能力
+
+### 修复：构建产物版本号仍显示 0.11.3
+
+- **统一版本号为 0.11.6**：
+  - `src-tauri/Cargo.toml`
+  - `src-tauri/tauri.conf.json`（Tauri 构建产物版本来源）
+  - `src-frontend/package.json`
+  - `README.md` 版本徽章与最新动态
+
 ## [v0.11.5] - 智能创作候选阶段卡顿与进度显示修复（2026-06-12）
 
 ### 修复：候选生成阶段长时间卡顿 / 500s 无进展

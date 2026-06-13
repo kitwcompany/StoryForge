@@ -12,6 +12,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+use tokio::time::timeout;
 
 use crate::{llm::LlmService, router::TaskType};
 
@@ -139,27 +140,8 @@ impl CapabilityEvolutionEngine {
             record.success
         );
         self.store.append(record);
-        let total_records = self.store.len();
-        if total_records > 0 && total_records % 5 == 0 {
-            let engine = self.clone();
-            tauri::async_runtime::spawn(async move {
-                match engine.evolve_capability_descriptions().await {
-                    Ok(improvements) if !improvements.is_empty() => {
-                        log::info!(
-                            "[CapabilityEvolution] Periodic evolution triggered ({} records), {} \
-                             descriptions improved",
-                            total_records,
-                            improvements.len()
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::warn!("[CapabilityEvolution] Periodic evolution failed: {}", e);
-                    }
-                }
-            });
-        }
-
+        // v0.11.5-hotfix: 禁用每 5 条记录自动触发能力进化，避免在用户无感知时
+        // 发起后台 LLM 调用导致界面长时间卡顿。能力进化改为仅手动触发。
         Ok(())
     }
 
@@ -262,28 +244,38 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
                 record_summary
             );
 
-            match self
-                .llm_service
-                .generate_for_task(
+            // v0.11.5-hotfix: 单次能力进化分析最多等待 60s，避免无响应模型拖垮整个流程
+            let evolution_timeout = std::time::Duration::from_secs(60);
+            let evolution_result = timeout(
+                evolution_timeout,
+                self.llm_service.generate_for_task(
                     TaskType::Analysis,
                     prompt,
                     Some(256),
                     Some(0.3),
                     Some("capability_evolution"),
-                )
-                .await
-            {
-                Ok(response) => {
+                ),
+            )
+            .await;
+
+            match evolution_result {
+                Ok(Ok(response)) => {
                     let improved = response.content.trim().to_string();
                     if !improved.is_empty() && improved.len() > 20 {
                         improvements.push((capability_id, improved));
                     }
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     log::warn!(
                         "[CapabilityEvolution] LLM analysis failed for {}: {}",
                         capability_id,
                         e
+                    );
+                }
+                Err(_) => {
+                    log::warn!(
+                        "[CapabilityEvolution] LLM analysis timed out after 60s for {}",
+                        capability_id
                     );
                 }
             }

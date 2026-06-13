@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.11.3-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.11.6-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.11.3 优化模型连接状态视觉反馈与跨窗口模型切换同步。底部输入框左侧的模型状态绿点在连接正常时新增心跳式光晕动画；修复设置页「设为当前模型」后提示成功但幕前/幕后仍显示旧模型的问题，通过 sync-event 广播、frontstage DataRefresh 处理、LLM 服务配置热重载确保新模型立即生效。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。`cargo test` 332/332 通过，`vitest` 116 passed。
+**最新动态**：v0.11.6 紧急修复 v0.11.5 引入的启动即进入 `capability_evolution` 后台进程并长时间挂起的问题，同时修复构建产物版本号仍显示 0.11.3 的遗漏。v0.11.5 的候选阶段并行、超时、取消、进度显示等修复已包含在 0.11.6 中。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
 ---
 

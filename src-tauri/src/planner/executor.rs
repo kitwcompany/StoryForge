@@ -417,22 +417,8 @@ impl PlanExecutor {
             },
         );
 
-        // 异步触发能力进化反馈环（后台执行，不阻塞返回）
-        let evolution_engine = self.evolution_engine.clone();
-        tauri::async_runtime::spawn(async move {
-            match evolution_engine.evolve_capability_descriptions().await {
-                Ok(improvements) if !improvements.is_empty() => {
-                    log::info!(
-                        "[PlanExecutor] Capability evolution triggered, {} descriptions improved",
-                        improvements.len()
-                    );
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::warn!("[PlanExecutor] Capability evolution failed: {}", e);
-                }
-            }
-        });
+        // v0.11.5-hotfix: 禁用计划执行后自动触发能力进化，避免每次创作完成后
+        // 在后台发起长时间 LLM 调用。能力进化改为通过 `evolve_capabilities` 手动触发。
 
         PlanExecutionResult {
             success,
