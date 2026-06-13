@@ -33,7 +33,6 @@ import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useSubscription } from '@/hooks/useSubscription';
 import { createLogger } from '@/utils/logger';
-import toast from 'react-hot-toast';
 
 const rtEditorLogger = createLogger('ui:frontstage:RichTextEditor');
 import { smartExecute, formatText } from '@/services/tauri';
@@ -68,6 +67,8 @@ interface RichTextEditorProps {
   onSlashCommand?: (commandId: string) => void;
   /** 智能文思 Ghost Text 建议 */
   smartGhostText?: string;
+  /** 统一状态提示回调（替代黑色 toast） */
+  onShowStatus?: (message: string) => void;
   /** 内联修改建议 */
   inlineSuggestion?: {
     instruction: string;
@@ -130,6 +131,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onSmartGeneration,
       onSlashCommand,
       smartGhostText,
+      onShowStatus,
       inlineSuggestion,
       onClearInlineSuggestion,
       subscription,
@@ -527,7 +529,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         } catch (err) {
           rtEditorLogger.error('Inline suggestion generation failed', { error: err });
           const msg = err instanceof Error ? err.message : String(err);
-          toast.error(`文思生成失败：${msg}`);
+          onShowStatus?.(`文思生成失败：${msg}`);
         } finally {
           setIsAiThinking(false);
           onClearInlineSuggestion?.();
@@ -542,18 +544,18 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       if (!editor || isAiThinking) return;
       const text = editor.getText();
       if (!text.trim()) {
-        toast.error('编辑器内容为空，无法排版');
+        onShowStatus?.('编辑器内容为空，无法排版');
         return;
       }
       setIsAiThinking(true);
       try {
         const formatted = await formatText(text);
         editor.commands.setContent(`<p>${formatted.replace(/\n/g, '</p><p>')}</p>`);
-        toast.success('排版完成');
+        onShowStatus?.('排版完成');
       } catch (error) {
         rtEditorLogger.error('Format text error', { error });
         const msg = error instanceof Error ? error.message : String(error);
-        toast.error(`排版失败：${msg}`);
+        onShowStatus?.(`排版失败：${msg}`);
       } finally {
         setIsAiThinking(false);
       }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { X } from 'lucide-react';
@@ -34,7 +34,6 @@ import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
 
-import toast from 'react-hot-toast';
 import { createLogger } from '@/utils/logger';
 
 const frontstageLogger = createLogger('ui:FrontstageApp');
@@ -177,7 +176,13 @@ const FrontstageApp: React.FC = () => {
             if (updated && updated.content !== undefined) {
               setContent(prev => {
                 if (prev !== updated.content) {
-                  toast('幕后已更新本章内容', { icon: '📝', duration: 2000 });
+                  // 使用底部状态栏替代黑色 toast
+                  setGenerationStatus('📝 幕后已更新本章内容');
+                  setTimeout(() => {
+                    setGenerationStatus(current =>
+                      current === '📝 幕后已更新本章内容' ? '' : current
+                    );
+                  }, 2000);
                 }
                 return updated.content || '';
               });
@@ -209,9 +214,48 @@ const FrontstageApp: React.FC = () => {
     status: string;
   } | null>(null);
 
-  // v5.3.0: 顶部 Toast 大阶段实时提示 — 保存当前活动 toast ID 和当前大阶段
-  const activeToastIdRef = useRef<string | null>(null);
+  // v5.3.0: 大阶段实时提示 — 保存当前大阶段，避免底部状态栏闪烁
   const currentToastPhaseRef = useRef<string | null>(null);
+
+  // v0.11.1: 统一状态提示 — 用顶部状态栏替代黑色 toast
+  const showTransientStatus = useCallback((message: string, durationMs = 3000) => {
+    setOrchestratorStatus({ stepType: 'info', message });
+    setTimeout(() => {
+      setOrchestratorStatus(current => (current?.message === message ? null : current));
+    }, durationMs);
+  }, []);
+
+  const toast = useMemo<{
+    (message: string, _opts?: unknown): string;
+    success: (message: string, _opts?: unknown) => void;
+    error: (message: string, _opts?: unknown) => void;
+    loading: (message: string, _opts?: unknown) => string;
+  }>(
+    () =>
+      Object.assign(
+        (message: string, _opts?: unknown) => {
+          showTransientStatus(message);
+          return '';
+        },
+        {
+          success: (message: string, _opts?: unknown) => showTransientStatus(`✓ ${message}`),
+          error: (message: string, _opts?: unknown) => showTransientStatus(`✗ ${message}`),
+          loading: (message: string, _opts?: unknown) => {
+            showTransientStatus(
+              message,
+              _opts &&
+                typeof _opts === 'object' &&
+                'duration' in _opts &&
+                (_opts as { duration: unknown }).duration === Infinity
+                ? 60000
+                : 3000
+            );
+            return '';
+          },
+        }
+      ),
+    [showTransientStatus]
+  );
 
   /** 将细粒度步骤名映射为大阶段提示文案 */
   const getMajorPhase = useCallback((stepName: string): { icon: string; text: string } | null => {
@@ -301,36 +345,6 @@ const FrontstageApp: React.FC = () => {
   // v0.7.7: 统一后台活动监听器 — 聚合所有进度事件到 backendActivityStore
   useBackendActivityListener();
 
-  // v0.7.7: 监听统一后台活动 store，大阶段变化时及时 toast 提示
-  const lastActivityStageRef = useRef<string>('');
-  useEffect(() => {
-    const unsub = useBackendActivityStore.subscribe(state => {
-      const primary = state.getPrimaryActivity();
-      if (!primary) {
-        lastActivityStageRef.current = '';
-        return;
-      }
-      const stageKey = `${primary.category}:${primary.stage}`;
-      if (lastActivityStageRef.current === stageKey) return;
-      lastActivityStageRef.current = stageKey;
-
-      // 大阶段变化时给出 toast 提示（仅对重要类别）
-      const importantCategories = ['contract_fill', 'pipeline', 'orchestrator', 'smart_execute'];
-      if (importantCategories.includes(primary.category) && primary.status === 'running') {
-        const icon =
-          primary.category === 'contract_fill'
-            ? '📋'
-            : primary.category === 'pipeline'
-              ? '📦'
-              : primary.category === 'orchestrator'
-                ? '⚙️'
-                : '💭';
-        toast(`${icon} ${primary.message}`, { icon: '🔔', duration: 3000 });
-      }
-    });
-    return unsub;
-  }, []);
-
   // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
   useEffect(() => {
     const unsub = useBackendActivityStore.subscribe(state => {
@@ -383,18 +397,32 @@ const FrontstageApp: React.FC = () => {
   const [hintSource, setHintSource] = useState<'llm' | 'history'>('llm');
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1); // -1=LLM建议, 0+=历史
-  const [modelStatus, setModelStatus] = useState<'connected' | 'disconnected' | 'connecting'>(
-    'connecting'
-  );
-  const [modelName, setModelName] = useState('');
-
   // v0.7.8: 使用新版模型管理系统丰富底部栏 tooltip
   const { data: settings } = useSettings();
   const { data: allModels = [] } = useModels();
   const connectionStates = useModelConnectionStore(state => state.states);
+  const startPolling = useModelConnectionStore(state => state.startPolling);
   const activeChatModelId = settings?.active_models?.chat;
   const activeChatModel = allModels.find(m => m.id === activeChatModelId);
   const chatConnectionState = activeChatModelId ? connectionStates[activeChatModelId] : undefined;
+
+  // v0.11.0: 状态栏模型状态从 store 派生
+  const modelStatus: 'connected' | 'disconnected' | 'connecting' = chatConnectionState
+    ? chatConnectionState.isChecking
+      ? 'connecting'
+      : chatConnectionState.result.success
+        ? 'connected'
+        : 'disconnected'
+    : 'connecting';
+  const modelName = activeChatModel?.name || activeChatModelId || '未配置';
+
+  // v0.11.0: 启动模型连接轮询，状态栏展示当前可用模型与连接质量
+  useEffect(() => {
+    const enabledIds = allModels.filter(m => m.enabled).map(m => m.id);
+    if (enabledIds.length === 0) return;
+    const stop = startPolling(enabledIds, 30000);
+    return () => stop();
+  }, [allModels, startPolling]);
 
   // AI 学习指示器
 
@@ -668,11 +696,7 @@ const FrontstageApp: React.FC = () => {
         toast.error(`后台完善失败（${p.step}）: ${p.error}`, { duration: 5000 });
         setGenerationStatus('');
         setBootstrapProgress(null);
-        if (activeToastIdRef.current) {
-          toast.dismiss(activeToastIdRef.current);
-          activeToastIdRef.current = null;
-          currentToastPhaseRef.current = null;
-        }
+        currentToastPhaseRef.current = null;
       });
       unlisteners.push(unlisten2);
 
@@ -701,7 +725,6 @@ const FrontstageApp: React.FC = () => {
         if (p.status === 'failed') {
           // 步骤失败：显示错误提示并清理进度
           toast.error(`创世失败: ${p.message}`, { duration: 8000 });
-          activeToastIdRef.current = null;
           currentToastPhaseRef.current = null;
           setTimeout(() => {
             setBootstrapProgress(null);
@@ -717,7 +740,6 @@ const FrontstageApp: React.FC = () => {
         } else if (p.total_steps === 6 && p.step_number >= p.total_steps) {
           // 后台阶段全部完成（GenesisPipeline 最后一步：知识图谱生成）
           toast.success('创世完成！世界观、角色、场景、伏笔已全部生成');
-          activeToastIdRef.current = null;
           currentToastPhaseRef.current = null;
           setTimeout(() => {
             setBootstrapProgress(null);
@@ -882,7 +904,8 @@ const FrontstageApp: React.FC = () => {
       }>('context-degraded', event => {
         const p = event.payload;
         frontstageLogger.warn('[context-degraded]', { reason: p.reason });
-        toast('正在使用简化上下文生成内容...', { icon: '⚡', duration: 3000 });
+        // 使用底部状态栏替代黑色 toast
+        setGenerationStatus('⚡ 正在使用简化上下文生成内容...');
       });
       unlisteners.push(unlisten9);
     } catch (e) {
@@ -1069,7 +1092,13 @@ const FrontstageApp: React.FC = () => {
   const handleRequestGeneration = useCallback(
     async (context?: string) => {
       if (isGenerating) {
-        toast('AI 正在生成中，请稍候...');
+        // 使用顶部状态栏替代黑色 toast
+        setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
+        setTimeout(() => {
+          setOrchestratorStatus(current =>
+            current?.message === 'AI 正在生成中，请稍候...' ? null : current
+          );
+        }, 2000);
         return;
       }
 
@@ -1146,13 +1175,7 @@ const FrontstageApp: React.FC = () => {
                   ? preflight.blocking_issues
                   : preflight.missing_contracts;
               const firstIssue = issues[0] || '写作前检查未通过';
-              toast.error(
-                <div>
-                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-                  <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-                </div>,
-                { duration: 6000 }
-              );
+              toast.error(`写作前检查未通过：${firstIssue}`, { duration: 6000 });
               setIsGenerating(false);
               return;
             }
@@ -1273,8 +1296,16 @@ const FrontstageApp: React.FC = () => {
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
-          setOrchestratorStatus(null);
-          toast('AI 续写内容与当前文本相同，无需添加');
+          // 使用顶部状态栏替代黑色 toast
+          setOrchestratorStatus({
+            stepType: 'info',
+            message: 'AI 续写内容与当前文本相同，无需添加',
+          });
+          setTimeout(() => {
+            setOrchestratorStatus(current =>
+              current?.message === 'AI 续写内容与当前文本相同，无需添加' ? null : current
+            );
+          }, 3000);
           return;
         }
         let index = 0;
@@ -1311,24 +1342,11 @@ const FrontstageApp: React.FC = () => {
             currentStory?.id &&
             currentChapter?.chapter_number !== undefined
           ) {
-            toast.error(
-              <div>
-                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-                <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-                <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
-                  正在尝试自动补齐合同，请重试...
-                </div>
-              </div>,
-              { duration: 6000 }
-            );
+            toast.error(`写作前检查未通过：${firstIssue}。正在尝试自动补齐合同，请重试...`, {
+              duration: 6000,
+            });
           } else {
-            toast.error(
-              <div>
-                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-                <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-              </div>,
-              { duration: 6000 }
-            );
+            toast.error(`写作前检查未通过：${firstIssue}`, { duration: 6000 });
           }
         } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
           toast.error(`模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
@@ -1416,17 +1434,17 @@ const FrontstageApp: React.FC = () => {
         await loggedInvoke<unknown>('cancel_genesis_pipeline', {
           session_id: sessionIdRef.current,
         });
-        toast('已取消生成并通知后端停止后台任务');
+        // 使用底部状态栏替代黑色 toast
+        setGenerationStatus('✓ 已取消生成并通知后端停止后台任务');
       } catch (e) {
         frontstageLogger.error('Failed to cancel genesis pipeline', { error: e });
-        toast('已取消生成');
+        setGenerationStatus('✓ 已取消生成');
       }
       sessionIdRef.current = null;
     } else {
-      toast('已取消生成');
+      setGenerationStatus('✓ 已取消生成');
     }
     setIsGenerating(false);
-    setGenerationStatus('');
   }, []);
 
   // 检测用户输入是否是"创建新小说"意图（需要更长的超时）
@@ -1485,7 +1503,13 @@ const FrontstageApp: React.FC = () => {
   const handleSmartGeneration = useCallback(
     async (userInput: string) => {
       if (isGenerating) {
-        toast('AI 正在生成中，请稍候...');
+        // 使用顶部状态栏替代黑色 toast
+        setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
+        setTimeout(() => {
+          setOrchestratorStatus(current =>
+            current?.message === 'AI 正在生成中，请稍候...' ? null : current
+          );
+        }, 2000);
         return;
       }
 
@@ -1561,13 +1585,7 @@ const FrontstageApp: React.FC = () => {
                   ? preflight.blocking_issues
                   : preflight.missing_contracts;
               const firstIssue = issues[0] || '写作前检查未通过';
-              toast.error(
-                <div>
-                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-                  <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-                </div>,
-                { duration: 6000 }
-              );
+              toast.error(`写作前检查未通过：${firstIssue}`, { duration: 6000 });
               return;
             }
           }
@@ -1585,8 +1603,7 @@ const FrontstageApp: React.FC = () => {
           : '💭 正在理解创作意图并执行...';
       setGenerationStatus(initialStatusMsg);
       startElapsedTimer();
-      // 取消顶部 loading toast，状态统一在底部 AI 编排器状态栏展示
-      activeToastIdRef.current = null;
+      // 状态统一在底部 AI 编排器状态栏展示
       currentToastPhaseRef.current = initialStatusMsg;
 
       // 方案A：前端动态超时 + 取消支持
@@ -1630,7 +1647,6 @@ const FrontstageApp: React.FC = () => {
           return;
         }
 
-        activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
 
         // v0.9.5: 区分后台生成中的 Bootstrap 与已完成的 Bootstrap
@@ -1756,7 +1772,6 @@ const FrontstageApp: React.FC = () => {
         }
       } catch (e: any) {
         if (timeoutId) clearTimeout(timeoutId);
-        activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
         frontstageLogger.error('Smart execution failed', { error: e });
         const structured = parseStructuredError(e);
@@ -1765,13 +1780,7 @@ const FrontstageApp: React.FC = () => {
           const issues = (structured.data?.issues as string[]) || [];
           const firstIssue = issues[0] || structured.message || '写作前检查未通过';
           toast.error(
-            <div>
-              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>写作前检查未通过</div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>{firstIssue}</div>
-              <div style={{ fontSize: 12, marginTop: 6, opacity: 0.7 }}>
-                请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同
-              </div>
-            </div>,
+            `写作前检查未通过：${firstIssue}。请在「幕后 → StorySystem → 合同」中创建世界观合同和章节合同`,
             { duration: 6000 }
           );
         } else if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
@@ -1782,7 +1791,6 @@ const FrontstageApp: React.FC = () => {
       } finally {
         stopElapsedTimer();
         cancelGenerationRef.current = null;
-        activeToastIdRef.current = null;
         currentToastPhaseRef.current = null;
         setIsGenerating(false);
         setOrchestratorStatus(null);
@@ -1828,21 +1836,17 @@ const FrontstageApp: React.FC = () => {
     }
   }, [currentChapter]);
 
-  // 检测模型状态
+  // v0.11.0: 模型状态统一由 modelConnectionStore 轮询驱动，状态栏直接展示当前可用模型
+  // 保留一次旧版兜底检测，兼容后端未返回新模型配置时的降级
   useEffect(() => {
-    const checkStatus = async () => {
+    const runLegacyCheck = async () => {
       try {
-        const status = await modelService.checkModelStatus();
-        setModelStatus(status);
-        const model = await modelService.getCurrentModel();
-        setModelName(model.name || model.id);
+        await modelService.checkModelStatus();
       } catch (e) {
-        setModelStatus('disconnected');
+        frontstageLogger.warn('Legacy model status check failed', { error: e });
       }
     };
-    checkStatus();
-    const interval = setInterval(checkStatus, 30000);
-    return () => clearInterval(interval);
+    runLegacyCheck();
   }, []);
 
   // 输入栏获得焦点时获取智能建议
@@ -2106,6 +2110,12 @@ const FrontstageApp: React.FC = () => {
               onRequestGeneration={handleRequestGeneration}
               onSmartGeneration={handleSmartGeneration}
               onSlashCommand={handleSlashCommand}
+              onShowStatus={message => {
+                setOrchestratorStatus({ stepType: 'editor', message });
+                setTimeout(() => {
+                  setOrchestratorStatus(current => (current?.message === message ? null : current));
+                }, 3000);
+              }}
               placeholder="开始写作..."
               characters={characters}
               fontSize={fontSize}
@@ -2171,6 +2181,14 @@ const FrontstageApp: React.FC = () => {
                 hasAutoReviseQuota={subscription?.hasAutoReviseQuota || (async () => true)}
                 editorContent={editorRef.current?.getText()}
                 selectedText={editorRef.current?.getSelectedText()}
+                onShowStatus={message => {
+                  setOrchestratorStatus({ stepType: 'wensi', message });
+                  setTimeout(() => {
+                    setOrchestratorStatus(current =>
+                      current?.message === message ? null : current
+                    );
+                  }, 3000);
+                }}
                 onReviseResult={text => {
                   if (editorRef.current) {
                     // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）

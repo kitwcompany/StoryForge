@@ -4,6 +4,7 @@ export * from './writing';
 export * from './stories';
 export * from './skills';
 export * from './settings';
+export * from './router';
 export * from './intent';
 export * from './annotations';
 export * from './knowledge';

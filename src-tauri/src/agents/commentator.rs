@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{Agent, AgentContext, AgentResult};
-use crate::llm::service::LlmService;
+use crate::{llm::service::LlmService, router::TaskType};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParagraphCommentary {
@@ -83,7 +83,13 @@ impl CommentatorAgent {
 
         let response = self
             .llm_service
-            .generate(prompt, Some(128), Some(0.85))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(128),
+                Some(0.85),
+                Some("古典评点"),
+            )
             .await?;
         let commentary = response.content.trim().to_string();
 

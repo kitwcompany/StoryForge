@@ -14,7 +14,11 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Semaphore;
 
 use super::{chunker::extract_sample, models::*};
-use crate::{db::DbPool, llm::LlmService};
+use crate::{
+    db::DbPool,
+    llm::LlmService,
+    router::{Complexity, Priority, RoutingRequest, TaskType},
+};
 
 pub struct BookAnalyzer {
     llm_service: LlmService,
@@ -334,7 +338,15 @@ JSON格式：
             sample_text
         );
 
-        let response = self.call_llm(prompt, Some(500), Some(0.3)).await?;
+        let response = self
+            .call_llm(
+                TaskType::Analysis,
+                "book_metadata",
+                prompt,
+                Some(500),
+                Some(0.3),
+            )
+            .await?;
         let metadata: LlmMetadataResponse = parse_json_response(&response)?;
 
         Ok(ExtractedMetadata {
@@ -395,7 +407,15 @@ JSON格式：
             sample
         );
 
-        let response = self.call_llm(prompt, Some(800), Some(0.5)).await?;
+        let response = self
+            .call_llm(
+                TaskType::WorldBuilding,
+                "world_setting",
+                prompt,
+                Some(800),
+                Some(0.5),
+            )
+            .await?;
         self.emit_progress(book_id, "analyzing", 24, "正在整理世界观设定...")
             .await;
         Ok(response.trim().to_string())
@@ -442,7 +462,13 @@ JSON格式：
             );
 
             let response = self
-                .call_llm_with_semaphore(prompt, Some(1000), Some(0.3))
+                .call_llm_with_semaphore(
+                    TaskType::Analysis,
+                    "character_extraction",
+                    prompt,
+                    Some(1000),
+                    Some(0.3),
+                )
                 .await?;
             let parsed: Result<LlmCharacterResponse, _> = parse_json_response(&response);
 
@@ -569,7 +595,13 @@ JSON格式：
             .await;
 
             let response = self
-                .call_llm_with_semaphore(prompt, Some(800), Some(0.3))
+                .call_llm_with_semaphore(
+                    TaskType::Summarization,
+                    "scene_summary",
+                    prompt,
+                    Some(800),
+                    Some(0.3),
+                )
                 .await?;
             let parsed: Result<LlmSceneSummaryResponse, _> = parse_json_response(&response);
 
@@ -686,7 +718,15 @@ JSON格式：
 
         self.emit_progress(book_id, "analyzing", 82, "正在调用LLM生成故事线...")
             .await;
-        let response = self.call_llm(prompt, Some(1000), Some(0.5)).await?;
+        let response = self
+            .call_llm(
+                TaskType::Analysis,
+                "story_arc",
+                prompt,
+                Some(1000),
+                Some(0.5),
+            )
+            .await?;
         self.emit_progress(book_id, "analyzing", 88, "正在解析故事线结构...")
             .await;
         let arc: LlmStoryArcResponse = parse_json_response(&response)?;
@@ -703,13 +743,29 @@ JSON格式：
 
     async fn call_llm(
         &self,
+        task: TaskType,
+        context_label: &str,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
     ) -> Result<String, AnalysisError> {
+        let request = RoutingRequest {
+            task,
+            complexity: Complexity::Medium,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::Low,
+            estimated_input_tokens: 0,
+            constraints: vec![],
+        };
         match self
             .llm_service
-            .generate(prompt, max_tokens, temperature)
+            .generate_for_request(
+                request,
+                prompt,
+                max_tokens,
+                temperature,
+                Some(context_label),
+            )
             .await
         {
             Ok(response) => Ok(response.content),
@@ -719,6 +775,8 @@ JSON格式：
 
     async fn call_llm_with_semaphore(
         &self,
+        task: TaskType,
+        context_label: &str,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
@@ -729,7 +787,9 @@ JSON格式：
             .await
             .map_err(|e| AnalysisError::LlmError(format!("Semaphore error: {}", e)));
         self.active_requests.fetch_add(1, Ordering::Relaxed);
-        let result = self.call_llm(prompt, max_tokens, temperature).await;
+        let result = self
+            .call_llm(task, context_label, prompt, max_tokens, temperature)
+            .await;
         if let Err(ref e) = result {
             log::error!("[BookAnalyzer] LLM call failed: {}", e);
         }

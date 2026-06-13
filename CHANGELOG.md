@@ -2,6 +2,41 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.1] - 候选生成性能优化与 UI 提示统一（2026-06-13）
+
+### 性能优化
+
+- **候选生成链路重构**：`src-tauri/src/agents/orchestrator.rs` / `service.rs`
+  - 新增 `WriterPreparedContext`、`prepare_writer_context` 与 `execute_writer_prepared`
+  - 将候选阶段从「每个候选走完整 Writer 链路」改为「一次预准备 + 多次轻量采样」
+  - 预检、自动补齐、prompt 构建、生成策略计算只执行一次，两个候选共享结果
+  - 候选阶段使用专用短超时（默认 120s）与少重试（默认 1 次）
+  - 本地模型自动串行执行，避免在服务端排队导致双超时
+  - 候选全部失败时自动降级为单轮完整生成，不中断用户体验
+- **LLM 调用链支持超时/重试覆盖**：`src-tauri/src/llm/service.rs`
+  - `execute_generation` 新增 `timeout_seconds_override` / `max_retries_override`
+  - 所有同步生成入口保留向后兼容
+- **候选参数配置化**：`src-tauri/src/config/settings.rs` / `agents/orchestrator.rs`
+  - `AppConfig` / `WorkflowConfig` 新增 `candidate_timeout_seconds`、`candidate_max_retries`、`candidate_local_sequential`
+
+### UI 统一
+
+- **彻底移除幕前黑色 toast 提示**：`src-frontend/src/frontstage/`
+  - 移除 `frontstage/main.tsx` 中的 `react-hot-toast` `Toaster`
+  - `FrontstageApp.tsx` 内建统一 `toast` 桥接，将原有 `toast()` / `toast.success()` / `toast.error()` / `toast.loading()` 全部转发到顶部状态栏
+  - `UpgradePanel.tsx` / `RichTextEditor.tsx` / `WenSiPanel.tsx` 中的 toast 全部替换为统一状态提示或面板内状态
+  - 后台 AI 流程通知继续显示在底部 AI 编排器状态栏
+  - 创作进程/结果提示显示在顶部字数/字号后的编排器状态区
+
+### 验证
+
+- `cargo check --all-features` ✅
+- `cargo test --all-features` ✅ 332 passed
+- `npm run type-check` ✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+
+---
+
 ## [v0.10.2] - 修复模型连接硬编码、增加删除模型与 Agent 映射对齐（2026-06-13）
 
 ### 修复

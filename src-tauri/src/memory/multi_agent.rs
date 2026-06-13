@@ -10,7 +10,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 
 use super::ingest::{IngestContent, IngestPipeline};
-use crate::{db::models::AgentBotType, llm::LlmService};
+use crate::{db::models::AgentBotType, llm::LlmService, router::TaskType};
 
 /// 多助手会话管理器
 pub struct MultiAgentSessionManager {
@@ -133,7 +133,11 @@ impl MultiAgentSessionManager {
         );
 
         // 调用LLM
-        let response = self.llm_service.generate(full_prompt, None, None).await?;
+        let task_type = Self::task_type_for_agent(&agent_type);
+        let response = self
+            .llm_service
+            .generate_for_task(task_type, full_prompt, None, None, Some("多助手对话"))
+            .await?;
         let response_content = response.content;
 
         // 提取Wiki引用
@@ -291,6 +295,17 @@ impl MultiAgentSessionManager {
 - 提供多种可能的发展方向"#
                 .to_string(),
             _ => "你是一个专业的写作助手。".to_string(),
+        }
+    }
+
+    fn task_type_for_agent(agent_type: &AgentBotType) -> TaskType {
+        match agent_type {
+            AgentBotType::WorldBuilding => TaskType::WorldBuilding,
+            AgentBotType::Character => TaskType::Analysis,
+            AgentBotType::WritingStyle => TaskType::Editing,
+            AgentBotType::Scene => TaskType::CreativeWriting,
+            AgentBotType::Plot => TaskType::Analysis,
+            AgentBotType::Memory => TaskType::Analysis,
         }
     }
 

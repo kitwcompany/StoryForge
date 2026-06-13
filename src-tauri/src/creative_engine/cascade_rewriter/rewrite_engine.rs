@@ -16,6 +16,7 @@ use crate::{
     db::{repositories::SceneRepository, DbPool},
     error::AppError,
     llm::LlmService,
+    router::TaskType,
 };
 
 pub struct RewriteEngine {
@@ -126,7 +127,16 @@ impl RewriteEngine {
                 &next_paragraph,
             );
 
-            match llm.generate(prompt, Some(2048), Some(0.3)).await {
+            match llm
+                .generate_for_task(
+                    TaskType::Editing,
+                    prompt,
+                    Some(2048),
+                    Some(0.3),
+                    Some("cascade_rewrite"),
+                )
+                .await
+            {
                 Ok(response) => {
                     let rewritten_text = response.content.trim().to_string();
 

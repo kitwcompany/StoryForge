@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{error::AppError, llm::LlmService};
+use crate::{error::AppError, llm::LlmService, router::TaskType};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptEvolution {
@@ -39,7 +39,13 @@ impl PromptEvolver {
 
         let response = self
             .llm_service
-            .generate(evolution_prompt, Some(1500), Some(0.5))
+            .generate_for_task(
+                TaskType::CreativeWriting,
+                evolution_prompt,
+                Some(1500),
+                Some(0.5),
+                Some("prompt_evolve"),
+            )
             .await?;
 
         let evolved = self.parse_evolved_prompt(&response.content, original_prompt);
@@ -90,7 +96,13 @@ Rewritten system prompt (maintain the same structural elements but adapt the voi
 
         let response = self
             .llm_service
-            .generate(prompt, Some(1500), Some(0.5))
+            .generate_for_task(
+                TaskType::CreativeWriting,
+                prompt,
+                Some(1500),
+                Some(0.5),
+                Some("agent_prompt_evolve"),
+            )
             .await?;
         Ok(response.content.trim().to_string())
     }
@@ -138,7 +150,13 @@ Respond with JSON:
 
         let response = self
             .llm_service
-            .generate(prompt, Some(1500), Some(0.5))
+            .generate_for_task(
+                TaskType::CreativeWriting,
+                prompt,
+                Some(1500),
+                Some(0.5),
+                Some("skill_prompt_evolve"),
+            )
             .await?;
 
         // Try JSON parse

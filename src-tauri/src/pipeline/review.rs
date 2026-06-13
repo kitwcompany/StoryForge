@@ -5,6 +5,7 @@ use crate::{
         PipelineReviewRepository,
     },
     llm::LlmService,
+    router::TaskType,
 };
 
 /// 执行 AI 审稿
@@ -85,7 +86,16 @@ pub async fn review_draft(
     callbacks.progress("review", 0.4);
 
     // 4. 调用 LLM 生成审稿报告
-    let review_result = match llm_service.generate(prompt, Some(4096), Some(0.3)).await {
+    let review_result = match llm_service
+        .generate_for_task(
+            TaskType::Analysis,
+            prompt,
+            Some(4096),
+            Some(0.3),
+            Some("AI审稿报告"),
+        )
+        .await
+    {
         Ok(resp) => {
             let text = resp.content.trim().to_string();
             match parse_review_json(&text) {

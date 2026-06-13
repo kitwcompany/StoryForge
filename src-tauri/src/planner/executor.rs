@@ -16,6 +16,7 @@ use crate::{
     capabilities::{CapabilityEvolutionEngine, ExecutionRecord},
     error::AppError,
     planner::PlanTemplateLibrary,
+    router::TaskType,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -1024,7 +1025,15 @@ impl PlanExecutor {
             changes.replace('"', "'")
         );
 
-        let response = llm_service.generate(prompt, Some(1024), Some(0.3)).await?;
+        let response = llm_service
+            .generate_for_task(
+                TaskType::Editing,
+                prompt,
+                Some(1024),
+                Some(0.3),
+                Some("update_character"),
+            )
+            .await?;
         let content = response.content.trim();
         let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
             &content[start..=end]
@@ -1125,7 +1134,15 @@ impl PlanExecutor {
             changes.replace('"', "'")
         );
 
-        let response = llm_service.generate(prompt, Some(2048), Some(0.3)).await?;
+        let response = llm_service
+            .generate_for_task(
+                TaskType::WorldBuilding,
+                prompt,
+                Some(2048),
+                Some(0.3),
+                Some("update_world_building"),
+            )
+            .await?;
         let content = response.content.trim();
         let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
             &content[start..=end]
@@ -1268,7 +1285,15 @@ impl PlanExecutor {
             changes.replace('"', "'")
         );
 
-        let response = llm_service.generate(prompt, Some(1024), Some(0.3)).await?;
+        let response = llm_service
+            .generate_for_task(
+                TaskType::Editing,
+                prompt,
+                Some(1024),
+                Some(0.3),
+                Some("update_scene"),
+            )
+            .await?;
         let content = response.content.trim();
         let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
             &content[start..=end]

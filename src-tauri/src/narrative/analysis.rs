@@ -29,7 +29,10 @@ use super::{
     progress::*,
     prompts::{PromptMode, *},
 };
-use crate::llm::{service::PipelineContext as LlmPipelineContext, LlmService};
+use crate::{
+    llm::{service::PipelineContext as LlmPipelineContext, LlmService},
+    router::TaskType,
+};
 
 // ==================== 文本分块 ====================
 
@@ -183,13 +186,14 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
             let prompt = story_concept_prompt(PromptMode::Extract, &sample);
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取元信息");
+            let _pipeline_ctx = pipeline_ctx.clone();
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_task(
+                    TaskType::Analysis,
                     prompt,
                     Some(512),
                     Some(0.3),
-                    Some("提取元信息"),
-                    Some(pipeline_ctx),
+                    Some("分析-元信息提取"),
                 )
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
@@ -292,13 +296,14 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
             let prompt = world_building_prompt(PromptMode::Extract, title, genre, &sample);
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取世界观");
+            let _pipeline_ctx = pipeline_ctx.clone();
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_task(
+                    TaskType::Analysis,
                     prompt,
                     Some(2048),
                     Some(0.5),
-                    Some("提取世界观"),
-                    Some(pipeline_ctx),
+                    Some("分析-世界观提取"),
                 )
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
@@ -397,6 +402,7 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                     7,
                     &format!("提取角色 ({}/{})", i + 1, total),
                 );
+                let _pipeline_ctx = pipeline_ctx.clone();
 
                 let _permit = ctx
                     .semaphore
@@ -406,12 +412,12 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                 ctx.active_requests.fetch_add(1, Ordering::Relaxed);
 
                 let response = llm
-                    .generate_with_context_and_pipeline(
+                    .generate_for_task(
+                        TaskType::Analysis,
                         prompt,
                         Some(1000),
                         Some(0.3),
-                        Some(&format!("提取角色 {}/{}", i + 1, total)),
-                        Some(pipeline_ctx),
+                        Some(&format!("分析-提取角色 {}/{}", i + 1, total)),
                     )
                     .await;
 
@@ -556,6 +562,7 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                     7,
                     &format!("提取场景 ({}/{})", i + 1, total),
                 );
+                let _pipeline_ctx = pipeline_ctx.clone();
 
                 let _permit = ctx
                     .semaphore
@@ -565,12 +572,12 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                 ctx.active_requests.fetch_add(1, Ordering::Relaxed);
 
                 let response = llm
-                    .generate_with_context_and_pipeline(
+                    .generate_for_task(
+                        TaskType::Analysis,
                         prompt,
                         Some(1000),
                         Some(0.3),
-                        Some(&format!("提取场景 {}/{}", i + 1, total)),
-                        Some(pipeline_ctx),
+                        Some(&format!("分析-提取场景 {}/{}", i + 1, total)),
                     )
                     .await;
 
@@ -700,13 +707,14 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
             let prompt = story_arc_prompt(PromptMode::Extract, title, &sample);
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取故事线");
+            let _pipeline_ctx = pipeline_ctx.clone();
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_task(
+                    TaskType::Analysis,
                     prompt,
                     Some(1000),
                     Some(0.5),
-                    Some("提取故事线"),
-                    Some(pipeline_ctx),
+                    Some("分析-故事线提取"),
                 )
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
@@ -786,13 +794,14 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
 
             let prompt = foreshadowing_prompt(PromptMode::Extract, title, genre, "", &sample);
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取伏笔");
+            let _pipeline_ctx = pipeline_ctx.clone();
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_task(
+                    TaskType::Analysis,
                     prompt,
                     Some(1024),
                     Some(0.7),
-                    Some("提取伏笔"),
-                    Some(pipeline_ctx),
+                    Some("分析-伏笔提取"),
                 )
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;

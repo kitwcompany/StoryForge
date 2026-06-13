@@ -37,6 +37,77 @@ export type LlmProvider =
 // 模型来源 — 与后端 ModelSource 对应
 export type ModelSource = 'platform' | 'local' | 'user_owned';
 
+// 质量/速度等级（与后端 QualityTier / SpeedTier 对应）
+export type QualityTier = 'low' | 'medium' | 'high' | 'ultra';
+export type SpeedTier = 'fast' | 'normal' | 'slow' | 'very_slow';
+
+// v0.11.0 路由类型 — 与后端 router/router.rs 对应
+export type TaskType =
+  | 'creative_writing'
+  | 'editing'
+  | 'analysis'
+  | 'dialogue'
+  | 'summarization'
+  | 'brainstorming'
+  | 'proofreading'
+  | 'world_building'
+  | 'vision'
+  | 'image_generation';
+
+export type Complexity = 'low' | 'medium' | 'high' | 'critical';
+export type Priority = 'low' | 'medium' | 'high';
+
+export type RoutingConstraint =
+  | { type: 'min_quality'; value: QualityTier }
+  | { type: 'min_context'; value: number }
+  | { type: 'requires'; value: ModelCapability }
+  | { type: 'local_only' }
+  | { type: 'platform_only' };
+
+export interface RoutingRequest {
+  task: TaskType;
+  complexity?: Complexity;
+  budget_priority?: Priority;
+  speed_priority?: Priority;
+  estimated_input_tokens?: number;
+  constraints?: RoutingConstraint[];
+}
+
+export interface RoutingDecision {
+  model_id: string;
+  model_name: string;
+  reason: string;
+  estimated_cost: number;
+  estimated_time_ms: number;
+}
+
+// v0.11.0: 模型能力审核与反馈闭环类型
+export interface TaskBenchmarkResult {
+  task: TaskType;
+  model_id: string;
+  model_name: string;
+  success: boolean;
+  latency_ms: number;
+  score: number;
+  reason: string;
+}
+
+export interface ModelHealthReport {
+  model_id: string;
+  model_name: string;
+  success_rate: number;
+  avg_latency_ms: number;
+  avg_quality_score?: number;
+  last_error?: string;
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+}
+
+export interface RouteFeedback {
+  call_id: string;
+  score: number;
+  comment?: string;
+}
+
 // 基础模型配置（通用字段）
 export interface BaseModelConfig {
   id: string;
@@ -50,6 +121,13 @@ export interface BaseModelConfig {
   timeout_seconds?: number;
   is_default?: boolean;
   enabled: boolean;
+  // v0.11.0 路由元数据
+  max_context_length?: number;
+  quality_tier?: QualityTier;
+  speed_tier?: SpeedTier;
+  cost_per_1k_input?: number;
+  cost_per_1k_output?: number;
+  tags?: string[];
 }
 
 // 文本生成模型配置
@@ -98,7 +176,7 @@ export type ModelConfig =
   | MultimodalModelConfig
   | ImageModelConfig;
 
-// Agent 模型选择配置
+// Agent 模型选择配置 + 任务策略
 export interface AgentModelMapping {
   agent_id: string;
   agent_name: string;
@@ -106,6 +184,12 @@ export interface AgentModelMapping {
   embedding_model_id?: string;
   multimodal_model_id?: string;
   description?: string;
+  // v0.11.0: 任务策略覆盖
+  task_type?: TaskType;
+  complexity?: Complexity;
+  budget_priority?: Priority;
+  speed_priority?: Priority;
+  constraints?: string[];
 }
 
 // 完整应用配置

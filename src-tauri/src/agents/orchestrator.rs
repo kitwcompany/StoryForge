@@ -56,6 +56,12 @@ pub struct WorkflowConfig {
     /// 用于降低 Full 模式的平均等待时间：当 Inspector 已经给出较高评价时，
     /// 不再强制进行 Writer→Inspector→Rewrite 循环。
     pub skip_rewrite_threshold: f32,
+    /// 候选生成阶段单个候选的 LLM 超时（秒，默认 120）
+    pub candidate_timeout_seconds: u64,
+    /// 候选生成阶段单个候选的最大重试次数（默认 1）
+    pub candidate_max_retries: u32,
+    /// 本地模型是否在候选阶段串行生成以避免服务端排队（默认 true）
+    pub candidate_local_sequential: bool,
 }
 
 impl WorkflowConfig {
@@ -68,6 +74,9 @@ impl WorkflowConfig {
             style_weight: config.style_weight,
             narrative_weight: config.narrative_weight,
             skip_rewrite_threshold: config.skip_rewrite_threshold,
+            candidate_timeout_seconds: config.candidate_timeout_seconds,
+            candidate_max_retries: config.candidate_max_retries,
+            candidate_local_sequential: config.candidate_local_sequential,
         }
     }
 }
@@ -81,6 +90,9 @@ impl Default for WorkflowConfig {
             style_weight: 0.5,
             narrative_weight: 0.5,
             skip_rewrite_threshold: 0.90,
+            candidate_timeout_seconds: 120,
+            candidate_max_retries: 1,
+            candidate_local_sequential: true,
         }
     }
 }
@@ -891,18 +903,50 @@ impl AgentOrchestrator {
 
     /// v0.7.8: 并行生成 N 个候选，用风格指纹打分选优
     /// v0.9.3: 默认候选数从 3 降到 2，平衡质量与本地模型响应时间
+    /// v0.11.1: 候选阶段共享预准备上下文，使用专用短超时与失败降级。
     ///
     /// 每个候选使用不同的 temperature 产生多样性：
-    /// - 候选1: base_temp * 0.9 (更保守，接近训练分布)
-    /// - 候选2: base_temp * 1.1 (更发散，探索性)
+    /// - 候选1: 0.82 (更保守，接近训练分布)
+    /// - 候选2: 1.0  (更发散，探索性)
     async fn generate_candidates(
         &self,
         task: &AgentTask,
         count: usize,
     ) -> Result<(AgentResult, String, String), AppError> {
         let temps = [0.82_f32, 1.0_f32];
-        let mut tasks = Vec::with_capacity(count);
 
+        log::info!(
+            "[Orchestrator] Preparing shared writer context for {} candidates, task {}",
+            count,
+            task.id
+        );
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            None,
+            Some("正在准备候选生成上下文..."),
+        );
+
+        // 1. 预准备共享上下文：预检、补齐、prompt 构建、策略计算只做一次
+        let prepared = self.service.prepare_writer_context(task).await?;
+
+        // 2. 根据目标模型来源决定并发策略
+        let is_local = self.service.is_target_model_local(AgentType::Writer);
+        let sequential = is_local && self.config.candidate_local_sequential;
+        let timeout_override = Some(self.config.candidate_timeout_seconds);
+        let retries_override = Some(self.config.candidate_max_retries);
+
+        log::info!(
+            "[Orchestrator] Candidate strategy: local={}, sequential={}, timeout={}s, retries={}",
+            is_local,
+            sequential,
+            self.config.candidate_timeout_seconds,
+            self.config.candidate_max_retries
+        );
+
+        // 3. 构建候选任务列表，仅 temperature 不同
+        let mut candidate_tasks = Vec::with_capacity(count);
         for i in 0..count {
             let mut candidate_task = task.clone();
             candidate_task.id = format!("{}-candidate-{}", task.id, i);
@@ -910,14 +954,8 @@ impl AgentOrchestrator {
                 "temperature_override".to_string(),
                 serde_json::json!(temps.get(i).copied().unwrap_or(0.9)),
             );
-            tasks.push(candidate_task);
+            candidate_tasks.push(candidate_task);
         }
-
-        log::info!(
-            "[Orchestrator] Generating {} candidates for task {}",
-            count,
-            task.id
-        );
 
         self.emit_step_event(
             &task.id,
@@ -927,13 +965,40 @@ impl AgentOrchestrator {
             Some(&format!("生成候选中（共 {} 个）", count)),
         );
 
-        // 并行执行所有候选
-        let results: Vec<Result<AgentResult, AppError>> = futures::future::join_all(
-            tasks
-                .into_iter()
-                .map(|t| self.service.execute_writer_raw(t)),
-        )
-        .await;
+        // 4. 执行候选：本地模型默认串行以避免服务端排队；远程模型并行
+        let results: Vec<Result<AgentResult, AppError>> = if sequential {
+            let mut results = Vec::with_capacity(count);
+            for (i, candidate_task) in candidate_tasks.into_iter().enumerate() {
+                self.emit_step_event(
+                    &task.id,
+                    WorkflowStepType::Generation,
+                    None,
+                    None,
+                    Some(&format!("生成候选 {} / {}", i + 1, count)),
+                );
+                let result = self
+                    .service
+                    .execute_writer_prepared(
+                        candidate_task,
+                        prepared.clone(),
+                        timeout_override,
+                        retries_override,
+                    )
+                    .await;
+                results.push(result);
+            }
+            results
+        } else {
+            futures::future::join_all(candidate_tasks.into_iter().map(|candidate_task| {
+                self.service.execute_writer_prepared(
+                    candidate_task,
+                    prepared.clone(),
+                    timeout_override,
+                    retries_override,
+                )
+            }))
+            .await
+        };
 
         // 获取参考指纹（从预计算或 current_content 提取）
         let reference_fp = task.context.style.style_fingerprint.clone().or_else(|| {
@@ -990,8 +1055,23 @@ impl AgentOrchestrator {
             }
         }
 
+        // 5. 失败降级：若所有候选均失败/超时，回退到单轮完整生成
         if candidates.is_empty() {
-            return Err(AppError::internal("所有候选生成均失败"));
+            log::warn!(
+                "[Orchestrator] All candidates failed for task {}, falling back to single-pass writer",
+                task.id
+            );
+            self.emit_step_event(
+                &task.id,
+                WorkflowStepType::Generation,
+                None,
+                None,
+                Some("候选生成均失败，降级为单轮生成..."),
+            );
+            let result = self.service.execute_writer_raw(task.clone()).await?;
+            let req_id = result.request_id.clone().unwrap_or_default();
+            let content = result.content.clone();
+            return Ok((result, req_id, content));
         }
 
         let best = candidates.swap_remove(best_idx);
@@ -1113,6 +1193,9 @@ mod tests {
         assert_eq!(config.rewrite_threshold, 0.75);
         assert_eq!(config.max_feedback_loops, 2);
         assert!(config.keep_revision_history);
+        assert_eq!(config.candidate_timeout_seconds, 120);
+        assert_eq!(config.candidate_max_retries, 1);
+        assert!(config.candidate_local_sequential);
     }
 
     #[test]

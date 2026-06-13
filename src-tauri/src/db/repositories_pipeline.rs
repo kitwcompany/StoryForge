@@ -1201,8 +1201,10 @@ impl LlmCallRepository {
         conn.execute(
             "INSERT INTO llm_calls (id, story_id, draft_id, model_id, model_name, purpose, \
              prompt_tokens, completion_tokens, total_tokens, duration_ms, success, error_message, \
-             prompt_preview, metadata, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             prompt_preview, metadata, created_at, task_type, quality_score, latency_ms, \
+             route_decision, audit_feedback)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+             ?18, ?19, ?20)",
             params![
                 &id,
                 req.story_id,
@@ -1218,7 +1220,12 @@ impl LlmCallRepository {
                 req.error_message,
                 prompt_preview,
                 metadata,
-                now.to_rfc3339()
+                now.to_rfc3339(),
+                req.task_type,
+                req.quality_score,
+                req.latency_ms,
+                req.route_decision,
+                req.audit_feedback,
             ],
         )?;
 
@@ -1239,6 +1246,11 @@ impl LlmCallRepository {
             prompt_preview: prompt_preview.map(|s| s.to_string()),
             metadata: metadata.map(|s| s.to_string()),
             created_at: now,
+            task_type: req.task_type,
+            quality_score: req.quality_score,
+            latency_ms: req.latency_ms,
+            route_decision: req.route_decision,
+            audit_feedback: req.audit_feedback,
         })
     }
 
@@ -1255,7 +1267,8 @@ impl LlmCallRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, draft_id, revision_id, model_id, model_name, purpose, \
              prompt_tokens, completion_tokens, total_tokens, duration_ms, success, error_message, \
-             prompt_preview, metadata, created_at
+             prompt_preview, metadata, created_at, task_type, quality_score, latency_ms, \
+             route_decision, audit_feedback
              FROM llm_calls WHERE story_id = ?1 ORDER BY created_at DESC LIMIT ?2",
         )?;
 
@@ -1279,6 +1292,11 @@ impl LlmCallRepository {
                     prompt_preview: row.get(13)?,
                     metadata: row.get(14)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    task_type: row.get(16)?,
+                    quality_score: row.get(17)?,
+                    latency_ms: row.get(18)?,
+                    route_decision: row.get(19)?,
+                    audit_feedback: row.get(20)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1295,7 +1313,8 @@ impl LlmCallRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, draft_id, revision_id, model_id, model_name, purpose, \
              prompt_tokens, completion_tokens, total_tokens, duration_ms, success, error_message, \
-             prompt_preview, metadata, created_at
+             prompt_preview, metadata, created_at, task_type, quality_score, latency_ms, \
+             route_decision, audit_feedback
              FROM llm_calls ORDER BY created_at DESC LIMIT ?1",
         )?;
 
@@ -1319,6 +1338,11 @@ impl LlmCallRepository {
                     prompt_preview: row.get(13)?,
                     metadata: row.get(14)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    task_type: row.get(16)?,
+                    quality_score: row.get(17)?,
+                    latency_ms: row.get(18)?,
+                    route_decision: row.get(19)?,
+                    audit_feedback: row.get(20)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

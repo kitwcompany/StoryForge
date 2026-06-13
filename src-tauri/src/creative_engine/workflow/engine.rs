@@ -30,6 +30,7 @@ use crate::{
     },
     error::AppError,
     llm::service::LlmService,
+    router::TaskType,
 };
 
 /// 创作阶段
@@ -989,7 +990,15 @@ impl CreationWorkflowEngine {
             content
         );
 
-        let response = llm_service.generate(prompt, Some(2048), Some(0.7)).await?;
+        let response = llm_service
+            .generate_for_task(
+                TaskType::WorldBuilding,
+                prompt,
+                Some(2048),
+                Some(0.7),
+                Some("enrich_story_elements"),
+            )
+            .await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)
             .map_err(|e| AppError::from(format!("Failed to parse enrich response: {}", e)))?;
 
@@ -1150,7 +1159,13 @@ impl CreationWorkflowEngine {
                 );
 
                 match llm_service
-                    .generate(check_prompt, Some(2048), Some(0.5))
+                    .generate_for_task(
+                        TaskType::Editing,
+                        check_prompt,
+                        Some(2048),
+                        Some(0.5),
+                        Some("enrich_consistency_check"),
+                    )
                     .await
                 {
                     Ok(check_response) => {

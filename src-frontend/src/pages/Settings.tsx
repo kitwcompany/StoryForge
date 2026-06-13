@@ -18,6 +18,8 @@ import {
   GitBranch,
   BarChart3,
   Cpu,
+  Route,
+  HeartPulse,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -26,6 +28,8 @@ import { cn } from '@/utils/cn';
 import { logFeatureUsage } from '@/services/tauri';
 
 import { UnifiedModelManager } from './settings/UnifiedModelManager';
+import { RouteSimulator } from './settings/RouteSimulator';
+import { ModelHealthPanel } from './settings/ModelHealthPanel';
 import { StatsSettings } from './settings/StatsSettings';
 import { MethodologySettings } from './settings/MethodologySettings';
 import { WorkflowSettings } from './settings/WorkflowSettings';
@@ -33,7 +37,16 @@ import { GeneralSettings } from './settings/GeneralSettings';
 import { AgentConfig } from './settings/AgentConfig';
 import { AccountSettings } from './settings/AccountSettings';
 
-type TabType = 'models' | 'agents' | 'methodology' | 'workflows' | 'general' | 'account' | 'stats';
+type TabType =
+  | 'models'
+  | 'routing'
+  | 'health'
+  | 'agents'
+  | 'methodology'
+  | 'workflows'
+  | 'general'
+  | 'account'
+  | 'stats';
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<TabType>('models');
@@ -97,6 +110,18 @@ export function Settings() {
           label="模型管理"
         />
         <TabButton
+          active={activeTab === 'routing'}
+          onClick={() => setActiveTab('routing')}
+          icon={<Route className="w-4 h-4" />}
+          label="路由模拟器"
+        />
+        <TabButton
+          active={activeTab === 'health'}
+          onClick={() => setActiveTab('health')}
+          icon={<HeartPulse className="w-4 h-4" />}
+          label="模型健康"
+        />
+        <TabButton
           active={activeTab === 'agents'}
           onClick={() => setActiveTab('agents')}
           icon={<Bot className="w-4 h-4" />}
@@ -140,6 +165,8 @@ export function Settings() {
       ) : (
         <>
           {activeTab === 'models' && <UnifiedModelManager />}
+          {activeTab === 'routing' && <RouteSimulator />}
+          {activeTab === 'health' && <ModelHealthPanel />}
           {activeTab === 'agents' && <AgentConfig />}
           {activeTab === 'methodology' && <MethodologySettings />}
           {activeTab === 'workflows' && <WorkflowSettings />}

@@ -35,6 +35,10 @@ tauri::generate_handler![
     config::update_agent_mapping,
     config::test_model_connection,
     config::fetch_models,
+    router::simulate_route,
+    router::benchmark_model_for_task,
+    router::get_model_health_reports,
+    router::submit_route_feedback,
     // LLM commands
     llm::commands::llm_generate,
     llm::commands::llm_generate_stream,

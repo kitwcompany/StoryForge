@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 
 use super::{Agent, AgentContext, AgentResult};
-use crate::llm::service::LlmService;
+use crate::{llm::service::LlmService, router::TaskType};
 
 pub struct MemoryCompressorAgent {
     llm_service: LlmService,
@@ -63,7 +63,13 @@ impl Agent for MemoryCompressorAgent {
 
         let response = self
             .llm_service
-            .generate(prompt, Some(2048), Some(0.3))
+            .generate_for_task(
+                TaskType::Summarization,
+                prompt,
+                Some(2048),
+                Some(0.3),
+                Some("记忆压缩"),
+            )
             .await?;
 
         // 估算压缩率
@@ -136,7 +142,13 @@ impl MemoryCompressorAgent {
 
             async move {
                 self.llm_service
-                    .generate(prompt, Some(1024), Some(0.3))
+                    .generate_for_task(
+                        TaskType::Summarization,
+                        prompt,
+                        Some(1024),
+                        Some(0.3),
+                        Some("批量压缩"),
+                    )
                     .await
             }
         });

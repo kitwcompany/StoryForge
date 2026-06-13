@@ -24,6 +24,9 @@ use super::{
 use crate::{
     config::settings::{AppConfig, LlmProfile, LlmProvider},
     error::AppError,
+    router::{
+        Complexity, Priority, RoutingRequest, TaskType, UnifiedModelRegistry, UnifiedModelRouter,
+    },
 };
 
 /// Prompt/Response 缓存键
@@ -286,6 +289,119 @@ impl LlmService {
         guard.llm_profiles.get(profile_id).cloned()
     }
 
+    /// 根据路由请求选择最合适的 LLM 配置
+    pub fn select_profile_for_request(
+        &self,
+        request: &RoutingRequest,
+    ) -> Result<LlmProfile, AppError> {
+        let guard = self.config.lock().map_err(|_| {
+            AppError::internal("Failed to lock AppConfig while selecting model".to_string())
+        })?;
+        let registry = UnifiedModelRegistry::from_app_config(&*guard);
+        let router = UnifiedModelRouter::new(registry);
+        let decision = router.route(request)?;
+        guard
+            .llm_profiles
+            .get(&decision.model_id)
+            .cloned()
+            .ok_or_else(|| AppError::NotFound {
+                resource: "llm_profile".to_string(),
+                id: decision.model_id.clone(),
+            })
+    }
+
+    /// 根据任务请求生成文本：先路由选择模型，再调用指定模型生成
+    pub async fn generate_for_request(
+        &self,
+        request: RoutingRequest,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<GenerateResponse, AppError> {
+        let (_, result) = self
+            .generate_for_request_with_request_id(
+                request,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+            )
+            .await;
+        result
+    }
+
+    /// 根据任务请求生成文本，返回 (request_id, Result)，支持取消
+    pub async fn generate_for_request_with_request_id(
+        &self,
+        request: RoutingRequest,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        request_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
+        let profile = match self.select_profile_for_request(&request) {
+            Ok(p) => p,
+            Err(e) => return (request_id.unwrap_or_default(), Err(e)),
+        };
+        self.generate_with_profile_and_request_id(
+            &profile.id,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            request_id,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// 简化入口：仅指定任务类型，使用默认复杂度/优先级进行路由生成
+    pub async fn generate_for_task(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<GenerateResponse, AppError> {
+        let request = RoutingRequest {
+            task,
+            complexity: Complexity::Medium,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::Low,
+            estimated_input_tokens: 0,
+            constraints: vec![],
+        };
+        self.generate_for_request(request, prompt, max_tokens, temperature, context_label)
+            .await
+    }
+
+    /// 路由生成，支持 Pipeline 步骤上下文
+    pub async fn generate_for_request_with_context_and_pipeline(
+        &self,
+        request: RoutingRequest,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+    ) -> Result<GenerateResponse, AppError> {
+        let profile = self.select_profile_for_request(&request)?;
+        self.generate_with_profile_context_and_pipeline(
+            &profile.id,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            pipeline_ctx,
+        )
+        .await
+    }
+
     /// 计算实际生效的超时秒数
     ///
     /// 统一所有生成路径的超时策略：优先使用 profile 配置；若未设置（0）则回退到
@@ -342,6 +458,12 @@ impl LlmService {
                 duration_ms: record.duration_ms as i32,
                 success: record.error.is_none(),
                 error_message: record.error.map(|e| e.to_string()),
+                // v0.11.0: 路由与审核字段，后续通过 feedback 闭环回填
+                task_type: None,
+                quality_score: None,
+                latency_ms: Some(record.duration_ms as i32),
+                route_decision: None,
+                audit_feedback: None,
             };
             let preview = if record.prompt.len() > 200 {
                 &record.prompt[..200]
@@ -516,29 +638,19 @@ impl LlmService {
         result
     }
 
-    /// 同步生成文本，返回 (request_id, Result) — 供上层取消使用
-    ///
-    /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID。
-    pub async fn generate_with_request_id(
+    /// 同步生成核心逻辑：使用指定 profile，支持 pipeline 上下文与 request_id。
+    async fn execute_generation(
         &self,
+        profile: LlmProfile,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
         context_label: Option<&str>,
         pipeline_ctx: Option<PipelineContext>,
         request_id: Option<String>,
+        timeout_seconds_override: Option<u64>,
+        max_retries_override: Option<u32>,
     ) -> (String, Result<GenerateResponse, AppError>) {
-        let profile = match self.get_active_profile() {
-            Some(p) => p,
-            None => {
-                log::error!("[LLM] Active profile not found");
-                return (
-                    request_id.unwrap_or_default(),
-                    Err(AppError::internal("No active LLM profile configured")),
-                );
-            }
-        };
-
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
@@ -647,8 +759,9 @@ impl LlmService {
         }
 
         let start_time = std::time::Instant::now();
-        let timeout_seconds = Self::effective_timeout_seconds(&profile);
-        let max_retries = 2u32;
+        let timeout_seconds =
+            timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
+        let max_retries = max_retries_override.unwrap_or(2u32);
 
         // 带超时与重试的生成循环
         let mut result: Result<GenerateResponse, AppError> =
@@ -755,6 +868,42 @@ impl LlmService {
         }
     }
 
+    /// 同步生成文本，返回 (request_id, Result) — 供上层取消使用
+    ///
+    /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID。
+    pub async fn generate_with_request_id(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+        request_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
+        let profile = match self.get_active_profile() {
+            Some(p) => p,
+            None => {
+                log::error!("[LLM] Active profile not found");
+                return (
+                    request_id.unwrap_or_default(),
+                    Err(AppError::internal("No active LLM profile configured")),
+                );
+            }
+        };
+        self.execute_generation(
+            profile,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            pipeline_ctx,
+            request_id,
+            None,
+            None,
+        )
+        .await
+    }
+
     /// 使用指定模型配置同步生成文本（带统一超时 + 心跳进度）
     pub async fn generate_with_profile(
         &self,
@@ -769,6 +918,8 @@ impl LlmService {
                 prompt,
                 max_tokens,
                 temperature,
+                None,
+                None,
                 None,
                 None,
             )
@@ -793,6 +944,8 @@ impl LlmService {
                 temperature,
                 context_label,
                 None,
+                None,
+                None,
             )
             .await;
         result
@@ -807,6 +960,8 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
         request_id: Option<String>,
+        timeout_seconds_override: Option<u64>,
+        max_retries_override: Option<u32>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!(
             "[LLM] Starting sync generation with profile={} prompt_len={}",
@@ -825,170 +980,89 @@ impl LlmService {
             }
         };
 
-        let model_name = profile.model.clone();
-        let provider = profile.provider.clone();
-
-        log::debug!(
-            "[LLM] Adapter selected: {:?} model={}",
-            provider,
-            model_name
-        );
-        let adapter = match self.create_adapter(&profile) {
-            Ok(a) => a,
-            Err(e) => {
-                log::error!(
-                    "[LLM] Failed to create adapter for provider {:?}: {}",
-                    provider,
-                    e
-                );
-                return (request_id.unwrap_or_default(), Err(e));
-            }
-        };
-
-        let req = GenerateRequest {
+        self.execute_generation(
+            profile,
             prompt,
             max_tokens,
             temperature,
-            top_p: profile.top_p,
-            frequency_penalty: profile.frequency_penalty,
-            presence_penalty: profile.presence_penalty,
-        };
-        let prompt_for_record = req.prompt.clone();
+            context_label,
+            None,
+            request_id,
+            timeout_seconds_override,
+            max_retries_override,
+        )
+        .await
+    }
 
-        let label = context_label.unwrap_or("");
-        let connecting_msg = if label.is_empty() {
-            "正在连接模型...".to_string()
-        } else {
-            format!("正在连接模型 [{}]...", label)
-        };
-        let sent_msg = if label.is_empty() {
-            "已发送请求，等待响应...".to_string()
-        } else {
-            format!("已发送请求 [{}]，等待响应...", label)
-        };
-        let completed_msg = if label.is_empty() {
-            "AI 响应完成".to_string()
-        } else {
-            format!("{} 完成", label)
-        };
+    /// 使用指定模型配置同步生成文本，支持上下文描述 + Pipeline步骤上下文
+    pub async fn generate_with_profile_context_and_pipeline(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+    ) -> Result<GenerateResponse, AppError> {
+        let (_, result) = self
+            .generate_with_profile_context_and_pipeline_and_request_id(
+                profile_id,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                pipeline_ctx,
+                None,
+                None,
+                None,
+            )
+            .await;
+        result
+    }
 
-        self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, None);
+    /// 使用指定模型配置同步生成文本，支持 Pipeline 步骤上下文，返回
+    /// (request_id, Result)
+    pub async fn generate_with_profile_context_and_pipeline_and_request_id(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+        request_id: Option<String>,
+        timeout_seconds_override: Option<u64>,
+        max_retries_override: Option<u32>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
+        log::info!(
+            "[LLM] Starting sync generation with profile={} prompt_len={}",
+            profile_id,
+            prompt.len()
+        );
 
-        // 启动心跳任务
-        let app_handle = self.app_handle.clone();
-        let model = model_name.clone();
-        let label_owned = label.to_string();
-        let heartbeat_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
-            let start = std::time::Instant::now();
-            let mut tick_count = 0;
-            loop {
-                interval.tick().await;
-                tick_count += 1;
-                let elapsed = start.elapsed().as_secs();
-                let message = if label_owned.is_empty() {
-                    format!("AI 正在生成中...（已等待 {} 秒）", elapsed)
-                } else {
-                    format!("正在{}...（已等待 {} 秒）", label_owned, elapsed)
-                };
-                let _ = app_handle.emit(
-                    "llm-generating-progress",
-                    LlmGeneratingProgress {
-                        stage: "generating".to_string(),
-                        message,
-                        elapsed_seconds: elapsed,
-                        model: model.clone(),
-                        pipeline_context: None,
-                    },
+        let profile = match self.get_profile_by_id(profile_id) {
+            Some(p) => p,
+            None => {
+                log::error!("[LLM] Active profile not found: {}", profile_id);
+                return (
+                    request_id.unwrap_or_default(),
+                    Err(AppError::not_found("llm_profile", profile_id)),
                 );
-                if tick_count >= 60 {
-                    break;
-                }
-            }
-        });
-
-        self.emit_llm_progress("sent", &sent_msg, 0, &model_name, None);
-
-        // Wave 1: 注册取消通道（同步生成也支持取消）
-        let request_id = request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
-        {
-            let mut senders = self.cancel_senders.lock().unwrap();
-            senders.insert(request_id.clone(), Some(cancel_tx));
-        }
-
-        let start_time = std::time::Instant::now();
-        let timeout_seconds = Self::effective_timeout_seconds(&profile);
-
-        let result = tokio::select! {
-            r = timeout(Duration::from_secs(timeout_seconds), adapter.generate(req)) => {
-                match r {
-                    Ok(Ok(resp)) => Ok(resp),
-                    Ok(Err(e)) => Err(AppError::internal(format!("Generation failed: {}", e))),
-                    Err(_) => {
-                        log::warn!("[LLM] Generation timed out after {}s", timeout_seconds);
-                        Err(AppError::llm_timeout(timeout_seconds * 1000))
-                    }
-                }
-            }
-            _ = cancel_rx.recv() => {
-                log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
-                Err(AppError::cancelled("生成已取消"))
             }
         };
 
-        let _ = self
-            .cancel_senders
-            .lock()
-            .unwrap()
-            .remove(&request_id)
-            .flatten();
-
-        heartbeat_handle.abort();
-        let _ = heartbeat_handle.await;
-
-        match result {
-            Ok(response) => {
-                let duration = start_time.elapsed().as_millis() as u64;
-                log::info!(
-                    "[LLM] Sync generation completed in {}ms response_len={}",
-                    duration,
-                    response.content.len()
-                );
-                self.record_llm_call(LlmCallRecord {
-                    model_id: &model_name,
-                    model_name: Some(&model_name),
-                    purpose: label,
-                    prompt: &prompt_for_record,
-                    response: Some(&response),
-                    duration_ms: duration,
-                    error: None,
-                });
-                self.emit_llm_progress("completed", &completed_msg, 0, &model_name, None);
-                (request_id.clone(), Ok(response))
-            }
-            Err(e) => {
-                let is_timeout = matches!(e, AppError::LlmTimeout { .. });
-                let duration = start_time.elapsed().as_millis() as u64;
-                self.record_llm_call(LlmCallRecord {
-                    model_id: &model_name,
-                    model_name: Some(&model_name),
-                    purpose: label,
-                    prompt: &prompt_for_record,
-                    response: None,
-                    duration_ms: duration,
-                    error: Some(&e),
-                });
-                self.emit_llm_progress(
-                    "error",
-                    &e.to_string(),
-                    if is_timeout { 600 } else { 0 },
-                    &model_name,
-                    None,
-                );
-                (request_id.clone(), Err(e))
-            }
-        }
+        self.execute_generation(
+            profile,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            pipeline_ctx,
+            request_id,
+            timeout_seconds_override,
+            max_retries_override,
+        )
+        .await
     }
 
     /// 流式生成文本（启动 30 秒超时 + chunk 60 秒超时）
@@ -1514,6 +1588,14 @@ mod tests {
             timeout_seconds: 300,
             is_default: false,
             capabilities: vec![],
+            enabled: true,
+            kind: crate::config::settings::ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: crate::config::settings::QualityTier::Medium,
+            speed_tier: crate::config::settings::SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
         };
         let response = GenerateResponse {
             content: "OK".to_string(),
@@ -1555,6 +1637,14 @@ mod tests {
             timeout_seconds: 300,
             is_default: false,
             capabilities: vec![],
+            enabled: true,
+            kind: crate::config::settings::ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: crate::config::settings::QualityTier::Medium,
+            speed_tier: crate::config::settings::SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
         };
         let response = GenerateResponse {
             content: "OK".to_string(),

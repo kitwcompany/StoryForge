@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::llm::service::LlmService;
+use crate::{llm::service::LlmService, router::TaskType};
 
 /// 质量报告
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,7 +291,13 @@ impl QualityChecker {
     ) -> Result<QualityReport, String> {
         let prompt = Self::build_llm_evaluation_prompt(text);
         let response = llm
-            .generate(prompt, Some(2000), Some(0.3))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(2000),
+                Some(0.3),
+                Some("quality_evaluation"),
+            )
             .await
             .map_err(|e| format!("LLM 评估失败: {}", e))?;
 

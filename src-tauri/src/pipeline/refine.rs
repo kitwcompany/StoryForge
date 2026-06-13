@@ -5,6 +5,7 @@ use crate::{
         RevisionRepository, RevisionType,
     },
     llm::LlmService,
+    router::TaskType,
 };
 
 /// 执行 AI 修稿
@@ -77,7 +78,16 @@ pub async fn refine_draft(
     callbacks.progress("refine", 0.4);
 
     // 5. 调用 LLM 进行修稿
-    let response = match llm_service.generate(prompt, Some(4096), Some(0.7)).await {
+    let response = match llm_service
+        .generate_for_task(
+            TaskType::Editing,
+            prompt,
+            Some(4096),
+            Some(0.7),
+            Some("AI修稿润色"),
+        )
+        .await
+    {
         Ok(resp) => resp,
         Err(e) => {
             return Err(PipelineError {

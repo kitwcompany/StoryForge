@@ -1662,6 +1662,12 @@ pub struct LlmCall {
     pub prompt_preview: Option<String>,
     pub metadata: Option<String>,
     pub created_at: DateTime<Local>,
+    // v0.11.0: 能力审核与反馈闭环字段
+    pub task_type: Option<String>,
+    pub quality_score: Option<f64>,
+    pub latency_ms: Option<i32>,
+    pub route_decision: Option<String>,
+    pub audit_feedback: Option<String>,
 }
 
 // --- Character State ---

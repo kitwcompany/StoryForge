@@ -27,6 +27,7 @@ use crate::{
         CreateCharacterRequest, CreateStoryRequest, DbPool, UpdateStoryRequest,
     },
     llm::{service::PipelineContext as LlmPipelineContext, LlmService},
+    router::{Complexity, Priority, RoutingRequest, TaskType},
     strategy::{load_all_assets, SelectionContext, StrategySelector},
 };
 
@@ -264,8 +265,17 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
             let prompt = story_concept_prompt(PromptMode::Generate, &ctx.user_premise);
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 2, "生成故事概念");
+            let request = RoutingRequest {
+                task: TaskType::WorldBuilding,
+                complexity: Complexity::Medium,
+                budget_priority: Priority::Low,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            };
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_request_with_context_and_pipeline(
+                    request,
                     prompt,
                     Some(concept_max_tokens),
                     Some(concept_temperature),
@@ -765,8 +775,17 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         total_steps: 4,
                         action: "生成世界观设定".to_string(),
                     };
+                    let request = RoutingRequest {
+                        task: TaskType::WorldBuilding,
+                        complexity: Complexity::Medium,
+                        budget_priority: Priority::Low,
+                        speed_priority: Priority::Low,
+                        estimated_input_tokens: 0,
+                        constraints: vec![],
+                    };
                     let response = llm
-                        .generate_with_context_and_pipeline(
+                        .generate_for_request_with_context_and_pipeline(
+                            request,
                             prompt,
                             Some(2048),
                             Some(0.6),
@@ -872,8 +891,17 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         total_steps: 4,
                         action: "生成故事大纲".to_string(),
                     };
+                    let request = RoutingRequest {
+                        task: TaskType::WorldBuilding,
+                        complexity: Complexity::Medium,
+                        budget_priority: Priority::Low,
+                        speed_priority: Priority::Low,
+                        estimated_input_tokens: 0,
+                        constraints: vec![],
+                    };
                     let response = llm
-                        .generate_with_context_and_pipeline(
+                        .generate_for_request_with_context_and_pipeline(
+                            request,
                             prompt,
                             Some(2048),
                             Some(0.6),
@@ -975,8 +1003,17 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         total_steps: 4,
                         action: "生成角色".to_string(),
                     };
+                    let request = RoutingRequest {
+                        task: TaskType::WorldBuilding,
+                        complexity: Complexity::Medium,
+                        budget_priority: Priority::Low,
+                        speed_priority: Priority::Low,
+                        estimated_input_tokens: 0,
+                        constraints: vec![],
+                    };
                     let response = llm
-                        .generate_with_context_and_pipeline(
+                        .generate_for_request_with_context_and_pipeline(
+                            request,
                             prompt,
                             Some(3000),
                             Some(0.7),
@@ -1169,8 +1206,17 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
             );
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成场景大纲");
+            let request = RoutingRequest {
+                task: TaskType::WorldBuilding,
+                complexity: Complexity::Medium,
+                budget_priority: Priority::Low,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            };
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_request_with_context_and_pipeline(
+                    request,
                     prompt,
                     Some(3000),
                     Some(0.6),
@@ -1356,8 +1402,17 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 "",
             );
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成伏笔");
+            let request = RoutingRequest {
+                task: TaskType::WorldBuilding,
+                complexity: Complexity::Medium,
+                budget_priority: Priority::Low,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            };
             let response = llm
-                .generate_with_context_and_pipeline(
+                .generate_for_request_with_context_and_pipeline(
+                    request,
                     prompt,
                     Some(1024),
                     Some(0.7),

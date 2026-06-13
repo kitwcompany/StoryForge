@@ -12,6 +12,7 @@ use crate::{
         ChapterRepository, CharacterRepository, DbPool, StoryRepository, WorldBuildingRepository,
     },
     llm::LlmService,
+    router::TaskType,
 };
 
 /// 自动合同构建进度事件
@@ -326,7 +327,13 @@ impl AutoContractBuilder {
         self.emit_progress("generating_master", "正在生成世界观合同...", 0.2);
         let llm_service = LlmService::new(self.app_handle.clone());
         let response = llm_service
-            .generate(prompt, Some(2048), Some(0.7))
+            .generate_for_task(
+                TaskType::WorldBuilding,
+                prompt,
+                Some(2048),
+                Some(0.7),
+                Some("auto_contract_master_setting"),
+            )
             .await
             .map_err(|e| format!("LLM 生成失败: {}", e))?;
 
@@ -507,7 +514,13 @@ impl AutoContractBuilder {
         self.emit_progress("generating_chapter", "正在生成章节合同...", 0.6);
         let llm_service = LlmService::new(self.app_handle.clone());
         let response = llm_service
-            .generate(prompt, Some(2048), Some(0.7))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(2048),
+                Some(0.7),
+                Some("auto_contract_chapter"),
+            )
             .await
             .map_err(|e| format!("LLM 生成失败: {}", e))?;
 
@@ -767,7 +780,13 @@ impl AutoContractBuilder {
         self.emit_progress("generating_outline", "正在生成场景大纲...", 0.7);
         let llm_service = LlmService::new(self.app_handle.clone());
         let response = llm_service
-            .generate(prompt, Some(1024), Some(0.7))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(1024),
+                Some(0.7),
+                Some("auto_contract_scene_outline"),
+            )
             .await
             .map_err(|e| format!("LLM 生成失败: {}", e))?;
 
@@ -823,7 +842,13 @@ impl AutoContractBuilder {
         self.emit_progress("generating_character", "正在生成默认角色...", 0.08);
         let llm_service = LlmService::new(self.app_handle.clone());
         let response = llm_service
-            .generate(prompt, Some(1024), Some(0.7))
+            .generate_for_task(
+                TaskType::WorldBuilding,
+                prompt,
+                Some(1024),
+                Some(0.7),
+                Some("auto_contract_default_character"),
+            )
             .await
             .map_err(|e| format!("LLM 生成失败: {}", e))?;
 

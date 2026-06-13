@@ -31,7 +31,6 @@ import {
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import { StreamOutput } from '@/components/StreamOutput';
 import { listen } from '@tauri-apps/api/event';
-import toast from 'react-hot-toast';
 
 export interface WenSiPanelProps {
   storyId?: string;
@@ -44,6 +43,8 @@ export interface WenSiPanelProps {
   selectedText?: string;
   onReviseResult?: (text: string) => void;
   onFreePrompt?: (prompt: string) => void;
+  /** 统一状态提示回调（替代黑色 toast） */
+  onShowStatus?: (message: string) => void;
 }
 
 type PanelTab = 'none' | 'write' | 'revise' | 'dialog';
@@ -59,6 +60,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   selectedText,
   onReviseResult,
   onFreePrompt,
+  onShowStatus,
 }) => {
   const [activeTab, setActiveTab] = useState<PanelTab>('none');
 
@@ -159,7 +161,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         event => {
           setIsAutoWriting(false);
           setProgress(prev => ({ ...prev, percentage: 100 }));
-          toast.success(`自动续写完成！共生成 ${event.payload.current_chars} 字`);
+          onShowStatus?.(`自动续写完成！共生成 ${event.payload.current_chars} 字`);
           // v0.7.7: 同步完成状态到统一 store
           const store = useBackendActivityStore.getState();
           store.completeActivity(
@@ -190,7 +192,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         if (msg.includes('feature_locked') || msg.includes('pro_required')) {
           onShowUpgrade('自动续写需专业版');
         } else {
-          toast.error(`自动续写出错：${msg}`);
+          onShowStatus?.(`自动续写出错：${msg}`);
         }
       });
       return unlisten;
@@ -255,7 +257,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       }>(`auto-revise-complete-${autoReviseTaskId}`, event => {
         setIsAutoRevising(false);
         setReviseProgress({ stage: 'completed', progress: 1, message: '修改完成' });
-        toast.success('自动修改完成！');
+        onShowStatus?.('自动修改完成！');
         // v0.7.7: 同步完成状态到统一 store
         const store = useBackendActivityStore.getState();
         store.completeActivity(`auto-revise-${autoReviseTaskId}`, '自动修改完成');
@@ -287,7 +289,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         if (msg.includes('feature_locked') || msg.includes('pro_required')) {
           onShowUpgrade('自动修改需专业版');
         } else {
-          toast.error(`自动修改出错：${msg}`);
+          onShowStatus?.(`自动修改出错：${msg}`);
         }
       });
       return unlisten;
@@ -329,16 +331,24 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         styleScore: 0,
         driftDetails: [],
       });
-      toast.success('自动续写已开始');
+      onShowStatus?.('自动续写已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('feature_locked') || msg.includes('pro_required')) {
         onShowUpgrade('自动续写需专业版');
       } else {
-        toast.error(`启动失败：${msg}`);
+        onShowStatus?.(`启动失败：${msg}`);
       }
     }
-  }, [storyId, chapterId, targetChars, charsPerLoop, hasAutoWriteQuota, onShowUpgrade]);
+  }, [
+    storyId,
+    chapterId,
+    targetChars,
+    charsPerLoop,
+    hasAutoWriteQuota,
+    onShowUpgrade,
+    onShowStatus,
+  ]);
 
   const handleStopAutoWrite = useCallback(async () => {
     if (autoWriteTaskId) {
@@ -346,7 +356,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     }
     setIsAutoWriting(false);
     setAutoWriteTaskId(null);
-    toast('自动续写已停止');
+    onShowStatus?.('自动续写已停止');
     if (storyId) {
       recordFeedback({
         story_id: storyId,
@@ -378,13 +388,13 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       setAutoReviseTaskId(result.task_id);
       setIsAutoRevising(true);
       setReviseProgress({ stage: 'started', progress: 0, message: '开始修改...' });
-      toast.success('自动修改已开始');
+      onShowStatus?.('自动修改已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('feature_locked') || msg.includes('pro_required')) {
         onShowUpgrade('自动修改需专业版');
       } else {
-        toast.error(`启动失败：${msg}`);
+        onShowStatus?.(`启动失败：${msg}`);
       }
     }
   }, [
@@ -396,6 +406,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     editorContent,
     hasAutoReviseQuota,
     onShowUpgrade,
+    onShowStatus,
   ]);
 
   const handleStopAutoRevise = useCallback(async () => {
@@ -405,7 +416,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     setIsAutoRevising(false);
     setAutoReviseTaskId(null);
     setReviseProgress({ stage: '', progress: 0, message: '' });
-    toast('自动修改已停止');
+    onShowStatus?.('自动修改已停止');
     if (storyId) {
       recordFeedback({
         story_id: storyId,
@@ -750,7 +761,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
                 onClick={() => {
                   onReviseResult?.(reviseResultText);
                   setShowReviseResult(false);
-                  toast.success('已应用修改');
+                  onShowStatus?.('已应用修改');
                 }}
                 title="应用修改"
               >

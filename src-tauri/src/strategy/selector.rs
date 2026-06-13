@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use super::models::{SelectableAsset, SelectedStrategy, SelectionContext, StrategyOverrides};
-use crate::{error::AppError, llm::LlmService};
+use crate::{error::AppError, llm::LlmService, router::TaskType};
 
 /// 策略选择器
 #[derive(Clone)]
@@ -32,7 +32,13 @@ impl StrategySelector {
         let prompt = build_selection_prompt(context, assets, &strategy);
         let response = self
             .llm_service
-            .generate(prompt, Some(1024), Some(0.3))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(1024),
+                Some(0.3),
+                Some("strategy_select"),
+            )
             .await?;
 
         let llm_strategy = parse_strategy_response(&response.content)?;

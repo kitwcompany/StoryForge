@@ -6,6 +6,7 @@ use crate::{
     db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
     error::AppError,
     is_novel_creation_intent, record_ai_operation,
+    router::TaskType,
 };
 
 /// smart_execute 初始上下文加载结果类型别名，降低闭包类型复杂度
@@ -733,7 +734,16 @@ pub async fn get_input_hint(
             word_count,
             chapters.len()
         );
-        match llm_service.generate(prompt, Some(30), Some(0.7)).await {
+        match llm_service
+            .generate_for_task(
+                TaskType::Brainstorming,
+                prompt,
+                Some(30),
+                Some(0.7),
+                Some("input_hint"),
+            )
+            .await
+        {
             Ok(response) => {
                 let hint = response
                     .content

@@ -38,6 +38,13 @@ pub struct ModelConfigInput {
     pub capabilities: Option<Vec<String>>,
     pub is_default: Option<bool>,
     pub enabled: Option<bool>,
+    // v0.11.0 路由元数据
+    pub max_context_length: Option<u32>,
+    pub quality_tier: Option<String>,
+    pub speed_tier: Option<String>,
+    pub cost_per_1k_input: Option<f64>,
+    pub cost_per_1k_output: Option<f64>,
+    pub tags: Option<Vec<String>>,
 }
 
 // ============================================================================
@@ -77,6 +84,28 @@ fn normalize_temperature(temp: f32) -> f32 {
     ((temp * 100.0).round() / 100.0).clamp(0.0, 2.0)
 }
 
+/// 解析质量等级字符串
+fn parse_quality_tier(tier: Option<&str>) -> QualityTier {
+    match tier {
+        Some("low") => QualityTier::Low,
+        Some("medium") => QualityTier::Medium,
+        Some("high") => QualityTier::High,
+        Some("ultra") => QualityTier::Ultra,
+        _ => QualityTier::Medium,
+    }
+}
+
+/// 解析速度等级字符串
+fn parse_speed_tier(tier: Option<&str>) -> SpeedTier {
+    match tier {
+        Some("fast") => SpeedTier::Fast,
+        Some("normal") => SpeedTier::Normal,
+        Some("slow") => SpeedTier::Slow,
+        Some("very_slow") => SpeedTier::VerySlow,
+        _ => SpeedTier::Normal,
+    }
+}
+
 /// 构建 LlmProfile（Chat 和 Multimodal 共用）
 fn build_llm_profile(
     model_id: String,
@@ -114,6 +143,13 @@ fn build_llm_profile(
         _ => ModelSource::Platform,
     };
 
+    // 根据类型推断 kind
+    let kind = match config.model_type {
+        ModelType::Multimodal => ModelKind::Multimodal,
+        ModelType::Image => ModelKind::Image,
+        _ => ModelKind::Chat,
+    };
+
     LlmProfile {
         id: model_id,
         name: config.name.clone(),
@@ -129,7 +165,15 @@ fn build_llm_profile(
         presence_penalty: config.presence_penalty.map(|v| v.clamp(-2.0, 2.0)),
         timeout_seconds: super::settings::DEFAULT_LLM_TIMEOUT_SECONDS,
         is_default: config.is_default.unwrap_or(false),
+        enabled: config.enabled.unwrap_or(true),
+        kind,
         capabilities,
+        max_context_length: config.max_context_length.unwrap_or(8192),
+        quality_tier: parse_quality_tier(config.quality_tier.as_deref()),
+        speed_tier: parse_speed_tier(config.speed_tier.as_deref()),
+        cost_per_1k_input: config.cost_per_1k_input,
+        cost_per_1k_output: config.cost_per_1k_output,
+        tags: config.tags.clone().unwrap_or_default(),
         model_source,
     }
 }
@@ -200,68 +244,92 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
 
     let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
-    let mut models: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
-
-    // 转换LLM配置：含 Vision 能力的放入 multimodal，其余放入 chat
-    let mut chat_models: Vec<serde_json::Value> = vec![];
-    let mut multimodal_models: Vec<serde_json::Value> = vec![];
+    // v0.11.0: 统一模型池 — 所有生成模型与嵌入模型合并到一个列表，前端按 type 分组
+    let mut all_models: Vec<serde_json::Value> = vec![];
 
     for p in config.llm_profiles.values() {
-        let is_multimodal = p
-            .capabilities
-            .contains(&super::settings::ModelCapability::Vision);
-        let model_json = serde_json::json!({
+        let model_type = match p.kind {
+            ModelKind::Chat => "chat",
+            ModelKind::Multimodal => "multimodal",
+            ModelKind::Image => "image",
+        };
+        all_models.push(serde_json::json!({
             "id": p.id,
             "name": p.name,
             "description": p.description,
             "provider": p.provider,
             "model_source": p.model_source,
             "model": p.model,
-            "type": if is_multimodal { "multimodal" } else { "chat" },
+            "type": model_type,
             "temperature": format!("{:.2}", p.temperature).parse::<f64>().unwrap(),
             "max_tokens": p.max_tokens,
             "timeout_seconds": p.timeout_seconds,
             "is_default": p.is_default,
+            "enabled": p.enabled,
             "capabilities": p.capabilities,
+            "max_context_length": p.max_context_length,
+            "quality_tier": p.quality_tier,
+            "speed_tier": p.speed_tier,
+            "cost_per_1k_input": p.cost_per_1k_input,
+            "cost_per_1k_output": p.cost_per_1k_output,
+            "tags": p.tags,
+            "api_key": if p.api_key.is_empty() { None } else { Some("***") },
+            "api_base": p.api_base,
+        }));
+    }
+
+    for p in config.embedding_profiles.values() {
+        all_models.push(serde_json::json!({
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "provider": p.provider,
+            "model_source": super::settings::ModelSource::Platform,
+            "model": p.model,
+            "type": "embedding",
+            "dimensions": p.dimensions,
+            "max_input_tokens": p.max_input_tokens,
+            "is_default": p.is_default,
             "enabled": true,
             "api_key": if p.api_key.is_empty() { None } else { Some("***") },
             "api_base": p.api_base,
-        });
-        if is_multimodal {
-            multimodal_models.push(model_json);
-        } else {
-            chat_models.push(model_json);
-        }
+        }));
     }
-    models.insert("chat".to_string(), chat_models);
-    models.insert("multimodal".to_string(), multimodal_models);
 
-    // 转换Embedding配置
-    let embedding_models: Vec<serde_json::Value> = config
-        .embedding_profiles
-        .values()
-        .map(|p| {
-            serde_json::json!({
-                "id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "provider": p.provider,
-                "model_source": super::settings::ModelSource::Platform, // Embedding models are always platform-provided in current setup
-                "model": p.model,
-                "type": "embedding",
-                "dimensions": p.dimensions,
-                "max_input_tokens": p.max_input_tokens,
-                "is_default": p.is_default,
-                "enabled": true,
-                "api_key": if p.api_key.is_empty() { None } else { Some("***") },
-                "api_base": p.api_base,
-            })
-        })
-        .collect();
-    models.insert("embedding".to_string(), embedding_models);
-
-    // 图像模型暂空
-    models.insert("image".to_string(), vec![]);
+    // 按类型分组，保持前端兼容
+    let mut models: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+    models.insert(
+        "chat".to_string(),
+        all_models
+            .iter()
+            .filter(|m| m["type"] == "chat")
+            .cloned()
+            .collect(),
+    );
+    models.insert(
+        "multimodal".to_string(),
+        all_models
+            .iter()
+            .filter(|m| m["type"] == "multimodal")
+            .cloned()
+            .collect(),
+    );
+    models.insert(
+        "image".to_string(),
+        all_models
+            .iter()
+            .filter(|m| m["type"] == "image")
+            .cloned()
+            .collect(),
+    );
+    models.insert(
+        "embedding".to_string(),
+        all_models
+            .iter()
+            .filter(|m| m["type"] == "embedding")
+            .cloned()
+            .collect(),
+    );
 
     let active_models = vec![
         (

@@ -3159,6 +3159,34 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 88)?;
     }
 
+    // v0.11.0: 为 llm_calls 表补充模型健康与反馈闭环字段
+    if current_version < 89 {
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(llm_calls)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !columns.iter().any(|c| c == "task_type") {
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN task_type TEXT", [])?;
+        }
+        if !columns.iter().any(|c| c == "quality_score") {
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN quality_score REAL", [])?;
+        }
+        if !columns.iter().any(|c| c == "latency_ms") {
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN latency_ms INTEGER", [])?;
+        }
+        if !columns.iter().any(|c| c == "route_decision") {
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN route_decision TEXT", [])?;
+        }
+        if !columns.iter().any(|c| c == "audit_feedback") {
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN audit_feedback TEXT", [])?;
+        }
+        record_migration(conn, 89)?;
+    }
+
     Ok(())
 }
 

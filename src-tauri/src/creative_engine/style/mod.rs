@@ -25,7 +25,7 @@ pub use dna::StyleDNA;
 pub use drift_checker::StyleDriftChecker;
 use serde::{Deserialize, Serialize};
 
-use crate::llm::service::LlmService;
+use crate::{llm::service::LlmService, router::TaskType};
 
 /// 风格分析器 - 从文本样例解析风格特征
 ///
@@ -163,7 +163,13 @@ impl StyleAnalyzer {
     ) -> Result<StyleDNA, String> {
         let prompt = Self::build_llm_analysis_prompt(text);
         let response = llm
-            .generate(prompt, Some(2000), Some(0.3))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(2000),
+                Some(0.3),
+                Some("style_dna_analysis"),
+            )
             .await
             .map_err(|e| format!("LLM 生成失败: {}", e))?;
 

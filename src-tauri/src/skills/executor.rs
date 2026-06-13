@@ -4,7 +4,19 @@ use std::{
 };
 
 use super::*;
-use crate::error::AppError;
+use crate::{error::AppError, router::TaskType};
+
+fn task_type_for_category(category: &SkillCategory) -> TaskType {
+    match category {
+        SkillCategory::Analysis | SkillCategory::Plot => TaskType::Analysis,
+        SkillCategory::Style => TaskType::Editing,
+        SkillCategory::Export => TaskType::Summarization,
+        SkillCategory::WorldBuilding | SkillCategory::Character => TaskType::WorldBuilding,
+        SkillCategory::Writing | SkillCategory::Integration | SkillCategory::Custom => {
+            TaskType::CreativeWriting
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct SkillExecutor {
@@ -209,8 +221,15 @@ impl SkillExecutor {
                 )
             };
 
+            let task_type = task_type_for_category(&manifest.category);
             let response = llm
-                .generate(full_prompt, Some(max_tokens), Some(temperature))
+                .generate_for_task(
+                    task_type,
+                    full_prompt,
+                    Some(max_tokens),
+                    Some(temperature),
+                    Some(&manifest.id),
+                )
                 .await?;
 
             Ok(SkillResult {

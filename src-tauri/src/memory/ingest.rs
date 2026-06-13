@@ -21,6 +21,7 @@ use crate::{
     embeddings::{embed_entity, EntityEmbeddingRequest},
     llm::LlmService,
     narrative::event::{EventType, NarrativeEvent},
+    router::TaskType,
 };
 
 /// Ingest作业记录
@@ -481,7 +482,16 @@ impl IngestPipeline {
                     err
                 ));
             }
-            let response = self.llm_service.generate(prompt, None, None).await?;
+            let response = self
+                .llm_service
+                .generate_for_task(
+                    TaskType::Analysis,
+                    prompt,
+                    None,
+                    None,
+                    Some("记忆-内容分析"),
+                )
+                .await?;
             let json_str = match extract_json(&response.content) {
                 Ok(s) => s,
                 Err(e) => {
@@ -589,7 +599,16 @@ impl IngestPipeline {
                     err
                 ));
             }
-            let response = self.llm_service.generate(prompt, None, None).await?;
+            let response = self
+                .llm_service
+                .generate_for_task(
+                    TaskType::WorldBuilding,
+                    prompt,
+                    None,
+                    None,
+                    Some("记忆-生成知识"),
+                )
+                .await?;
             let json_str = match extract_json(&response.content) {
                 Ok(s) => s,
                 Err(e) => {
@@ -668,7 +687,16 @@ impl IngestPipeline {
                 ));
             }
 
-            let response = self.llm_service.generate(prompt_text, None, None).await?;
+            let response = self
+                .llm_service
+                .generate_for_task(
+                    TaskType::Analysis,
+                    prompt_text,
+                    None,
+                    None,
+                    Some("记忆-叙事事件提取"),
+                )
+                .await?;
             let json_str = match crate::narrative::extract_and_sanitize_json(&response.content) {
                 Ok(s) => s,
                 Err(e) => {

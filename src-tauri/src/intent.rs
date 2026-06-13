@@ -15,6 +15,7 @@ use crate::{
         AgentContext, AgentResult,
     },
     llm::{GenerateResponse, LlmService},
+    router::TaskType,
 };
 
 /// 意图类型
@@ -125,7 +126,13 @@ impl IntentParser {
 
         match self
             .llm_service
-            .generate(prompt, Some(512), Some(0.1))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(512),
+                Some(0.1),
+                Some("intent_parse"),
+            )
             .await
         {
             Ok(GenerateResponse { content, .. }) => Self::parse_intent_json(&content, user_input),

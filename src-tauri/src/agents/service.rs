@@ -15,6 +15,7 @@ use crate::{
     config::settings::AppConfig,
     error::AppError,
     llm::service::LlmService,
+    router::{Complexity, Priority, RoutingConstraint, RoutingRequest, TaskType},
     subscription::{SubscriptionService, SubscriptionTier},
 };
 
@@ -107,6 +108,15 @@ pub enum AgentStage {
     Reviewing,
     Completed,
     Failed,
+}
+
+/// Writer 候选/生成前的预准备上下文，供多个候选共享以避免重复工作。
+#[derive(Debug, Clone)]
+pub struct WriterPreparedContext {
+    pub prompt: String,
+    pub max_tokens: Option<i32>,
+    pub base_temperature: f32,
+    pub tier: SubscriptionTier,
 }
 
 /// Agent服务
@@ -384,6 +394,162 @@ impl AgentService {
         task.tier.unwrap_or_else(|| self.get_user_tier())
     }
 
+    /// 获取 Agent 映射配置
+    fn get_agent_mapping(&self, agent_type: AgentType) -> Option<crate::config::AgentMapping> {
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        AppConfig::load(&app_dir)
+            .ok()?
+            .agent_mappings
+            .get(agent_type.agent_id())
+            .cloned()
+    }
+
+    /// 判断指定 Agent 实际会使用的目标模型是否为本地模型。
+    /// 用于候选阶段并发策略：本地模型默认串行，避免在服务端排队。
+    pub fn is_target_model_local(&self, agent_type: AgentType) -> bool {
+        use crate::config::settings::{LlmProvider, ModelSource};
+
+        let app_dir = match self.app_handle.path().app_data_dir() {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+        let config = match AppConfig::load(&app_dir) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        let model_id = if let Some(id) = self.get_agent_chat_model_id(agent_type) {
+            id
+        } else {
+            let mapping = match self.get_agent_mapping(agent_type) {
+                Some(m) => m,
+                None => return false,
+            };
+            let tier = self.get_user_tier();
+            let request = self.build_routing_request(agent_type, tier, Some(&mapping));
+            match self.llm_service.select_profile_for_request(&request) {
+                Ok(p) => {
+                    return p.model_source == ModelSource::Local
+                        || p.provider == LlmProvider::Ollama
+                }
+                Err(_) => return false,
+            };
+        };
+
+        config
+            .llm_profiles
+            .get(&model_id)
+            .map(|p| p.model_source == ModelSource::Local || p.provider == LlmProvider::Ollama)
+            .unwrap_or(false)
+    }
+
+    /// 根据 Agent 类型、订阅层级与映射配置构建路由请求
+    fn build_routing_request(
+        &self,
+        agent_type: AgentType,
+        tier: SubscriptionTier,
+        mapping: Option<&crate::config::AgentMapping>,
+    ) -> RoutingRequest {
+        let budget_priority = match tier {
+            SubscriptionTier::Free => Priority::High,
+            _ => Priority::Low,
+        };
+
+        let mut request = match agent_type {
+            AgentType::Writer => RoutingRequest {
+                task: TaskType::CreativeWriting,
+                complexity: Complexity::High,
+                budget_priority,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::Inspector => RoutingRequest {
+                task: TaskType::Editing,
+                complexity: Complexity::Medium,
+                budget_priority,
+                speed_priority: Priority::Medium,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::OutlinePlanner => RoutingRequest {
+                task: TaskType::WorldBuilding,
+                complexity: Complexity::High,
+                budget_priority,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::StyleMimic => RoutingRequest {
+                task: TaskType::Analysis,
+                complexity: Complexity::Medium,
+                budget_priority,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::PlotAnalyzer => RoutingRequest {
+                task: TaskType::Analysis,
+                complexity: Complexity::High,
+                budget_priority,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::MemoryCompressor => RoutingRequest {
+                task: TaskType::Summarization,
+                complexity: Complexity::Medium,
+                budget_priority,
+                speed_priority: Priority::Medium,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::Commentator => RoutingRequest {
+                task: TaskType::CreativeWriting,
+                complexity: Complexity::Medium,
+                budget_priority,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+            AgentType::KnowledgeDistiller => RoutingRequest {
+                task: TaskType::Summarization,
+                complexity: Complexity::Medium,
+                budget_priority,
+                speed_priority: Priority::Low,
+                estimated_input_tokens: 0,
+                constraints: vec![],
+            },
+        };
+
+        // 应用用户在 Agent 映射中配置的策略覆盖
+        if let Some(m) = mapping {
+            if let Some(t) = m.task_type.as_deref() {
+                request.task = parse_task_type(t).unwrap_or(request.task);
+            }
+            if let Some(c) = m.complexity.as_deref() {
+                request.complexity = parse_complexity(c).unwrap_or(request.complexity);
+            }
+            if let Some(p) = m.budget_priority.as_deref() {
+                request.budget_priority = parse_priority(p).unwrap_or(request.budget_priority);
+            }
+            if let Some(p) = m.speed_priority.as_deref() {
+                request.speed_priority = parse_priority(p).unwrap_or(request.speed_priority);
+            }
+            for c in &m.constraints {
+                if let Some(constraint) = parse_constraint(c) {
+                    request.constraints.push(constraint);
+                }
+            }
+        }
+
+        request
+    }
+
     /// 为Agent生成内容，优先使用映射的模型
     /// 免费版限制 max_tokens 以控制成本与质量
     /// `request_id`: 上层传入的取消标识；为 None 时内部生成 UUID
@@ -395,6 +561,31 @@ impl AgentService {
         temperature: Option<f32>,
         tier: SubscriptionTier,
         request_id: Option<String>,
+    ) -> Result<(String, crate::llm::GenerateResponse), AppError> {
+        self.generate_for_agent_with_options(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            tier,
+            request_id,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// 为Agent生成内容，支持超时与重试覆盖。
+    async fn generate_for_agent_with_options(
+        &self,
+        task: &AgentTask,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        tier: SubscriptionTier,
+        request_id: Option<String>,
+        timeout_seconds_override: Option<u64>,
+        max_retries_override: Option<u32>,
     ) -> Result<(String, crate::llm::GenerateResponse), AppError> {
         // v0.9.5: 协作式取消 —— 若上层已请求取消，直接返回，避免无效 LLM 调用
         if let Some(ref req_id) = request_id {
@@ -447,26 +638,43 @@ impl AgentService {
                     temperature,
                     None,
                     request_id.clone(),
+                    timeout_seconds_override,
+                    max_retries_override,
                 )
                 .await;
             (rid, result?)
         } else {
+            // v0.11.0: 无固定映射时采用自动路由策略，根据 Agent 类型选择模型
             self.emit_event(
                 &task.id,
                 agent_type,
                 AgentStage::Generating,
-                "使用默认模型生成...",
+                "正在根据任务策略路由模型...",
+                0.32,
+            );
+            let mapping = self.get_agent_mapping(agent_type);
+            let routing_request = self.build_routing_request(agent_type, tier, mapping.as_ref());
+            let profile = self
+                .llm_service
+                .select_profile_for_request(&routing_request)?;
+            self.emit_event(
+                &task.id,
+                agent_type,
+                AgentStage::Generating,
+                &format!("路由选择模型: {}", profile.name),
                 0.35,
             );
             let (rid, result) = self
                 .llm_service
-                .generate_with_request_id(
+                .generate_with_profile_and_request_id(
+                    &profile.id,
                     prompt.clone(),
                     effective_max,
                     temperature,
                     None,
-                    None,
                     request_id.clone(),
+                    timeout_seconds_override,
+                    max_retries_override,
                 )
                 .await;
             (rid, result?)
@@ -512,8 +720,20 @@ impl AgentService {
         Ok((req_id, response))
     }
 
-    /// 原始 Writer 生成 — 只生成内容，不进入闭环
+    /// 原始 Writer 生成 — 只生成内容，不进入闭环。
+    /// 完整链路：预检/补齐 → 构建 prompt → 生成策略 → LLM 生成 → 后处理。
     pub async fn execute_writer_raw(&self, task: AgentTask) -> Result<AgentResult, AppError> {
+        let prepared = self.prepare_writer_context(&task).await?;
+        self.execute_writer_prepared(task, prepared, None, None)
+            .await
+    }
+
+    /// 预准备 Writer 上下文：执行预检、自动补齐、构建 prompt 与生成策略。
+    /// 多个候选可共享同一份预准备结果，避免重复 LLM 调用与重复构建。
+    pub async fn prepare_writer_context(
+        &self,
+        task: &AgentTask,
+    ) -> Result<WriterPreparedContext, AppError> {
         let pool = self.app_handle.state::<crate::db::DbPool>();
         let checker = crate::story_system::preflight::PreflightChecker::new();
         let preflight = checker
@@ -615,7 +835,7 @@ impl AgentService {
             }
         }
 
-        let tier = self.resolve_tier(&task);
+        let tier = self.resolve_tier(task);
         self.emit_event(
             &task.id,
             task.agent_type,
@@ -639,7 +859,7 @@ impl AgentService {
             "正在构建写作提示词...",
             0.15,
         );
-        let prompt = self.build_writer_prompt(&task, tier).await;
+        let prompt = self.build_writer_prompt(task, tier).await;
         self.emit_event(
             &task.id,
             task.agent_type,
@@ -685,7 +905,7 @@ impl AgentService {
             "正在查询用户反馈历史...",
             0.281,
         );
-        let (max_tokens, mut temperature) = {
+        let (max_tokens, temperature) = {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let generator =
                 crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
@@ -723,7 +943,7 @@ impl AgentService {
                         ),
                         0.3,
                     );
-                    (Some(strategy.max_tokens), Some(strategy.temperature))
+                    (Some(strategy.max_tokens), strategy.temperature)
                 }
                 Err(e) => {
                     log::warn!(
@@ -737,10 +957,30 @@ impl AgentService {
                         "使用默认生成策略",
                         0.3,
                     );
-                    (Some(2000), Some(user_temperature))
+                    (Some(2000), user_temperature)
                 }
             }
         };
+
+        Ok(WriterPreparedContext {
+            prompt,
+            max_tokens,
+            base_temperature: temperature,
+            tier,
+        })
+    }
+
+    /// 使用已预准备的上下文执行 Writer 生成，跳过预检、补齐、prompt
+    /// 构建与策略计算。 `timeout_override` 与 `retries_override`
+    /// 用于候选阶段短超时/少重试。
+    pub async fn execute_writer_prepared(
+        &self,
+        task: AgentTask,
+        prepared: WriterPreparedContext,
+        timeout_override: Option<u64>,
+        retries_override: Option<u32>,
+    ) -> Result<AgentResult, AppError> {
+        let mut temperature = prepared.base_temperature;
 
         // v0.7.8: 支持 temperature override（用于候选生成多样性）
         if let Some(override_val) = task
@@ -748,25 +988,27 @@ impl AgentService {
             .get("temperature_override")
             .and_then(|v| v.as_f64())
         {
-            temperature = Some(override_val as f32);
+            temperature = override_val as f32;
             log::info!("[AgentService] Temperature override: {}", override_val);
         }
 
         let request_id = uuid::Uuid::new_v4().to_string();
         let (req_id, response) = self
-            .generate_for_agent(
+            .generate_for_agent_with_options(
                 &task,
-                prompt,
-                max_tokens,
-                temperature,
-                tier,
+                prepared.prompt,
+                prepared.max_tokens,
+                Some(temperature),
+                prepared.tier,
                 Some(request_id.clone()),
+                timeout_override,
+                retries_override,
             )
             .await?;
 
         if response.content.trim().is_empty() {
             log::error!(
-                "[AgentService::execute_writer_raw] LLM returned empty content. story_id={}, \
+                "[AgentService::execute_writer_prepared] LLM returned empty content. story_id={}, \
                  chapter_number={}, instruction_len={}",
                 task.context.story.story_id,
                 task.context.narrative.chapter_number,
@@ -784,15 +1026,15 @@ impl AgentService {
                         .trim_start()
                         .to_string();
                     log::info!(
-                        "[execute_writer_raw] Removed duplicate prefix (len={}) from LLM output, \
-                         remaining len={}",
+                        "[execute_writer_prepared] Removed duplicate prefix (len={}) from LLM \
+                         output, remaining len={}",
                         current_trimmed.len(),
                         content.len()
                     );
                     if content.trim().is_empty() {
                         log::error!(
-                            "[AgentService::execute_writer_raw] Content became empty after prefix \
-                             removal. story_id={}, chapter_number={}",
+                            "[AgentService::execute_writer_prepared] Content became empty after \
+                             prefix removal. story_id={}, chapter_number={}",
                             task.context.story.story_id,
                             task.context.narrative.chapter_number
                         );
@@ -2174,6 +2416,79 @@ impl AgentService {
             .collect();
 
         (score, suggestions)
+    }
+}
+
+fn parse_task_type(s: &str) -> Option<TaskType> {
+    match s.to_lowercase().as_str() {
+        "creative_writing" => Some(TaskType::CreativeWriting),
+        "editing" => Some(TaskType::Editing),
+        "analysis" => Some(TaskType::Analysis),
+        "dialogue" => Some(TaskType::Dialogue),
+        "summarization" => Some(TaskType::Summarization),
+        "brainstorming" => Some(TaskType::Brainstorming),
+        "proofreading" => Some(TaskType::Proofreading),
+        "world_building" => Some(TaskType::WorldBuilding),
+        "vision" => Some(TaskType::Vision),
+        "image_generation" => Some(TaskType::ImageGeneration),
+        _ => None,
+    }
+}
+
+fn parse_complexity(s: &str) -> Option<Complexity> {
+    match s.to_lowercase().as_str() {
+        "low" => Some(Complexity::Low),
+        "medium" => Some(Complexity::Medium),
+        "high" => Some(Complexity::High),
+        "critical" => Some(Complexity::Critical),
+        _ => None,
+    }
+}
+
+fn parse_priority(s: &str) -> Option<Priority> {
+    match s.to_lowercase().as_str() {
+        "low" => Some(Priority::Low),
+        "medium" => Some(Priority::Medium),
+        "high" => Some(Priority::High),
+        _ => None,
+    }
+}
+
+fn parse_constraint(s: &str) -> Option<RoutingConstraint> {
+    let lower = s.to_lowercase();
+    match lower.as_str() {
+        "local_only" => Some(RoutingConstraint::LocalOnly),
+        "platform_only" => Some(RoutingConstraint::PlatformOnly),
+        _ => {
+            if let Some(rest) = lower.strip_prefix("min_quality:") {
+                let q = match rest.trim() {
+                    "low" => crate::config::settings::QualityTier::Low,
+                    "medium" => crate::config::settings::QualityTier::Medium,
+                    "high" => crate::config::settings::QualityTier::High,
+                    "ultra" => crate::config::settings::QualityTier::Ultra,
+                    _ => return None,
+                };
+                return Some(RoutingConstraint::MinQuality(q));
+            }
+            if let Some(rest) = lower.strip_prefix("min_context:") {
+                if let Ok(ctx) = rest.trim().parse::<u32>() {
+                    return Some(RoutingConstraint::MinContext(ctx));
+                }
+            }
+            if let Some(rest) = lower.strip_prefix("requires:") {
+                let cap = match rest.trim() {
+                    "chat" => crate::config::settings::ModelCapability::Chat,
+                    "completion" => crate::config::settings::ModelCapability::Completion,
+                    "function_calling" => crate::config::settings::ModelCapability::FunctionCalling,
+                    "json_mode" => crate::config::settings::ModelCapability::JsonMode,
+                    "vision" => crate::config::settings::ModelCapability::Vision,
+                    "long_context" => crate::config::settings::ModelCapability::LongContext,
+                    _ => return None,
+                };
+                return Some(RoutingConstraint::Requires(cap));
+            }
+            None
+        }
     }
 }
 

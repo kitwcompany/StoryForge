@@ -9,6 +9,7 @@ use serde_json;
 use crate::{
     db::models::*,
     llm::{LlmAdapter, LlmService},
+    router::TaskType,
 };
 
 /// 小说创建 Agent
@@ -125,7 +126,16 @@ impl NovelCreationAgent {
             options.count, user_input
         );
 
-        let response = self.llm_service.generate(prompt, None, None).await?;
+        let response = self
+            .llm_service
+            .generate_for_task(
+                TaskType::WorldBuilding,
+                prompt,
+                None,
+                None,
+                Some("世界观选项"),
+            )
+            .await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
 
         let options: Vec<WorldBuildingOption> = parsed["world_buildings"]
@@ -193,7 +203,16 @@ impl NovelCreationAgent {
             options.count, world_info
         );
 
-        let response = self.llm_service.generate(prompt, None, None).await?;
+        let response = self
+            .llm_service
+            .generate_for_task(
+                TaskType::WorldBuilding,
+                prompt,
+                None,
+                None,
+                Some("角色谱选项"),
+            )
+            .await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
 
         let sets: Vec<Vec<CharacterProfileOption>> = parsed["character_sets"]
@@ -254,7 +273,16 @@ impl NovelCreationAgent {
             options.count, genre, world_building.concept
         );
 
-        let response = self.llm_service.generate(prompt, None, None).await?;
+        let response = self
+            .llm_service
+            .generate_for_task(
+                TaskType::CreativeWriting,
+                prompt,
+                None,
+                None,
+                Some("文字风格选项"),
+            )
+            .await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
 
         let options: Vec<WritingStyleOption> = parsed["writing_styles"]
@@ -314,7 +342,16 @@ impl NovelCreationAgent {
             world_building.concept, char_info, writing_style.name
         );
 
-        let response = self.llm_service.generate(prompt, None, None).await?;
+        let response = self
+            .llm_service
+            .generate_for_task(
+                TaskType::CreativeWriting,
+                prompt,
+                None,
+                None,
+                Some("首场景"),
+            )
+            .await?;
         let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
 
         let scene: SceneProposal = serde_json::from_value(parsed["scene"].clone())?;

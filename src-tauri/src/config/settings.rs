@@ -71,6 +71,30 @@ pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 300;
 // Secure API Key Storage (cross-platform keychain)
 // ============================================================================
 
+/// Agent 显示名称（默认映射初始化用）
+fn agent_display_name(agent_id: &str) -> String {
+    match agent_id {
+        "writer" => "写作助手".to_string(),
+        "inspector" => "质检员".to_string(),
+        "outline_planner" => "大纲规划师".to_string(),
+        "style_mimic" => "风格模仿师".to_string(),
+        "plot_analyzer" => "情节分析师".to_string(),
+        _ => agent_id.to_string(),
+    }
+}
+
+/// Agent 描述（默认映射初始化用）
+fn agent_description(agent_id: &str) -> Option<String> {
+    match agent_id {
+        "writer" => Some("负责章节生成、改写".to_string()),
+        "inspector" => Some("负责内容质量检查".to_string()),
+        "outline_planner" => Some("负责故事大纲设计".to_string()),
+        "style_mimic" => Some("负责文风分析与模仿".to_string()),
+        "plot_analyzer" => Some("负责情节复杂度分析".to_string()),
+        _ => None,
+    }
+}
+
 pub mod secure_storage {
     use keyring::Entry;
 
@@ -111,7 +135,7 @@ pub mod secure_storage {
     }
 }
 
-/// Agent 模型映射
+/// Agent 模型映射 + 任务策略配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMapping {
     pub agent_id: String,
@@ -124,6 +148,21 @@ pub struct AgentMapping {
     pub multimodal_model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// v0.11.0: 任务类型覆盖（agent 默认策略）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    /// v0.11.0: 任务复杂度覆盖
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<String>,
+    /// v0.11.0: 成本优先级覆盖
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_priority: Option<String>,
+    /// v0.11.0: 速度优先级覆盖
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_priority: Option<String>,
+    /// v0.11.0: 约束标签列表（如 "local_only", "min_quality:high"）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<String>,
 }
 
 /// 写作策略配置
@@ -194,6 +233,15 @@ pub struct AppConfig {
     /// 创作工作流最大迭代次数（默认 2）
     #[serde(default = "default_creation_workflow_max_iterations")]
     pub creation_workflow_max_iterations: u32,
+    /// 候选生成阶段单个候选的 LLM 超时（秒，默认 120）
+    #[serde(default = "default_candidate_timeout_seconds")]
+    pub candidate_timeout_seconds: u64,
+    /// 候选生成阶段单个候选的最大重试次数（默认 1）
+    #[serde(default = "default_candidate_max_retries")]
+    pub candidate_max_retries: u32,
+    /// 本地模型是否在候选阶段串行生成以避免服务端排队（默认 true）
+    #[serde(default = "default_candidate_local_sequential")]
+    pub candidate_local_sequential: bool,
     /// 通用 UI 设置
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -257,6 +305,18 @@ fn default_creation_workflow_review_threshold() -> f32 {
 
 fn default_creation_workflow_max_iterations() -> u32 {
     2
+}
+
+fn default_candidate_timeout_seconds() -> u64 {
+    120
+}
+
+fn default_candidate_max_retries() -> u32 {
+    1
+}
+
+fn default_candidate_local_sequential() -> bool {
+    true
 }
 
 fn default_theme() -> String {
@@ -327,7 +387,7 @@ mod temperature_serde {
     }
 }
 
-/// LLM 模型配置档案
+/// LLM 模型配置档案（chat / multimodal / image 统一）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProfile {
     pub id: String,
@@ -353,8 +413,38 @@ pub struct LlmProfile {
     pub timeout_seconds: u64,
     #[serde(default)]
     pub is_default: bool,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub kind: ModelKind,
     #[serde(default)]
     pub capabilities: Vec<ModelCapability>,
+    /// 最大上下文长度（token），用于路由决策
+    #[serde(default = "default_max_context_length")]
+    pub max_context_length: u32,
+    /// 质量等级
+    #[serde(default)]
+    pub quality_tier: QualityTier,
+    /// 速度等级
+    #[serde(default)]
+    pub speed_tier: SpeedTier,
+    /// 每 1K 输入 token 成本（可选，API 模型填写）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_per_1k_input: Option<f64>,
+    /// 每 1K 输出 token 成本（可选，API 模型填写）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_per_1k_output: Option<f64>,
+    /// 用户/系统标签，例如 ["fast", "local", "reasoning"]
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_context_length() -> u32 {
+    8192
 }
 
 /// 模型来源 — 决定配额和用量统计策略
@@ -403,7 +493,7 @@ impl std::fmt::Display for LlmProvider {
 }
 
 /// 模型能力
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelCapability {
     Chat,
@@ -412,6 +502,53 @@ pub enum ModelCapability {
     JsonMode,
     Vision,
     LongContext,
+}
+
+/// 模型种类 — 明确区分生成模型的用途
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelKind {
+    Chat,
+    Multimodal,
+    Image,
+}
+
+impl Default for ModelKind {
+    fn default() -> Self {
+        ModelKind::Chat
+    }
+}
+
+/// 质量等级 — 用于任务路由评分
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityTier {
+    Low,
+    Medium,
+    High,
+    Ultra,
+}
+
+impl Default for QualityTier {
+    fn default() -> Self {
+        QualityTier::Medium
+    }
+}
+
+/// 速度等级 — 用于任务路由评分
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeedTier {
+    Fast,
+    Normal,
+    Slow,
+    VerySlow,
+}
+
+impl Default for SpeedTier {
+    fn default() -> Self {
+        SpeedTier::Normal
+    }
 }
 
 /// 嵌入模型配置档案
@@ -459,11 +596,14 @@ impl Default for AppConfig {
         let mut llm_profiles = HashMap::new();
         let mut embedding_profiles = HashMap::new();
 
-        // 1. 语言模型 - Qwen3.5-27B-Uncensored-Q4_K_M
+        // 1. 语言模型占位（用户需在设置中替换为真实 endpoint）
+        // 保留占位以避免首次启动无模型导致的空指针；标记 enabled=false 并在 UI 提示配置
         let qwen35 = LlmProfile {
             id: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
-            name: "Qwen 3.5 语言模型".to_string(),
-            description: Some("本地语言模型，用于文本生成和对话".to_string()),
+            name: "Qwen 3.5 语言模型（请检查配置）".to_string(),
+            description: Some(
+                "默认占位语言模型，请在模型管理中确认或替换为自己的本地模型".to_string(),
+            ),
             provider: LlmProvider::Custom,
             model_source: ModelSource::Local,
             model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
@@ -479,19 +619,27 @@ impl Default for AppConfig {
             presence_penalty: None,
             timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: true,
+            enabled: false,
+            kind: ModelKind::Chat,
             capabilities: vec![
                 ModelCapability::Chat,
                 ModelCapability::Completion,
                 ModelCapability::LongContext,
             ],
+            max_context_length: 8192,
+            quality_tier: QualityTier::High,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec!["placeholder".to_string()],
         };
         llm_profiles.insert(qwen35.id.clone(), qwen35);
 
-        // 2. 多模态模型 - Gemma-4-31B-it-Q6_K
+        // 2. 多模态模型占位
         let gemma4 = LlmProfile {
             id: "Gemma-4-31B-it-Q6_K".to_string(),
-            name: "Gemma 4 多模态".to_string(),
-            description: Some("本地多模态模型，支持图文理解".to_string()),
+            name: "Gemma 4 多模态（请检查配置）".to_string(),
+            description: Some("默认占位多模态模型，请在模型管理中确认或替换".to_string()),
             provider: LlmProvider::Custom,
             model_source: ModelSource::Local,
             model: "Gemma-4-31B-it-Q6_K".to_string(),
@@ -507,11 +655,19 @@ impl Default for AppConfig {
             presence_penalty: None,
             timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: false,
+            enabled: false,
+            kind: ModelKind::Multimodal,
             capabilities: vec![
                 ModelCapability::Chat,
                 ModelCapability::Vision,
                 ModelCapability::LongContext,
             ],
+            max_context_length: 8192,
+            quality_tier: QualityTier::High,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec!["placeholder".to_string()],
         };
         llm_profiles.insert(gemma4.id.clone(), gemma4);
 
@@ -534,71 +690,39 @@ impl Default for AppConfig {
         embedding_profiles.insert(bge_m3.id.clone(), bge_m3);
 
         let mut agent_mappings = HashMap::new();
-        agent_mappings.insert(
-            "writer".to_string(),
-            AgentMapping {
-                agent_id: "writer".to_string(),
-                agent_name: "写作助手".to_string(),
-                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-                embedding_model_id: None,
-                multimodal_model_id: None,
-                description: Some("负责章节生成、改写".to_string()),
-            },
-        );
-        agent_mappings.insert(
-            "inspector".to_string(),
-            AgentMapping {
-                agent_id: "inspector".to_string(),
-                agent_name: "质检员".to_string(),
-                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-                embedding_model_id: None,
-                multimodal_model_id: None,
-                description: Some("负责内容质量检查".to_string()),
-            },
-        );
-        agent_mappings.insert(
-            "outline_planner".to_string(),
-            AgentMapping {
-                agent_id: "outline_planner".to_string(),
-                agent_name: "大纲规划师".to_string(),
-                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-                embedding_model_id: None,
-                multimodal_model_id: None,
-                description: Some("负责故事大纲设计".to_string()),
-            },
-        );
-        agent_mappings.insert(
-            "style_mimic".to_string(),
-            AgentMapping {
-                agent_id: "style_mimic".to_string(),
-                agent_name: "风格模仿师".to_string(),
-                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-                embedding_model_id: None,
-                multimodal_model_id: None,
-                description: Some("负责文风分析与模仿".to_string()),
-            },
-        );
-        agent_mappings.insert(
-            "plot_analyzer".to_string(),
-            AgentMapping {
-                agent_id: "plot_analyzer".to_string(),
-                agent_name: "情节分析师".to_string(),
-                chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-                embedding_model_id: None,
-                multimodal_model_id: None,
-                description: Some("负责情节复杂度分析".to_string()),
-            },
-        );
+        // v0.11.0: Agent 默认不再硬编码指向具体模型，而是采用自动路由策略
+        // 用户可在设置中为每个 Agent 指定固定/优先模型
+        for agent_id in [
+            "writer",
+            "inspector",
+            "outline_planner",
+            "style_mimic",
+            "plot_analyzer",
+        ] {
+            agent_mappings.insert(
+                agent_id.to_string(),
+                AgentMapping {
+                    agent_id: agent_id.to_string(),
+                    agent_name: agent_display_name(agent_id),
+                    chat_model_id: None,
+                    embedding_model_id: None,
+                    multimodal_model_id: None,
+                    description: agent_description(agent_id),
+                    task_type: None,
+                    complexity: None,
+                    budget_priority: None,
+                    speed_priority: None,
+                    constraints: vec![],
+                },
+            );
+        }
 
         Self {
             llm: LlmConfig {
                 provider: "custom".to_string(),
                 api_key: "".to_string(),
-                model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
-                api_base: Some(env_or_default(
-                    "STORYFORGE_LLM_API_BASE",
-                    "http://localhost:11434/v1",
-                )),
+                model: "".to_string(),
+                api_base: None,
                 max_tokens: 8192,
                 temperature: 0.8,
             },
@@ -617,6 +741,9 @@ impl Default for AppConfig {
             genesis_first_chapter_word_count_target: 2000,
             creation_workflow_review_threshold: 0.75,
             creation_workflow_max_iterations: 2,
+            candidate_timeout_seconds: default_candidate_timeout_seconds(),
+            candidate_max_retries: default_candidate_max_retries(),
+            candidate_local_sequential: default_candidate_local_sequential(),
             theme: default_theme(),
             language: default_language(),
             auto_save: default_auto_save(),
@@ -854,98 +981,81 @@ impl AppConfig {
             let _ = config.save(config_dir);
         }
 
-        // 自动补充真实本地模型（如果缺失）
+        // v0.11.0: 迁移旧配置字段，不再自动补充硬编码真实模型
         let mut needs_save = false;
 
-        // 补充 Qwen3.5 语言模型
-        if !config
-            .llm_profiles
-            .contains_key("Qwen3.5-27B-Uncensored-Q4_K_M")
+        // 为已有 LLM profile 补齐路由相关字段（从旧版本迁移）
+        for profile in config.llm_profiles.values_mut() {
+            if profile.max_context_length == 0 {
+                profile.max_context_length = 8192;
+                needs_save = true;
+            }
+            // 根据 capabilities 推断 kind（旧版本只有 Chat/Multimodal 两种）
+            if profile.kind == ModelKind::Chat
+                && profile.capabilities.contains(&ModelCapability::Vision)
+            {
+                profile.kind = ModelKind::Multimodal;
+                needs_save = true;
+            }
+        }
+
+        // 清理指向不存在模型的 Agent 映射
+        let valid_llm_ids: std::collections::HashSet<_> =
+            config.llm_profiles.keys().cloned().collect();
+        let valid_embedding_ids: std::collections::HashSet<_> =
+            config.embedding_profiles.keys().cloned().collect();
+        for mapping in config.agent_mappings.values_mut() {
+            if mapping
+                .chat_model_id
+                .as_ref()
+                .is_some_and(|id| !valid_llm_ids.contains(id))
+            {
+                mapping.chat_model_id = None;
+                needs_save = true;
+            }
+            if mapping
+                .embedding_model_id
+                .as_ref()
+                .is_some_and(|id| !valid_embedding_ids.contains(id))
+            {
+                mapping.embedding_model_id = None;
+                needs_save = true;
+            }
+            if mapping
+                .multimodal_model_id
+                .as_ref()
+                .is_some_and(|id| !valid_llm_ids.contains(id))
+            {
+                mapping.multimodal_model_id = None;
+                needs_save = true;
+            }
+        }
+
+        // 如果活跃模型已不存在，回退到剩余配置中的默认或第一个
+        if config
+            .active_llm_profile
+            .as_ref()
+            .is_some_and(|id| !config.llm_profiles.contains_key(id))
         {
-            let qwen35 = LlmProfile {
-                id: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
-                name: "Qwen 3.5 语言模型".to_string(),
-                description: Some("本地语言模型，用于文本生成和对话".to_string()),
-                provider: LlmProvider::Custom,
-                model_source: ModelSource::Local,
-                model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
-                api_key: "".to_string(),
-                api_base: Some(env_or_default(
-                    "STORYFORGE_LLM_API_BASE",
-                    "http://localhost:11434/v1",
-                )),
-                max_tokens: 8192,
-                temperature: 0.8,
-                top_p: None,
-                frequency_penalty: None,
-                presence_penalty: None,
-                timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
-                is_default: config.llm_profiles.values().all(|p| !p.is_default),
-                capabilities: vec![
-                    ModelCapability::Chat,
-                    ModelCapability::Completion,
-                    ModelCapability::LongContext,
-                ],
-            };
-            config.llm_profiles.insert(qwen35.id.clone(), qwen35);
-            if config.active_llm_profile.is_none() {
-                config.active_llm_profile = Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string());
-            }
+            config.active_llm_profile = config
+                .llm_profiles
+                .values()
+                .find(|p| p.is_default)
+                .or_else(|| config.llm_profiles.values().next())
+                .map(|p| p.id.clone());
             needs_save = true;
         }
-
-        // 补充 Gemma-4 多模态模型
-        if !config.llm_profiles.contains_key("Gemma-4-31B-it-Q6_K") {
-            let gemma4 = LlmProfile {
-                id: "Gemma-4-31B-it-Q6_K".to_string(),
-                name: "Gemma 4 多模态".to_string(),
-                description: Some("本地多模态模型，支持图文理解".to_string()),
-                provider: LlmProvider::Custom,
-                model_source: ModelSource::Local,
-                model: "Gemma-4-31B-it-Q6_K".to_string(),
-                api_key: "".to_string(),
-                api_base: Some(env_or_default(
-                    "STORYFORGE_VISION_API_BASE",
-                    "http://localhost:11435/v1",
-                )),
-                max_tokens: 8192,
-                temperature: 0.7,
-                top_p: None,
-                frequency_penalty: None,
-                presence_penalty: None,
-                timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
-                is_default: false,
-                capabilities: vec![
-                    ModelCapability::Chat,
-                    ModelCapability::Vision,
-                    ModelCapability::LongContext,
-                ],
-            };
-            config.llm_profiles.insert(gemma4.id.clone(), gemma4);
-            needs_save = true;
-        }
-
-        // 补充 bge-m3 嵌入模型
-        if !config.embedding_profiles.contains_key("bge-m3") {
-            let bge_m3 = EmbeddingProfile {
-                id: "bge-m3".to_string(),
-                name: "BGE-M3 Embedding".to_string(),
-                description: Some("文本嵌入模型，用于语义搜索和向量化".to_string()),
-                provider: EmbeddingProvider::Custom,
-                model: "bge-m3".to_string(),
-                api_key: std::env::var("STORYFORGE_EMBEDDING_API_KEY").unwrap_or_default(),
-                api_base: Some(env_or_default(
-                    "STORYFORGE_EMBEDDING_API_BASE",
-                    "http://localhost:11436/v1",
-                )),
-                dimensions: 1024,
-                max_input_tokens: 8192,
-                is_default: config.embedding_profiles.values().all(|p| !p.is_default),
-            };
-            config.embedding_profiles.insert(bge_m3.id.clone(), bge_m3);
-            if config.active_embedding_profile.is_none() {
-                config.active_embedding_profile = Some("bge-m3".to_string());
-            }
+        if config
+            .active_embedding_profile
+            .as_ref()
+            .is_some_and(|id| !config.embedding_profiles.contains_key(id))
+        {
+            config.active_embedding_profile = config
+                .embedding_profiles
+                .values()
+                .find(|p| p.is_default)
+                .or_else(|| config.embedding_profiles.values().next())
+                .map(|p| p.id.clone());
             needs_save = true;
         }
 
@@ -1137,7 +1247,15 @@ impl AppConfig {
             presence_penalty: None,
             timeout_seconds: DEFAULT_LLM_TIMEOUT_SECONDS,
             is_default: true,
+            enabled: true,
+            kind: ModelKind::Chat,
             capabilities: vec![ModelCapability::Chat, ModelCapability::Completion],
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec!["legacy".to_string()],
         };
 
         self.llm_profiles

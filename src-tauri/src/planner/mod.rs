@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::{capabilities::get_capability_registry, error::AppError, llm::LlmService};
+use crate::{
+    capabilities::get_capability_registry, error::AppError, llm::LlmService, router::TaskType,
+};
 
 pub mod bootstrap;
 pub mod executor;
@@ -388,7 +390,13 @@ Rules:
         // 计划生成JSON通常只需要几百tokens，1024足够，减少等待时间
         let response = self
             .llm_service
-            .generate(prompt, Some(1024), Some(0.3))
+            .generate_for_task(
+                TaskType::Analysis,
+                prompt,
+                Some(1024),
+                Some(0.3),
+                Some("plan_generation"),
+            )
             .await?;
         self.emit_progress("parsing", "正在解析执行计划...");
 

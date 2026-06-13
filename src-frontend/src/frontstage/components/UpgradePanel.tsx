@@ -9,7 +9,6 @@ import React, { useState } from 'react';
 import { Sparkles, Zap, BookOpen, Infinity, X, Loader2, PenTool, Wand2 } from 'lucide-react';
 import { devUpgradeSubscription } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
-import toast from 'react-hot-toast';
 
 const upgradeLogger = createLogger('ui:frontstage:UpgradePanel');
 
@@ -36,17 +35,19 @@ export const UpgradePanel: React.FC<UpgradePanelProps> = ({
 
   if (!isOpen) return null;
 
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+
   const handleUpgrade = async () => {
     if (isUpgrading) return;
     setIsUpgrading(true);
+    setUpgradeError(null);
     try {
       await devUpgradeSubscription('pro');
-      toast.success('🎉 升级成功！欢迎体验专业版功能');
       onUpgraded?.();
       onClose();
     } catch (err) {
       upgradeLogger.error('Upgrade failed', { error: err });
-      toast.error('升级失败，请稍后重试');
+      setUpgradeError('升级失败，请稍后重试');
     } finally {
       setIsUpgrading(false);
     }
@@ -88,6 +89,8 @@ export const UpgradePanel: React.FC<UpgradePanelProps> = ({
           </div>
           <p className="upgrade-price-note">限时早鸟价 · 随时可退订</p>
         </div>
+
+        {upgradeError && <div className="upgrade-panel-error">{upgradeError}</div>}
 
         <div className="upgrade-panel-actions">
           <button className="upgrade-btn-primary" onClick={handleUpgrade} disabled={isUpgrading}>

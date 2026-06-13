@@ -79,6 +79,14 @@ mod tests {
             timeout_seconds: 120,
             is_default: true,
             capabilities: vec![ModelCapability::Chat],
+            enabled: true,
+            kind: ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
         };
 
         config.add_llm_profile(new_profile).unwrap();
@@ -114,6 +122,14 @@ mod tests {
             timeout_seconds: 120,
             is_default: false,
             capabilities: vec![],
+            enabled: true,
+            kind: ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
         };
 
         config.add_llm_profile(profile).unwrap();
@@ -179,6 +195,14 @@ mod tests {
             timeout_seconds: 120,
             is_default: false,
             capabilities: vec![],
+            enabled: true,
+            kind: ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
         };
         config.add_llm_profile(second).unwrap();
         config.set_active_llm_profile("second").unwrap();
@@ -214,6 +238,14 @@ mod tests {
             timeout_seconds: 120,
             is_default: false,
             capabilities: vec![],
+            enabled: true,
+            kind: ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
         };
         config.add_llm_profile(second).unwrap();
 

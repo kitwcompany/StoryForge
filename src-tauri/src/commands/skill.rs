@@ -4,7 +4,26 @@ use std::collections::HashMap;
 
 use tauri::{AppHandle, Manager};
 
-use crate::{commands::EmitSync, db::DbPool, error::AppError, skills::SkillInfo, SKILL_MANAGER};
+use crate::{
+    commands::EmitSync, db::DbPool, error::AppError, router::TaskType, skills::SkillInfo,
+    SKILL_MANAGER,
+};
+
+fn task_type_for_category(category: &crate::skills::SkillCategory) -> TaskType {
+    match category {
+        crate::skills::SkillCategory::Analysis | crate::skills::SkillCategory::Plot => {
+            TaskType::Analysis
+        }
+        crate::skills::SkillCategory::Style => TaskType::Editing,
+        crate::skills::SkillCategory::Export => TaskType::Summarization,
+        crate::skills::SkillCategory::WorldBuilding | crate::skills::SkillCategory::Character => {
+            TaskType::WorldBuilding
+        }
+        crate::skills::SkillCategory::Writing
+        | crate::skills::SkillCategory::Integration
+        | crate::skills::SkillCategory::Custom => TaskType::CreativeWriting,
+    }
+}
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_skills() -> Result<Vec<SkillInfo>, AppError> {
@@ -142,6 +161,8 @@ pub async fn execute_skill(
         guard.clone()
     };
 
+    let skill_category = manager.get_skill(&skill_id).map(|s| s.manifest.category);
+
     let result = manager.execute_skill(&skill_id, &context, params).await?;
 
     if !result.success {
@@ -201,8 +222,18 @@ pub async fn execute_skill(
         .map(|v| v.clamp(0.0, 2.0) as f32)
         .unwrap_or(0.7);
 
+    let task_type = skill_category
+        .as_ref()
+        .map(task_type_for_category)
+        .unwrap_or(TaskType::CreativeWriting);
     let response = llm_service
-        .generate(full_prompt, Some(max_tokens), Some(temperature))
+        .generate_for_task(
+            task_type,
+            full_prompt,
+            Some(max_tokens),
+            Some(temperature),
+            Some(&skill_id),
+        )
         .await?;
 
     Ok(serde_json::json!({

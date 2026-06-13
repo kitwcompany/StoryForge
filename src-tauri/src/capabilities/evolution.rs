@@ -13,7 +13,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-use crate::llm::LlmService;
+use crate::{llm::LlmService, router::TaskType};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRecord {
@@ -264,7 +264,13 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
 
             match self
                 .llm_service
-                .generate(prompt, Some(256), Some(0.3))
+                .generate_for_task(
+                    TaskType::Analysis,
+                    prompt,
+                    Some(256),
+                    Some(0.3),
+                    Some("capability_evolution"),
+                )
                 .await
             {
                 Ok(response) => {

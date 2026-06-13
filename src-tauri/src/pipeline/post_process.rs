@@ -3,6 +3,7 @@ use super::types::*;
 use crate::{
     db::{BlueprintRepository, CharacterRepository, CharacterState, DbPool},
     llm::LlmService,
+    router::TaskType,
 };
 
 /// 构建定稿后处理步骤列表
@@ -179,7 +180,16 @@ async fn run_chapter_notes(
         content_preview
     );
 
-    let notes = match llm_service.generate(prompt, Some(1024), Some(0.3)).await {
+    let notes = match llm_service
+        .generate_for_task(
+            TaskType::Summarization,
+            prompt,
+            Some(1024),
+            Some(0.3),
+            Some("chapter_notes"),
+        )
+        .await
+    {
         Ok(resp) => resp.content.trim().to_string(),
         Err(e) => {
             log::warn!("[post_process] chapter_notes LLM 调用失败，使用占位: {}", e);
@@ -295,7 +305,16 @@ async fn run_character_cards(
 
     let mut updated_count = 0;
 
-    match llm_service.generate(prompt, Some(2048), Some(0.2)).await {
+    match llm_service
+        .generate_for_task(
+            TaskType::Analysis,
+            prompt,
+            Some(2048),
+            Some(0.2),
+            Some("character_cards"),
+        )
+        .await
+    {
         Ok(resp) => {
             let text = resp.content.trim();
             // 尝试提取 JSON 数组（LLM 可能包裹在 markdown 代码块中）
@@ -383,21 +402,8 @@ async fn run_character_cards(
     // 兜底：简单扫描内容中提到的角色名，为未更新的角色标记出场
     for character in &all_chars {
         if content_preview.contains(&character.name) {
-            // 检查该角色是否已被 LLM 更新
-            let already_updated = match llm_service
-                .generate(
-                    format!(
-                        "does '{}' appear in this text? answer only yes or no",
-                        character.name
-                    ),
-                    Some(10),
-                    Some(0.0),
-                )
-                .await
-            {
-                Ok(_) => false, // 简化处理：LLM 已尝试更新所有角色，此处跳过
-                Err(_) => false,
-            };
+            // 原 LLM 调用在 Ok/Err 分支均返回 false，属于冗余调用，直接保留 false 语义
+            let already_updated = false;
             if already_updated {
                 continue;
             }
