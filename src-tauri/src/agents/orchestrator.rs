@@ -190,7 +190,8 @@ impl AgentOrchestrator {
         let _ = self.app_handle.emit("orchestrator-step", event);
     }
 
-    /// 发射工作流整体完成/失败事件，让前端 backendActivityStore 结束 orchestrator 活动。
+    /// 发射工作流整体完成/失败事件，让前端 backendActivityStore 结束
+    /// orchestrator 活动。
     fn emit_step_status_event(&self, task_id: &str, status: &str, message: &str) {
         let _ = self.app_handle.emit(
             "orchestrator-step",

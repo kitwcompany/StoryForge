@@ -325,7 +325,8 @@ impl StoryContextBuilder {
             self.fetch_active_threads_async(story_id),
         )?;
 
-        // v0.9.3: 预计算风格 DNA 扩展（依赖 style_blend）与 MemoryPack 互相独立，并行构建
+        // v0.9.3: 预计算风格 DNA 扩展（依赖 style_blend）与 MemoryPack
+        // 互相独立，并行构建
         let (style_dna_extension, memory_pack) = tokio::try_join!(
             self.compute_style_dna_extension_async(story_id, &style_blend),
             self.build_memory_pack_async(
