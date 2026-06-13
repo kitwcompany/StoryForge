@@ -169,7 +169,9 @@ export function useSetActiveModel() {
     mutationFn: ({ type, modelId }: { type: ModelConfig['type']; modelId: string }) =>
       setActiveModel(type, modelId),
     onSuccess: () => {
+      // v0.11.2: 同时失效 settings 与 models，确保当前模型高亮与列表状态立即刷新
       queryClient.invalidateQueries({ queryKey: [SETTINGS_KEY] });
+      queryClient.invalidateQueries({ queryKey: [MODELS_KEY] });
       toast.success('已设为当前模型');
     },
     onError: (error: Error) => {

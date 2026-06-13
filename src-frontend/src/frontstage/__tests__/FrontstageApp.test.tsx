@@ -1,7 +1,19 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import FrontstageApp from '../FrontstageApp';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: false },
+  },
+});
+
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+  <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+);
 
 // Mock Tauri API
 vi.mock('@tauri-apps/api/event', () => ({
@@ -76,7 +88,7 @@ describe('FrontstageApp', () => {
   });
 
   it('应该渲染核心布局组件', async () => {
-    render(<FrontstageApp />);
+    render(<FrontstageApp />, { wrapper });
 
     // Header 应该存在
     expect(screen.getByText('草苔')).toBeInTheDocument();
@@ -98,13 +110,13 @@ describe('FrontstageApp', () => {
   });
 
   it('不应该渲染窥视面板按钮（已移除）', () => {
-    render(<FrontstageApp />);
+    render(<FrontstageApp />, { wrapper });
     expect(screen.queryByTitle('窥视面板')).not.toBeInTheDocument();
     expect(screen.queryByTitle(/窥视/)).not.toBeInTheDocument();
   });
 
   it('点击禅模式按钮应该进入禅模式并隐藏干扰元素', async () => {
-    render(<FrontstageApp />);
+    render(<FrontstageApp />, { wrapper });
 
     const zenBtn = screen.getByTitle('进入全屏禅写模式（F11）');
     await userEvent.click(zenBtn);
@@ -122,7 +134,7 @@ describe('FrontstageApp', () => {
   });
 
   it('禅模式下点击退出按钮应该恢复正常布局', async () => {
-    render(<FrontstageApp />);
+    render(<FrontstageApp />, { wrapper });
 
     // 进入禅模式
     await userEvent.click(screen.getByTitle('进入全屏禅写模式（F11）'));

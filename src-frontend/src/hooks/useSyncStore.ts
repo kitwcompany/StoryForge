@@ -396,6 +396,11 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
               case 'storyTimeline':
                 queryClient.invalidateQueries({ queryKey: KEYS.storyTimeline(storyId) });
                 break;
+              // v0.11.2: 模型配置变更时刷新 settings/models，让幕后立即感知新活跃模型
+              case 'model_config':
+                queryClient.invalidateQueries({ queryKey: ['settings'] });
+                queryClient.invalidateQueries({ queryKey: ['models'] });
+                break;
               case 'all':
               default:
                 queryClient.invalidateQueries({ queryKey: KEYS.stories });

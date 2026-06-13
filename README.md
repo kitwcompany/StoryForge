@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.11.2-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.11.3-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.11.2 紧急修复幕前 AI 续写长时间无反馈与模型管理删除不生效问题。后端为候选阶段增加整体超时、取消超时错误的重试（避免 120s×重试×候选数叠加到 500s 以上），并在预准备、候选生成、评估各阶段 emit 更细粒度事件；前端修复底部状态栏「系统仍在处理中...」重复追加 bug，并确保「生成候选 1/2」等具体进度不会被 LLM 心跳覆盖。同时修复设置页删除模型后 toast 成功但列表未刷新的状态不一致问题。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。`cargo test` 332/332 通过，`vitest` 116 passed。
+**最新动态**：v0.11.3 优化模型连接状态视觉反馈与跨窗口模型切换同步。底部输入框左侧的模型状态绿点在连接正常时新增心跳式光晕动画；修复设置页「设为当前模型」后提示成功但幕前/幕后仍显示旧模型的问题，通过 sync-event 广播、frontstage DataRefresh 处理、LLM 服务配置热重载确保新模型立即生效。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。`cargo test` 332/332 通过，`vitest` 116 passed。
 
 ---
 

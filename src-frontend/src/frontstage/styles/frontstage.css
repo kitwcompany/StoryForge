@@ -968,6 +968,7 @@ body {
 .model-status-dot.status-connected {
   background-color: oklch(65% 0.22 145);
   box-shadow: 0 0 6px oklch(65% 0.22 145 / 0.5);
+  animation: heartbeat-glow 2s ease-in-out infinite;
 }
 
 .model-status-dot.status-disconnected {
@@ -989,6 +990,30 @@ body {
   50% {
     opacity: 0.6;
     box-shadow: 0 0 0 5px oklch(75% 0.16 95 / 0);
+  }
+}
+
+@keyframes heartbeat-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 4px 0 oklch(65% 0.22 145 / 0.4),
+      0 0 8px 0 oklch(65% 0.22 145 / 0.15);
+  }
+  25% {
+    box-shadow:
+      0 0 6px 2px oklch(65% 0.22 145 / 0.65),
+      0 0 14px 4px oklch(65% 0.22 145 / 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 4px 0 oklch(65% 0.22 145 / 0.4),
+      0 0 8px 0 oklch(65% 0.22 145 / 0.15);
+  }
+  75% {
+    box-shadow:
+      0 0 6px 2px oklch(65% 0.22 145 / 0.65),
+      0 0 14px 4px oklch(65% 0.22 145 / 0.3);
   }
 }
 

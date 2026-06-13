@@ -25,6 +25,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import { useSettings, useModels } from '@/hooks/useSettings';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelineProgress';
@@ -420,6 +421,7 @@ const FrontstageApp: React.FC = () => {
   const activeChatModelId = settings?.active_models?.chat;
   const activeChatModel = allModels.find(m => m.id === activeChatModelId);
   const chatConnectionState = activeChatModelId ? connectionStates[activeChatModelId] : undefined;
+  const queryClient = useQueryClient();
 
   // v0.11.0: 状态栏模型状态从 store 派生
   const modelStatus: 'connected' | 'disconnected' | 'connecting' = chatConnectionState
@@ -549,6 +551,11 @@ const FrontstageApp: React.FC = () => {
             }
             break;
           case 'DataRefresh':
+            // v0.11.2: 模型配置变更时刷新 settings/models，让幕前立即感知新活跃模型
+            if (payload?.entity === 'model_config') {
+              queryClient.invalidateQueries({ queryKey: ['settings'] });
+              queryClient.invalidateQueries({ queryKey: ['models'] });
+            }
             loadStories();
             // W2-F2: characters-refreshed DOM CustomEvent 已废弃，数据刷新由 useSyncStore 统一处理
             break;

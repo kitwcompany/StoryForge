@@ -331,16 +331,16 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
             .collect(),
     );
 
+    // v0.11.2: multimodal 复用 active_llm_profile，不应硬编码为空；
+    // image 类型当前未独立实现，保持空字符串。
+    let active_llm_profile = config.active_llm_profile.clone().unwrap_or_default();
     let active_models = vec![
-        (
-            "chat".to_string(),
-            config.active_llm_profile.unwrap_or_default(),
-        ),
+        ("chat".to_string(), active_llm_profile.clone()),
         (
             "embedding".to_string(),
             config.active_embedding_profile.unwrap_or_default(),
         ),
-        ("multimodal".to_string(), String::new()),
+        ("multimodal".to_string(), active_llm_profile),
         ("image".to_string(), String::new()),
     ]
     .into_iter()
@@ -818,6 +818,15 @@ pub fn set_active_model(
 
     config.save(&app_dir).map_err(AppError::from)?;
 
+    // v0.11.2: 刷新 LLM 服务内存配置，确保后续生成请求立即使用新活跃模型
+    if let Some(service) = crate::llm::service::get_llm_service() {
+        service.reload_config();
+        log::info!(
+            "[set_active_model] reloaded LLM service config for {}",
+            model_id
+        );
+    }
+
     // 通知幕前窗口刷新模型状态
     let _ = crate::window::WindowManager::send_to_frontstage(
         &app_handle,
@@ -825,6 +834,9 @@ pub fn set_active_model(
             entity: "model_config".to_string(),
         },
     );
+
+    // v0.11.2: 同时通过 sync-event 通知所有窗口（包括 backstage）刷新模型配置
+    crate::state_sync::StateSync::emit_data_refresh(&app_handle, None, "model_config");
 
     Ok(())
 }

@@ -2,6 +2,37 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.11.3] - 模型状态光晕与设为当前模型同步（2026-06-13）
+
+### 新增：底部模型状态绿点心跳光晕
+
+- **CSS 心跳动画**：`src-frontend/src/frontstage/styles/frontstage.css`
+  - 为 `.model-status-dot.status-connected` 新增 `heartbeat-glow` 关键帧动画
+  - 绿色圆点在正常连接时会有两次轻闪 + 光晕扩散的呼吸效果
+
+### 修复：模型列表「设为当前」不立即生效
+
+- **前端扩大失效范围**：`src-frontend/src/hooks/useSettings.ts`
+  - `useSetActiveModel` 成功时同时失效 `['settings']` 和 `['models']`
+- **前端跨窗口同步**：`src-frontend/src/hooks/useSyncStore.ts`
+  - `dataRefresh` 分支新增 `model_config`，刷新 settings/models
+- **幕前处理 DataRefresh**：`src-frontend/src/frontstage/FrontstageApp.tsx`
+  - 收到 `DataRefresh { entity: "model_config" }` 时立即失效 settings/models query
+- **后端热重载 LLM 配置**：`src-tauri/src/config/commands.rs`
+  - `set_active_model` 保存后调用 `LlmService::reload_config()`，清除适配器缓存
+- **后端广播模型变更**：`src-tauri/src/config/commands.rs`
+  - `set_active_model` 同时发送 `FrontstageEvent::DataRefresh` 和 `SyncEvent::DataRefresh`
+- **修复 multimodal 活跃模型返回**：`src-tauri/src/config/commands.rs`
+  - `get_settings` 中 `multimodal` 从 `active_llm_profile` 读取，不再硬编码为空
+
+### 验证
+
+- `cargo check --all-features` ✅
+- `npm run type-check` ✅
+- `npm run test:run` ✅ 116 passed / 3 skipped
+
+---
+
 ## [v0.11.2] - 修复 AI 续写超时无反馈与模型删除不生效（2026-06-13）
 
 ### 修复：AI 续写长时间无反馈 / 500s+ 无输出
