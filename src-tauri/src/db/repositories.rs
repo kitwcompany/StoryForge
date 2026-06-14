@@ -2625,6 +2625,32 @@ impl TextAnnotationRepository {
         from_pos: i32,
         to_pos: i32,
     ) -> Result<TextAnnotation, rusqlite::Error> {
+        self.create_annotation_with_meta(
+            story_id,
+            scene_id,
+            chapter_id,
+            content,
+            annotation_type,
+            from_pos,
+            to_pos,
+            None,
+            "medium",
+        )
+    }
+
+    /// 创建带 metadata 和 severity 的批注（用于 ai_audit 类型）。
+    pub fn create_annotation_with_meta(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_id: Option<&str>,
+        content: &str,
+        annotation_type: &str,
+        from_pos: i32,
+        to_pos: i32,
+        metadata: Option<&str>,
+        severity: &str,
+    ) -> Result<TextAnnotation, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
 
@@ -2634,8 +2660,8 @@ impl TextAnnotationRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "INSERT INTO text_annotations (id, story_id, scene_id, chapter_id, content, \
-             annotation_type, from_pos, to_pos, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             annotation_type, from_pos, to_pos, created_at, updated_at, metadata, severity)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 &id,
                 story_id,
@@ -2646,7 +2672,9 @@ impl TextAnnotationRepository {
                 from_pos,
                 to_pos,
                 now.to_rfc3339(),
-                now.to_rfc3339()
+                now.to_rfc3339(),
+                metadata,
+                severity
             ],
         )?;
 
@@ -2664,6 +2692,8 @@ impl TextAnnotationRepository {
             created_at: now,
             updated_at: now,
             resolved_at: None,
+            metadata: metadata.map(|s| s.to_string()),
+            severity: severity.to_string(),
         })
     }
 
@@ -2677,7 +2707,7 @@ impl TextAnnotationRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, \
-             to_pos, created_at, updated_at, resolved_at
+             to_pos, created_at, updated_at, resolved_at, metadata, severity
              FROM text_annotations WHERE chapter_id = ?1 AND resolved_at IS NULL ORDER BY from_pos \
              ASC",
         )?;
@@ -2695,7 +2725,7 @@ impl TextAnnotationRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, \
-             to_pos, created_at, updated_at, resolved_at
+             to_pos, created_at, updated_at, resolved_at, metadata, severity
              FROM text_annotations WHERE scene_id = ?1 AND resolved_at IS NULL ORDER BY from_pos \
              ASC",
         )?;
@@ -2713,7 +2743,7 @@ impl TextAnnotationRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, scene_id, chapter_id, content, annotation_type, from_pos, \
-             to_pos, created_at, updated_at, resolved_at
+             to_pos, created_at, updated_at, resolved_at, metadata, severity
              FROM text_annotations WHERE story_id = ?1 AND resolved_at IS NULL ORDER BY created_at \
              DESC",
         )?;
@@ -2733,6 +2763,8 @@ impl TextAnnotationRepository {
             let created_str: String = row.get(8)?;
             let updated_str: String = row.get(9)?;
             let resolved_str: Option<String> = row.get(10)?;
+            let metadata: Option<String> = row.get(11).unwrap_or(None);
+            let severity: String = row.get(12).unwrap_or_else(|_| "medium".to_string());
 
             annotations.push(TextAnnotation {
                 id: row.get(0)?,
@@ -2746,6 +2778,8 @@ impl TextAnnotationRepository {
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 resolved_at: resolved_str.and_then(|s| s.parse().ok()),
+                metadata,
+                severity,
             });
         }
         Ok(annotations)

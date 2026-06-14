@@ -82,6 +82,7 @@ pub enum TaskType {
     AiGeneration,       // AI 长文本生成
     PipelineReview,     // Pipeline 审校
     Ingest,             // 知识图谱 Ingest
+    AsyncAudit,         // 异步审计（分时架构时间线 2：Inspector → annotation 回流）
     Custom,             // 自定义
 }
 
@@ -93,6 +94,7 @@ impl fmt::Display for TaskType {
             TaskType::AiGeneration => write!(f, "ai_generation"),
             TaskType::PipelineReview => write!(f, "pipeline_review"),
             TaskType::Ingest => write!(f, "ingest"),
+            TaskType::AsyncAudit => write!(f, "async_audit"),
             TaskType::Custom => write!(f, "custom"),
         }
     }
@@ -106,6 +108,7 @@ impl TaskType {
             "ai_generation" => TaskType::AiGeneration,
             "pipeline_review" => TaskType::PipelineReview,
             "ingest" => TaskType::Ingest,
+            "async_audit" => TaskType::AsyncAudit,
             _ => TaskType::Custom,
         }
     }

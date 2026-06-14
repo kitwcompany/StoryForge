@@ -76,7 +76,8 @@ impl TaskExecutor for AiGenerationExecutor {
 
         let mode = match payload.get("mode").and_then(|v| v.as_str()) {
             Some("fast") => GenerationMode::Fast,
-            _ => GenerationMode::Full,
+            // 默认走分时模式（快速生成 + 后台审计），而非重型 Full 闭环
+            _ => GenerationMode::TimeSliced,
         };
 
         let parameters: HashMap<String, serde_json::Value> = payload

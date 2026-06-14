@@ -26,8 +26,14 @@ pub enum GenerationMode {
     /// 快速模式：单轮 LLM，跳过 Inspector / StyleChecker
     /// 适用于 Ghost Text、实时补全等低延迟场景
     Fast,
-    /// 完整模式：Writer → Inspector → Writer 反馈闭环
-    /// 适用于标准写作、章节生成等高质量场景
+    /// 分时模式：Writer 单轮 + 最小约束（WriteTimeBundle），立即返回正文；
+    /// 后台异步触发审计（Inspector → annotation 回流）。
+    /// 适用于普通生成、auto_write 等追求速度的场景。
+    /// 设计依据：docs/plans/2026-06-14-time-sliced-intervention-design.md
+    /// Phase 0 实测：最小约束 vs 全量资产平均差距 7.9%（< 30% 阈值），架构成立。
+    TimeSliced,
+    /// 完整模式：Writer → Inspector → Writer 反馈闭环（同步阻塞）
+    /// 适用于向导首场景、Genesis、Planner、Workflow 等明确需要专业同步成品的场景
     Full,
 }
 
@@ -35,6 +41,7 @@ impl GenerationMode {
     pub fn name(&self) -> &'static str {
         match self {
             GenerationMode::Fast => "快速",
+            GenerationMode::TimeSliced => "分时",
             GenerationMode::Full => "完整",
         }
     }
@@ -332,6 +339,7 @@ impl AgentOrchestrator {
 
         let result = match mode {
             GenerationMode::Fast => self.execute_fast(task.clone(), &trace).await,
+            GenerationMode::TimeSliced => self.execute_time_sliced(task.clone(), &trace).await,
             GenerationMode::Full => self.execute_full(task.clone(), &trace).await,
         };
 
@@ -580,6 +588,165 @@ impl AgentOrchestrator {
             was_rewritten: false,
             rewrite_count: 0,
             request_id: writer_result.request_id,
+        })
+    }
+
+    /// TimeSliced 模式（分时介入）：最小约束 + 单轮 Writer + 跳过 Inspector/Rewrite。
+    ///
+    /// 设计依据：docs/plans/2026-06-14-time-sliced-intervention-design.md
+    /// 与 Fast 的区别：用 QuickPreflightChecker（仅角色非空），不触发 auto_contract。
+    /// 与 Full 的区别：跳过 Inspector 7 维审计、Rewrite 循环、apply_writing_skills。
+    /// 审计在时间线 2（Phase 2 的 AuditExecutor）异步进行，问题以 annotation 回流。
+    ///
+    /// 任务 1.6（做法 B）：用 WriteTimeBundle 构建精简 prompt，直接调 generate_for_task，
+    /// 绕过 execute_writer_raw（及其内嵌的 Full Preflight + auto_contract）。
+    /// Fast/Full 路径完全不受影响。
+    async fn execute_time_sliced(
+        &self,
+        task: AgentTask,
+        trace: &GenerationTrace,
+    ) -> Result<WorkflowResult, AppError> {
+        self.emit_step_event(
+            &task.id,
+            WorkflowStepType::Generation,
+            None,
+            None,
+            Some("分时模式：最小约束快速生成"),
+        );
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.1,
+            "快速预检...",
+            None,
+        );
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+
+        // 时间线 1 预检：仅角色非空，失败直接报错，不触发 auto_contract
+        let quick_check = crate::story_system::preflight::QuickPreflightChecker::check(
+            pool.inner(),
+            &task.context.story.story_id,
+        )
+        .await;
+        if !quick_check.ready {
+            log::info!(
+                "[TimeSliced] QuickPreflight failed for story {}: {:?}",
+                task.context.story.story_id,
+                quick_check.blocking_issues
+            );
+            return Err(AppError::preflight_failed(
+                "分时模式预检未通过（缺少角色）",
+                quick_check.blocking_issues,
+            ));
+        }
+
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.2,
+            "加载写作约束...",
+            None,
+        );
+
+        // 加载 WriteTimeBundle（最小约束包），全部 DB 查询在 spawn_blocking 内
+        let story_id = task.context.story.story_id.clone();
+        let chapter_number = task.context.narrative.chapter_number as i32;
+        let pool_clone = pool.inner().clone();
+        let bundle_start = std::time::Instant::now();
+        let bundle = tokio::task::spawn_blocking(move || {
+            crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
+                &pool_clone,
+                &story_id,
+                chapter_number,
+                None, // style_slice_override：任务 1.6 暂不接入 StyleDna，留空
+            )
+        })
+        .await
+        .map_err(|e| AppError::internal(format!("[TimeSliced] bundle 加载任务失败: {}", e)))??;
+        trace.log_phase(
+            "bundle_load",
+            bundle_start.elapsed().as_millis(),
+            Some("write-time-bundle spawn_blocking"),
+        );
+
+        // 构建精简 prompt：bundle 约束 + 用户指令
+        let bundle_prompt = bundle.to_prompt();
+        let user_instruction = if task.input.trim().is_empty() {
+            "请续写下一段正文。".to_string()
+        } else {
+            task.input.clone()
+        };
+        let prompt = format!(
+            "你是一名专业的小说作者。请根据以下设定写一段正文（800-1500字）。\n\n\
+             {bundle_prompt}\n\n\
+             【创作指令】\n{user_instruction}\n\n\
+             请直接输出正文，不要写说明、标题或分章标记。"
+        );
+
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::GeneratingCandidates,
+            0.4,
+            "正在生成内容...",
+            None,
+        );
+
+        // 直接调 LLM（走路由器选 Writer 模型），绕过 execute_writer_raw
+        let writer_start = std::time::Instant::now();
+        let is_local = self.service.is_target_model_local(AgentType::Writer);
+        let _writer_permit = self
+            .service
+            .llm_service_ref()
+            .acquire_writer_permit(is_local)
+            .await?;
+        let gen_response = self
+            .service
+            .llm_service_ref()
+            .generate_for_task(
+                crate::router::TaskType::CreativeWriting,
+                prompt,
+                Some(2048),
+                Some(0.75),
+                Some("time-sliced-writer"),
+            )
+            .await?;
+        trace.log_phase(
+            "writer",
+            writer_start.elapsed().as_millis(),
+            Some("time-sliced direct generate_for_task"),
+        );
+
+        let content = gen_response.content;
+        let request_id = gen_response.model.clone();
+
+        let steps = vec![WorkflowStepResult {
+            step_type: WorkflowStepType::Generation,
+            agent_type: AgentType::Writer,
+            content: content.clone(),
+            score: None,
+            suggestions: vec![],
+        }];
+
+        // 跳过 apply_writing_skills（Pro 专属）、Inspector、Rewrite
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::Completed,
+            1.0,
+            "生成完成",
+            Some(request_id.clone()),
+        );
+
+        Ok(WorkflowResult {
+            final_content: content,
+            final_score: 1.0,
+            style_score: 0.0,
+            narrative_score: 0.0,
+            drift_details: Vec::new(),
+            steps,
+            was_rewritten: false,
+            rewrite_count: 0,
+            request_id: Some(request_id),
         })
     }
 

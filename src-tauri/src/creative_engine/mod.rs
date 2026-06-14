@@ -12,5 +12,6 @@ pub mod methodology;
 pub mod payoff_ledger;
 pub mod style;
 pub mod workflow;
+pub mod write_time_bundle;
 
 pub use context_builder::StoryContextBuilder;

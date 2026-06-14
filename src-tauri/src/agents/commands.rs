@@ -339,7 +339,7 @@ pub async fn writer_agent_execute(
     );
 
     match orchestrator
-        .generate(task, super::orchestrator::GenerationMode::Full)
+        .generate(task, super::orchestrator::GenerationMode::TimeSliced)
         .await
     {
         Ok(workflow_result) => {
@@ -696,7 +696,7 @@ pub async fn auto_write(
                 app_handle_clone.clone(),
             );
             match orchestrator
-                .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+                .generate(task, crate::agents::orchestrator::GenerationMode::TimeSliced)
                 .await
             {
                 Ok(workflow_result) => {
@@ -1106,7 +1106,7 @@ pub async fn auto_revise(
         );
 
         match orchestrator
-            .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+            .generate(task, crate::agents::orchestrator::GenerationMode::TimeSliced)
             .await
         {
             Ok(workflow_result) => {

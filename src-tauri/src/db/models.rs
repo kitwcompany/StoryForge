@@ -297,6 +297,7 @@ pub enum AnnotationType {
     Todo,    // 待办事项
     Warning, // 警告/注意
     Idea,    // 灵感/想法
+    AiAudit, // AI 异步审计批注（分时架构时间线 2 产出）
 }
 
 impl std::fmt::Display for AnnotationType {
@@ -306,6 +307,7 @@ impl std::fmt::Display for AnnotationType {
             AnnotationType::Todo => "todo",
             AnnotationType::Warning => "warning",
             AnnotationType::Idea => "idea",
+            AnnotationType::AiAudit => "ai_audit",
         };
         write!(f, "{}", s)
     }
@@ -320,6 +322,7 @@ impl std::str::FromStr for AnnotationType {
             "todo" => Ok(AnnotationType::Todo),
             "warning" => Ok(AnnotationType::Warning),
             "idea" => Ok(AnnotationType::Idea),
+            "ai_audit" => Ok(AnnotationType::AiAudit),
             _ => Err(format!("Unknown annotation type: {}", s)),
         }
     }
@@ -340,6 +343,16 @@ pub struct TextAnnotation {
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
     pub resolved_at: Option<DateTime<Local>>,
+    /// 结构化元数据（JSON），用于 ai_audit 类型存储维度/评分/建议等
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<String>,
+    /// 严重程度：high / medium / low（默认 medium），用于前端颜色区分与债务指示器
+    #[serde(default = "default_severity")]
+    pub severity: String,
+}
+
+fn default_severity() -> String {
+    "medium".to_string()
 }
 
 // ==================== 故事摘要模型 ====================

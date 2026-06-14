@@ -489,6 +489,11 @@ impl AgentService {
             .cloned()
     }
 
+    /// 借用 LlmService 引用（供 orchestrator 在 TimeSliced 路径直接调用，绕过 execute_writer_raw）
+    pub fn llm_service_ref(&self) -> &LlmService {
+        &self.llm_service
+    }
+
     /// 判断指定 Agent 实际会使用的目标模型是否为本地模型。
     /// 用于候选阶段并发策略与 Writer 全局并发限制。
     pub fn is_target_model_local(&self, agent_type: AgentType) -> bool {
