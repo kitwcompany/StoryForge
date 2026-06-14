@@ -17,9 +17,7 @@ use tauri::{AppHandle, Emitter};
 
 use super::executor::{TaskExecutionContext, TaskExecutor};
 use super::models::{Task, TaskResult, TaskType};
-use crate::db::{
-    ChaseDebtRepository, DbPool, StorySummaryRepository, TextAnnotationRepository,
-};
+use crate::db::{ChaseDebtRepository, DbPool, StorySummaryRepository, TextAnnotationRepository};
 use crate::reading_power::ReadingPowerEvaluator;
 use crate::state_sync::events::SyncEvent;
 
@@ -50,11 +48,8 @@ impl TaskExecutor for InsightExecutor {
     }
 
     async fn execute(&self, task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
-        let ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
-        );
+        let ctx =
+            TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
         ctx.start()?;
 
         let payload: InsightPayload = match task.payload.as_ref() {
@@ -106,7 +101,12 @@ impl TaskExecutor for InsightExecutor {
 impl InsightExecutor {
     /// 判断是否应触发深度洞察。
     /// 条件：距上次 insight 报告的章节数 >= interval（默认 5），或从未跑过。
-    pub fn should_trigger(pool: &DbPool, story_id: &str, current_chapter: i32, interval: i32) -> bool {
+    pub fn should_trigger(
+        pool: &DbPool,
+        story_id: &str,
+        current_chapter: i32,
+        interval: i32,
+    ) -> bool {
         let repo = StorySummaryRepository::new(pool.clone());
         match repo.get_summary_by_type(story_id, "deep_insight") {
             Ok(Some(summary)) => {
@@ -183,9 +183,7 @@ impl InsightExecutor {
 
         // 2. 追读债务汇总
         let debt_repo = ChaseDebtRepository::new(self.pool.clone());
-        let active_debts = debt_repo
-            .get_active_by_story(story_id)
-            .unwrap_or_default();
+        let active_debts = debt_repo.get_active_by_story(story_id).unwrap_or_default();
         let total_debt = active_debts.iter().map(|d| d.current_amount).sum::<f64>();
         let overdue_count = active_debts
             .iter()
@@ -197,10 +195,7 @@ impl InsightExecutor {
         let unresolved = ann_repo
             .get_annotations_by_story(story_id)
             .unwrap_or_default();
-        let high_count = unresolved
-            .iter()
-            .filter(|a| a.severity == "high")
-            .count();
+        let high_count = unresolved.iter().filter(|a| a.severity == "high").count();
         let ai_audit_count = unresolved
             .iter()
             .filter(|a| a.annotation_type == crate::db::AnnotationType::AiAudit)
@@ -210,8 +205,9 @@ impl InsightExecutor {
         let latest_score = trend.last().map(|t| t.score).unwrap_or(50.0) as f64;
         let debt_penalty = (total_debt * 2.0).min(30.0);
         let annotation_penalty = (high_count as f64 * 3.0).min(20.0);
-        let overall_health =
-            (latest_score - debt_penalty - annotation_penalty).max(0.0).min(100.0) as f32;
+        let overall_health = (latest_score - debt_penalty - annotation_penalty)
+            .max(0.0)
+            .min(100.0) as f32;
 
         InsightReport {
             story_id: story_id.clone(),

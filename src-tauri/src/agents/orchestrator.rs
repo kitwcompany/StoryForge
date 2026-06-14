@@ -777,7 +777,13 @@ impl AgentOrchestrator {
                 insight_chapter,
                 5, // 默认每 5 段触发
             );
-            (should, insight_pool, insight_story_id, insight_chapter, insight_handle)
+            (
+                should,
+                insight_pool,
+                insight_story_id,
+                insight_chapter,
+                insight_handle,
+            )
         })
         .await
         .ok()

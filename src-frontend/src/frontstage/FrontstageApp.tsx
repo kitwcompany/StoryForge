@@ -233,9 +233,12 @@ const FrontstageApp: React.FC = () => {
       const guided = localStorage.getItem('sf_audit_guided');
       if (!guided) {
         localStorage.setItem('sf_audit_guided', '1');
-        toast.success('AI 已在后台完成审计，发现的问题会以标注形式出现在正文中。点击顶部债务计数器可回幕后处置。', {
-          duration: 6000,
-        });
+        toast.success(
+          'AI 已在后台完成审计，发现的问题会以标注形式出现在正文中。点击顶部债务计数器可回幕后处置。',
+          {
+            duration: 6000,
+          }
+        );
       }
     },
   });

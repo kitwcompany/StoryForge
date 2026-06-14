@@ -50,11 +50,8 @@ impl TaskExecutor for AuditExecutor {
     }
 
     async fn execute(&self, task: &Task) -> Result<TaskResult, Box<dyn std::error::Error>> {
-        let ctx = TaskExecutionContext::new(
-            task.id.clone(),
-            self.pool.clone(),
-            self.app_handle.clone(),
-        );
+        let ctx =
+            TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
         ctx.start()?;
 
         let payload: AuditPayload = match task.payload.as_ref() {
@@ -228,7 +225,10 @@ fn truncate_content(s: &str, max_chars: usize) -> String {
     if chars.len() <= max_chars {
         s.to_string()
     } else {
-        format!("{}...（已截断，仅审计最后部分）", chars.iter().take(max_chars).collect::<String>())
+        format!(
+            "{}...（已截断，仅审计最后部分）",
+            chars.iter().take(max_chars).collect::<String>()
+        )
     }
 }
 
@@ -260,7 +260,10 @@ fn parse_inspector_issues(content: &str) -> Vec<InspectorIssue> {
     let start = match cleaned.find('{') {
         Some(s) => s,
         None => {
-            log::warn!("[AuditExecutor] Inspector 响应无 JSON: {}", &cleaned[..cleaned.len().min(100)]);
+            log::warn!(
+                "[AuditExecutor] Inspector 响应无 JSON: {}",
+                &cleaned[..cleaned.len().min(100)]
+            );
             return vec![];
         }
     };

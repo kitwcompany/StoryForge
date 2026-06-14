@@ -8,15 +8,36 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.12.0-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.13.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.12.0 针对「智能创作无处不在的卡顿、生成无输出」进行系统性性能重构：
+**最新动态**：v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
+
+> 🌿 第一性原理：**把大灾难变成即时可见的小债务。** 蚂蚁搬家，不积巨石。
+
+AI 写长篇小说，强化专业资产（合同/伏笔/Inspector/记忆）就慢，放松就崩。v0.13.0 把"写"和"审"解耦成三条独立时间线：
+
+1. **写作时刻（< 15s 秒出正文）**：`WriteTimeBundle` 只带最小约束（合同红线 + 角色核心 + 场景大纲 + 题材反模式），直连 LLM 单轮生成，立即返回。不跑 Preflight 补合同、不跑 Inspector、不跑 Rewrite。
+2. **审计时刻（后台 30-90s）**：正文返回后，`AuditExecutor` 在后台异步跑 7 维 Inspector，发现的问题以 **inline 标注**（ai_audit 类型，按 severity 红黄蓝着色）回流到编辑器。用户当场处理小债，不让它滚成大灾难。
+3. **洞察时刻（每 5 段深度报告）**：`InsightExecutor` 汇总追读力趋势 + 追读债务 + 标注盘点，产出整体健康度报告，在「叙事分析」页呈现。
+
+顶栏新增**债务指示器**，实时显示未处理标注数，超阈值红色警告。
+
+**Phase 0 实测验证**（qwen3.6-35b，3 场景 A/B 盲测）：最小约束 vs 全量资产平均质量差距仅 **7.9%**（< 30% 阈值），且会被后台审计追平。证实"慢的根源不是资产量，而是同步链路堆叠的 Inspector/Rewrite"。
+
+设计文档见 [`docs/plans/2026-06-14-time-sliced-intervention-design.md`](./docs/plans/2026-06-14-time-sliced-intervention-design.md)，验收清单见 [`docs/time-sliced-architecture-qa-checklist.md`](./docs/time-sliced-architecture-qa-checklist.md)，完整变更见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+<details>
+<summary>📦 v0.12.0 性能重构（点击展开）</summary>
+
+v0.12.0 针对「智能创作无处不在的卡顿、生成无输出」进行系统性性能重构：
 1. **后端生成链路止血**：本地/局域网模型默认单候选 + 全局并发限流，候选总超时硬上限 90s；LLM 连接/生成超时拆分；上下文准备、SQLite 高频路径 spawn_blocking 化；全局 Mutex 替换为 OnceLock/RwLock。
 2. **前端响应与大数据量优化**：生成状态精确显示 + 可靠取消；移除高频心跳；场景/章节分页加载；sync-event 批量失效；文思分析移入 Web Worker；RichTextEditor HTML 序列化节流。
 3. **架构级重构**：统一 `generation-status` 事件；知识图谱 viewport 裁剪 + LOD；Agent 编排结构化 trace；后台 Ingest 任务 Semaphore + 取消令牌；引入 `tiktoken-rs` 真实 tokenizer 与上下文预算。
 
-完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)，修复计划见 [`PERFORMANCE_FIX_PLAN.md`](./PERFORMANCE_FIX_PLAN.md)，阶段验证报告见 `QA-Stage1-report.md`、`QA-Stage2-report.md`、`QA-Stage3-report.md`。
+修复计划见 [`PERFORMANCE_FIX_PLAN.md`](./PERFORMANCE_FIX_PLAN.md)，阶段验证报告见 `QA-Stage1-report.md`、`QA-Stage2-report.md`、`QA-Stage3-report.md`。
+
+</details>
 
 ---
 
@@ -378,6 +399,7 @@ npm run dev
 - **知识图谱**：ReactFlow
 - **向量存储**：LanceDB + SQLite
 - **LLM 适配**：OpenAI / Anthropic / Ollama / 自定义本地 API
+- **分时介入架构**（v0.13.0）：三条时间线（写作/审计/洞察）解耦，解开质量与速度矛盾
 
 ---
 
@@ -387,7 +409,9 @@ npm run dev
 |---|---|
 | [`docs/USER_GUIDE.md`](./docs/USER_GUIDE.md) | 完整用户指南（含全部截图与详细说明） |
 | [`CHANGELOG.md`](./CHANGELOG.md) | 版本更新日志 |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 系统架构设计 |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | 系统架构设计（含分时介入架构章节） |
+| [`docs/plans/2026-06-14-time-sliced-intervention-design.md`](./docs/plans/2026-06-14-time-sliced-intervention-design.md) | 分时架构设计文档（Phase 0 已验证） |
+| [`docs/time-sliced-architecture-qa-checklist.md`](./docs/time-sliced-architecture-qa-checklist.md) | 分时架构 QA 验收清单 |
 | [`AGENTS.md`](./AGENTS.md) | 开发代理指南 |
 
 ---

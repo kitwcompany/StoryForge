@@ -13,11 +13,10 @@
 //! 1. 红线突出注入：to_prompt() 输出时红线在最前、加粗强调。
 //! 2. 题材自适应：按 stories.genre 决定是否纳入风格片段。
 
-use crate::db::{
-    CharacterRepository, DbPool, GenreProfileRepository, SceneRepository,
-    StoryContractRepository,
-};
 use crate::db::Character;
+use crate::db::{
+    CharacterRepository, DbPool, GenreProfileRepository, SceneRepository, StoryContractRepository,
+};
 
 // ==================== 数据结构 ====================
 
@@ -82,7 +81,10 @@ pub enum GenreCategory {
 impl GenreCategory {
     /// 是否应纳入轻量风格片段（Phase 0 实证）。
     pub fn include_style_slice(&self) -> bool {
-        matches!(self, GenreCategory::RealismEmotional | GenreCategory::Mystery)
+        matches!(
+            self,
+            GenreCategory::RealismEmotional | GenreCategory::Mystery
+        )
     }
 
     /// 根据 genre 字符串推断题材分类。
@@ -95,23 +97,30 @@ impl GenreCategory {
         let g_lower = g.to_lowercase();
         // 现实/情感类
         let realism_keywords = [
-            "都市", "现实", "情感", "言情", "青春", "校园", "职场", "家庭",
-            "年代", "生活", "治愈", "日常", "urban", "realism", "romance",
+            "都市", "现实", "情感", "言情", "青春", "校园", "职场", "家庭", "年代", "生活", "治愈",
+            "日常", "urban", "realism", "romance",
         ];
         if realism_keywords.iter().any(|k| g_lower.contains(k)) {
             return GenreCategory::RealismEmotional;
         }
         // 悬疑/推理类
         let mystery_keywords = [
-            "悬疑", "推理", "侦探", "犯罪", "惊悚", "mystery", "thriller", "detective",
+            "悬疑",
+            "推理",
+            "侦探",
+            "犯罪",
+            "惊悚",
+            "mystery",
+            "thriller",
+            "detective",
         ];
         if mystery_keywords.iter().any(|k| g_lower.contains(k)) {
             return GenreCategory::Mystery;
         }
         // 架空/幻想类
         let speculative_keywords = [
-            "玄幻", "仙侠", "科幻", "奇幻", "修真", "末世", "网游", "灵异",
-            "fantasy", "scifi", "sci-fi", "xianxia",
+            "玄幻", "仙侠", "科幻", "奇幻", "修真", "末世", "网游", "灵异", "fantasy", "scifi",
+            "sci-fi", "xianxia",
         ];
         if speculative_keywords.iter().any(|k| g_lower.contains(k)) {
             return GenreCategory::Speculative;
@@ -304,10 +313,7 @@ impl WriteTimeBundle {
                 outline_parts.push(format!("场景地点：{}", s));
             }
             if !outline_parts.is_empty() {
-                sections.push(format!(
-                    "【本场景任务】\n{}",
-                    outline_parts.join("\n")
-                ));
+                sections.push(format!("【本场景任务】\n{}", outline_parts.join("\n")));
             }
         }
 
@@ -318,10 +324,7 @@ impl WriteTimeBundle {
                 .iter()
                 .map(|a| format!("  - {}", a))
                 .collect();
-            sections.push(format!(
-                "【必须避免的反模式】\n{}",
-                anti_lines.join("\n")
-            ));
+            sections.push(format!("【必须避免的反模式】\n{}", anti_lines.join("\n")));
         }
 
         // ⑤ 风格片段（题材自适应，仅 RealismEmotional/Mystery 纳入）
@@ -369,7 +372,13 @@ fn parse_antipatterns(json_str: &Option<String>) -> Vec<String> {
 fn extract_redline_text(contract_json: &str) -> String {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(contract_json) {
         // 尝试常见字段名
-        for key in &["redlines", "world_rules", "core_rules", "world_setting", "description"] {
+        for key in &[
+            "redlines",
+            "world_rules",
+            "core_rules",
+            "world_setting",
+            "description",
+        ] {
             if let Some(val) = v.get(key) {
                 if let Some(s) = val.as_str() {
                     return truncate(s, 800);
@@ -393,7 +402,10 @@ fn truncate(s: &str, max_chars: usize) -> String {
     if chars.len() <= max_chars {
         s.to_string()
     } else {
-        format!("{}...（已截断）", chars.iter().take(max_chars).collect::<String>())
+        format!(
+            "{}...（已截断）",
+            chars.iter().take(max_chars).collect::<String>()
+        )
     }
 }
 
@@ -476,9 +488,7 @@ mod tests {
 
     #[test]
     fn parse_antipatterns_newline_separated() {
-        let result = parse_antipatterns(&Some(
-            "第一行反模式\n第二行反模式".to_string(),
-        ));
+        let result = parse_antipatterns(&Some("第一行反模式\n第二行反模式".to_string()));
         assert_eq!(result.len(), 2);
     }
 
@@ -490,7 +500,8 @@ mod tests {
 
     #[test]
     fn truncate_respects_char_boundary() {
-        let long = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十";
+        let long =
+            "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十";
         let t = truncate(long, 10);
         assert!(t.ends_with("...（已截断）"));
         // 截断后（不含后缀）应 <= 10 字符

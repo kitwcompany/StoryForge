@@ -696,7 +696,10 @@ pub async fn auto_write(
                 app_handle_clone.clone(),
             );
             match orchestrator
-                .generate(task, crate::agents::orchestrator::GenerationMode::TimeSliced)
+                .generate(
+                    task,
+                    crate::agents::orchestrator::GenerationMode::TimeSliced,
+                )
                 .await
             {
                 Ok(workflow_result) => {
@@ -1106,7 +1109,10 @@ pub async fn auto_revise(
         );
 
         match orchestrator
-            .generate(task, crate::agents::orchestrator::GenerationMode::TimeSliced)
+            .generate(
+                task,
+                crate::agents::orchestrator::GenerationMode::TimeSliced,
+            )
             .await
         {
             Ok(workflow_result) => {

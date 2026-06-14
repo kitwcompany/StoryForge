@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests {
     use crate::db::connection::create_test_pool;
-    use crate::db::{TextAnnotationRepository};
+    use crate::db::TextAnnotationRepository;
     use crate::task_system::audit_executor::AuditPayload;
     use crate::task_system::insight_executor::{InsightExecutor, InsightPayload};
 
@@ -70,10 +70,7 @@ mod tests {
         assert_eq!(high_count, 1, "应有 1 条 high severity");
 
         // 验证 metadata 可解析
-        let memory_ann = annotations
-            .iter()
-            .find(|a| a.severity == "high")
-            .unwrap();
+        let memory_ann = annotations.iter().find(|a| a.severity == "high").unwrap();
         let meta: serde_json::Value =
             serde_json::from_str(memory_ann.metadata.as_ref().unwrap()).unwrap();
         assert_eq!(meta["dimension"], "memory");

@@ -53,11 +53,7 @@ const DebtIndicator: React.FC<DebtIndicatorProps> = ({ chapterId, storyId }) => 
       title={`未处理标注：${total} 条（${highCount} 条高优先级，${aiAuditCount} 条 AI 审计）— 点击回幕后处置`}
       onClick={handleClick}
     >
-      {isWarning ? (
-        <AlertCircle className="w-3 h-3" />
-      ) : (
-        <CheckCircle2 className="w-3 h-3" />
-      )}
+      {isWarning ? <AlertCircle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
       <span className="font-medium">{total}</span>
       {highCount > 0 && (
         <span className={cn('ml-0.5', isWarning ? 'text-red-300' : 'text-amber-300')}>

@@ -175,7 +175,7 @@ impl QuickPreflightChecker {
                             missing_contracts: vec![],
                             warnings: vec![],
                             blocking_issues: vec![
-                                "故事中没有角色，请先创建至少一个角色后再生成".to_string(),
+                                "故事中没有角色，请先创建至少一个角色后再生成".to_string()
                             ],
                         }
                     } else {
@@ -276,7 +276,11 @@ mod tests {
         // 故意不创建任何 story_contracts / scenes / outlines
         let result = QuickPreflightChecker::check(&pool, "story-no-contract").await;
         // 即使没有合同/大纲/场景，只要角色存在就通过——这正是 TimeSliced 追求的速度
-        assert!(result.ready, "QuickCheck 应忽略合同/大纲缺失，实际: {:?}", result.blocking_issues);
+        assert!(
+            result.ready,
+            "QuickCheck 应忽略合同/大纲缺失，实际: {:?}",
+            result.blocking_issues
+        );
         assert!(result.missing_contracts.is_empty(), "QuickCheck 不检查合同");
     }
 }
