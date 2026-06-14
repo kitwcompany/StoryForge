@@ -2,6 +2,64 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.13.0] - 分时介入架构：解开「质量与速度不可兼得」的根本矛盾（2026-06-14）
+
+### 核心变更：分时介入架构（三条时间线）
+
+解决 AI 长篇小说创作的根本矛盾——强化专业资产介入导致生成过慢，放松则质量低劣。根因诊断：资产被错误地同步化（B）、写与审被错误耦合（E）。第一性原理：**把大灾难变成即时可见的小债务**。
+
+设计文档：[`docs/plans/2026-06-14-time-sliced-intervention-design.md`](docs/plans/2026-06-14-time-sliced-intervention-design.md)
+
+- **时间线 1（写作时刻，< 15s）**：`GenerationMode::TimeSliced` + `QuickPreflightChecker` + `WriteTimeBundle`（红线突出注入 + 题材自适应）+ 直连 `generate_for_task`，绕过 `execute_writer_raw` 的 Full Preflight 与 auto_contract
+  - `src-tauri/src/agents/orchestrator.rs`：新增 `TimeSliced` 模式与 `execute_time_sliced`
+  - `src-tauri/src/creative_engine/write_time_bundle.rs`：**新增**最小约束包（合同红线/角色核心/场景大纲/GenreProfile 反模式/可选风格片段）
+  - `src-tauri/src/story_system/preflight.rs`：新增 `QuickPreflightChecker`（仅角色非空，不触发 auto_contract）
+  - `src-tauri/src/agents/commands.rs` / `executor.rs`：`auto_write` / `auto_revise` / 普通生成迁移到 `TimeSliced`，默认值改为 `TimeSliced`
+- **时间线 2（审计时刻，后台 30-90s）**：正文返回后后台 spawn `AuditExecutor` 跑 Inspector 7 维审计，问题以 inline annotation 回流
+  - `src-tauri/src/task_system/audit_executor.rs`：**新增**异步审计执行器（Inspector JSON 解析 + memory 优先排序 + annotation 创建 + sync-event 发射）
+  - `src-tauri/src/task_system/models.rs`：新增 `TaskType::AsyncAudit`
+  - `src-tauri/src/db/models.rs`：`AnnotationType::AiAudit` + `metadata` / `severity` 字段
+  - `src-tauri/src/db/repositories.rs`：`create_annotation_with_meta` 方法 + 查询更新
+  - `src-tauri/src/db/connection.rs`：legacy migration 90（text_annotations 加列）
+  - 前端：`TextAnnotationMark.ts` 支持 `ai_audit` severity 动态着色；`types/v3.ts` / `useSceneAnnotations.ts` / `useTextAnnotations.ts` 类型补全
+- **时间线 3（洞察时刻，每 5 段条件触发）**：`InsightExecutor` 汇总追读力趋势 + 追读债务 + annotation 盘点，产出整体健康度报告
+  - `src-tauri/src/task_system/insight_executor.rs`：**新增**深度洞察执行器（`should_trigger` 条件判断 + `build_report` 数据汇总 + `run_insight` 直调）
+  - `src-tauri/src/agents/orchestrator.rs`：`execute_time_sliced` 末尾条件 spawn InsightExecutor
+  - 前端：`pages/NarrativeAnalysis.tsx` 新增「深度洞察」section（健康度仪表盘 + 追读力趋势柱状图 + 债务/标注汇总卡片）
+
+### Phase 0 实测验证（qwen3.6-35b，3 场景 A/B 盲测）
+
+- 最小约束 vs 全量资产平均质量差距 **7.9%**（< 30% 阈值），架构成立
+- prompt 长 160% 仅耗时多 7%，证实「慢在同步链路而非 Writer 本身」
+- 三条实证改进写入 WriteTimeBundle：红线突出注入、题材自适应、memory 维度优先审计
+
+### 前端体验
+
+- **DebtIndicator（债务指示器）**：幕前顶栏显示未处理 annotation 计数，超阈值（>10 high 或 >30 总计）红色警告，点击跳转幕后
+- **首次引导 toast**：首次出现 ai_audit annotation 时提示用户（localStorage 标记，只出现一次）
+- `src-frontend/src/frontstage/components/DebtIndicator.tsx`：**新增**
+- `src-frontend/src/frontstage/FrontstageApp.tsx`：`onAnnotationCreated` 回调
+- `src-frontend/src/frontstage/components/FrontstageHeader.tsx`：嵌入 DebtIndicator
+
+### 测试与文档
+
+- **387 Rust 单元测试全通过**（含 23 个新增测试：WriteTimeBundle 12 + QuickPreflightChecker 3 + AuditExecutor 9 + InsightExecutor 2 + 端到端集成 4 之前的 383→实际加 e2e 后更多）
+- TypeScript 类型检查零错误
+- `docs/plans/2026-06-14-time-sliced-intervention-design.md`：正解设计文档（Phase 0 已验证）
+- `docs/plans/2026-06-14-time-sliced-intervention-implementation.md`：实施计划
+- `docs/plans/2026-06-14-asset-tier-creation-design.md` / `-v2.md`：标注已废弃
+- `docs/time-sliced-architecture-qa-checklist.md`：**新增** QA 验收清单（7 类 35 项）
+- `ARCHITECTURE.md`：新增「⏱️ 分时介入架构 (v0.13.0)」章节
+
+### 已知限制
+
+- annotation 为段落级定位（非字符级精确高亮）——LLM 给字符偏移不可靠
+- InsightExecutor 当前不含 KG/向量检索，聚焦追读力+债务+annotation 汇总
+- WriteTimeBundle 的 style_slice 暂未接入 StyleDna（`load_sync` 的 `style_slice_override` 传 None）
+- 审计的 scene_id 当前传 None（annotation 挂到 story 级），后续接入精确 scene
+
+---
+
 ## [v0.12.0] - 智能创作性能全面重构（2026-06-14）
 
 ### 修复：点击「写一部小说/续写」后长期在个别进程上无响应、最后无输出

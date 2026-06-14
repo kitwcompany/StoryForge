@@ -89,6 +89,7 @@ export const TEXT_ANNOTATION_TYPE_LABELS: Record<TextAnnotation['annotation_type
   todo: '待办',
   warning: '注意',
   idea: '灵感',
+  ai_audit: 'AI审计',
 };
 
 export const TEXT_ANNOTATION_TYPE_COLORS: Record<TextAnnotation['annotation_type'], string> = {
@@ -96,4 +97,5 @@ export const TEXT_ANNOTATION_TYPE_COLORS: Record<TextAnnotation['annotation_type
   todo: 'bg-orange-500',
   warning: 'bg-red-500',
   idea: 'bg-purple-500',
+  ai_audit: 'bg-amber-500',
 };

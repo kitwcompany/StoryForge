@@ -737,6 +737,68 @@ impl AgentOrchestrator {
             Some(request_id.clone()),
         );
 
+        // 时间线 2：后台异步审计（不阻塞返回）。
+        // 正文已生成，spawn AuditExecutor 跑 Inspector，问题以 annotation 回流。
+        let audit_content = content.clone();
+        let audit_story_id = task.context.story.story_id.clone();
+        let audit_pool = pool.inner().clone();
+        let audit_handle = self.app_handle.clone();
+        let audit_chapter_number = task.context.narrative.chapter_number as i32;
+        let audit_story_title = bundle.story_meta.title.clone();
+        let audit_genre = bundle.story_meta.genre.clone();
+        tokio::spawn(async move {
+            let executor = crate::task_system::audit_executor::AuditExecutor {
+                pool: audit_pool,
+                app_handle: audit_handle,
+            };
+            executor
+                .run_audit(crate::task_system::audit_executor::AuditPayload {
+                    story_id: audit_story_id,
+                    scene_id: None, // TODO: 任务 2.3 后续接入 scene_id
+                    chapter_id: None,
+                    chapter_number: audit_chapter_number,
+                    content: audit_content,
+                    story_title: Some(audit_story_title),
+                    genre: audit_genre,
+                })
+                .await;
+        });
+
+        // 时间线 3：条件触发深度洞察（每 N 段，默认 5）。
+        // 不阻塞返回，在后台异步跑，报告写入 story_summaries。
+        let insight_pool = pool.inner().clone();
+        let insight_story_id = task.context.story.story_id.clone();
+        let insight_chapter = task.context.narrative.chapter_number as i32;
+        let insight_handle = self.app_handle.clone();
+        tokio::task::spawn_blocking(move || {
+            let should = crate::task_system::insight_executor::InsightExecutor::should_trigger(
+                &insight_pool,
+                &insight_story_id,
+                insight_chapter,
+                5, // 默认每 5 段触发
+            );
+            (should, insight_pool, insight_story_id, insight_chapter, insight_handle)
+        })
+        .await
+        .ok()
+        .map(|(should, ipool, istory, ichapter, ihandle)| {
+            if should {
+                tokio::spawn(async move {
+                    let executor = crate::task_system::insight_executor::InsightExecutor {
+                        pool: ipool,
+                        app_handle: ihandle,
+                    };
+                    executor
+                        .run_insight(crate::task_system::insight_executor::InsightPayload {
+                            story_id: istory,
+                            chapter_number: ichapter,
+                            trend_window: 5,
+                        })
+                        .await;
+                });
+            }
+        });
+
         Ok(WorkflowResult {
             final_content: content,
             final_score: 1.0,

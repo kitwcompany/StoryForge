@@ -228,6 +228,16 @@ const FrontstageApp: React.FC = () => {
         })();
       }
     },
+    // 分时架构时间线 2：AI 审计 annotation 回流，首次出现时引导
+    onAnnotationCreated: () => {
+      const guided = localStorage.getItem('sf_audit_guided');
+      if (!guided) {
+        localStorage.setItem('sf_audit_guided', '1');
+        toast.success('AI 已在后台完成审计，发现的问题会以标注形式出现在正文中。点击顶部债务计数器可回幕后处置。', {
+          duration: 6000,
+        });
+      }
+    },
   });
 
   // B1: 高频生成状态迁移到独立 Zustand store，避免单点重渲染

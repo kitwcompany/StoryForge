@@ -86,6 +86,7 @@ export const ANNOTATION_TYPE_LABELS: Record<SceneAnnotation['annotation_type'], 
   todo: '待办',
   warning: '注意',
   idea: '灵感',
+  ai_audit: 'AI审计',
 };
 
 export const ANNOTATION_TYPE_COLORS: Record<SceneAnnotation['annotation_type'], string> = {
@@ -93,4 +94,5 @@ export const ANNOTATION_TYPE_COLORS: Record<SceneAnnotation['annotation_type'], 
   todo: 'bg-orange-500',
   warning: 'bg-red-500',
   idea: 'bg-purple-500',
+  ai_audit: 'bg-amber-500',
 };

@@ -1,10 +1,11 @@
-# 文思资产分级与多模式创作系统设计文档（v2 修订版）
+# 文思资产分级与多模式创作系统设计文档（v2 修订版 · 已废弃）
 
 > 创建日期: 2026-06-14
 > 修订日期: 2026-06-14（基于代码现状核查重写）
-> 状态: 设计草案，待评审
+> 状态: **❌ 已废弃，被 [`2026-06-14-time-sliced-intervention-design.md`](./2026-06-14-time-sliced-intervention-design.md) 取代**
+> 废弃原因: 本版（AssetBundle 分级）仍默认"资产必须同步介入"，只是优化了分级方式。经 brainstorming 深挖，真正根因是 B（资产被错误同步化）+ E（写与审被错误耦合）。正确解法是分时介入架构。
 > 问题: AI 创作中资产深度介入导致生成过慢，质量与速度不可兼得
-> 前序文档: [`2026-06-14-asset-tier-creation-design.md`](./2026-06-14-asset-tier-creation-design.md)（v1，已发现多处与代码现状不符，本版修正）
+> 前序文档: [`2026-06-14-asset-tier-creation-design.md`](./2026-06-14-asset-tier-creation-design.md)（v1，已废弃）
 
 ---
 

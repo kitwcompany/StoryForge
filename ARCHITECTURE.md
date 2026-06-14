@@ -622,6 +622,63 @@ pub struct ReadingPowerEvaluation {
 
 ---
 
+### ⏱️ 分时介入架构 (v0.13.0)
+
+**解决的核心矛盾**：AI 长篇小说创作中"质量与速度不可兼得"——强化专业资产介入导致生成过慢，放松则质量低劣。
+
+**根因诊断（B + E）**：
+- **B（资产被错误同步化）**：合同、伏笔、Inspector、记忆各有最佳发力时机，却全压在"Writer 一次 LLM 调用"那个点上
+- **E（写与审被错误耦合）**：写（快）和审（深）被焊死在一条同步链路，用户全程干等
+
+**第一性原理**：把大灾难变成即时可见的小债务。蚂蚁搬家，不积巨石。
+
+**三条时间线**：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  时间线 1：写作时刻（热路径，< 15s，用户等待）                │
+│  QuickPreflightChecker → WriteTimeBundle（红线突出+题材自适应）│
+│  → generate_for_task 直连 LLM → 立即返回正文                  │
+│  代码：execute_time_sliced (agents/orchestrator.rs)          │
+└─────────────────────────────────────────────────────────────┘
+          │ 正文已返回，spawn 后台（不阻塞）
+          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  时间线 2：审计时刻（温路径，30-90s，后台异步）                │
+│  AuditExecutor → Inspector 7 维审计（memory 优先）            │
+│  → create_annotation_with_meta（type=ai_audit）              │
+│  → emit SyncEvent::AnnotationCreated → 前端自动渲染标注       │
+│  代码：task_system/audit_executor.rs                          │
+└─────────────────────────────────────────────────────────────┘
+          │ 每 5 段条件触发
+          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  时间线 3：洞察时刻（冷路径，分钟级，跨章节深度）              │
+│  InsightExecutor → 追读力趋势 + 债务汇总 + annotation 盘点    │
+│  → 整体健康度评分 → story_summaries → NarrativeAnalysis 页    │
+│  代码：task_system/insight_executor.rs                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**GenerationMode 三值**：
+- `Fast`：Ghost Text 等实时补全（原有，不变）
+- `TimeSliced`：**默认**，走三时间线（普通生成/auto_write/auto_revise）
+- `Full`：同步审计+Rewrite 闭环（向导/Genesis/Planner/Workflow）
+
+**Phase 0 实测验证**（qwen3.6-35b，3 场景 A/B 盲测）：
+- 最小约束 vs 全量资产平均质量差距 **7.9%**（< 30% 阈值）→ 架构成立
+- prompt 长 160% 仅耗时多 7% → 证实"慢在同步链路而非 Writer 本身"
+- 三条实证改进：红线突出注入、题材自适应 bundle、memory 维度优先审计
+
+**前端可见物**：
+- 顶栏 **DebtIndicator**（债务指示器）：未处理 annotation 计数，超阈值红色警告
+- 编辑器内 **TextAnnotationMark**：ai_audit 类型按 severity 动态着色（high=红/medium=琥珀/low=蓝）
+- 叙事分析页 **深度洞察 section**：健康度仪表盘 + 追读力趋势柱状图
+
+**设计文档**：[`docs/plans/2026-06-14-time-sliced-intervention-design.md`](./docs/plans/2026-06-14-time-sliced-intervention-design.md)
+
+---
+
 ### 📊 可观测性系统 (v6.0.0)
 
 **Ingest 作业追踪**

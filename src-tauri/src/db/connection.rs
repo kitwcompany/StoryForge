@@ -3187,6 +3187,29 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 89)?;
     }
 
+    // Migration 90: 为 text_annotations 添加 metadata 和 severity 列
+    // 支持分时架构时间线 2 的异步审计 annotation（ai_audit 类型）
+    if current_version < 90 {
+        let ta_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(text_annotations)")?
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !ta_columns.iter().any(|c| c == "metadata") {
+            conn.execute("ALTER TABLE text_annotations ADD COLUMN metadata TEXT", [])?;
+        }
+        if !ta_columns.iter().any(|c| c == "severity") {
+            conn.execute(
+                "ALTER TABLE text_annotations ADD COLUMN severity TEXT NOT NULL DEFAULT 'medium'",
+                [],
+            )?;
+        }
+        record_migration(conn, 90)?;
+    }
+
     Ok(())
 }
 

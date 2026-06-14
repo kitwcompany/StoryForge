@@ -3,6 +3,7 @@ import { cn } from '@/utils/cn';
 import { Flame, Sparkles, ZapOff, Maximize, Settings } from 'lucide-react';
 import ColorThemeDot from './ColorThemeDot';
 import { IngestHealthIndicator } from './IngestHealthIndicator';
+import DebtIndicator from './DebtIndicator';
 import type { Scene } from '@/types/v3';
 
 interface Chapter {
@@ -126,6 +127,10 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
 
       {!isZenMode && (
         <div className="frontstage-header-right">
+          <DebtIndicator
+            chapterId={currentChapter?.id || null}
+            storyId={currentStory?.id || null}
+          />
           <IngestHealthIndicator storyId={currentStory?.id || null} />
           <ColorThemeDot isZenMode={isZenMode} />
           <button

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GitBranch, Activity, Target, AlertTriangle } from 'lucide-react';
+import { GitBranch, Activity, Target, AlertTriangle, HeartPulse } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import {
   analyzeNarrativeStructure,
@@ -9,15 +9,33 @@ import {
   type NarrativeEvent,
   type NarrativeThread,
 } from '@/services/tauri';
+import { getStorySummaries } from '@/services/api/knowledge';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ui:NarrativeAnalysis');
+
+interface InsightReport {
+  overall_health: number;
+  chapter_range: [number, number];
+  evaluated_at: string;
+  reading_power_trend: Array<{
+    chapter: number;
+    score: number;
+    hook_strength: string;
+    coolpoint_count: number;
+    micropayoff_count: number;
+    debt_balance: number;
+  }>;
+  chase_debt: { total_amount: number; active_count: number; overdue_count: number };
+  unresolved_annotations: { total: number; high_severity: number; ai_audit: number };
+}
 
 export function NarrativeAnalysis() {
   const currentStory = useAppStore(s => s.currentStory);
   const [structure, setStructure] = useState<NarrativeStructureAct[]>([]);
   const [events, setEvents] = useState<NarrativeEvent[]>([]);
   const [threads, setThreads] = useState<NarrativeThread[]>([]);
+  const [insight, setInsight] = useState<InsightReport | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -28,14 +46,28 @@ export function NarrativeAnalysis() {
   const loadData = async (storyId: string) => {
     setLoading(true);
     try {
-      const [structRes, eventsRes, threadsRes] = await Promise.all([
+      const [structRes, eventsRes, threadsRes, summaries] = await Promise.all([
         analyzeNarrativeStructure(storyId),
         getNarrativeEvents(storyId),
         getNarrativeThreads(storyId),
+        getStorySummaries(storyId),
       ]);
       setStructure(structRes.structure || []);
       setEvents(eventsRes.events || []);
       setThreads(threadsRes.threads || []);
+      // 筛选最新的 deep_insight 报告
+      const insightSummary = summaries
+        ?.filter(s => s.summary_type === 'deep_insight')
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+      if (insightSummary) {
+        try {
+          setInsight(JSON.parse(insightSummary.content));
+        } catch {
+          setInsight(null);
+        }
+      } else {
+        setInsight(null);
+      }
     } catch (e) {
       logger.error('加载叙事分析失败', { error: e });
     } finally {
@@ -159,6 +191,109 @@ export function NarrativeAnalysis() {
                 <div className="text-xs text-gray-500 mt-1">状态: {thread.status}</div>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* 深度洞察（时间线 3） */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <HeartPulse className="w-4 h-4" />
+          深度洞察
+        </h2>
+        {!insight ? (
+          <p className="text-gray-500 text-sm">
+            暂无洞察报告。每生成 5 段正文后自动生成，或在此期间无足够数据。
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {/* 整体健康度 */}
+            <div className="bg-cinema-800/50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-400">整体健康度</span>
+                <span className="text-xs text-gray-500">
+                  第 {insight.chapter_range[0]}—{insight.chapter_range[1]} 章 ·{' '}
+                  {new Date(insight.evaluated_at).toLocaleString('zh-CN')}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span
+                  className={`text-3xl font-bold ${
+                    insight.overall_health >= 70
+                      ? 'text-emerald-400'
+                      : insight.overall_health >= 40
+                        ? 'text-amber-400'
+                        : 'text-red-400'
+                  }`}
+                >
+                  {insight.overall_health.toFixed(0)}
+                </span>
+                <span className="text-sm text-gray-500">/ 100</span>
+                <div className="flex-1 h-3 bg-cinema-900 rounded-full overflow-hidden ml-2">
+                  <div
+                    className={`h-full rounded-full ${
+                      insight.overall_health >= 70
+                        ? 'bg-emerald-500'
+                        : insight.overall_health >= 40
+                          ? 'bg-amber-500'
+                          : 'bg-red-500'
+                    }`}
+                    style={{ width: `${insight.overall_health}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 追读力趋势 */}
+            {insight.reading_power_trend.length > 0 && (
+              <div className="bg-cinema-800/50 rounded-lg p-4">
+                <div className="text-sm text-gray-400 mb-3">追读力趋势</div>
+                <div className="flex items-end gap-2 h-32">
+                  {insight.reading_power_trend.map(t => (
+                    <div key={t.chapter} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="text-xs text-gray-500">{t.score.toFixed(0)}</div>
+                      <div className="w-full bg-cinema-900 rounded-t flex-1 flex items-end">
+                        <div
+                          className="w-full bg-cinema-gold rounded-t"
+                          style={{ height: `${Math.min(t.score, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-gray-500">第{t.chapter}章</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 债务 + annotation 汇总 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-cinema-800/50 rounded-lg p-4">
+                <div className="text-sm text-gray-400 mb-2">追读债务</div>
+                <div className="text-2xl font-bold text-white">
+                  {insight.chase_debt.total_amount.toFixed(1)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {insight.chase_debt.active_count} 条活跃
+                  {insight.chase_debt.overdue_count > 0 && (
+                    <span className="text-red-400 ml-1">
+                      · {insight.chase_debt.overdue_count} 条逾期
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="bg-cinema-800/50 rounded-lg p-4">
+                <div className="text-sm text-gray-400 mb-2">未处理标注</div>
+                <div className="text-2xl font-bold text-white">
+                  {insight.unresolved_annotations.total}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {insight.unresolved_annotations.high_severity} 条高优先级
+                  <span className="text-amber-400 ml-1">
+                    · {insight.unresolved_annotations.ai_audit} 条 AI 审计
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </section>

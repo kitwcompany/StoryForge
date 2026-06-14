@@ -216,7 +216,7 @@ export interface StudioConfig {
 
 // ==================== 场景批注类型 ====================
 
-export type AnnotationType = 'note' | 'todo' | 'warning' | 'idea';
+export type AnnotationType = 'note' | 'todo' | 'warning' | 'idea' | 'ai_audit';
 
 export interface SceneAnnotation {
   id: string;
@@ -243,6 +243,10 @@ export interface TextAnnotation {
   created_at: string;
   updated_at: string;
   resolved_at?: string;
+  /** 结构化元数据（JSON 字符串），ai_audit 类型存维度/评分/建议 */
+  metadata?: string;
+  /** 严重程度：high / medium / low（默认 medium） */
+  severity?: string;
 }
 
 export type CommentaryTone = 'insightful' | 'witty' | 'emotional' | 'critical';
