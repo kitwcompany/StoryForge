@@ -8,6 +8,11 @@ vi.mock('../IngestHealthIndicator', () => ({
   IngestHealthIndicator: () => null,
 }));
 
+// Mock DebtIndicator — 它内部使用 TanStack Query，在 jsdom 中需要 QueryClientProvider
+vi.mock('../DebtIndicator', () => ({
+  default: () => null,
+}));
+
 describe('FrontstageHeader', () => {
   const defaultProps = {
     currentStory: { id: '1', title: '测试故事' },
