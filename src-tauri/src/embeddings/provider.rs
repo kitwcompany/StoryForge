@@ -122,68 +122,97 @@ impl OpenAIEmbeddingProvider {
 #[async_trait]
 impl EmbeddingProvider for OpenAIEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
-        // v0.9.5: 对单条文本先查缓存，减少重复 embedding 调用
-        if texts.len() == 1 {
-            let text = &texts[0];
+        // Collect cached results first; only request embeddings for missing texts.
+        let mut results: Vec<Option<Embedding>> = vec![None; texts.len()];
+        let mut pending: Vec<(usize, String)> = Vec::new();
+        for (i, text) in texts.iter().enumerate() {
             if let Some(cached_vector) = self.cache.get(&self.model, text) {
-                return Ok(vec![Embedding {
-                    id: "emb_0".to_string(),
+                results[i] = Some(Embedding {
+                    id: format!("emb_{}", i),
                     vector: cached_vector,
                     dimensions: self.dimensions,
                     model: self.model.clone(),
-                }]);
+                });
+            } else {
+                pending.push((i, text.clone()));
             }
         }
 
-        let request = OpenAIEmbeddingRequest {
-            model: self.model.clone(),
-            input: texts.clone(),
-        };
-
-        let response = self
-            .client
-            .post("https://api.openai.com/v1/embeddings")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| EmbeddingError {
-                message: e.to_string(),
-                code: "REQUEST_FAILED".to_string(),
-            })?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(EmbeddingError {
-                message: error_text,
-                code: "API_ERROR".to_string(),
-            });
+        if pending.is_empty() {
+            return Ok(results.into_iter().flatten().collect());
         }
 
-        let result: OpenAIEmbeddingResponse =
-            response.json().await.map_err(|e| EmbeddingError {
-                message: e.to_string(),
-                code: "PARSE_ERROR".to_string(),
-            })?;
+        // OpenAI embeddings API supports batched input natively.
+        for chunk in pending.chunks(self.max_batch_size()) {
+            let indices: Vec<usize> = chunk.iter().map(|(i, _)| *i).collect();
+            let batch_texts: Vec<String> = chunk.iter().map(|(_, t)| t.clone()).collect();
 
-        let embeddings: Vec<Embedding> = result
-            .data
-            .into_iter()
-            .enumerate()
-            .map(|(i, d)| Embedding {
-                id: format!("emb_{}", i),
-                vector: d.embedding,
-                dimensions: self.dimensions,
+            let request = OpenAIEmbeddingRequest {
                 model: self.model.clone(),
-            })
-            .collect();
+                input: batch_texts.clone(),
+            };
 
-        // 缓存结果
-        for (text, embedding) in texts.iter().zip(embeddings.iter()) {
-            self.cache.put(&self.model, text, embedding.vector.clone());
+            let response = self
+                .client
+                .post("https://api.openai.com/v1/embeddings")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| EmbeddingError {
+                    message: e.to_string(),
+                    code: "REQUEST_FAILED".to_string(),
+                })?;
+
+            if !response.status().is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(EmbeddingError {
+                    message: error_text,
+                    code: "API_ERROR".to_string(),
+                });
+            }
+
+            let result: OpenAIEmbeddingResponse =
+                response.json().await.map_err(|e| EmbeddingError {
+                    message: e.to_string(),
+                    code: "PARSE_ERROR".to_string(),
+                })?;
+
+            if result.data.len() != batch_texts.len() {
+                return Err(EmbeddingError {
+                    message: format!(
+                        "expected {} embeddings, got {}",
+                        batch_texts.len(),
+                        result.data.len()
+                    ),
+                    code: "BATCH_SIZE_MISMATCH".to_string(),
+                });
+            }
+
+            // OpenAI returns an `index` field; sort by it to map back safely.
+            let mut indexed: Vec<(usize, Vec<f32>)> = result
+                .data
+                .into_iter()
+                .map(|d| (d.index, d.embedding))
+                .collect();
+            indexed.sort_by_key(|(i, _)| *i);
+
+            for ((idx, text), vector) in indices
+                .into_iter()
+                .zip(batch_texts.into_iter())
+                .zip(indexed.into_iter().map(|(_, v)| v))
+            {
+                self.cache.put(&self.model, &text, vector.clone());
+                results[idx] = Some(Embedding {
+                    id: format!("emb_{}", idx),
+                    vector,
+                    dimensions: self.dimensions,
+                    model: self.model.clone(),
+                });
+            }
         }
 
-        Ok(embeddings)
+        Ok(results.into_iter().flatten().collect())
     }
 
     fn dimensions(&self) -> usize {
@@ -208,6 +237,7 @@ struct OpenAIEmbeddingResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 struct EmbeddingData {
+    index: usize,
     embedding: Vec<f32>,
 }
 
@@ -243,29 +273,54 @@ struct OllamaEmbedResponse {
     embedding: Vec<f32>,
 }
 
+/// Ollama `/api/embed` batch request (supports `input` as an array of strings).
+#[derive(Debug, Clone, Serialize)]
+struct OllamaEmbedBatchRequest {
+    model: String,
+    input: Vec<String>,
+}
+
+/// Ollama `/api/embed` batch response.
+#[derive(Debug, Clone, Deserialize)]
+struct OllamaEmbedBatchResponse {
+    embeddings: Vec<Vec<f32>>,
+}
+
 #[async_trait]
 impl EmbeddingProvider for OllamaEmbeddingProvider {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Embedding>, EmbeddingError> {
-        let mut embeddings = Vec::with_capacity(texts.len());
-        for (i, text) in texts.into_iter().enumerate() {
-            // v0.9.5: 查缓存，避免对相同文本重复请求 Ollama
-            if let Some(cached_vector) = self.cache.get(&self.model, &text) {
-                embeddings.push(Embedding {
+        // Collect cached results first; only request embeddings for missing texts.
+        let mut results: Vec<Option<Embedding>> = vec![None; texts.len()];
+        let mut pending: Vec<(usize, String)> = Vec::new();
+        for (i, text) in texts.iter().enumerate() {
+            if let Some(cached_vector) = self.cache.get(&self.model, text) {
+                results[i] = Some(Embedding {
                     id: format!("emb_{}", i),
                     vector: cached_vector,
                     dimensions: self.dimensions,
                     model: self.model.clone(),
                 });
-                continue;
+            } else {
+                pending.push((i, text.clone()));
             }
+        }
 
-            let request = OllamaEmbedRequest {
+        if pending.is_empty() {
+            return Ok(results.into_iter().flatten().collect());
+        }
+
+        // Ollama `/api/embed` accepts an array of inputs in a single request.
+        for chunk in pending.chunks(self.max_batch_size()) {
+            let indices: Vec<usize> = chunk.iter().map(|(i, _)| *i).collect();
+            let batch_texts: Vec<String> = chunk.iter().map(|(_, t)| t.clone()).collect();
+
+            let request = OllamaEmbedBatchRequest {
                 model: self.model.clone(),
-                prompt: text.clone(),
+                input: batch_texts.clone(),
             };
             let response = self
                 .client
-                .post(format!("{}/api/embeddings", self.api_base))
+                .post(format!("{}/api/embed", self.api_base))
                 .json(&request)
                 .send()
                 .await
@@ -282,21 +337,39 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
                 });
             }
 
-            let result: OllamaEmbedResponse =
+            let result: OllamaEmbedBatchResponse =
                 response.json().await.map_err(|e| EmbeddingError {
                     message: e.to_string(),
                     code: "PARSE_ERROR".to_string(),
                 })?;
 
-            self.cache.put(&self.model, &text, result.embedding.clone());
-            embeddings.push(Embedding {
-                id: format!("emb_{}", i),
-                vector: result.embedding,
-                dimensions: self.dimensions,
-                model: self.model.clone(),
-            });
+            if result.embeddings.len() != batch_texts.len() {
+                return Err(EmbeddingError {
+                    message: format!(
+                        "expected {} embeddings, got {}",
+                        batch_texts.len(),
+                        result.embeddings.len()
+                    ),
+                    code: "BATCH_SIZE_MISMATCH".to_string(),
+                });
+            }
+
+            for ((idx, text), vector) in indices
+                .into_iter()
+                .zip(batch_texts.into_iter())
+                .zip(result.embeddings.into_iter())
+            {
+                self.cache.put(&self.model, &text, vector.clone());
+                results[idx] = Some(Embedding {
+                    id: format!("emb_{}", idx),
+                    vector,
+                    dimensions: self.dimensions,
+                    model: self.model.clone(),
+                });
+            }
         }
-        Ok(embeddings)
+
+        Ok(results.into_iter().flatten().collect())
     }
 
     fn dimensions(&self) -> usize {
@@ -304,7 +377,7 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
     }
 
     fn max_batch_size(&self) -> usize {
-        1 // Ollama embeddings API 目前只支持单条
+        32
     }
 }
 

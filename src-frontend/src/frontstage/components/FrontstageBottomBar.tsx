@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Send, X, Activity, Loader2 } from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
@@ -87,18 +87,13 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   onInputKeyDown,
 }) => {
   const [showModelTooltip, setShowModelTooltip] = useState(false);
-  const [pulseTick, setPulseTick] = useState(0);
 
   // v0.7.7: 订阅统一后台活动 store
   const primaryActivity = useBackendActivityStore(state => state.getPrimaryActivity());
   const activeCount = useBackendActivityStore(state => state.getActiveCount());
 
-  // 心跳动画：每秒触发一次重渲染，让进度条和脉冲动画持续更新
-  useEffect(() => {
-    if (!primaryActivity) return;
-    const interval = setInterval(() => setPulseTick(t => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [primaryActivity]);
+  // A4-1.9: 移除 1s setInterval 心跳；进度条/脉冲动画改用 CSS @keyframes 驱动，
+  // 避免每秒强制 React 重渲染。
 
   if (isZenMode) return null;
 

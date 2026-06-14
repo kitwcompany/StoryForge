@@ -28,7 +28,12 @@ impl CanonicalStateManager {
 
     /// 获取故事的规范状态快照（实时聚合）
     pub async fn get_snapshot(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
-        self.create_snapshot(story_id).await
+        self.get_snapshot_sync(story_id)
+    }
+
+    /// 同步版本：供 spawn_blocking 调用，避免在 tokio worker 上执行同步 DB 查询。
+    pub fn get_snapshot_sync(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
+        self.create_snapshot_sync(story_id)
     }
 
     /// 创建故事的规范状态快照（实时聚合）
@@ -36,6 +41,10 @@ impl CanonicalStateManager {
         &self,
         story_id: &str,
     ) -> Result<CanonicalStateSnapshot, AppError> {
+        self.create_snapshot_sync(story_id)
+    }
+
+    fn create_snapshot_sync(&self, story_id: &str) -> Result<CanonicalStateSnapshot, AppError> {
         // 1. 验证故事存在
         let story_repo = StoryRepository::new(self.pool.clone());
         let _story = story_repo

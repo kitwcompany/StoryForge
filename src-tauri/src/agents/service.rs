@@ -5,19 +5,100 @@
 //! 支持任务分解、执行、结果整合
 #![allow(unused_imports)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::OnceCell;
 
 use super::{Agent, AgentContext, AgentResult};
 use crate::{
     config::settings::AppConfig,
     error::AppError,
+    events::{emit_generation_status, GenerationPhase},
     llm::service::LlmService,
     router::{Complexity, Priority, RoutingConstraint, RoutingRequest, TaskType},
     subscription::{SubscriptionService, SubscriptionTier},
 };
+
+// v0.9.7: Writer 提示词构建阶段的全局只读配置缓存，避免每次 build_writer_prompt
+// 都重新从磁盘/数据库加载 AppConfig、GenreProfile、StyleDNA。
+static WRITER_APP_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static WRITER_APP_CONFIG: OnceCell<Arc<AppConfig>> = OnceCell::const_new();
+static WRITER_GENRE_PROFILES: OnceCell<Arc<HashMap<String, crate::db::GenreProfile>>> =
+    OnceCell::const_new();
+static WRITER_STYLE_DNAS: OnceCell<Arc<HashMap<String, crate::db::StyleDNA>>> =
+    OnceCell::const_new();
+
+fn writer_app_dir(app_handle: &AppHandle) -> &'static PathBuf {
+    WRITER_APP_DIR.get_or_init(|| {
+        app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
+    })
+}
+
+async fn writer_app_config(app_handle: &AppHandle) -> Result<&'static Arc<AppConfig>, AppError> {
+    WRITER_APP_CONFIG
+        .get_or_try_init(|| async {
+            let app_dir = writer_app_dir(app_handle).clone();
+            let cfg = tokio::task::spawn_blocking(move || {
+                AppConfig::load(&app_dir).map_err(|e| AppError::internal(e.to_string()))
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("AppConfig 加载任务失败: {}", e)))??;
+            Ok::<_, AppError>(Arc::new(cfg))
+        })
+        .await
+}
+
+async fn writer_genre_profiles(
+    app_handle: &AppHandle,
+) -> Result<&'static Arc<HashMap<String, crate::db::GenreProfile>>, AppError> {
+    WRITER_GENRE_PROFILES
+        .get_or_try_init(|| async {
+            let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
+            let profiles = tokio::task::spawn_blocking(move || {
+                let repo = crate::db::GenreProfileRepository::new(pool);
+                repo.get_all()
+                    .map(|profiles| {
+                        profiles
+                            .into_iter()
+                            .map(|p| (p.id.clone(), p))
+                            .collect::<HashMap<String, crate::db::GenreProfile>>()
+                    })
+                    .map_err(|e| AppError::internal(format!("体裁画像加载失败: {}", e)))
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("GenreProfile 加载任务失败: {}", e)))??;
+            Ok::<_, AppError>(Arc::new(profiles))
+        })
+        .await
+}
+
+async fn writer_style_dnas(
+    app_handle: &AppHandle,
+) -> Result<&'static Arc<HashMap<String, crate::db::StyleDNA>>, AppError> {
+    WRITER_STYLE_DNAS
+        .get_or_try_init(|| async {
+            let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
+            let dnas = tokio::task::spawn_blocking(move || {
+                let repo = crate::db::StyleDnaRepository::new(pool);
+                repo.get_all()
+                    .map(|dnas| {
+                        dnas.into_iter()
+                            .map(|d| (d.id.clone(), d))
+                            .collect::<HashMap<String, crate::db::StyleDNA>>()
+                    })
+                    .map_err(|e| AppError::internal(format!("风格 DNA 加载失败: {}", e)))
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("StyleDNA 加载任务失败: {}", e)))??;
+            Ok::<_, AppError>(Arc::new(dnas))
+        })
+        .await
+}
 
 /// Agent类型
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -409,9 +490,9 @@ impl AgentService {
     }
 
     /// 判断指定 Agent 实际会使用的目标模型是否为本地模型。
-    /// 用于候选阶段并发策略：本地模型默认串行，避免在服务端排队。
+    /// 用于候选阶段并发策略与 Writer 全局并发限制。
     pub fn is_target_model_local(&self, agent_type: AgentType) -> bool {
-        use crate::config::settings::{LlmProvider, ModelSource};
+        use crate::config::settings::{is_private_url, LlmProvider, ModelSource};
 
         let app_dir = match self.app_handle.path().app_data_dir() {
             Ok(d) => d,
@@ -420,6 +501,13 @@ impl AgentService {
         let config = match AppConfig::load(&app_dir) {
             Ok(c) => c,
             Err(_) => return false,
+        };
+
+        let is_local_profile = |p: &crate::config::settings::LlmProfile| {
+            p.is_local_model
+                || p.model_source == ModelSource::Local
+                || p.provider == LlmProvider::Ollama
+                || p.api_base.as_deref().map(is_private_url).unwrap_or(false)
         };
 
         let model_id = if let Some(id) = self.get_agent_chat_model_id(agent_type) {
@@ -432,10 +520,7 @@ impl AgentService {
             let tier = self.get_user_tier();
             let request = self.build_routing_request(agent_type, tier, Some(&mapping));
             match self.llm_service.select_profile_for_request(&request) {
-                Ok(p) => {
-                    return p.model_source == ModelSource::Local
-                        || p.provider == LlmProvider::Ollama
-                }
+                Ok(p) => return is_local_profile(&p),
                 Err(_) => return false,
             };
         };
@@ -443,7 +528,7 @@ impl AgentService {
         config
             .llm_profiles
             .get(&model_id)
-            .map(|p| p.model_source == ModelSource::Local || p.provider == LlmProvider::Ollama)
+            .map(is_local_profile)
             .unwrap_or(false)
     }
 
@@ -701,6 +786,35 @@ impl AgentService {
 
         let duration_ms = start_time.elapsed().as_millis() as i32;
 
+        // C2: 输出结构化 LLM 耗时指标。同步路径无法获得真实首 token 时间，
+        // 以总耗时作为 TTFT 近似值并标注。
+        log::debug!(
+            target: "generation_trace",
+            "{}",
+            serde_json::json!({
+                "event": "generation_trace",
+                "phase": "llm_total",
+                "elapsed_ms": duration_ms,
+                "request_id": req_id,
+                "task_id": task.id,
+                "agent_type": agent_type.agent_id(),
+                "model": response.model,
+                "tokens_used": response.tokens_used,
+            })
+        );
+        log::debug!(
+            target: "generation_trace",
+            "{}",
+            serde_json::json!({
+                "event": "generation_trace",
+                "phase": "llm_ttft",
+                "elapsed_ms": duration_ms,
+                "request_id": req_id,
+                "task_id": task.id,
+                "details": "sync_path_approx",
+            })
+        );
+
         // 记录 AI 使用日志
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
             let service = SubscriptionService::new(pool.inner().clone());
@@ -813,16 +927,29 @@ impl AgentService {
                 self.app_handle.clone(),
             );
 
-            let scene_repo = crate::db::repositories::SceneRepository::new(pool.inner().clone());
-            let target_scene_id = scene_repo
-                .get_by_story(&task.context.story.story_id)
-                .ok()
-                .and_then(|scenes| {
-                    scenes
-                        .into_iter()
-                        .find(|s| s.sequence_number == task.context.narrative.chapter_number as i32)
+            // v0.9.7: 将同步场景查询移入 spawn_blocking，避免阻塞 tokio worker
+            let target_scene_id = {
+                let pool = pool.inner().clone();
+                let story_id = task.context.story.story_id.clone();
+                let chapter_number = task.context.narrative.chapter_number as i32;
+                tokio::task::spawn_blocking(move || {
+                    let scene_repo = crate::db::repositories::SceneRepository::new(pool);
+                    scene_repo
+                        .get_by_story(&story_id)
+                        .ok()
+                        .and_then(|scenes| {
+                            scenes
+                                .into_iter()
+                                .find(|s| s.sequence_number == chapter_number)
+                        })
+                        .map(|s| s.id)
                 })
-                .map(|s| s.id);
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("[AgentService] 目标场景查询任务失败: {}", e);
+                    None
+                })
+            };
 
             match builder
                 .auto_fill(
@@ -1017,6 +1144,19 @@ impl AgentService {
             prompt.chars().count()
         );
 
+        log::debug!(
+            target: "generation_trace",
+            "{}",
+            serde_json::json!({
+                "event": "generation_trace",
+                "phase": "prepare_writer_context",
+                "elapsed_ms": start.elapsed().as_millis(),
+                "story_id": task.context.story.story_id,
+                "task_id": task.id,
+                "prompt_len": prompt.chars().count(),
+            })
+        );
+
         Ok(WriterPreparedContext {
             prompt,
             max_tokens,
@@ -1046,6 +1186,11 @@ impl AgentService {
             temperature = override_val as f32;
             log::info!("[AgentService] Temperature override: {}", override_val);
         }
+
+        // v0.11.8: 全局 Writer 并发限制 — 本地 1、远端 2，避免本地服务端被
+        // 多个候选/任务同时压垮。
+        let is_local = self.is_target_model_local(AgentType::Writer);
+        let _writer_permit = self.llm_service.acquire_writer_permit(is_local).await?;
 
         let request_id = uuid::Uuid::new_v4().to_string();
         let (req_id, response) = self
@@ -1117,49 +1262,58 @@ impl AgentService {
             vec![]
         };
 
-        {
-            let pool = self.app_handle.state::<crate::db::DbPool>();
-            let scene_repo = crate::db::repositories::SceneRepository::new(pool.inner().clone());
-            if let Ok(scenes) = scene_repo.get_by_story(&task.context.story.story_id) {
-                let target_scene = scenes
-                    .iter()
-                    .find(|s| s.sequence_number == task.context.narrative.chapter_number as i32);
-                if let Some(scene) = target_scene {
-                    let continuity = crate::creative_engine::continuity::ContinuityEngine::new(
-                        pool.inner().clone(),
-                    );
-                    match continuity.check_scene_continuity(
-                        &task.context.story.story_id,
-                        &scene.id,
-                        &content,
-                    ) {
-                        Ok(check) if !check.is_valid => {
-                            for issue in check.issues {
-                                let msg = format!(
-                                    "[{}] {}",
-                                    match issue.severity {
-                                        crate::creative_engine::continuity::Severity::Critical =>
-                                            "严重",
-                                        crate::creative_engine::continuity::Severity::Warning =>
-                                            "警告",
-                                        _ => "提示",
-                                    },
-                                    issue.message
-                                );
-                                suggestions.push(msg);
-                                log::warn!(
-                                    "[ContinuityEngine] {:?}: {}",
-                                    issue.issue_type,
-                                    issue.message
-                                );
+        // v0.9.7: 将同步场景查询与连续性检查整体移入 spawn_blocking
+        let continuity_suggestions: Vec<String> = {
+            let pool = self.app_handle.state::<crate::db::DbPool>().inner().clone();
+            let story_id = task.context.story.story_id.clone();
+            let chapter_number = task.context.narrative.chapter_number as i32;
+            let content = content.clone();
+            tokio::task::spawn_blocking(move || {
+                let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+                let mut issues = Vec::new();
+                if let Ok(scenes) = scene_repo.get_by_story(&story_id) {
+                    if let Some(scene) = scenes
+                        .iter()
+                        .find(|s| s.sequence_number == chapter_number)
+                    {
+                        let continuity =
+                            crate::creative_engine::continuity::ContinuityEngine::new(pool);
+                        match continuity.check_scene_continuity(&story_id, &scene.id, &content) {
+                            Ok(check) if !check.is_valid => {
+                                for issue in check.issues {
+                                    let msg = format!(
+                                        "[{}] {}",
+                                        match issue.severity {
+                                            crate::creative_engine::continuity::Severity::Critical =>
+                                                "严重",
+                                            crate::creative_engine::continuity::Severity::Warning =>
+                                                "警告",
+                                            _ => "提示",
+                                        },
+                                        issue.message
+                                    );
+                                    issues.push(msg);
+                                    log::warn!(
+                                        "[ContinuityEngine] {:?}: {}",
+                                        issue.issue_type,
+                                        issue.message
+                                    );
+                                }
                             }
+                            Ok(_) => {}
+                            Err(e) => log::warn!("[ContinuityEngine] Check failed: {}", e),
                         }
-                        Ok(_) => {}
-                        Err(e) => log::warn!("[ContinuityEngine] Check failed: {}", e),
                     }
                 }
-            }
-        }
+                issues
+            })
+            .await
+            .unwrap_or_else(|e| {
+                log::warn!("[AgentService] 连续性检查任务失败: {}", e);
+                vec![]
+            })
+        };
+        suggestions.extend(continuity_suggestions);
 
         // v0.7.8: 风格一致性快速检查（ fingerprint 存在时）
         if let Some(ref fingerprint) = task.context.style.style_fingerprint {
@@ -1556,26 +1710,14 @@ impl AgentService {
         };
 
         emit_and_yield("正在读取写作策略配置...", 0.15);
-        let app_dir = self
-            .app_handle
-            .path()
-            .app_data_dir()
-            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-        let strategy = tokio::task::spawn_blocking(move || match AppConfig::load(&app_dir) {
-            Ok(c) => Some(c.writing_strategy),
+        // v0.9.7: 使用全局只读缓存，避免每次调用都重新从磁盘加载 AppConfig
+        let strategy = match writer_app_config(&self.app_handle).await {
+            Ok(cfg) => Some(cfg.writing_strategy.clone()),
             Err(e) => {
                 log::warn!("[build_writer_prompt] Failed to load app config: {}", e);
                 None
             }
-        })
-        .await
-        .unwrap_or_else(|e| {
-            log::warn!(
-                "[build_writer_prompt] App config blocking task failed: {}",
-                e
-            );
-            None
-        });
+        };
         tokio::task::yield_now().await;
 
         emit_and_yield("正在准备模板变量...", 0.155);
@@ -1718,27 +1860,11 @@ impl AgentService {
         // v0.10.0: 注入体裁画像专家策略（所有版本）
         emit_and_yield("正在加载体裁画像策略...", 0.168);
         if let Some(ref genre_profile_id) = ctx.story.genre_profile_id {
-            let pool = self.app_handle.state::<crate::db::DbPool>().inner().clone();
-            let genre_profile_id = genre_profile_id.clone();
-            let profile = match tokio::task::spawn_blocking(move || {
-                let repo = crate::db::GenreProfileRepository::new(pool);
-                repo.get_by_id(&genre_profile_id)
-            })
-            .await
-            {
-                Ok(Ok(p)) => p,
-                Ok(Err(e)) => {
-                    log::warn!("[build_writer_prompt] Failed to load genre profile: {}", e);
-                    None
-                }
-                Err(e) => {
-                    log::warn!(
-                        "[build_writer_prompt] Genre profile blocking task panicked: {}",
-                        e
-                    );
-                    None
-                }
-            };
+            // v0.9.7: 从全局只读缓存中查找体裁画像，避免每次重新查库
+            let profile = writer_genre_profiles(&self.app_handle)
+                .await
+                .ok()
+                .and_then(|profiles| profiles.get(genre_profile_id).cloned());
 
             if let Some(profile) = profile {
                 let mut lines = vec![format!(
@@ -1808,57 +1934,28 @@ impl AgentService {
                 system_prompt.push_str("\n\n");
                 system_prompt.push_str(extension);
             } else if let Some(ref blend) = ctx.style.style_blend {
-                use futures::future::join_all;
+                // v0.9.7: 从全局只读缓存中批量查找风格 DNA，避免为每个 component
+                // 单独创建 Repository 并查询。
+                use crate::creative_engine::style::dna::StyleDNA;
 
-                use crate::{
-                    creative_engine::style::dna::StyleDNA,
-                    db::{repositories::StyleDnaRepository, DbPool},
+                let dnas: Vec<StyleDNA> = match writer_style_dnas(&self.app_handle).await {
+                    Ok(cache) => blend
+                        .components
+                        .iter()
+                        .filter_map(|comp| {
+                            cache.get(&comp.dna_id).and_then(|db_dna| {
+                                serde_json::from_str::<StyleDNA>(&db_dna.dna_json).ok()
+                            })
+                        })
+                        .collect(),
+                    Err(e) => {
+                        log::warn!(
+                            "[build_writer_prompt] Failed to load style DNA cache: {}",
+                            e
+                        );
+                        vec![]
+                    }
                 };
-
-                let pool = self.app_handle.state::<DbPool>().inner().clone();
-                let dna_futures = blend.components.iter().map(|comp| {
-                    let pool = pool.clone();
-                    let dna_id = comp.dna_id.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let repo = StyleDnaRepository::new(pool);
-                        match repo.get_by_id(&dna_id) {
-                            Ok(Some(db_dna)) => {
-                                match serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                                    Ok(dna) => Some(dna),
-                                    Err(e) => {
-                                        log::warn!(
-                                            "[build_writer_prompt] Failed to parse style DNA {}: {}",
-                                            dna_id, e
-                                        );
-                                        None
-                                    }
-                                }
-                            }
-                            Ok(None) => None,
-                            Err(e) => {
-                                log::warn!(
-                                    "[build_writer_prompt] Failed to load style DNA {}: {}",
-                                    dna_id, e
-                                );
-                                None
-                            }
-                        }
-                    })
-                });
-                let dnas: Vec<_> = join_all(dna_futures)
-                    .await
-                    .into_iter()
-                    .filter_map(|res| match res {
-                        Ok(dna) => dna,
-                        Err(e) => {
-                            log::warn!(
-                                "[build_writer_prompt] Style DNA blocking task failed: {}",
-                                e
-                            );
-                            None
-                        }
-                    })
-                    .collect();
                 if !dnas.is_empty() {
                     let extension = blend.to_prompt_extension(&dnas);
                     if !extension.is_empty() {
@@ -1867,57 +1964,17 @@ impl AgentService {
                     }
                 }
             } else if let Some(ref style_id) = ctx.style.style_dna_id {
-                use crate::{
-                    creative_engine::style::dna::StyleDNA,
-                    db::{repositories::StyleDnaRepository, DbPool},
-                };
+                use crate::creative_engine::style::dna::StyleDNA;
 
-                let pool = self.app_handle.state::<DbPool>().inner().clone();
-                let style_id = style_id.clone();
-                let dna = match tokio::task::spawn_blocking(move || {
-                    let repo = StyleDnaRepository::new(pool);
-                    match repo.get_by_id(&style_id) {
-                        Ok(Some(db_dna)) => {
-                            match serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                                Ok(dna) => Some(dna),
-                                Err(e) => {
-                                    log::warn!(
-                                        "[build_writer_prompt] Failed to parse style DNA {}: {}",
-                                        style_id,
-                                        e
-                                    );
-                                    None
-                                }
+                if let Ok(cache) = writer_style_dnas(&self.app_handle).await {
+                    if let Some(db_dna) = cache.get(style_id) {
+                        if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                            let extension = dna.to_prompt_extension();
+                            if !extension.is_empty() {
+                                system_prompt.push_str("\n\n");
+                                system_prompt.push_str(&extension);
                             }
                         }
-                        Ok(None) => None,
-                        Err(e) => {
-                            log::warn!(
-                                "[build_writer_prompt] Failed to load style DNA {}: {}",
-                                style_id,
-                                e
-                            );
-                            None
-                        }
-                    }
-                })
-                .await
-                {
-                    Ok(dna) => dna,
-                    Err(e) => {
-                        log::warn!(
-                            "[build_writer_prompt] Style DNA blocking task failed: {}",
-                            e
-                        );
-                        None
-                    }
-                };
-
-                if let Some(dna) = dna {
-                    let extension = dna.to_prompt_extension();
-                    if !extension.is_empty() {
-                        system_prompt.push_str("\n\n");
-                        system_prompt.push_str(&extension);
                     }
                 }
             }
@@ -2054,86 +2111,95 @@ impl AgentService {
 
         // 注入 Canonical State（叙事阶段、伏笔、角色状态、活跃冲突）
         emit_and_yield("正在构建叙事状态快照...", 0.185);
-        {
+        let snapshot = {
             use tauri::Manager;
 
             use crate::{canonical_state::CanonicalStateManager, db::DbPool};
 
-            let pool = self.app_handle.state::<DbPool>();
-            let cs_manager = CanonicalStateManager::new(pool.inner().clone());
-            emit_and_yield("正在读取故事与场景数据...", 0.187);
+            // v0.9.7: CanonicalStateManager 内部为同步聚合，将其整体移入 spawn_blocking
+            let pool = self.app_handle.state::<DbPool>().inner().clone();
+            let story_id = ctx.story.story_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let cs_manager = CanonicalStateManager::new(pool);
+                cs_manager.get_snapshot_sync(&story_id)
+            })
+            .await
+            .map_err(|e| log::warn!("[build_writer_prompt] Canonical state task failed: {}", e))
+            .ok()
+            .and_then(|res| res.ok())
+        };
+        emit_and_yield("正在读取故事与场景数据...", 0.187);
+        tokio::task::yield_now().await;
+
+        if let Some(snapshot) = snapshot {
+            emit_and_yield("正在注入叙事阶段指导...", 0.188);
+            system_prompt.push_str("\n\n【叙事阶段指导】\n");
+            system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
+            system_prompt.push('\n');
             tokio::task::yield_now().await;
 
-            if let Ok(snapshot) = cs_manager.get_snapshot(&ctx.story.story_id).await {
-                emit_and_yield("正在注入叙事阶段指导...", 0.188);
-                system_prompt.push_str("\n\n【叙事阶段指导】\n");
-                system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
-                system_prompt.push('\n');
+            if !snapshot.story_context.active_conflicts.is_empty() {
+                emit_and_yield("正在注入活跃冲突信息...", 0.189);
+                system_prompt.push_str("\n【当前活跃冲突】\n");
+                for conflict in &snapshot.story_context.active_conflicts {
+                    system_prompt.push_str(&format!(
+                        "- {}: 涉及 {}, 赌注: {}\n",
+                        conflict.conflict_type,
+                        conflict.parties.join(", "),
+                        conflict.stakes
+                    ));
+                }
                 tokio::task::yield_now().await;
+            }
 
-                if !snapshot.story_context.active_conflicts.is_empty() {
-                    emit_and_yield("正在注入活跃冲突信息...", 0.189);
-                    system_prompt.push_str("\n【当前活跃冲突】\n");
-                    for conflict in &snapshot.story_context.active_conflicts {
-                        system_prompt.push_str(&format!(
-                            "- {}: 涉及 {}, 赌注: {}\n",
-                            conflict.conflict_type,
-                            conflict.parties.join(", "),
-                            conflict.stakes
-                        ));
-                    }
-                    tokio::task::yield_now().await;
+            if !snapshot.story_context.pending_payoffs.is_empty() {
+                emit_and_yield("正在注入待回收伏笔...", 0.19);
+                system_prompt.push_str("\n【待回收伏笔】\n");
+                for payoff in &snapshot.story_context.pending_payoffs {
+                    system_prompt.push_str(&format!(
+                        "- {}（重要度: {}）\n",
+                        payoff.content, payoff.importance
+                    ));
                 }
+                tokio::task::yield_now().await;
+            }
 
-                if !snapshot.story_context.pending_payoffs.is_empty() {
-                    emit_and_yield("正在注入待回收伏笔...", 0.19);
-                    system_prompt.push_str("\n【待回收伏笔】\n");
-                    for payoff in &snapshot.story_context.pending_payoffs {
-                        system_prompt.push_str(&format!(
-                            "- {}（重要度: {}）\n",
-                            payoff.content, payoff.importance
-                        ));
-                    }
-                    tokio::task::yield_now().await;
+            if !snapshot.story_context.overdue_payoffs.is_empty() {
+                emit_and_yield("正在注入逾期伏笔警告...", 0.191);
+                system_prompt.push_str("\n【⚠️ 逾期伏笔——请在续写中优先回收】\n");
+                for payoff in &snapshot.story_context.overdue_payoffs {
+                    system_prompt.push_str(&format!(
+                        "- {}（重要度: {}）\n",
+                        payoff.content, payoff.importance
+                    ));
                 }
+                tokio::task::yield_now().await;
+            }
 
-                if !snapshot.story_context.overdue_payoffs.is_empty() {
-                    emit_and_yield("正在注入逾期伏笔警告...", 0.191);
-                    system_prompt.push_str("\n【⚠️ 逾期伏笔——请在续写中优先回收】\n");
-                    for payoff in &snapshot.story_context.overdue_payoffs {
-                        system_prompt.push_str(&format!(
-                            "- {}（重要度: {}）\n",
-                            payoff.content, payoff.importance
-                        ));
+            if !snapshot.character_states.is_empty() {
+                emit_and_yield("正在注入角色当前状态...", 0.192);
+                system_prompt.push_str("\n【角色当前状态】\n");
+                for cs in &snapshot.character_states {
+                    let mut parts = vec![format!("{}:", cs.name)];
+                    if let Some(ref loc) = cs.current_location {
+                        parts.push(format!("位置: {}", loc));
                     }
-                    tokio::task::yield_now().await;
-                }
-
-                if !snapshot.character_states.is_empty() {
-                    emit_and_yield("正在注入角色当前状态...", 0.192);
-                    system_prompt.push_str("\n【角色当前状态】\n");
-                    for cs in &snapshot.character_states {
-                        let mut parts = vec![format!("{}:", cs.name)];
-                        if let Some(ref loc) = cs.current_location {
-                            parts.push(format!("位置: {}", loc));
-                        }
-                        if let Some(ref emo) = cs.current_emotion {
-                            parts.push(format!("情绪: {}", emo));
-                        }
-                        if let Some(ref goal) = cs.active_goal {
-                            parts.push(format!("目标: {}", goal));
-                        }
-                        if !cs.secrets_known.is_empty() {
-                            parts.push(format!("已知秘密: {}", cs.secrets_known.join(", ")));
-                        }
-                        if !cs.secrets_unknown.is_empty() {
-                            parts.push(format!("未知秘密: {}", cs.secrets_unknown.join(", ")));
-                        }
-                        parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
-                        system_prompt.push_str(&format!("- {}\n", parts.join(" ")));
+                    if let Some(ref emo) = cs.current_emotion {
+                        parts.push(format!("情绪: {}", emo));
                     }
-                    tokio::task::yield_now().await;
+                    if let Some(ref goal) = cs.active_goal {
+                        parts.push(format!("目标: {}", goal));
+                    }
+                    if !cs.secrets_known.is_empty() {
+                        parts.push(format!("已知秘密: {}", cs.secrets_known.join(", ")));
+                    }
+                    if !cs.secrets_unknown.is_empty() {
+                        parts.push(format!("未知秘密: {}", cs.secrets_unknown.join(", ")));
+                    }
+                    parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
+                    system_prompt.push_str(&format!("- {}\n", parts.join(" ")));
                 }
+                tokio::task::yield_now().await;
             }
         }
 
@@ -2221,6 +2287,31 @@ impl AgentService {
 
     // ==================== 辅助方法 ====================
 
+    /// 将 Agent 阶段映射为统一的生成阶段
+    ///
+    /// 仅对参与创作流程的 Agent/阶段做映射，避免无关任务产生过多统一事件。
+    fn map_agent_stage_to_generation_phase(
+        agent_type: AgentType,
+        stage: AgentStage,
+    ) -> Option<GenerationPhase> {
+        match (agent_type, stage) {
+            (_, AgentStage::Failed) => Some(GenerationPhase::Error),
+            (AgentType::Writer, AgentStage::Started)
+            | (AgentType::Writer, AgentStage::Thinking) => Some(GenerationPhase::PreparingContext),
+            (AgentType::Writer, AgentStage::Generating) => {
+                Some(GenerationPhase::GeneratingCandidates)
+            }
+            (AgentType::Writer, AgentStage::Reviewing) => Some(GenerationPhase::Inspecting),
+            (AgentType::Writer, AgentStage::Completed) => Some(GenerationPhase::FinalOutput),
+            (AgentType::Inspector, AgentStage::Started)
+            | (AgentType::Inspector, AgentStage::Thinking)
+            | (AgentType::Inspector, AgentStage::Generating)
+            | (AgentType::Inspector, AgentStage::Reviewing) => Some(GenerationPhase::Inspecting),
+            (AgentType::Inspector, AgentStage::Completed) => Some(GenerationPhase::FinalOutput),
+            _ => None,
+        }
+    }
+
     fn emit_event(
         &self,
         task_id: &str,
@@ -2264,6 +2355,19 @@ impl AgentService {
                 "request_id": event.request_id,
             }),
         );
+
+        // C1: 同时发射统一生成状态事件，供新版前端聚合消费
+        if let Some(phase) = Self::map_agent_stage_to_generation_phase(agent_type, stage) {
+            let unified_message = format!("{}: {}", agent_type.name(), message);
+            emit_generation_status(
+                &self.app_handle,
+                task_id,
+                phase,
+                progress,
+                unified_message,
+                event.request_id,
+            );
+        }
     }
 
     /// W3-B1: 将 MemoryPack 格式化为提示词可用的记忆上下文文本

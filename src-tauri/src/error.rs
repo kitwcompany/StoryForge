@@ -17,8 +17,12 @@ pub enum AppError {
         #[serde(skip_serializing_if = "Option::is_none")]
         current_tier: Option<String>,
     },
-    /// LLM 调用超时
+    /// LLM 调用超时（旧兜底，保留兼容）
     LlmTimeout { message: String, elapsed_ms: u64 },
+    /// LLM 连接阶段超时（可重试 1 次）
+    LlmConnectionTimeout { elapsed_ms: u64 },
+    /// LLM 生成阶段超时（已连接但响应读取超时，不可重试）
+    LlmGenerationTimeout { elapsed_ms: u64 },
     /// 数据库锁定（并发写入冲突）
     DbLocked { message: String },
     /// 上下文不可用（StoryContextBuilder 空返回等）
@@ -53,6 +57,8 @@ impl AppError {
         match self {
             AppError::SubscriptionRequired { .. } => "SUBSCRIPTION_REQUIRED",
             AppError::LlmTimeout { .. } => "LLM_TIMEOUT",
+            AppError::LlmConnectionTimeout { .. } => "LLM_CONNECTION_TIMEOUT",
+            AppError::LlmGenerationTimeout { .. } => "LLM_GENERATION_TIMEOUT",
             AppError::DbLocked { .. } => "DB_LOCKED",
             AppError::ContextUnavailable { .. } => "CONTEXT_UNAVAILABLE",
             AppError::ValidationFailed { .. } => "VALIDATION_FAILED",
@@ -69,6 +75,12 @@ impl AppError {
         match self {
             AppError::SubscriptionRequired { message, .. } => message.clone(),
             AppError::LlmTimeout { message, .. } => message.clone(),
+            AppError::LlmConnectionTimeout { elapsed_ms } => {
+                format!("连接模型超时（{}ms），请检查模型服务是否可达", elapsed_ms)
+            }
+            AppError::LlmGenerationTimeout { elapsed_ms } => {
+                format!("模型生成响应超时（{}ms），请重试或切换模型", elapsed_ms)
+            }
             AppError::DbLocked { message } => message.clone(),
             AppError::ContextUnavailable { message, .. } => message.clone(),
             AppError::ValidationFailed { message, .. } => message.clone(),
@@ -262,6 +274,14 @@ impl AppError {
             message: format!("LLM call timed out after {}ms", elapsed_ms),
             elapsed_ms,
         }
+    }
+
+    pub fn llm_connection_timeout(elapsed_ms: u64) -> Self {
+        AppError::LlmConnectionTimeout { elapsed_ms }
+    }
+
+    pub fn llm_generation_timeout(elapsed_ms: u64) -> Self {
+        AppError::LlmGenerationTimeout { elapsed_ms }
     }
 
     pub fn db_locked(message: impl Into<String>) -> Self {

@@ -1,11 +1,61 @@
-# StoryForge (草苔) v0.11.4 项目完成状态
+# StoryForge (草苔) v0.12.0 项目完成状态
 
-> 最后更新: 2026-06-12（v0.11.4 + 智能创作超时根因根治）
+> 最后更新: 2026-06-14（v0.12.0 + 智能创作性能全面重构）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.12.0 智能创作性能全面重构（2026-06-14）
+
+#### 后端生成链路：解决「点击生成后长期无响应、最后无输出」
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 本地模型单候选 | ✅ | `agents/orchestrator.rs` 本地/局域网模型固定 1 候选 |
+| Writer 全局并发限流 | ✅ | `llm/service.rs` Semaphore：本地 1、远程 2 |
+| 候选总超时硬上限 | ✅ | 90s，避免 270s 挂起 |
+| 连接/生成超时拆分 | ✅ | 连接超时可重试 1 次，生成超时不再重试 |
+| 上下文准备 spawn_blocking | ✅ | `agents/service.rs` + `context_builder.rs` |
+| 提示词构建缓存 | ✅ | `AppConfig` / `GenreProfile` / `StyleDNA` 进程级缓存 |
+| SQLite 高频路径 spawn_blocking | ✅ | `scene_commands.rs` / `creation_commands.rs` |
+| 全局 Mutex 替换 | ✅ | `DB_POOL` / `LLM_SERVICE` OnceLock；`ContextCache` RwLock |
+
+#### 前端响应与大数据量
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 生成状态可取消 | ✅ | `FrontstageApp.tsx` 可靠调用 `agent_cancel_all_tasks` |
+| 精确阶段显示 | ✅ | 准备上下文 / 候选 / Inspector / 改写 / 最终输出 / 保存记忆 |
+| 输入路径减负 | ✅ | IPC 节流 350ms、autoSave payload getter |
+| 高频心跳移除 | ✅ | CSS 动画替代、rAF 打字机 |
+| 字数统计增量化 | ✅ | 当前章节 diff + 后端 SQL 聚合 |
+| 场景/章节分页 | ✅ | `get_by_story_paged`、按需加载 |
+| sync-event 批量失效 | ✅ | 一次 predicate 刷新 |
+| LanceDB 参数化 | ✅ | 参数化 filter、前缀 LIKE、RRF spawn_blocking |
+| Embedding 批处理 | ✅ | Ollama 32 / OpenAI 100 batch |
+| 前端状态拆分 | ✅ | `generationStore` / `bootstrapStore` |
+| 文思分析 Worker | ✅ | Web Worker + AbortSignal 取消 |
+| HTML 序列化节流 | ✅ | 200ms 防抖 |
+
+#### 架构级优化
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 统一生成事件 | ✅ | `generation-status` 事件通道 |
+| 知识图谱虚拟化 | ✅ | viewport 裁剪 + LOD |
+| Agent trace | ✅ | 结构化耗时日志 |
+| 后台任务背压 | ✅ | Semaphore + CancellationToken |
+| 真实 tokenizer | ✅ | `tiktoken-rs` + 上下文预算 |
+
+#### 质量门禁
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `cargo check --all-targets` | ✅ | 通过 |
+| `cargo test --all-targets` | ✅ | 357/357 通过 |
+| `npx tsc --noEmit` | ✅ | 通过 |
+| `npm run test:run` | ✅ | 126 passed, 3 skipped |
+| Playwright E2E 性能基准 | ✅ | 3 passed |
+
+---
 
 ### v0.11.4 智能创作超时根因根治（2026-06-12）
 

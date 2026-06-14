@@ -11,6 +11,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+use tokio::sync::Semaphore;
+
+/// 持有 tokio::task::AbortHandle 并在 drop 时调用 abort，
+/// 确保心跳任务在 panic、early return 或任何错误路径下都能可靠终止。
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::timeout;
@@ -24,6 +36,8 @@ use super::{
 use crate::{
     config::settings::{AppConfig, LlmProfile, LlmProvider},
     error::AppError,
+    events::{emit_generation_status, GenerationPhase},
+    memory::tokenizer::count_tokens,
     router::{
         Complexity, Priority, RoutingRequest, TaskType, UnifiedModelRegistry, UnifiedModelRouter,
     },
@@ -223,6 +237,10 @@ pub struct LlmService {
     prompt_cache: PromptCache,
     /// 已被取消的 request_id 集合，用于协作式取消检查
     cancelled_requests: Arc<Mutex<HashSet<String>>>,
+    /// 本地模型 Writer 全局并发限制（默认 1）
+    writer_local_semaphore: Arc<Semaphore>,
+    /// 远端模型 Writer 全局并发限制（默认 2）
+    writer_remote_semaphore: Arc<Semaphore>,
 }
 
 impl LlmService {
@@ -243,6 +261,8 @@ impl LlmService {
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
 
         let config = AppConfig::load(&app_dir).unwrap_or_default();
+        let writer_local_concurrency = config.writer_local_concurrency.max(1);
+        let writer_remote_concurrency = config.writer_remote_concurrency.max(1);
 
         Self {
             app_handle,
@@ -251,7 +271,25 @@ impl LlmService {
             adapter_cache: Arc::new(Mutex::new(HashMap::new())),
             prompt_cache: default_prompt_cache(),
             cancelled_requests: Arc::new(Mutex::new(HashSet::new())),
+            writer_local_semaphore: Arc::new(Semaphore::new(writer_local_concurrency)),
+            writer_remote_semaphore: Arc::new(Semaphore::new(writer_remote_concurrency)),
         }
+    }
+
+    /// 获取 Writer 全局并发许可。本地模型与远端模型使用不同的 Semaphore，
+    /// 默认分别为 1 和 2，避免本地服务端被多个 Writer 同时压垮。
+    pub async fn acquire_writer_permit(
+        &self,
+        is_local: bool,
+    ) -> Result<tokio::sync::SemaphorePermit<'_>, AppError> {
+        let sem = if is_local {
+            &self.writer_local_semaphore
+        } else {
+            &self.writer_remote_semaphore
+        };
+        sem.acquire()
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to acquire writer permit: {}", e)))
     }
 
     /// 重新加载配置，同时清空适配器缓存
@@ -423,7 +461,8 @@ impl LlmService {
     /// 失败不返回错误，避免记录本身阻塞主流程。
     fn record_llm_call(&self, record: LlmCallRecord<'_>) {
         let prompt_len = record.prompt.chars().count() as i32;
-        let prompt_tokens = prompt_len / 2;
+        let model_family = record.model_id;
+        let prompt_tokens = count_tokens(record.prompt, model_family) as i32;
         let completion_tokens = record.response.map(|r| r.tokens_used).unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
         let provider = self
@@ -494,6 +533,9 @@ impl LlmService {
     /// 判断错误是否可重试（超时/网络/5xx）
     fn is_retriable_error(error: &AppError) -> bool {
         match error {
+            // v0.11.8: 连接阶段超时可重试 1 次；生成阶段超时不可重试。
+            AppError::LlmConnectionTimeout { .. } => true,
+            AppError::LlmGenerationTimeout { .. } => false,
             // v0.11.2: 模型响应超时通常是服务端/本地模型无法及时处理，重试只会
             // 让用户等待更久（候选阶段 120s 超时 × 重试会轻松超过 500s）。
             // 因此超时错误不再重试，立即反馈给用户。
@@ -592,6 +634,7 @@ impl LlmService {
         elapsed_seconds: u64,
         model: &str,
         pipeline_ctx: Option<&PipelineContext>,
+        request_id: Option<&str>,
     ) {
         let _ = self.app_handle.emit(
             "llm-generating-progress",
@@ -603,6 +646,24 @@ impl LlmService {
                 pipeline_context: pipeline_ctx.cloned(),
             },
         );
+
+        // C1: 同时发射统一生成状态事件，使用 request_id 作为 task_id 标识
+        if let Some(req_id) = request_id {
+            let phase = match stage {
+                "connecting" | "sent" => GenerationPhase::PreparingContext,
+                "generating" => GenerationPhase::GeneratingCandidates,
+                "completed" => GenerationPhase::FinalOutput,
+                _ => GenerationPhase::GeneratingCandidates,
+            };
+            emit_generation_status(
+                &self.app_handle,
+                req_id,
+                phase,
+                if stage == "completed" { 1.0 } else { 0.4 },
+                message,
+                Some(req_id.to_string()),
+            );
+        }
     }
 
     /// 同步生成文本（带上下文描述 + 600秒整体超时 + 心跳进度）
@@ -687,6 +748,13 @@ impl LlmService {
             timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
         let effective_retries = max_retries_override.unwrap_or(2u32);
 
+        // v0.11.8: 让 adapter 内部超时使用 override 值，这样移除外层 tokio::time::timeout
+        // 后仍然能保证单候选/整体超时策略生效。
+        let mut profile_for_adapter = profile.clone();
+        if let Some(t) = timeout_seconds_override {
+            profile_for_adapter.timeout_seconds = t;
+        }
+
         log::info!(
             target: "llm_metrics",
             "[LLM] execute_generation start: model={}, provider={:?}, timeout_seconds={}, max_retries={}",
@@ -695,7 +763,7 @@ impl LlmService {
             effective_timeout,
             effective_retries
         );
-        let adapter = match self.create_adapter(&profile) {
+        let adapter = match self.create_adapter(&profile_for_adapter) {
             Ok(a) => a,
             Err(e) => {
                 log::error!(
@@ -737,7 +805,14 @@ impl LlmService {
             format!("{}{} 完成", step_prefix, label)
         };
 
-        self.emit_llm_progress("connecting", &connecting_msg, 0, &model_name, pipeline_ref);
+        self.emit_llm_progress(
+            "connecting",
+            &connecting_msg,
+            0,
+            &model_name,
+            pipeline_ref,
+            request_id.as_deref(),
+        );
 
         // 启动心跳任务
         let app_handle = self.app_handle.clone();
@@ -780,8 +855,16 @@ impl LlmService {
                 // abort。
             }
         });
+        let _heartbeat_guard = AbortOnDrop(heartbeat_handle.abort_handle());
 
-        self.emit_llm_progress("sent", &sent_msg, 0, &model_name, pipeline_ref);
+        self.emit_llm_progress(
+            "sent",
+            &sent_msg,
+            0,
+            &model_name,
+            pipeline_ref,
+            request_id.as_deref(),
+        );
 
         // Wave 1: 注册取消通道（同步生成也支持取消）
         let request_id = request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -795,27 +878,30 @@ impl LlmService {
         let timeout_seconds =
             timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
         let max_retries = max_retries_override.unwrap_or(2u32);
+        let connect_timeout_seconds = 10u64;
 
-        // 带超时与重试的生成循环
+        // v0.11.8: 超时与重试策略
+        // - adapter.generate 内部已拆分连接超时（10s）与生成超时（timeout_seconds），
+        //   并在读取响应流时按 chunk 刷新计时器。
+        // - 连接超时最多重试 1 次；生成超时/其他不可重试错误直接返回。
         let mut result: Result<GenerateResponse, AppError> =
             Err(AppError::internal("Generation did not run".to_string()));
         for attempt in 0..=max_retries {
             let adapter = adapter.box_clone();
             let req = req.clone();
             let attempt_result = tokio::select! {
-                r = timeout(Duration::from_secs(timeout_seconds), adapter.generate(req)) => {
+                r = adapter.generate(req) => {
                     match r {
-                        Ok(Ok(resp)) => Ok(resp),
-                        Ok(Err(e)) => {
-                            let err = AppError::internal(format!("Generation failed: {}", e));
-                            if Self::is_retriable_error(&err) && attempt < max_retries {
-                                log::warn!("[LLM] Generation attempt {} failed: {}, retrying...", attempt + 1, e);
+                        Ok(resp) => Ok(resp),
+                        Err(e) => {
+                            let err_msg = e.to_string();
+                            if err_msg.contains(super::adapter::CONNECTION_TIMEOUT_MARKER) {
+                                Err(AppError::llm_connection_timeout(connect_timeout_seconds * 1000))
+                            } else if err_msg.contains(super::adapter::GENERATION_TIMEOUT_MARKER) {
+                                Err(AppError::llm_generation_timeout(timeout_seconds * 1000))
+                            } else {
+                                Err(AppError::internal(format!("Generation failed: {}", e)))
                             }
-                            Err(err)
-                        }
-                        Err(_) => {
-                            log::warn!("[LLM] Generation timed out after {}s (attempt {})", timeout_seconds, attempt + 1);
-                            Err(AppError::llm_timeout(timeout_seconds * 1000))
                         }
                     }
                 }
@@ -832,7 +918,14 @@ impl LlmService {
                 }
                 Err(e) => {
                     result = Err(e.clone());
-                    if !Self::is_retriable_error(&e) || attempt == max_retries {
+                    let is_connection_timeout = matches!(e, AppError::LlmConnectionTimeout { .. });
+                    let can_retry = if is_connection_timeout {
+                        // 连接超时仅额外重试 1 次（attempt 0 -> attempt 1）
+                        attempt == 0
+                    } else {
+                        Self::is_retriable_error(&e) && attempt < max_retries
+                    };
+                    if !can_retry {
                         break;
                     }
                     // 指数退避：500ms, 1000ms, 2000ms...
@@ -874,11 +967,23 @@ impl LlmService {
                     duration_ms: duration,
                     error: None,
                 });
-                self.emit_llm_progress("completed", &completed_msg, 0, &model_name, pipeline_ref);
+                self.emit_llm_progress(
+                    "completed",
+                    &completed_msg,
+                    0,
+                    &model_name,
+                    pipeline_ref,
+                    Some(request_id.as_str()),
+                );
                 (request_id.clone(), Ok(response))
             }
             Err(e) => {
-                let is_timeout = matches!(e, AppError::LlmTimeout { .. });
+                let is_timeout = matches!(
+                    e,
+                    AppError::LlmTimeout { .. }
+                        | AppError::LlmConnectionTimeout { .. }
+                        | AppError::LlmGenerationTimeout { .. }
+                );
                 let duration = start_time.elapsed().as_millis() as u64;
                 self.record_llm_call(LlmCallRecord {
                     model_id: &model_name,
@@ -895,6 +1000,7 @@ impl LlmService {
                     if is_timeout { 600 } else { 0 },
                     &model_name,
                     pipeline_ref,
+                    Some(request_id.as_str()),
                 );
                 (request_id.clone(), Err(e))
             }
@@ -1352,7 +1458,7 @@ impl LlmService {
         }
     }
 
-    /// 取消指定 request_id 的流式生成
+    /// 取消指定 request_id 的流式生成，并传播取消信号到关联的后台 ingest 任务。
     pub fn cancel_generation(&self, request_id: &str) {
         {
             let mut cancelled = self.cancelled_requests.lock().unwrap();
@@ -1375,6 +1481,9 @@ impl LlmService {
                 request_id
             );
         }
+
+        // C2: 传播取消到该 request_id 对应的后台记忆 ingest 任务。
+        crate::memory::writer::cancel_ingest_token(request_id);
     }
 
     /// 检查指定 request_id 是否已被请求取消
@@ -1429,23 +1538,22 @@ fn build_writing_prompt(user_input: &str, context: Option<&str>) -> String {
 
 // GLOBAL: LLM 服务单例。
 // SAFETY: OnceCell 保证仅初始化一次。通过 init_llm_service() 在 setup()
-// 中设置。 NOTE: 当前使用全局静态是因为大量命令处理器直接调用
+// 中设置。内部存储 Arc<LlmService>，初始化后 get_llm_service() 直接 clone
+// Arc，无需再加全局 Mutex。
+// NOTE: 当前使用全局静态是因为大量命令处理器直接调用
 // get_llm_service()。 长期目标：通过 Tauri State 注入，消除全局依赖。
-static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Mutex<Option<LlmService>>> =
+static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Arc<LlmService>> =
     once_cell::sync::OnceCell::new();
 
 /// 初始化LLM服务
 pub fn init_llm_service(app_handle: AppHandle) {
     let service = LlmService::new(app_handle);
-    let _ = LLM_SERVICE.set(std::sync::Mutex::new(Some(service)));
+    let _ = LLM_SERVICE.set(std::sync::Arc::new(service));
 }
 
 /// 获取LLM服务
 pub fn get_llm_service() -> Option<LlmService> {
-    LLM_SERVICE
-        .get()
-        .and_then(|s| s.lock().ok())
-        .and_then(|s| s.as_ref().cloned())
+    LLM_SERVICE.get().map(|s| s.as_ref().clone())
 }
 
 impl Clone for LlmService {
@@ -1457,6 +1565,8 @@ impl Clone for LlmService {
             adapter_cache: Arc::clone(&self.adapter_cache),
             prompt_cache: self.prompt_cache.clone(),
             cancelled_requests: Arc::clone(&self.cancelled_requests),
+            writer_local_semaphore: Arc::clone(&self.writer_local_semaphore),
+            writer_remote_semaphore: Arc::clone(&self.writer_remote_semaphore),
         }
     }
 }
@@ -1628,6 +1738,7 @@ mod tests {
             model: "gpt-4".to_string(),
             api_key: "key".to_string(),
             api_base: None,
+            is_local_model: false,
             max_tokens: 100,
             temperature: 0.7,
             top_p: None,
@@ -1677,6 +1788,7 @@ mod tests {
             model: "gpt-4".to_string(),
             api_key: "key".to_string(),
             api_base: None,
+            is_local_model: false,
             max_tokens: 100,
             temperature: 0.7,
             top_p: None,
@@ -1705,5 +1817,36 @@ mod tests {
         assert!(cache.get(&profile, "hello", None, None).is_some());
         std::thread::sleep(Duration::from_millis(50));
         assert!(cache.get(&profile, "hello", None, None).is_none());
+    }
+
+    // ==================== 阶段一超时/重试策略 ====================
+
+    #[test]
+    fn test_connection_timeout_is_retriable_but_generation_timeout_is_not() {
+        use crate::error::AppError;
+
+        let connection_err = AppError::llm_connection_timeout(10_000);
+        let generation_err = AppError::llm_generation_timeout(120_000);
+        let generic_timeout = AppError::llm_timeout(120_000);
+
+        assert!(LlmService::is_retriable_error(&connection_err));
+        assert!(!LlmService::is_retriable_error(&generation_err));
+        assert!(!LlmService::is_retriable_error(&generic_timeout));
+    }
+
+    #[test]
+    fn test_timeout_error_codes() {
+        use crate::error::AppError;
+
+        assert_eq!(
+            AppError::llm_connection_timeout(10_000).code(),
+            "LLM_CONNECTION_TIMEOUT"
+        );
+        assert_eq!(
+            AppError::llm_generation_timeout(120_000).code(),
+            "LLM_GENERATION_TIMEOUT"
+        );
+        assert_eq!(AppError::llm_timeout(120_000).code(), "LLM_TIMEOUT");
+        assert_eq!(AppError::cancelled("用户取消").code(), "CANCELLATION");
     }
 }

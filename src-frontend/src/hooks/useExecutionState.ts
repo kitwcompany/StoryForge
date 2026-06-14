@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { loggedInvoke } from '@/services/tauri';
+import { getStoryWordCount } from '@/services/api/stories';
 import { useScenes } from './useScenes';
 import { useForeshadowings } from './useForeshadowings';
 import { useChapters } from './useChapters';
@@ -53,10 +54,6 @@ function mapBackendPhase(phase: string): NarrativePhase {
   }
 }
 
-function computeTotalWordCount(scenes: Scene[]): number {
-  return scenes.reduce((sum, s) => sum + (s.content?.length || 0), 0);
-}
-
 function computeAvgConfidence(scenes: Scene[]): number {
   const scored = scenes.filter(s => s.confidence_score !== undefined);
   if (scored.length === 0) return 0;
@@ -85,9 +82,20 @@ export function useExecutionState(storyId: string | null): {
     staleTime: 30000,
   });
 
+  // B2: 全文字数由后端 SQL 聚合返回，避免把全量 scenes content 传到前端再 reduce
+  const { data: wordCountData, isLoading: wordCountLoading } = useQuery({
+    queryKey: ['storyforge', 'word_count', storyId],
+    queryFn: async () => {
+      if (!storyId) return { total_chars: 0 };
+      return getStoryWordCount(storyId);
+    },
+    enabled: !!storyId,
+    staleTime: 30000,
+  });
+
   const state = useMemo<ExecutionState>(() => {
     const sceneCount = scenes.length;
-    const totalWordCount = computeTotalWordCount(scenes);
+    const totalWordCount = wordCountData?.total_chars || 0;
     const narrativePhase = canonicalState
       ? mapBackendPhase(canonicalState.narrative_phase)
       : 'Setup';
@@ -114,11 +122,16 @@ export function useExecutionState(storyId: string | null): {
       chaptersCount,
       avgConfidence,
     };
-  }, [scenes, foreshadowings, chapters, canonicalState]);
+  }, [scenes, foreshadowings, chapters, canonicalState, wordCountData]);
 
   return {
     state,
-    isLoading: scenesLoading || foreshadowingsLoading || chaptersLoading || canonicalLoading,
+    isLoading:
+      scenesLoading ||
+      foreshadowingsLoading ||
+      chaptersLoading ||
+      canonicalLoading ||
+      wordCountLoading,
   };
 }
 

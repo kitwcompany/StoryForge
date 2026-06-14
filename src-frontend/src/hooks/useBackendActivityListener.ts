@@ -2,7 +2,8 @@
 //!
 //! 将所有后台进度事件聚合为单一主 activity，避免用户同时看到多个任务。
 //! 覆盖：contract-auto-progress、orchestrator-step、agent-stage-update、
-//!       smart-execute-progress、pipeline-progress、plan-executor-step
+//!       smart-execute-progress、pipeline-progress、plan-executor-step、
+//!       generation-status（C1 新增统一通道）
 
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -15,6 +16,27 @@ interface UseBackendActivityListenerOptions {
 }
 
 const PRIMARY_ACTIVITY_ID = 'ai-primary-activity';
+
+/** 智能创作精确阶段映射（A4-1.7 / C1） */
+const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
+  { phase: '准备上下文', patterns: ['准备上下文', 'preparing_context', 'prepare_context', 'loading_context', '加载上下文', '读取故事', '读取章节'] },
+  { phase: '候选生成', patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选', '生成中', '生成'] },
+  { phase: 'Inspector 审校', patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'] },
+  { phase: '改写', patterns: ['改写', 'rewrite', 'rewriting', 'revise', '润色'] },
+  { phase: '最终输出', patterns: ['最终输出', 'final_output', 'finalize', '最终', 'final output'] },
+  { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
+];
+
+function mapPrecisePhase(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.toLowerCase();
+  for (const { phase, patterns } of PRECISE_PHASE_PATTERNS) {
+    if (patterns.some(p => s.includes(p.toLowerCase()))) {
+      return phase;
+    }
+  }
+  return null;
+}
 
 /** 活动类别优先级（数字越小越优先） */
 const CATEGORY_PRIORITY: Record<ActivityCategory, number> = {
@@ -36,15 +58,29 @@ type ProgressPayload = {
   status?: 'running' | 'completed' | 'failed';
 };
 
+/** C1: 统一生成状态事件 payload */
+type GenerationStatusPayload = {
+  phase: string;
+  progress: number;
+  message: string;
+  elapsed_ms: number;
+  task_id: string;
+  request_id?: string | null;
+};
+
 /**
  * 统一后台活动监听器
  *
  * 在组件 mount 时注册所有后台事件监听，unmount 时自动清理。
  * 将分散在各处的进度事件聚合为单一主 activity，减少用户感知的任务数量。
+ * C1: 新增 `generation-status` 作为主要消费通道，旧事件在收到统一事件后的
+ *     去重窗口内跳过，避免重复状态更新。
  */
 export function useBackendActivityListener(options: UseBackendActivityListenerOptions = {}) {
   const { enabled = true } = options;
   const storeRef = useRef(useBackendActivityStore.getState());
+  // C1: 记录最近一次收到 generation-status 的时间，用于跳过重叠的旧事件
+  const lastGenerationStatusAtRef = useRef(0);
 
   // 保持 store 引用最新
   useEffect(() => {
@@ -87,7 +123,36 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       }
     };
 
+    // C1: 判断旧版重叠事件是否应被跳过（统一事件已覆盖）
+    const shouldSkipOverlappingEvent = () => {
+      return Date.now() - lastGenerationStatusAtRef.current < 1000;
+    };
+
     const setup = async () => {
+      // ── 0. 统一生成状态事件（C1 主要消费通道）──
+      const unlistenGenerationStatus = await listen<GenerationStatusPayload>(
+        'generation-status',
+        event => {
+          const p = event.payload;
+          lastGenerationStatusAtRef.current = Date.now();
+          const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
+          const status: ProgressPayload['status'] =
+            p.phase === 'completed'
+              ? 'completed'
+              : p.phase === 'error' || p.phase === 'cancelled'
+                ? 'failed'
+                : 'running';
+          updatePrimary({
+            category: 'orchestrator',
+            stage: p.phase,
+            message: precise || p.message,
+            progress: p.progress,
+            status,
+          });
+        }
+      );
+      unlistens.push(unlistenGenerationStatus);
+
       // ── 1. 合同/大纲自动补齐 ──
       const unlistenContract = await listen<{
         stage: string;
@@ -115,6 +180,8 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         detail?: string;
         status?: string;
       }>('orchestrator-step', event => {
+        // C1: 统一事件已覆盖 orchestrator 进度，跳过重叠更新
+        if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
         // v0.11.2: 后端 emits 完成/失败状态事件，status 为 completed/failed 时结束活动
         if (p.status === 'completed' || p.status === 'failed') {
@@ -128,17 +195,19 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           return;
         }
         // v0.9.4: 后端实际发射的是中文 step_type（生成 / 质检 / 改写）
+        // A4-1.7: 映射到统一精确阶段文案
+        const precise = mapPrecisePhase(p.step_type) || mapPrecisePhase(p.detail);
         const stepNames: Record<string, string> = {
-          生成: 'AI 生成中...',
-          质检: 'AI 质检中...',
-          改写: 'AI 优化中...',
+          生成: '候选生成',
+          质检: 'Inspector 审校',
+          改写: '改写',
         };
-        let message = p.detail || stepNames[p.step_type] || p.step_type;
+        let message = precise || p.detail || stepNames[p.step_type] || p.step_type;
         if (p.step_type === '改写' && typeof p.loop_idx === 'number' && !p.detail) {
-          message = `第 ${p.loop_idx + 1} 轮优化中...`;
+          message = `改写（第 ${p.loop_idx + 1} 轮）`;
         }
         if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
-          message = `质检评分 ${p.score}%`;
+          message = `Inspector 审校（评分 ${p.score}%）`;
         }
         // v0.11.5: Orchestrator 各阶段没有可量化的百分比，使用不确定进度动画
         // 代替硬编码 0.3/0.6/0.9，避免用户看到进度条长时间卡在 30%。
@@ -159,11 +228,15 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         progress: number;
         request_id?: string | null;
       }>('agent-stage-update', event => {
+        // C1: 统一事件已覆盖 Agent 创作阶段，跳过重叠更新
+        if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
+        // A4-1.7: 优先映射到精确阶段文案
+        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message);
         updatePrimary({
           category: 'agent_stage',
           stage: p.stage,
-          message: p.message,
+          message: precise || p.message,
           progress: p.progress,
           status:
             p.stage === 'Completed' ? 'completed' : p.stage === 'Failed' ? 'failed' : 'running',
@@ -246,15 +319,20 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           action: string;
         };
       }>('llm-generating-progress', event => {
+        // C1: 统一事件已覆盖 LLM 创作进度，跳过重叠更新
+        if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
         // v0.11.6-hotfix2: 心跳本身不应创建新的主活动，否则输入框自动聚焦时触发的
         // get_input_hint 等轻量 LLM 调用会把输入框置为禁用状态。只在已有创作活动
         // 进行时更新文案，避免“还没打字就进入运行进程”。
+        // A4-1.7: 优先映射到精确阶段文案
+        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message);
+        const message = precise || p.message;
         const existing = store.activities.find(
           a => a.status === 'running' && a.id === PRIMARY_ACTIVITY_ID
         );
         if (existing) {
-          store.updateActivity(PRIMARY_ACTIVITY_ID, { message: p.message });
+          store.updateActivity(PRIMARY_ACTIVITY_ID, { message });
         }
       });
       unlistens.push(unlistenLlmHeartbeat);

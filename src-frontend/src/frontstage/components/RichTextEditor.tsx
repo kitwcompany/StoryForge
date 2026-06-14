@@ -181,6 +181,15 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       showSlashInputRef.current = showSlashInput;
     }, [showSlashInput]);
 
+    // onChange 同步到 ref，避免 debounce 闭包过期
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+
+    // HTML 序列化防抖：按键时先用 getText() 更新轻量状态，200ms 后再序列化完整 HTML
+    const htmlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const latestTextRef = useRef('');
+    const editorRef = useRef<ReturnType<typeof useEditor> | null>(null);
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -196,7 +205,16 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       ],
       content,
       onUpdate: ({ editor }) => {
-        onChange(editor.getHTML());
+        // 轻量文本更新（字数/状态等低耗时场景）
+        latestTextRef.current = editor.getText();
+
+        if (htmlDebounceRef.current) {
+          clearTimeout(htmlDebounceRef.current);
+        }
+        htmlDebounceRef.current = setTimeout(() => {
+          htmlDebounceRef.current = null;
+          onChangeRef.current(editor.getHTML());
+        }, 200);
       },
       editorProps: {
         attributes: {
@@ -245,6 +263,26 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         },
       },
     });
+
+    // 将 editor 实例同步到 ref，供卸载时 flush 最终 HTML
+    editorRef.current = editor;
+
+    // 卸载时清除防抖并 flush 最终 HTML
+    useEffect(() => {
+      return () => {
+        if (htmlDebounceRef.current) {
+          clearTimeout(htmlDebounceRef.current);
+          htmlDebounceRef.current = null;
+        }
+        if (editorRef.current) {
+          try {
+            onChangeRef.current(editorRef.current.getHTML());
+          } catch {
+            // 编辑器已销毁时忽略
+          }
+        }
+      };
+    }, []);
 
     // W2-F2: 监听配置变化（替代 editor-config-changed DOM CustomEvent）
     const storeEditorConfig = useAppStore(state => state.editorConfig);

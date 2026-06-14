@@ -32,13 +32,13 @@ let isSaving = false;
 
 /**
  * 调度一次自动保存
- * @param payload 保存数据
+ * @param payload 保存数据，或返回保存数据的 getter（推荐：避免在输入关键路径创建大对象）
  * @param saveFn 实际执行保存的异步函数
  * @param debounceMs 防抖间隔
  * @returns 可取消的任务句柄
  */
 export function scheduleAutoSave(
-  payload: SavePayload,
+  payload: SavePayload | (() => SavePayload),
   saveFn: SaveFn,
   debounceMs: number = DEFAULT_DEBOUNCE_MS
 ): AutoSaveTask {
@@ -59,7 +59,8 @@ export function scheduleAutoSave(
 
       const executeSave = async () => {
         try {
-          await saveFn(payload);
+          const resolvedPayload = typeof payload === 'function' ? payload() : payload;
+          await saveFn(resolvedPayload);
         } catch (err) {
           // 保存失败时由调用方处理（如 toast、重试）
           throw err;

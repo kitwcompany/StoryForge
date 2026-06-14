@@ -7,7 +7,8 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
 import type { WritingSuggestion } from './types';
-import { analyzeText, hasEnoughContent } from './textAnalyzer';
+import { hasEnoughContent, extractParagraphs } from './textAnalyzer';
+import { analyzeTextAsync } from './asyncTextAnalyzer';
 import { generateSuggestions } from './suggestionEngine';
 
 interface SmartHintSystemProps {
@@ -48,67 +49,79 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
   // Session 级冷却：已 dismiss 的 hint ID + 上次提示时间
   const dismissedHintIdsRef = useRef<Set<string>>(new Set());
   const lastHintTimeRef = useRef<number>(0);
+  // 用于取消上一次未完成的异步分析
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const performAnalysis = useCallback(() => {
+  const performAnalysis = useCallback(async () => {
     if (!isEnabled || isZenMode) return;
     if (!hasEnoughContent(htmlContent)) return;
     if (htmlContent === lastAnalyzedRef.current) return;
+
+    // 取消上一次未完成的分析
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     lastAnalyzedRef.current = htmlContent;
 
     // 清空已处理缓存，允许同类型建议在新内容下重新触发
     pendingSuggestionRef.current.clear();
 
-    const perception = analyzeText(htmlContent);
-    const decision = generateSuggestions(perception);
+    try {
+      const perception = await analyzeTextAsync(htmlContent, controller.signal);
+      if (controller.signal.aborted) return;
 
-    // 优先处理高优先级的内联修改建议
-    const highPriority = decision.suggestions.filter(s => s.priority === 'high');
+      const decision = generateSuggestions(perception);
 
-    if (subscription?.isPro) {
-      // Pro 用户：触发内联修改建议
-      if (highPriority.length > 0 && onInlineSuggestion) {
-        const topSuggestion = highPriority[0];
-        pendingSuggestionRef.current.add(topSuggestion.id);
+      // 优先处理高优先级的内联修改建议
+      const highPriority = decision.suggestions.filter(s => s.priority === 'high');
 
-        const tmp = document.createElement('div');
-        tmp.innerHTML = htmlContent;
-        const paragraphs = Array.from(tmp.querySelectorAll('p'))
-          .map(p => p.textContent || '')
-          .filter(t => t.trim().length > 0);
+      if (subscription?.isPro) {
+        // Pro 用户：触发内联修改建议
+        if (highPriority.length > 0 && onInlineSuggestion) {
+          const topSuggestion = highPriority[0];
+          pendingSuggestionRef.current.add(topSuggestion.id);
 
-        const targetIndex =
-          topSuggestion.targetParagraphIndex >= 0
-            ? topSuggestion.targetParagraphIndex
-            : paragraphs.length - 1;
+          const paragraphs = extractParagraphs(htmlContent).filter(t => t.trim().length > 0);
 
-        const targetText = paragraphs[targetIndex] || '';
+          const targetIndex =
+            topSuggestion.targetParagraphIndex >= 0
+              ? topSuggestion.targetParagraphIndex
+              : paragraphs.length - 1;
 
-        if (targetText.length >= MIN_TARGET_TEXT_LENGTH) {
-          onInlineSuggestion(topSuggestion, targetText);
+          const targetText = paragraphs[targetIndex] || '';
+
+          if (targetText.length >= MIN_TARGET_TEXT_LENGTH) {
+            onInlineSuggestion(topSuggestion, targetText);
+          }
+        }
+
+        // Pro 用户：低优先级建议作为 Ghost Text
+        const ghostSuggestions = decision.suggestions.filter(
+          s => s.priority !== 'high' && s.presentation === 'ghost'
+        );
+        if (ghostSuggestions.length > 0 && onGhostSuggestion) {
+          onGhostSuggestion(ghostSuggestions[0].message);
+        }
+      } else if (subscription?.isFree) {
+        // 免费用户：只显示分析提示（不生成修改），带 session 冷却
+        const now = Date.now();
+        if (now - lastHintTimeRef.current < MIN_HINT_INTERVAL_MS) return;
+
+        const allHints = decision.suggestions.filter(
+          s => s.priority !== 'low' && !dismissedHintIdsRef.current.has(s.id)
+        );
+        if (allHints.length > 0 && onFreeHint) {
+          const topHint = allHints[0];
+          lastHintTimeRef.current = now;
+          onFreeHint(topHint.title, topHint.message);
         }
       }
-
-      // Pro 用户：低优先级建议作为 Ghost Text
-      const ghostSuggestions = decision.suggestions.filter(
-        s => s.priority !== 'high' && s.presentation === 'ghost'
-      );
-      if (ghostSuggestions.length > 0 && onGhostSuggestion) {
-        onGhostSuggestion(ghostSuggestions[0].message);
-      }
-    } else if (subscription?.isFree) {
-      // 免费用户：只显示分析提示（不生成修改），带 session 冷却
-      const now = Date.now();
-      if (now - lastHintTimeRef.current < MIN_HINT_INTERVAL_MS) return;
-
-      const allHints = decision.suggestions.filter(
-        s => s.priority !== 'low' && !dismissedHintIdsRef.current.has(s.id)
-      );
-      if (allHints.length > 0 && onFreeHint) {
-        const topHint = allHints[0];
-        lastHintTimeRef.current = now;
-        onFreeHint(topHint.title, topHint.message);
-      }
+    } catch (err) {
+      // 取消导致的错误静默忽略
+      if (controller.signal.aborted) return;
+      // eslint-disable-next-line no-console
+      console.error('[SmartHintSystem] 文本分析失败', err);
     }
   }, [
     htmlContent,
@@ -119,6 +132,14 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
     onFreeHint,
     subscription,
   ]);
+
+  // 卸载时取消未完成的分析
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+    };
+  }, []);
 
   // 防抖分析：用户停止输入 3 秒后触发
   useEffect(() => {

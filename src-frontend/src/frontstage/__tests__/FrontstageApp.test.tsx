@@ -32,6 +32,8 @@ vi.mock('@/services/tauri', () => ({
   getPipelineActiveDraft: vi.fn(),
 }));
 
+import { loggedInvoke, smartExecute } from '@/services/tauri';
+
 // Mock RichTextEditor (TipTap 在 jsdom 中无法运行)
 vi.mock('../components/RichTextEditor', () => ({
   __esModule: true,
@@ -151,5 +153,35 @@ describe('FrontstageApp', () => {
       expect(screen.getByTitle('打开设置 / 幕后工作室')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('输入任意指令…')).toBeInTheDocument();
     });
+  });
+
+  it('取消生成应调用 agent_cancel_all_tasks 并清理前端状态', async () => {
+    // 让 smartExecute 永远 pending，保持 isGenerating=true
+    vi.mocked(smartExecute).mockImplementation(() => new Promise(() => {}));
+
+    render(<FrontstageApp />, { wrapper });
+
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '继续写下去');
+
+    // 按 Enter 触发生成
+    await userEvent.keyboard('{Enter}');
+
+    // 等待取消按钮出现（生成中状态）
+    const cancelBtn = await waitFor(() => screen.getByTitle('取消生成'));
+
+    // 点击取消
+    await userEvent.click(cancelBtn);
+
+    // 验证后端取消命令被调用
+    await waitFor(() => {
+      expect(loggedInvoke).toHaveBeenCalledWith('agent_cancel_all_tasks', {});
+    });
+
+    // 验证前端生成状态被清理：输入框重新启用、发送按钮恢复
+    await waitFor(() => {
+      expect(input).not.toBeDisabled();
+    });
+    expect(screen.getByTitle('发送')).toBeInTheDocument();
   });
 });

@@ -12,6 +12,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use tauri::Emitter;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     db::{
@@ -203,6 +204,25 @@ impl IngestPipeline {
         &self,
         content: &IngestContent,
     ) -> Result<IngestResult, Box<dyn std::error::Error>> {
+        self.ingest_with_cancel(content, None).await
+    }
+
+    /// 支持取消令牌的 ingest 版本。
+    pub async fn ingest_with_cancel(
+        &self,
+        content: &IngestContent,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<IngestResult, Box<dyn std::error::Error>> {
+        if let Some(token) = cancel {
+            if token.is_cancelled() {
+                log::info!(
+                    "[IngestPipeline] Ingest cancelled before start for story {}",
+                    content.story_id
+                );
+                return Err("ingest cancelled".into());
+            }
+        }
+
         let job_id = uuid::Uuid::new_v4().to_string();
         let resource_type = content
             .scene_id
@@ -220,7 +240,7 @@ impl IngestPipeline {
             log::warn!("[IngestPipeline] Failed to create job record: {}", e);
         }
 
-        let result = self.run_ingest(content).await;
+        let result = self.run_ingest(content, cancel).await;
 
         match &result {
             Ok(_) => {
@@ -242,16 +262,17 @@ impl IngestPipeline {
     async fn run_ingest(
         &self,
         content: &IngestContent,
+        cancel: Option<&CancellationToken>,
     ) -> Result<IngestResult, Box<dyn std::error::Error>> {
         // Step 1: 分析阶段 — 实体、关系、情感、伏笔、主题
-        let analysis = self.analyze_content(content).await?;
+        let analysis = self.analyze_content(content, cancel).await?;
 
         // Step 2: 生成阶段 — 结构化知识档案
-        let knowledge = self.generate_knowledge(&analysis).await?;
+        let knowledge = self.generate_knowledge(&analysis, cancel).await?;
 
         // Step 3: LitSeg 叙事事件提取 — 从文本中提取推动情节的关键事件
         let mut narrative_events = self
-            .extract_narrative_events(content, &analysis)
+            .extract_narrative_events(content, &analysis, cancel)
             .await
             .unwrap_or_default();
 
@@ -389,7 +410,14 @@ impl IngestPipeline {
     async fn analyze_content(
         &self,
         content: &IngestContent,
+        cancel: Option<&CancellationToken>,
     ) -> Result<ContentAnalysis, Box<dyn std::error::Error>> {
+        if let Some(token) = cancel {
+            if token.is_cancelled() {
+                return Err("ingest cancelled before analyze_content".into());
+            }
+        }
+
         let base_prompt = format!(
             r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
 
@@ -474,6 +502,12 @@ impl IngestPipeline {
 
         let mut last_error: Option<String> = None;
         for attempt in 0..3 {
+            if let Some(token) = cancel {
+                if token.is_cancelled() {
+                    return Err("ingest cancelled during analyze_content".into());
+                }
+            }
+
             let mut prompt = base_prompt.clone();
             if let Some(ref err) = last_error {
                 prompt.push_str(&format!(
@@ -541,7 +575,14 @@ impl IngestPipeline {
     async fn generate_knowledge(
         &self,
         analysis: &ContentAnalysis,
+        cancel: Option<&CancellationToken>,
     ) -> Result<GeneratedKnowledge, Box<dyn std::error::Error>> {
+        if let Some(token) = cancel {
+            if token.is_cancelled() {
+                return Err("ingest cancelled before generate_knowledge".into());
+            }
+        }
+
         let analysis_json = serde_json::to_string_pretty(analysis)?;
 
         let base_prompt = format!(
@@ -591,6 +632,12 @@ impl IngestPipeline {
 
         let mut last_error: Option<String> = None;
         for attempt in 0..3 {
+            if let Some(token) = cancel {
+                if token.is_cancelled() {
+                    return Err("ingest cancelled during generate_knowledge".into());
+                }
+            }
+
             let mut prompt = base_prompt.clone();
             if let Some(ref err) = last_error {
                 prompt.push_str(&format!(
@@ -661,7 +708,14 @@ impl IngestPipeline {
         &self,
         content: &IngestContent,
         analysis: &ContentAnalysis,
+        cancel: Option<&CancellationToken>,
     ) -> Result<Vec<NarrativeEvent>, Box<dyn std::error::Error>> {
+        if let Some(token) = cancel {
+            if token.is_cancelled() {
+                return Err("ingest cancelled before extract_narrative_events".into());
+            }
+        }
+
         // 构建提示词
         let characters: Vec<String> = analysis
             .entities
@@ -679,6 +733,12 @@ impl IngestPipeline {
 
         let mut last_error: Option<String> = None;
         for _attempt in 0..3 {
+            if let Some(token) = cancel {
+                if token.is_cancelled() {
+                    return Err("ingest cancelled during extract_narrative_events".into());
+                }
+            }
+
             let mut prompt_text = rendered.clone();
             if let Some(ref err) = last_error {
                 prompt_text.push_str(&format!(

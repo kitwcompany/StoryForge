@@ -74,6 +74,30 @@ fn env_or_default(var: &str, default: &str) -> String {
 /// 秒更能避免误超时。
 pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 300;
 
+/// 判断 URL 是否指向本地/局域网地址（localhost / 127.0.0.1 / 私有网段）。
+pub fn is_private_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    if lower.contains("localhost") || lower.contains("127.0.0.1") || lower.contains("::1") {
+        return true;
+    }
+    let host = lower
+        .split("://")
+        .nth(1)
+        .and_then(|s| s.split('/').next())
+        .and_then(|s| s.split(':').next());
+    if let Some(host) = host {
+        if host.starts_with("10.") || host.starts_with("192.168.") {
+            return true;
+        }
+        if let Some(seg) = host.split('.').nth(1).and_then(|s| s.parse::<u8>().ok()) {
+            if host.starts_with("172.") && (16..=31).contains(&seg) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 // ============================================================================
 // Secure API Key Storage (cross-platform keychain)
 // ============================================================================
@@ -251,10 +275,23 @@ pub struct AppConfig {
     /// 候选阶段本身已生成多个版本，单个候选失败应快速跳过，避免超时叠加。
     #[serde(default = "default_candidate_max_retries")]
     pub candidate_max_retries: u32,
+    /// 候选生成阶段候选数量（默认 1，远端模型可在 1–2 之间配置）
+    #[serde(default = "default_candidate_count")]
+    pub candidate_count: u32,
+    /// 上下文构建时使用模型上下文窗口的比例（默认 0.8，保留 20% 给输出与开销）
+    #[serde(default = "default_context_budget_ratio")]
+    pub context_budget_ratio: f32,
+    /// 本地模型 Writer 全局并发数（默认 1）
+    #[serde(default = "default_writer_local_concurrency")]
+    pub writer_local_concurrency: usize,
+    /// 远端模型 Writer 全局并发数（默认 2）
+    #[serde(default = "default_writer_remote_concurrency")]
+    pub writer_remote_concurrency: usize,
     /// 本地模型是否在候选阶段串行生成以避免服务端排队（默认 false）
     ///
     /// 串行会导致候选 1 阻塞候选 2，一旦候选 1 挂起，整个阶段无进展。
     /// 默认并行，配合更短的本地超时（60s）避免排队影响。
+    /// v0.11.8: 该字段已弃用，候选阶段始终并行；保留仅用于兼容旧配置。
     #[serde(default = "default_candidate_local_sequential")]
     pub candidate_local_sequential: bool,
     /// 通用 UI 设置
@@ -332,6 +369,22 @@ fn default_candidate_timeout_local_seconds() -> u64 {
 
 fn default_candidate_max_retries() -> u32 {
     0
+}
+
+fn default_candidate_count() -> u32 {
+    1
+}
+
+pub fn default_context_budget_ratio() -> f32 {
+    0.8
+}
+
+fn default_writer_local_concurrency() -> usize {
+    1
+}
+
+fn default_writer_remote_concurrency() -> usize {
+    2
 }
 
 fn default_candidate_local_sequential() -> bool {
@@ -420,6 +473,10 @@ pub struct LlmProfile {
     pub api_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base: Option<String>,
+    /// 是否本地/局域网模型（影响候选数、并发数、超时策略）。
+    /// 用户可显式标记；未标记时由 provider / api_base / model_source 自动推断。
+    #[serde(default)]
+    pub is_local_model: bool,
     pub max_tokens: i32,
     #[serde(with = "temperature_serde")]
     pub temperature: f32,
@@ -462,7 +519,7 @@ fn default_true() -> bool {
     true
 }
 
-fn default_max_context_length() -> u32 {
+pub fn default_max_context_length() -> u32 {
     8192
 }
 
@@ -631,6 +688,7 @@ impl Default for AppConfig {
                 "STORYFORGE_LLM_API_BASE",
                 "http://localhost:11434/v1",
             )),
+            is_local_model: false,
             max_tokens: 8192,
             temperature: 0.8,
             top_p: None,
@@ -667,6 +725,7 @@ impl Default for AppConfig {
                 "STORYFORGE_VISION_API_BASE",
                 "http://localhost:11435/v1",
             )),
+            is_local_model: false,
             max_tokens: 8192,
             temperature: 0.7,
             top_p: None,
@@ -763,6 +822,10 @@ impl Default for AppConfig {
             candidate_timeout_seconds: default_candidate_timeout_seconds(),
             candidate_timeout_local_seconds: default_candidate_timeout_local_seconds(),
             candidate_max_retries: default_candidate_max_retries(),
+            candidate_count: default_candidate_count(),
+            context_budget_ratio: default_context_budget_ratio(),
+            writer_local_concurrency: default_writer_local_concurrency(),
+            writer_remote_concurrency: default_writer_remote_concurrency(),
             candidate_local_sequential: default_candidate_local_sequential(),
             theme: default_theme(),
             language: default_language(),
@@ -1308,6 +1371,7 @@ impl AppConfig {
             model: self.llm.model.clone(),
             api_key: self.llm.api_key.clone(),
             api_base: self.llm.api_base.clone(),
+            is_local_model: false,
             max_tokens: self.llm.max_tokens,
             temperature: self.llm.temperature,
             top_p: None,

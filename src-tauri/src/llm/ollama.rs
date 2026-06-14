@@ -12,10 +12,8 @@ pub struct OllamaAdapter {
     api_base: String,
     default_max_tokens: i32,
     default_temperature: f32,
-    #[allow(dead_code)]
-    timeout_seconds: u64,
-    #[allow(dead_code)]
-    connect_timeout_seconds: u64,
+    generation_timeout: std::time::Duration,
+    connect_timeout: std::time::Duration,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,7 +52,7 @@ impl OllamaAdapter {
         timeout_seconds: u64,
         connect_timeout_seconds: u64,
     ) -> Self {
-        let timeout = if timeout_seconds > 0 {
+        let generation_timeout = if timeout_seconds > 0 {
             Duration::from_secs(timeout_seconds)
         } else {
             Duration::from_secs(300)
@@ -65,7 +63,6 @@ impl OllamaAdapter {
             Duration::from_secs(10)
         };
         let client = Client::builder()
-            .timeout(timeout)
             .connect_timeout(connect_timeout)
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -75,8 +72,8 @@ impl OllamaAdapter {
             api_base: api_base.unwrap_or_else(|| "http://localhost:11434".to_string()),
             default_max_tokens: max_tokens,
             default_temperature: temperature,
-            timeout_seconds,
-            connect_timeout_seconds,
+            generation_timeout,
+            connect_timeout,
         }
     }
 }
@@ -87,6 +84,8 @@ impl LlmAdapter for OllamaAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        use super::adapter::{read_body_with_generation_timeout, send_with_connection_timeout};
+
         let ollama_req = OllamaRequest {
             model: self.model.clone(),
             prompt: request.prompt,
@@ -98,21 +97,24 @@ impl LlmAdapter for OllamaAdapter {
             }),
         };
 
-        let response = self
-            .client
-            .post(format!("{}/api/generate", self.api_base))
-            .header("Content-Type", "application/json")
-            .json(&ollama_req)
-            .send()
-            .await?;
+        let response = send_with_connection_timeout(
+            self.client
+                .post(format!("{}/api/generate", self.api_base))
+                .header("Content-Type", "application/json")
+                .json(&ollama_req),
+            self.connect_timeout,
+        )
+        .await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
             return Err(format!("Ollama API error: {}", error_text).into());
         }
 
+        // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
+        let bytes = read_body_with_generation_timeout(response, self.generation_timeout).await?;
+
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
-        let bytes = response.bytes().await?;
         let ollama_resp: OllamaResponse =
             tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
                 .await

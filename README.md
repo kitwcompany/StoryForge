@@ -8,13 +8,15 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.11.7-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.12.0-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.11.7 紧急修复两大问题：
-1. **候选生成仍串行挂起**：代码层强制并行并忽略旧配置 `candidate_local_sequential=true`，单个候选超时硬上限本地 60s / 远程 120s，失败候选不再阻塞其他候选；
-2. **还没打字就自动进入运行进程**：`get_input_hint` 移除 LLM 调用，仅返回规则建议，避免聚焦输入框时产生后台活动并禁用输入框。
-同时保留 v0.11.6 的修复：启动时不再自动恢复 workflow 实例、`capability_evolution` 完全禁用。完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)。
+**最新动态**：v0.12.0 针对「智能创作无处不在的卡顿、生成无输出」进行系统性性能重构：
+1. **后端生成链路止血**：本地/局域网模型默认单候选 + 全局并发限流，候选总超时硬上限 90s；LLM 连接/生成超时拆分；上下文准备、SQLite 高频路径 spawn_blocking 化；全局 Mutex 替换为 OnceLock/RwLock。
+2. **前端响应与大数据量优化**：生成状态精确显示 + 可靠取消；移除高频心跳；场景/章节分页加载；sync-event 批量失效；文思分析移入 Web Worker；RichTextEditor HTML 序列化节流。
+3. **架构级重构**：统一 `generation-status` 事件；知识图谱 viewport 裁剪 + LOD；Agent 编排结构化 trace；后台 Ingest 任务 Semaphore + 取消令牌；引入 `tiktoken-rs` 真实 tokenizer 与上下文预算。
+
+完整报告见 [`CHANGELOG.md`](./CHANGELOG.md)，修复计划见 [`PERFORMANCE_FIX_PLAN.md`](./PERFORMANCE_FIX_PLAN.md)，阶段验证报告见 `QA-Stage1-report.md`、`QA-Stage2-report.md`、`QA-Stage3-report.md`。
 
 ---
 

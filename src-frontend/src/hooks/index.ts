@@ -6,8 +6,21 @@ export {
   useUpdateCharacter,
   useDeleteCharacter,
 } from './useCharacters';
-export { useChapters, useCreateChapter, useUpdateChapter, useDeleteChapter } from './useChapters';
-export { useScenes, useScene, useCreateScene, useUpdateScene, useDeleteScene } from './useScenes';
+export {
+  useChapters,
+  useChaptersPaged,
+  useCreateChapter,
+  useUpdateChapter,
+  useDeleteChapter,
+} from './useChapters';
+export {
+  useScenes,
+  useScenesPaged,
+  useScene,
+  useCreateScene,
+  useUpdateScene,
+  useDeleteScene,
+} from './useScenes';
 export {
   useSceneVersions,
   useSceneVersion,

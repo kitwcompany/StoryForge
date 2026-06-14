@@ -13,10 +13,8 @@ pub struct OpenAiAdapter {
     api_base: String,
     default_max_tokens: i32,
     default_temperature: f32,
-    #[allow(dead_code)]
-    timeout_seconds: u64,
-    #[allow(dead_code)]
-    connect_timeout_seconds: u64,
+    generation_timeout: std::time::Duration,
+    connect_timeout: std::time::Duration,
 }
 
 #[derive(Debug, Serialize)]
@@ -96,7 +94,7 @@ impl OpenAiAdapter {
         timeout_seconds: u64,
         connect_timeout_seconds: u64,
     ) -> Self {
-        let timeout = if timeout_seconds > 0 {
+        let generation_timeout = if timeout_seconds > 0 {
             Duration::from_secs(timeout_seconds)
         } else {
             Duration::from_secs(300)
@@ -106,8 +104,9 @@ impl OpenAiAdapter {
         } else {
             Duration::from_secs(10)
         };
+        // v0.11.8: 不再设置 reqwest 全局 timeout；由 generate 内部分阶段控制
+        // 连接超时与生成超时，并在读取流时按 chunk 刷新计时器。
         let client = Client::builder()
-            .timeout(timeout)
             .connect_timeout(connect_timeout)
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -118,8 +117,8 @@ impl OpenAiAdapter {
             api_base: api_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             default_max_tokens: max_tokens,
             default_temperature: temperature,
-            timeout_seconds,
-            connect_timeout_seconds,
+            generation_timeout,
+            connect_timeout,
         }
     }
 
@@ -154,6 +153,8 @@ impl LlmAdapter for OpenAiAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        use super::adapter::{read_body_with_generation_timeout, send_with_connection_timeout};
+
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
             messages: self.build_messages(request.prompt),
@@ -164,25 +165,30 @@ impl LlmAdapter for OpenAiAdapter {
             presence_penalty: request.presence_penalty,
         };
 
-        let mut response = self
-            .client
-            .post(format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&openai_req)
-            .send()
-            .await?;
+        let primary_url = format!("{}/chat/completions", self.api_base);
+        let fallback_url = format!("{}/v1/chat/completions", self.api_base);
+
+        let mut response = send_with_connection_timeout(
+            self.client
+                .post(&primary_url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&openai_req),
+            self.connect_timeout,
+        )
+        .await?;
 
         // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            response = self
-                .client
-                .post(format!("{}/v1/chat/completions", self.api_base))
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
-                .json(&openai_req)
-                .send()
-                .await?;
+            response = send_with_connection_timeout(
+                self.client
+                    .post(&fallback_url)
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&openai_req),
+                self.connect_timeout,
+            )
+            .await?;
         }
 
         if !response.status().is_success() {
@@ -190,8 +196,10 @@ impl LlmAdapter for OpenAiAdapter {
             return Err(format!("OpenAI API error: {}", error_text).into());
         }
 
+        // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
+        let bytes = read_body_with_generation_timeout(response, self.generation_timeout).await?;
+
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
-        let bytes = response.bytes().await?;
         let openai_resp: OpenAiResponse =
             tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
                 .await

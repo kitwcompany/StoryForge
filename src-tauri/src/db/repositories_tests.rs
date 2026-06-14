@@ -463,6 +463,56 @@ mod tests {
         assert_eq!(chapters[1].chapter_number, 3);
     }
 
+    #[test]
+    fn test_chapter_get_by_story_paged_excludes_large_fields() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let chapter_repo = ChapterRepository::new(pool);
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "分页测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+            })
+            .unwrap();
+
+        for i in 1..=3 {
+            chapter_repo
+                .create(CreateChapterRequest {
+                    story_id: story.id.clone(),
+                    chapter_number: i,
+                    title: Some(format!("第{}章", i)),
+                    outline: Some(format!("大纲{}", i)),
+                    content: Some(format!("正文{}", i)),
+                })
+                .unwrap();
+        }
+
+        let paged = chapter_repo.get_by_story_paged(&story.id, 2, 0).unwrap();
+        assert_eq!(paged.len(), 2);
+        assert_eq!(paged[0].chapter_number, 1);
+        assert_eq!(paged[0].title, Some("第1章".to_string()));
+        assert_eq!(paged[0].content, None);
+        assert_eq!(paged[0].outline, None);
+
+        let second_page = chapter_repo.get_by_story_paged(&story.id, 2, 2).unwrap();
+        assert_eq!(second_page.len(), 1);
+        assert_eq!(second_page[0].chapter_number, 3);
+
+        assert_eq!(chapter_repo.count_by_story(&story.id).unwrap(), 3);
+        // "正文1" + "正文2" + "正文3" = 3 * 3 = 9 chars
+        assert_eq!(
+            chapter_repo
+                .total_content_length_by_story(&story.id)
+                .unwrap(),
+            9
+        );
+    }
+
     // ==================== SceneRepository ====================
 
     #[test]
@@ -765,5 +815,105 @@ mod tests {
         assert_eq!(scene.narrative_following_scene_id, None);
         assert_eq!(scene.act_number, Some(2));
         assert_eq!(scene.position_in_act, Some(0));
+    }
+
+    #[test]
+    fn test_scene_get_by_story_paged_excludes_large_fields() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "场景分页测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+            })
+            .unwrap();
+
+        let scene = scene_repo.create(&story.id, 1, Some("场景1")).unwrap();
+        scene_repo
+            .update(
+                &scene.id,
+                &SceneUpdate {
+                    content: Some("场景正文".to_string()),
+                    outline_content: Some("大纲内容".to_string()),
+                    draft_content: Some("草稿内容".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let paged = scene_repo.get_by_story_paged(&story.id, 5, 0).unwrap();
+        assert_eq!(paged.len(), 1);
+        assert_eq!(paged[0].title, Some("场景1".to_string()));
+        assert_eq!(paged[0].content, None);
+        assert_eq!(paged[0].outline_content, None);
+        assert_eq!(paged[0].draft_content, None);
+
+        assert_eq!(scene_repo.count_by_story(&story.id).unwrap(), 1);
+        assert_eq!(
+            scene_repo.total_content_length_by_story(&story.id).unwrap(),
+            4
+        );
+    }
+
+    #[test]
+    fn test_scene_total_content_length_matches_scene_contents() {
+        // B5 Stage2: 验证 get_story_word_count 底层聚合与场景 content 长度一致
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "字数统计测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+            })
+            .unwrap();
+
+        let contents = ["第一段场景内容。", "第二段更长一些的场景内容。", ""];
+        for (i, content) in contents.iter().enumerate() {
+            let scene = scene_repo
+                .create(&story.id, (i + 1) as i32, Some(&format!("场景{}", i + 1)))
+                .unwrap();
+            if !content.is_empty() {
+                scene_repo
+                    .update(
+                        &scene.id,
+                        &SceneUpdate {
+                            content: Some(content.to_string()),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+
+        // SQLite LENGTH 返回字符数，因此测试期望也用 chars().count()
+        let expected_total: i64 = contents.iter().map(|c| c.chars().count() as i64).sum();
+        assert_eq!(
+            scene_repo.total_content_length_by_story(&story.id).unwrap(),
+            expected_total
+        );
+        assert_eq!(scene_repo.count_by_story(&story.id).unwrap(), 3);
+
+        // 删除一个场景后聚合结果应同步减少
+        let scenes = scene_repo.get_by_story(&story.id).unwrap();
+        let to_delete = scenes.iter().find(|s| s.sequence_number == 2).unwrap();
+        scene_repo.delete(&to_delete.id).unwrap();
+
+        assert_eq!(
+            scene_repo.total_content_length_by_story(&story.id).unwrap(),
+            expected_total - contents[1].chars().count() as i64
+        );
+        assert_eq!(scene_repo.count_by_story(&story.id).unwrap(), 2);
     }
 }

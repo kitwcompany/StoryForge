@@ -8,7 +8,7 @@
 
 use rusqlite::params;
 
-use super::tokenizer::CJKTokenizer;
+use super::tokenizer::{count_tokens, CJKTokenizer};
 use crate::{db::models::Entity, embeddings::embedding::embed_text_async};
 
 /// 查询管道
@@ -30,6 +30,8 @@ pub struct BudgetConfig {
     pub context_budget_pct: f32,
     /// 组装预算比例 (15%)
     pub assembly_budget_pct: f32,
+    /// 用于 token 计数的模型 family（默认 cl100k_base 兼容族）
+    pub model_family: String,
 }
 
 impl Default for BudgetConfig {
@@ -40,6 +42,7 @@ impl Default for BudgetConfig {
             graph_budget_pct: 0.20,
             context_budget_pct: 0.05,
             assembly_budget_pct: 0.15,
+            model_family: "cl100k".to_string(),
         }
     }
 }
@@ -339,7 +342,7 @@ impl QueryPipeline {
 
         // 优先选择搜索结果的Top-K
         for result in search_results.iter().take(10) {
-            let cost = result.content.len();
+            let cost = count_tokens(&result.content, &self.budget_config.model_family);
             if used_budget + cost > search_budget {
                 break;
             }
@@ -373,7 +376,7 @@ impl QueryPipeline {
                     .and_then(|v| v.as_str())
                     .unwrap_or("无描述")
             );
-            let cost = entity_desc.len();
+            let cost = count_tokens(&entity_desc, &self.budget_config.model_family);
 
             if used_budget + cost <= search_budget + graph_budget {
                 selected.push(SelectedContext {
@@ -399,7 +402,7 @@ impl QueryPipeline {
                         .and_then(|v| v.as_str())
                         .unwrap_or("无描述")
                 );
-                let cost = related_desc.len();
+                let cost = count_tokens(&related_desc, &self.budget_config.model_family);
 
                 if used_budget + cost <= search_budget + graph_budget {
                     selected.push(SelectedContext {
@@ -431,7 +434,7 @@ impl QueryPipeline {
 
         for item in selected {
             let part = format!("[{}] {}\n", item.citation_number, item.content);
-            total_tokens += part.len();
+            total_tokens += count_tokens(&part, &self.budget_config.model_family);
 
             context_parts.push(part);
 

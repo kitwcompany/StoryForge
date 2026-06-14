@@ -11,6 +11,8 @@ import ReactFlow, {
   Edge,
   MarkerType,
   Panel,
+  useViewport,
+  useStore,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { Entity, Relation, EntityType } from '@/types/v3';
@@ -47,6 +49,20 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   Event: '事件',
   PlotDevice: ' plot装置',
 };
+
+// C1: 图谱虚拟化/LOD 阈值
+const NODE_LOD_THRESHOLD = 200;
+const MINIMAP_THRESHOLD = 200;
+const VIEWPORT_BUFFER_PX = 200;
+
+// C1: 轻量浅比较，替代 reactflow 未导出的 zustand shallow
+function shallow<T extends Record<string, unknown>>(a: T, b: T): boolean {
+  if (a === b) return true;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every(key => a[key] === b[key]);
+}
 
 function calculateLayout(entities: Entity[], relations: Relation[]) {
   const nodeMap = new Map<string, Node>();
@@ -139,6 +155,32 @@ function calculateLayout(entities: Entity[], relations: Relation[]) {
   return { nodes: Array.from(nodeMap.values()), edges };
 }
 
+// C1: 计算节点重要性（关系数 + 类型权重），用于 LOD 分层
+function computeEntityImportance(entities: Entity[], relations: Relation[]): Map<string, number> {
+  const relationCounts = new Map<string, number>();
+  relations.forEach(r => {
+    relationCounts.set(r.source_id, (relationCounts.get(r.source_id) || 0) + 1);
+    relationCounts.set(r.target_id, (relationCounts.get(r.target_id) || 0) + 1);
+  });
+
+  const typePriority: Record<EntityType, number> = {
+    Character: 100,
+    Event: 80,
+    Organization: 60,
+    Location: 40,
+    Concept: 30,
+    Item: 20,
+    PlotDevice: 50,
+  };
+
+  const scores = new Map<string, number>();
+  entities.forEach(e => {
+    const count = relationCounts.get(e.id) || 0;
+    scores.set(e.id, count * 10 + (typePriority[e.entity_type] || 0));
+  });
+  return scores;
+}
+
 const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   entities,
   relations,
@@ -159,7 +201,15 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   const [editName, setEditName] = useState('');
   const [editAttributes, setEditAttributes] = useState<[string, string][]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  // C1: LOD 分层显示开关
+  const [showAllNodes, setShowAllNodes] = useState(false);
   const { fitView } = useReactFlow();
+  // C1: 获取当前 viewport 用于视口外裁剪
+  const { x, y, zoom } = useViewport();
+  const { width, height } = useStore(
+    s => ({ width: s.width, height: s.height }),
+    shallow
+  );
 
   const filteredEntities = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
@@ -168,20 +218,55 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
     );
   }, [entities, searchQuery, visibleTypes]);
 
+  // C1: LOD 分层——超过阈值时默认只显示高重要性节点
+  const lodEntities = useMemo(() => {
+    if (showAllNodes || filteredEntities.length <= NODE_LOD_THRESHOLD) {
+      return filteredEntities;
+    }
+    const importance = computeEntityImportance(filteredEntities, relations);
+    const sorted = [...filteredEntities].sort((a, b) => {
+      const scoreA = importance.get(a.id) || 0;
+      const scoreB = importance.get(b.id) || 0;
+      return scoreB - scoreA;
+    });
+    return sorted.slice(0, NODE_LOD_THRESHOLD);
+  }, [filteredEntities, relations, showAllNodes]);
+
   const filteredRelations = useMemo(() => {
-    const visibleIds = new Set(filteredEntities.map(e => e.id));
+    const visibleIds = new Set(lodEntities.map(e => e.id));
     return relations.filter(r => visibleIds.has(r.source_id) && visibleIds.has(r.target_id));
-  }, [filteredEntities, relations]);
+  }, [lodEntities, relations]);
 
   const layout = useMemo(
-    () => calculateLayout(filteredEntities, filteredRelations),
-    [filteredEntities, filteredRelations]
+    () => calculateLayout(lodEntities, filteredRelations),
+    [lodEntities, filteredRelations]
   );
 
+  // C1: 视口外裁剪（带缓冲区），在 onlyRenderVisibleElements 之上再做一层预过滤
+  const visibleNodes = useMemo(() => {
+    if (!width || !height || zoom <= 0) return layout.nodes;
+    const buffer = VIEWPORT_BUFFER_PX / zoom;
+    const minX = -x / zoom - buffer;
+    const maxX = (width - x) / zoom + buffer;
+    const minY = -y / zoom - buffer;
+    const maxY = (height - y) / zoom + buffer;
+
+    return layout.nodes.filter(n => {
+      const px = n.position.x;
+      const py = n.position.y;
+      return px >= minX && px <= maxX && py >= minY && py <= maxY;
+    });
+  }, [layout.nodes, x, y, zoom, width, height]);
+
+  const visibleEdges = useMemo(() => {
+    const visibleIds = new Set(visibleNodes.map(n => n.id));
+    return layout.edges.filter(e => visibleIds.has(e.source) && visibleIds.has(e.target));
+  }, [layout.edges, visibleNodes]);
+
   useEffect(() => {
-    setNodes(layout.nodes);
-    setEdges(layout.edges);
-  }, [layout, setNodes, setEdges]);
+    setNodes(visibleNodes);
+    setEdges(visibleEdges);
+  }, [visibleNodes, visibleEdges, setNodes, setEdges]);
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -277,6 +362,8 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   };
 
   const hiddenCount = entities.length - filteredEntities.length;
+  const lodHiddenCount = filteredEntities.length - lodEntities.length;
+  const showMiniMap = entities.length <= MINIMAP_THRESHOLD;
 
   return (
     <div className={cn('relative w-full h-full bg-cinema-950', className)}>
@@ -292,17 +379,21 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
+        // C1: 启用 ReactFlow 内置视口裁剪
+        onlyRenderVisibleElements
       >
         <Background color="#333" gap={20} size={1} />
         <Controls className="bg-cinema-900 border-cinema-800" />
-        <MiniMap
-          nodeColor={node => {
-            const type = (node.data?.entity as Entity)?.entity_type;
-            return type ? ENTITY_COLORS[type] : '#666';
-          }}
-          className="bg-cinema-900 border-cinema-800"
-          maskColor="rgba(0,0,0,0.5)"
-        />
+        {showMiniMap && (
+          <MiniMap
+            nodeColor={node => {
+              const type = (node.data?.entity as Entity)?.entity_type;
+              return type ? ENTITY_COLORS[type] : '#666';
+            }}
+            className="bg-cinema-900 border-cinema-800"
+            maskColor="rgba(0,0,0,0.5)"
+          />
+        )}
 
         {/* Legend Panel */}
         <Panel
@@ -323,12 +414,17 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
           </div>
           <div className="mt-3 pt-2 border-t border-cinema-800 text-xs text-gray-500">
             <p>
-              节点: {filteredEntities.length}
+              节点: {lodEntities.length}
               {hiddenCount > 0 && <span className="text-gray-600"> / {entities.length}</span>}
             </p>
             <p>关系: {filteredRelations.length}</p>
             {hiddenCount > 0 && (
               <p className="text-cinema-gold mt-1">已筛选隐藏 {hiddenCount} 个</p>
+            )}
+            {lodHiddenCount > 0 && (
+              <p className="text-cinema-gold mt-1">
+                LOD 已折叠 {lodHiddenCount} 个低重要性节点
+              </p>
             )}
           </div>
         </Panel>
@@ -414,6 +510,23 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
                     清空
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* C1: LOD 显示全部按钮 */}
+            {filteredEntities.length > NODE_LOD_THRESHOLD && (
+              <div className="pt-2 border-t border-cinema-800">
+                <button
+                  onClick={() => setShowAllNodes(s => !s)}
+                  className="w-full py-1.5 text-[11px] font-medium rounded-md border border-cinema-gold/30 bg-cinema-gold/10 text-cinema-gold hover:bg-cinema-gold/20 transition-colors"
+                >
+                  {showAllNodes ? '仅显示高重要性节点' : `显示全部 ${filteredEntities.length} 个节点`}
+                </button>
+                {!showAllNodes && (
+                  <p className="text-[10px] text-gray-500 mt-1 text-center">
+                    默认按关系数与类型优先级显示前 {NODE_LOD_THRESHOLD} 个节点
+                  </p>
+                )}
               </div>
             )}
 

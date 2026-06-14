@@ -229,50 +229,7 @@ pub async fn create_story_with_wizard(
         "create_story_with_wizard",
         title
     );
-    let pool_ref = pool.inner().clone();
-
-    // === 事务 1: 核心要素持久化 ===
-    let (story, created_chars, scene) = {
-        let mut conn = pool_ref.get().map_err(|e| {
-            log::error!("[story_commands] Failed to get DB connection: {}", e);
-            AppError::from(rusqlite::Error::InvalidParameterName(e.to_string()))
-        })?;
-        let tx = conn.transaction().map_err(AppError::from)?;
-
-        let (story, _wb, created_chars, _ws, scene) = persist_wizard_elements_in_tx(
-            &tx,
-            pool_ref.clone(),
-            &title,
-            description.as_deref(),
-            genre.as_deref(),
-            style_dna_id.as_deref(),
-            genre_profile_id.as_deref(),
-            methodology_id.as_deref(),
-            &world_building,
-            &characters,
-            &writing_style,
-            &first_scene,
-        )
-        .map_err(|e| {
-            log::error!(
-                "[story_commands] {} element persistence failed: {}",
-                "create_story_with_wizard",
-                e
-            );
-            e
-        })?;
-
-        tx.commit().map_err(AppError::from)?;
-        (story, created_chars, scene)
-    };
-    let story_id = story.id.clone();
-    log::info!(
-        "[story_commands] {} steps 1-5 committed: story_id={}",
-        "create_story_with_wizard",
-        story_id
-    );
-
-    // === 步骤 6: 异步 Ingest ===
+    // A3: 提前组装 ingest 文本，原始 wizard 输入可随事务一起移入 spawn_blocking。
     let ingest_text = format!(
         "世界观：{}\n\n历史背景：{}\n\n角色设定：\n{}\n\n文字风格：{}\n\n首个场景：{}\n\n{}",
         world_building.concept,
@@ -287,6 +244,59 @@ pub async fn create_story_with_wizard(
         first_scene.content
     );
 
+    let pool_ref = pool.inner().clone();
+
+    // === 事务 1: 核心要素持久化 ===
+    let (story, created_chars, scene) = tokio::task::spawn_blocking(
+        move || -> Result<(Story, Vec<Character>, Scene), AppError> {
+            let mut conn = pool_ref.get().map_err(|e| {
+                log::error!("[story_commands] Failed to get DB connection: {}", e);
+                AppError::from(rusqlite::Error::InvalidParameterName(e.to_string()))
+            })?;
+            let tx = conn.transaction().map_err(AppError::from)?;
+
+            let (story, _wb, created_chars, _ws, scene) = persist_wizard_elements_in_tx(
+                &tx,
+                pool_ref.clone(),
+                &title,
+                description.as_deref(),
+                genre.as_deref(),
+                style_dna_id.as_deref(),
+                genre_profile_id.as_deref(),
+                methodology_id.as_deref(),
+                &world_building,
+                &characters,
+                &writing_style,
+                &first_scene,
+            )
+            .map_err(|e| {
+                log::error!(
+                    "[story_commands] {} element persistence failed: {}",
+                    "create_story_with_wizard",
+                    e
+                );
+                e
+            })?;
+
+            tx.commit().map_err(AppError::from)?;
+            Ok((story, created_chars, scene))
+        },
+    )
+    .await
+    .map_err(|e| {
+        AppError::from(format!(
+            "[create_story_with_wizard] spawn_blocking join error: {}",
+            e
+        ))
+    })??;
+    let story_id = story.id.clone();
+    log::info!(
+        "[story_commands] {} steps 1-5 committed: story_id={}",
+        "create_story_with_wizard",
+        story_id
+    );
+
+    // === 步骤 6: 异步 Ingest ===
     let llm_service = LlmService::new(app_handle.clone());
     let pipeline = IngestPipeline::new(llm_service)
         .with_pool(pool.inner().clone())
@@ -314,110 +324,135 @@ pub async fn create_story_with_wizard(
     );
 
     // === 事务 2: 保存 KG 数据 ===
-    let (saved_entities, saved_relations) = {
-        let mut conn2 = pool_ref
-            .get()
-            .map_err(|e| AppError::from(rusqlite::Error::InvalidParameterName(e.to_string())))?;
-        let tx2 = conn2.transaction().map_err(AppError::from)?;
-        let kg_repo = KnowledgeGraphRepository::new(pool_ref.clone());
+    let pool_ref2 = pool.inner().clone();
+    let story_id_for_kg = story_id.clone();
+    let (saved_entities, saved_relations) =
+        tokio::task::spawn_blocking(move || -> Result<(usize, usize), AppError> {
+            let mut conn2 = pool_ref2.get().map_err(|e| {
+                AppError::from(rusqlite::Error::InvalidParameterName(e.to_string()))
+            })?;
+            let tx2 = conn2.transaction().map_err(AppError::from)?;
+            let kg_repo = KnowledgeGraphRepository::new(pool_ref2.clone());
 
-        let mut saved_entities = 0usize;
-        for entity in &ingest_result.entities {
-            kg_repo
-                .create_entity_in_tx(
-                    &tx2,
-                    &story_id,
-                    &entity.name,
-                    &entity.entity_type.to_string(),
-                    &entity.attributes,
-                    entity.embedding.clone(),
-                )
-                .map_err(|e| {
-                    log::error!(
-                        "[story_commands] {} KG entity save failed: {}",
-                        "create_story_with_wizard",
-                        e
-                    );
-                    AppError::from(e)
-                })?;
-            saved_entities += 1;
-        }
-
-        let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result
-            .entities
-            .iter()
-            .map(|e| (e.name.clone(), e.id.clone()))
-            .collect();
-
-        let mut saved_relations = 0usize;
-        for relation in &ingest_result.relations {
-            if let (Some(source_id), Some(target_id)) = (
-                entity_name_to_id.get(&relation.source_id),
-                entity_name_to_id.get(&relation.target_id),
-            ) {
+            let mut saved_entities = 0usize;
+            for entity in &ingest_result.entities {
                 kg_repo
-                    .create_relation_in_tx(
+                    .create_entity_in_tx(
                         &tx2,
-                        &story_id,
-                        source_id,
-                        target_id,
-                        &relation.relation_type.to_string(),
-                        relation.strength,
+                        &story_id_for_kg,
+                        &entity.name,
+                        &entity.entity_type.to_string(),
+                        &entity.attributes,
+                        entity.embedding.clone(),
                     )
                     .map_err(|e| {
                         log::error!(
-                            "[story_commands] {} KG relation save failed: {}",
+                            "[story_commands] {} KG entity save failed: {}",
                             "create_story_with_wizard",
                             e
                         );
                         AppError::from(e)
                     })?;
-                saved_relations += 1;
+                saved_entities += 1;
             }
-        }
-        tx2.commit().map_err(AppError::from)?;
-        (saved_entities, saved_relations)
-    };
+
+            let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result
+                .entities
+                .iter()
+                .map(|e| (e.name.clone(), e.id.clone()))
+                .collect();
+
+            let mut saved_relations = 0usize;
+            for relation in &ingest_result.relations {
+                if let (Some(source_id), Some(target_id)) = (
+                    entity_name_to_id.get(&relation.source_id),
+                    entity_name_to_id.get(&relation.target_id),
+                ) {
+                    kg_repo
+                        .create_relation_in_tx(
+                            &tx2,
+                            &story_id_for_kg,
+                            source_id,
+                            target_id,
+                            &relation.relation_type.to_string(),
+                            relation.strength,
+                        )
+                        .map_err(|e| {
+                            log::error!(
+                                "[story_commands] {} KG relation save failed: {}",
+                                "create_story_with_wizard",
+                                e
+                            );
+                            AppError::from(e)
+                        })?;
+                    saved_relations += 1;
+                }
+            }
+            tx2.commit().map_err(AppError::from)?;
+            Ok((saved_entities, saved_relations))
+        })
+        .await
+        .map_err(|e| {
+            AppError::from(format!(
+                "[create_story_with_wizard] spawn_blocking join error: {}",
+                e
+            ))
+        })??;
 
     // 重新获取完整数据（因为 update 返回的是 usize）
-    let wb_repo = WorldBuildingRepository::new(pool_ref.clone());
-    let final_wb = wb_repo
-        .get_by_story(&story_id)
-        .map_err(|e| {
-            log::error!(
-                "[story_commands] {} final WB query failed: {}",
-                "create_story_with_wizard",
-                e
-            );
-            AppError::from(e)
-        })?
-        .ok_or_else(|| AppError::from("World building not found".to_string()))?;
+    let pool_ref3 = pool.inner().clone();
+    let scene_id = scene.id.clone();
+    let story_id_for_final = story_id.clone();
+    let (final_wb, final_ws, final_scene) = tokio::task::spawn_blocking(
+        move || -> Result<(WorldBuilding, WritingStyle, Scene), AppError> {
+            let wb_repo = WorldBuildingRepository::new(pool_ref3.clone());
+            let final_wb = wb_repo
+                .get_by_story(&story_id_for_final)
+                .map_err(|e| {
+                    log::error!(
+                        "[story_commands] {} final WB query failed: {}",
+                        "create_story_with_wizard",
+                        e
+                    );
+                    AppError::from(e)
+                })?
+                .ok_or_else(|| AppError::from("World building not found".to_string()))?;
 
-    let ws_repo = WritingStyleRepository::new(pool_ref.clone());
-    let final_ws = ws_repo
-        .get_by_story(&story_id)
-        .map_err(|e| {
-            log::error!(
-                "[story_commands] {} final WS query failed: {}",
-                "create_story_with_wizard",
-                e
-            );
-            AppError::from(e)
-        })?
-        .ok_or_else(|| AppError::from("Writing style not found".to_string()))?;
+            let ws_repo = WritingStyleRepository::new(pool_ref3.clone());
+            let final_ws = ws_repo
+                .get_by_story(&story_id_for_final)
+                .map_err(|e| {
+                    log::error!(
+                        "[story_commands] {} final WS query failed: {}",
+                        "create_story_with_wizard",
+                        e
+                    );
+                    AppError::from(e)
+                })?
+                .ok_or_else(|| AppError::from("Writing style not found".to_string()))?;
 
-    let scene_repo = SceneRepository::new(pool_ref.clone());
-    let final_scene = scene_repo
-        .get_by_id(&scene.id)
-        .map_err(|e| {
-            log::error!(
-                "[story_commands] {} final scene query failed: {}",
-                "create_story_with_wizard",
-                e
-            );
-            AppError::from(e)
-        })?
-        .ok_or_else(|| AppError::from("Scene not found".to_string()))?;
+            let scene_repo = SceneRepository::new(pool_ref3);
+            let final_scene = scene_repo
+                .get_by_id(&scene_id)
+                .map_err(|e| {
+                    log::error!(
+                        "[story_commands] {} final scene query failed: {}",
+                        "create_story_with_wizard",
+                        e
+                    );
+                    AppError::from(e)
+                })?
+                .ok_or_else(|| AppError::from("Scene not found".to_string()))?;
+            Ok((final_wb, final_ws, final_scene))
+        },
+    )
+    .await
+    .map_err(|e| {
+        AppError::from(format!(
+            "[create_story_with_wizard] spawn_blocking join error: {}",
+            e
+        ))
+    })??;
 
     log::info!(
         "[story_commands] {} completed successfully",

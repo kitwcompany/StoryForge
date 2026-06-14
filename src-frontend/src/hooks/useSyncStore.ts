@@ -402,19 +402,49 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
                 queryClient.invalidateQueries({ queryKey: ['models'] });
                 break;
               case 'all':
-              default:
-                queryClient.invalidateQueries({ queryKey: KEYS.stories });
-                queryClient.invalidateQueries({ queryKey: KEYS.scenes(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.characters(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.chapters(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.characterRelationships(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(storyId) });
-                queryClient.invalidateQueries({ queryKey: KEYS.storyTimeline(storyId) });
+              default: {
+                // B1: 合并 9 次独立 invalidateQueries 为一次 predicate 批量刷新，
+                // 减少 IPC/重渲染瀑布。若后端附带 affected_resources，只失效相关 key。
+                const RESOURCE_KEY_MAP: Record<string, string> = {
+                  stories: 'stories',
+                  scenes: 'scenes',
+                  characters: 'characters',
+                  chapters: 'chapters',
+                  worldBuilding: 'world_building',
+                  foreshadowings: 'foreshadowings',
+                  storyOutlines: 'story-outline',
+                  knowledgeGraph: 'knowledge-graph',
+                  characterRelationships: 'character-relationships',
+                  payoffLedger: 'payoff-ledger',
+                  storyTimeline: 'story-timeline',
+                };
+                const affectedResources = (payload as { affected_resources?: string[] })
+                  .affected_resources;
+                const resourcesToInvalidate =
+                  affectedResources && affectedResources.length > 0
+                    ? affectedResources.filter(r => r in RESOURCE_KEY_MAP)
+                    : Object.keys(RESOURCE_KEY_MAP);
+
+                if (resourcesToInvalidate.length > 0) {
+                  const targetPrefixes = new Map<string, string | undefined>();
+                  for (const r of resourcesToInvalidate) {
+                    // stories 为全局 key，不跟随 storyId 过滤；其余按 storyId 过滤
+                    targetPrefixes.set(RESOURCE_KEY_MAP[r], r === 'stories' ? undefined : storyId);
+                  }
+                  queryClient.invalidateQueries({
+                    predicate: query => {
+                      const key = query.queryKey;
+                      if (!Array.isArray(key) || key.length === 0) return false;
+                      const expectedStoryId = targetPrefixes.get(key[0]);
+                      if (expectedStoryId === undefined) {
+                        return targetPrefixes.has(key[0]);
+                      }
+                      return key[1] === expectedStoryId;
+                    },
+                  });
+                }
                 break;
+              }
             }
             optionsRef.current.onDataRefresh?.(storyId, resourceType);
             break;

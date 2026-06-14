@@ -1,14 +1,10 @@
 /**
- * useSyncStore.bug.spec.ts — v5.7 bugfix exploration
+ * useSyncStore.bug.spec.ts — v5.7 bugfix regression
  *
  * **Validates: Requirements 1.9** (frontend side of C_1_9)
  *
- * CRITICAL: 此测试在 **未修复** 代码上必须 PASS
- * —— "pass" 语义是"探索成功"（即 bug 确实存在）。
- * 修复 useSyncStore 后（Task 4.5），此测试应翻转为 FAIL。
- *
  * 对应 bug 条件:
- *   C_1_9 frontend: DataRefresh { resourceType: 'payoffLedger' }
+ *   C_1_9 frontend: DataRefresh { resource_type: 'payoffLedger' }
  *                   永远不会触发 invalidateQueries(['payoff-ledger', ...])
  */
 
@@ -93,7 +89,7 @@ function hasInvalidationForKey(keyPrefix: string): boolean {
 
 // v5.6.4: Bug condition fixed — payoffLedgerUpdated case added to useSyncStore
 describe('useSyncStore regression (C_1_9 frontend)', () => {
-  it('DataRefresh { resourceType: "payoffLedger" } invalidates ["payoff-ledger", ...]', async () => {
+  it('DataRefresh { resource_type: "payoffLedger" } invalidates ["payoff-ledger", ...]', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 1, maxLength: 32 }).filter((s: string) => !!s.trim()),
@@ -103,25 +99,91 @@ describe('useSyncStore regression (C_1_9 frontend)', () => {
 
           const { unmount } = renderHook(() => useSyncStore());
 
+          // SyncEvent dataRefresh payload 使用 snake_case 字段名
           await dispatchSyncEvent('dataRefresh', {
-            storyId,
-            resourceType: 'payoffLedger',
+            story_id: storyId,
+            resource_type: 'payoffLedger',
           });
 
           // 给事件 tick 一轮，确保 case 分支命中
           await new Promise(r => setTimeout(r, 0));
 
-          // 断言：修复后 case 'payoffLedger' 存在
-          // → 会 invalidate 'payoff-ledger' 前缀的 queryKey
+          // 断言：case 'payoffLedger' 会 invalidate 'payoff-ledger' 前缀的 queryKey
           const saw = hasInvalidationForKey('payoff-ledger');
 
           unmount();
 
-          // 期望 saw == true（bug 已修复）
           return saw;
         }
       ),
       { numRuns: 8 }
     );
+  });
+
+  it('DataRefresh { resource_type: "all" } batches invalidation into a single invalidateQueries call', async () => {
+    invalidateQueriesCalls.length = 0;
+    listeners.clear();
+
+    const { unmount } = renderHook(() => useSyncStore());
+
+    const storyId = 'story-all-refresh';
+    await dispatchSyncEvent('dataRefresh', {
+      story_id: storyId,
+      resource_type: 'all',
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    // B1 修复：all 分支应只发起一次 predicate invalidateQueries，而非多次独立 key 失效
+    expect(invalidateQueriesCalls.length).toBe(1);
+
+    const callArg = invalidateQueriesCalls[0][0] as { predicate?: (query: { queryKey: unknown[] }) => boolean };
+    expect(callArg.predicate).toBeTypeOf('function');
+
+    // predicate 应命中该 storyId 下的受控 key
+    const shouldMatch = [
+      ['scenes', storyId],
+      ['characters', storyId],
+      ['chapters', storyId],
+      ['world_building', storyId],
+      ['knowledge-graph', storyId],
+    ];
+    for (const key of shouldMatch) {
+      expect(callArg.predicate!({ queryKey: key })).toBe(true);
+    }
+
+    // 全局 key（如 stories）无 storyId 过滤，仍应命中
+    expect(callArg.predicate!({ queryKey: ['stories'] })).toBe(true);
+
+    // 其他 storyId 不应被该事件失效
+    expect(callArg.predicate!({ queryKey: ['scenes', 'other-story'] })).toBe(false);
+
+    unmount();
+  });
+
+  it('DataRefresh { resource_type: "all", affected_resources } only invalidates specified resources', async () => {
+    invalidateQueriesCalls.length = 0;
+    listeners.clear();
+
+    const { unmount } = renderHook(() => useSyncStore());
+
+    const storyId = 'story-affected';
+    await dispatchSyncEvent('dataRefresh', {
+      story_id: storyId,
+      resource_type: 'all',
+      affected_resources: ['scenes', 'knowledgeGraph'],
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(invalidateQueriesCalls.length).toBe(1);
+
+    const callArg = invalidateQueriesCalls[0][0] as { predicate?: (query: { queryKey: unknown[] }) => boolean };
+    expect(callArg.predicate).toBeTypeOf('function');
+
+    expect(callArg.predicate!({ queryKey: ['scenes', storyId] })).toBe(true);
+    expect(callArg.predicate!({ queryKey: ['knowledge-graph', storyId] })).toBe(true);
+    expect(callArg.predicate!({ queryKey: ['characters', storyId] })).toBe(false);
+    expect(callArg.predicate!({ queryKey: ['chapters', storyId] })).toBe(false);
+
+    unmount();
   });
 });

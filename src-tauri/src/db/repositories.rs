@@ -241,6 +241,121 @@ impl SceneRepository {
         Ok(scenes)
     }
 
+    /// 分页查询 story 下的场景列表（不返回 content / outline_content / draft_content 等大字段）。
+    pub fn get_by_story_paged(
+        &self,
+        story_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Scene>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, \
+             conflict_type,
+                    characters_present, character_conflicts, setting_location, setting_time, \
+             setting_atmosphere,
+                    previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, \
+             confidence_score,
+                    execution_stage, style_blend_override, foreshadowing_ids, chapter_id,
+                    narrative_intensity, narrative_sentiment, narrative_event_types, \
+             narrative_preceding_scene_id,
+                    narrative_following_scene_id, act_number, position_in_act
+             FROM scenes WHERE story_id = ?1 ORDER BY sequence_number LIMIT ?2 OFFSET ?3",
+        )?;
+
+        let scenes = stmt
+            .query_map(params![story_id, limit, offset], |row| {
+                let conflict_type_str: Option<String> = row.get(6)?;
+                let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+
+                let chars_json: String = row.get(7)?;
+                let characters_present: Vec<String> =
+                    serde_json::from_str(&chars_json).unwrap_or_default();
+
+                let conflicts_json: String = row.get(8)?;
+                let character_conflicts: Vec<CharacterConflict> =
+                    serde_json::from_str(&conflicts_json).unwrap_or_default();
+
+                let created_str: String = row.get(16)?;
+                let updated_str: String = row.get(17)?;
+                let confidence_score: Option<f32> = row.get(18)?;
+                let execution_stage: Option<String> = row.get(19)?;
+                let foreshadowing_ids: Option<Vec<String>> = row
+                    .get::<_, Option<String>>(21)?
+                    .and_then(|s: String| serde_json::from_str(&s).ok());
+
+                Ok(Scene {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    sequence_number: row.get(2)?,
+                    title: row.get(3)?,
+                    dramatic_goal: row.get(4)?,
+                    external_pressure: row.get(5)?,
+                    conflict_type,
+                    characters_present,
+                    character_conflicts,
+                    setting_location: row.get(9)?,
+                    setting_time: row.get(10)?,
+                    setting_atmosphere: row.get(11)?,
+                    content: None,
+                    previous_scene_id: row.get(12)?,
+                    next_scene_id: row.get(13)?,
+                    model_used: row.get(14)?,
+                    cost: row.get(15)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                    confidence_score,
+                    execution_stage,
+                    outline_content: None,
+                    draft_content: None,
+                    style_blend_override: row.get(20)?,
+                    foreshadowing_ids,
+                    chapter_id: row.get::<_, Option<String>>(22)?,
+                    narrative_intensity: row.get(23)?,
+                    narrative_sentiment: row.get(24)?,
+                    narrative_event_types: row.get(25)?,
+                    narrative_preceding_scene_id: row.get(26)?,
+                    narrative_following_scene_id: row.get(27)?,
+                    act_number: row.get(28)?,
+                    position_in_act: row.get(29)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(scenes)
+    }
+
+    /// 统计 story 下场景总数。
+    pub fn count_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM scenes WHERE story_id = ?1",
+            [story_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// 聚合 story 下所有场景 content 字段的总长度（用于总字数统计，避免全量 IPC）。
+    pub fn total_content_length_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let total: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM scenes WHERE story_id = ?1",
+            [story_id],
+            |row| row.get(0),
+        )?;
+        Ok(total)
+    }
+
     pub fn get_by_chapter(&self, chapter_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {
         let conn = self
             .pool
@@ -3584,6 +3699,48 @@ impl StyleDnaRepository {
         Ok(result)
     }
 
+    /// 批量按 ID 查询 StyleDNA，将多次单条查询合并为一次 SQL IN 查询。
+    pub fn get_many_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<super::models::StyleDNA>, rusqlite::Error> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
+             FROM style_dnas WHERE id IN ({}) ORDER BY name ASC",
+            placeholders
+        );
+
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(&sql)?;
+
+        let dnas = stmt
+            .query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+                let is_builtin: i32 = row.get(4)?;
+                let is_user_created: i32 = row.get(5)?;
+                let created_str: String = row.get(6)?;
+                Ok(super::models::StyleDNA {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    author: row.get(2)?,
+                    dna_json: row.get(3)?,
+                    is_builtin: is_builtin != 0,
+                    is_user_created: is_user_created != 0,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(dnas)
+    }
+
     pub fn get_all(&self) -> Result<Vec<super::models::StyleDNA>, rusqlite::Error> {
         let conn = self
             .pool
@@ -5602,6 +5759,74 @@ impl ChapterRepository {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(chapters)
+    }
+
+    /// 分页查询 story 下的章节列表（不返回 content / outline 等大字段）。
+    pub fn get_by_story_paged(
+        &self,
+        story_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Chapter>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, chapter_number, title, word_count, model_used, cost, created_at, \
+             updated_at
+             FROM chapters WHERE story_id = ?1 ORDER BY chapter_number LIMIT ?2 OFFSET ?3",
+        )?;
+
+        let chapters = stmt
+            .query_map(params![story_id, limit, offset], |row| {
+                let created_str: String = row.get(7)?;
+                let updated_str: String = row.get(8)?;
+                Ok(Chapter {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    chapter_number: row.get(2)?,
+                    title: row.get(3)?,
+                    outline: None,
+                    content: None,
+                    word_count: row.get(4)?,
+                    model_used: row.get(5)?,
+                    cost: row.get(6)?,
+                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(chapters)
+    }
+
+    /// 统计 story 下章节总数。
+    pub fn count_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM chapters WHERE story_id = ?1",
+            [story_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// 聚合 story 下所有章节 content 字段的总长度（用于总字数统计，避免全量 IPC）。
+    pub fn total_content_length_by_story(&self, story_id: &str) -> Result<i64, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let total: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chapters WHERE story_id = ?1",
+            [story_id],
+            |row| row.get(0),
+        )?;
+        Ok(total)
     }
 
     pub fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {

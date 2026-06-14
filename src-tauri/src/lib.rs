@@ -17,6 +17,7 @@ mod creative_engine;
 mod db;
 pub(crate) mod embeddings;
 mod error;
+mod events;
 mod evolution;
 mod export;
 mod intent;
@@ -70,10 +71,11 @@ use tauri::Manager;
 // use collab::websocket::WebSocketServer;
 
 // GLOBAL: DB_POOL — 数据库连接池全局访问点。
-// SAFETY: 仅在 setup() 中初始化一次，之后只读访问。Mutex 用于 Lazy
-// 初始化，不是频繁锁竞争。 NOTE: 理想情况下应通过 Tauri State
-// 注入，但当前大量模块直接调用 get_pool()，保留为过渡期全局。
-static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
+// SAFETY: 仅在 setup() 中初始化一次，之后只读访问。使用 std::sync::OnceLock
+// 避免每次 get_pool() 都加全局 Mutex，初始化后可直接 clone。
+// NOTE: 理想情况下应通过 Tauri State 注入，但当前大量模块直接调用
+// get_pool()，保留为过渡期全局。
+static DB_POOL: std::sync::OnceLock<DbPool> = std::sync::OnceLock::new();
 
 // GLOBAL: APP_CONFIG — 应用配置全局访问点。
 // SAFETY: 在 setup() 中加载后极少变更。reload_config() 会写，但频率极低。
@@ -102,7 +104,7 @@ pub(crate) fn record_ai_operation(req: db::CreateAiOperationRequest) {
 }
 
 pub(crate) fn get_pool() -> Option<DbPool> {
-    DB_POOL.lock().unwrap().clone()
+    DB_POOL.get().cloned()
 }
 /// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
 fn graceful_shutdown(app_handle: &tauri::AppHandle) {
@@ -569,7 +571,9 @@ pub fn run() {
                 Ok(pool) => {
                     log::info!("Database initialized successfully");
                     app.manage(pool.clone());
-                    *DB_POOL.lock().unwrap() = Some(pool);
+                    if DB_POOL.set(pool).is_err() {
+                        log::warn!("[Setup] DB_POOL already initialized");
+                    }
                 }
                 Err(e) => {
                     log::error!("Failed to initialize database: {}", e);

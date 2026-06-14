@@ -158,6 +158,7 @@ fn build_llm_profile(
         model: config.model.clone(),
         api_key: config.api_key.clone().unwrap_or_default(),
         api_base: config.api_base.clone(),
+        is_local_model: false,
         max_tokens: config.max_tokens.unwrap_or(2000),
         temperature: normalize_temperature(config.temperature.unwrap_or(0.7)),
         top_p: config.top_p.map(|v| v.clamp(0.0, 1.0)),

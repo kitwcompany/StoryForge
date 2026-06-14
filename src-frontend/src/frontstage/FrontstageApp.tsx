@@ -25,6 +25,8 @@ import { useAppStore } from '@/stores/appStore';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import { useSettings, useModels } from '@/hooks/useSettings';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
+import { useGenerationStore } from '@/stores/generationStore';
+import { useBootstrapStore } from '@/stores/bootstrapStore';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Scene } from '@/types/v3';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -75,6 +77,20 @@ interface FrontstageEvent {
 }
 
 type WensiMode = 'off' | 'passive' | 'active';
+
+// B2: 分页初始窗口——章节加载当前章及前后各 1 章，场景加载当前及附近共 5 个
+const CHAPTERS_PAGE_SIZE = 3;
+const SCENES_PAGE_SIZE = 5;
+
+// A4-1.7: 智能创作精确阶段映射（组件外常量，避免 hook deps 警告）
+const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
+  { phase: '准备上下文', patterns: ['准备上下文', 'preparing_context', 'prepare_context', 'loading_context', '加载上下文', '读取故事', '读取章节'] },
+  { phase: '候选生成', patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选'] },
+  { phase: 'Inspector 审校', patterns: ['inspector', '质检', 'inspect', 'inspection', 'review', '审校'] },
+  { phase: '改写', patterns: ['改写', 'rewrite', 'rewriting', 'revise', '润色'] },
+  { phase: '最终输出', patterns: ['最终输出', 'final_output', 'finalize', '最终', 'final output'] },
+  { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
+];
 
 const FrontstageApp: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
@@ -139,28 +155,29 @@ const FrontstageApp: React.FC = () => {
     // v5.4.0: 监听 scene 变更（幕后修改后同步到幕前 scenes 列表）
     onSceneCreated: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryScenes(storyId);
+        loadStoryScenes(storyId).then(() => loadStoryWordCount(storyId));
       }
     },
     onSceneUpdated: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryScenes(storyId);
+        loadStoryScenes(storyId).then(() => loadStoryWordCount(storyId));
       }
     },
     onSceneDeleted: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryScenes(storyId);
+        loadStoryScenes(storyId).then(() => loadStoryWordCount(storyId));
       }
     },
     // v5.4.0: 监听 chapter 创建/删除（幕后增删章节后同步幕前列表）
     onChapterCreated: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryChapters(storyId);
+        loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
       }
     },
     onChapterDeleted: () => {
       if (currentStory) {
-        loadStoryChapters(currentStory.id);
+        const storyId = currentStory.id;
+        loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
       }
     },
     // v5.2.0: 监听 chapter 更新（幕后修改后同步到幕前）
@@ -196,24 +213,19 @@ const FrontstageApp: React.FC = () => {
     },
   });
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationStatus, setGenerationStatus] = useState('');
-  const [orchestratorStatus, setOrchestratorStatus] = useState<{
-    stepType: string;
-    loopIdx?: number;
-    score?: number;
-    message: string;
-    detail?: string;
-  } | null>(null);
+  // B1: 高频生成状态迁移到独立 Zustand store，避免单点重渲染
+  const isGenerating = useGenerationStore(s => s.isGenerating);
+  const generationStatus = useGenerationStore(s => s.generationStatus);
+  const orchestratorStatus = useGenerationStore(s => s.orchestratorStatus);
+  const bootstrapProgress = useBootstrapStore(s => s.bootstrapProgress);
+  const setIsGenerating = useGenerationStore(s => s.setIsGenerating);
+  const setGenerationStatus = useGenerationStore(s => s.setGenerationStatus);
+  const setOrchestratorStatus = useGenerationStore(s => s.setOrchestratorStatus);
+  const setBootstrapProgress = useBootstrapStore(s => s.setBootstrapProgress);
 
-  // Bootstrap 进度
-  const [bootstrapProgress, setBootstrapProgress] = useState<{
-    stepName: string;
-    stepNumber: number;
-    totalSteps: number;
-    message: string;
-    status: string;
-  } | null>(null);
+  // B1: 全文字数状态；输入时基于当前章节字数增量 diff 更新，避免每次渲染全量 reduce
+  const [totalWordCount, setTotalWordCount] = useState(0);
+  const currentChapterPrevWordCountRef = useRef(0);
 
   // v5.3.0: 大阶段实时提示 — 保存当前大阶段，避免底部状态栏闪烁
   const currentToastPhaseRef = useRef<string | null>(null);
@@ -269,6 +281,25 @@ const FrontstageApp: React.FC = () => {
   /** 将细粒度步骤名映射为大阶段提示文案 */
   const getMajorPhase = useCallback((stepName: string): { icon: string; text: string } | null => {
     const s = stepName.toLowerCase();
+    // A4-1.7: 统一精确阶段映射
+    if (s.includes('准备上下文')) {
+      return { icon: '📂', text: '准备上下文...' };
+    }
+    if (s.includes('候选生成')) {
+      return { icon: '✍️', text: '候选生成...' };
+    }
+    if (s.includes('inspector 审校') || s.includes('审校')) {
+      return { icon: '🔍', text: 'Inspector 审校...' };
+    }
+    if (s.includes('改写')) {
+      return { icon: '✏️', text: '改写...' };
+    }
+    if (s.includes('最终输出')) {
+      return { icon: '📤', text: '最终输出...' };
+    }
+    if (s.includes('保存记忆')) {
+      return { icon: '💾', text: '保存记忆...' };
+    }
     if (
       s.includes('构思') ||
       s.includes('概念') ||
@@ -444,57 +475,81 @@ const FrontstageApp: React.FC = () => {
   // AI 学习指示器
 
   const editorRef = useRef<RichTextEditorRef>(null);
-  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // A4-1.9: 打字机效果改为 requestAnimationFrame 驱动
+  const typewriterFrameRef = useRef<number | null>(null);
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
-  // 生成任务计时器：记录开始时间 + 定时更新运行时长显示
+  // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
-  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // A4-1.8: 最新内容 ref，供防抖后的自动保存读取，避免在输入关键路径创建大对象
+  const latestContentRef = useRef<string>('');
+  // A4-1.8: notify_backstage_content_changed 节流定时器
+  const notifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 备用机制：记录最后收到事件的时间，如果10秒内无新事件则显示提示
   const lastEventTimeRef = useRef<number>(Date.now());
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // C1: 记录最近一次收到统一生成状态事件的时间，用于跳过重叠的旧事件
+  const lastGenerationStatusAtRef = useRef<number>(0);
 
-  // 辅助函数：启动运行时长计时器
-  const startElapsedTimer = useCallback(() => {
-    generationStartTimeRef.current = Date.now();
-    lastEventTimeRef.current = Date.now();
-    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-    elapsedTimerRef.current = setInterval(() => {
-      const elapsed = generationStartTimeRef.current
-        ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
-        : 0;
-      setGenerationStatus(prev => {
-        // 保留原有的状态前缀，只更新后面的时间部分
-        const base = cleanStatusBase(prev) || 'AI 正在处理中';
-        return `${base} (${elapsed}s)`;
-      });
-    }, 1000);
-    // 启动备用提示定时器：每10秒检查一次是否有新事件
-    if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
-    fallbackTimerRef.current = setInterval(() => {
+  // A4-1.7: 根据生成开始时间计算已用秒数
+  const getElapsedSeconds = useCallback(() => {
+    return generationStartTimeRef.current
+      ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
+      : 0;
+  }, []);
+
+  // A4-1.7: 将基础文案与已用时间拼接（避免重复追加时间后缀）
+  const formatStatusWithElapsed = useCallback(
+    (base: string) => {
+      const cleanBase = cleanStatusBase(base) || 'AI 正在处理中';
+      const elapsed = getElapsedSeconds();
+      return elapsed > 0 ? `${cleanBase} (${elapsed}s)` : cleanBase;
+    },
+    [cleanStatusBase, getElapsedSeconds]
+  );
+
+  const mapPrecisePhase = useCallback((raw: string | undefined): string | null => {
+    if (!raw) return null;
+    const s = raw.toLowerCase();
+    for (const { phase, patterns } of PRECISE_PHASE_PATTERNS) {
+      if (patterns.some(p => s.includes(p.toLowerCase()))) {
+        return phase;
+      }
+    }
+    return null;
+  }, []);
+
+  // C1: 判断旧版重叠事件是否应被跳过（统一事件已覆盖）
+  const shouldSkipOverlappingEvent = useCallback(() => {
+    return Date.now() - lastGenerationStatusAtRef.current < 1000;
+  }, []);
+
+  // A4-1.9: 备用提示使用单次 setTimeout，由事件触发时重置，避免周期性 setInterval
+  const scheduleFallbackPrompt = useCallback(() => {
+    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+    fallbackTimerRef.current = setTimeout(() => {
       const sinceLastEvent = Date.now() - lastEventTimeRef.current;
       if (sinceLastEvent > 10000) {
         setGenerationStatus(prev => {
           // 如果已经有模型生成中的提示，不要覆盖
           if (prev.includes('正在生成中') || prev.includes('等待响应')) return prev;
-          const base = cleanStatusBase(prev) || 'AI 正在处理中';
-          const elapsed = generationStartTimeRef.current
-            ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
-            : 0;
-          return `${base}（系统仍在处理中...） (${elapsed}s)`;
+          return formatStatusWithElapsed('AI 正在处理中（系统仍在处理中...）');
         });
       }
     }, 10000);
-  }, [cleanStatusBase]);
+  }, [formatStatusWithElapsed]);
+
+  // 辅助函数：启动运行时长计时器
+  const startElapsedTimer = useCallback(() => {
+    generationStartTimeRef.current = Date.now();
+    lastEventTimeRef.current = Date.now();
+    scheduleFallbackPrompt();
+  }, [scheduleFallbackPrompt]);
 
   // 辅助函数：停止运行时长计时器
   const stopElapsedTimer = useCallback(() => {
-    if (elapsedTimerRef.current) {
-      clearInterval(elapsedTimerRef.current);
-      elapsedTimerRef.current = null;
-    }
     if (fallbackTimerRef.current) {
-      clearInterval(fallbackTimerRef.current);
+      clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
     }
     generationStartTimeRef.current = null;
@@ -503,7 +558,35 @@ const FrontstageApp: React.FC = () => {
   // 辅助函数：更新最后收到事件的时间
   const updateLastEventTime = useCallback(() => {
     lastEventTimeRef.current = Date.now();
-  }, []);
+    scheduleFallbackPrompt();
+  }, [scheduleFallbackPrompt]);
+
+  // C1: 处理统一生成状态事件，更新底部状态栏与 orchestratorStatus
+  const handleGenerationStatus = useCallback(
+    (p: {
+      phase: string;
+      progress: number;
+      message: string;
+      elapsed_ms: number;
+      task_id: string;
+      request_id?: string | null;
+    }) => {
+      lastGenerationStatusAtRef.current = Date.now();
+      updateLastEventTime();
+      const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
+      const message = precise || p.message;
+      setGenerationStatus(formatStatusWithElapsed(message));
+      setOrchestratorStatus({
+        stepType: p.phase,
+        loopIdx: undefined,
+        score: p.progress,
+        message,
+        detail: p.request_id || undefined,
+      });
+      updateGenerationPhase(message);
+    },
+    [formatStatusWithElapsed, mapPrecisePhase, updateGenerationPhase, updateLastEventTime]
+  );
 
   // W2-F2: 监听编辑器配置变化（同步幕后设置到幕前），替代 editor-config-changed DOM CustomEvent
   const editorConfig = useAppStore(state => state.editorConfig);
@@ -523,9 +606,13 @@ const FrontstageApp: React.FC = () => {
     setupEventListeners(unlisteners);
     return () => {
       unlisteners.forEach(u => u());
-      if (typewriterIntervalRef.current) {
-        clearInterval(typewriterIntervalRef.current);
-        typewriterIntervalRef.current = null;
+      if (typewriterFrameRef.current) {
+        cancelAnimationFrame(typewriterFrameRef.current);
+        typewriterFrameRef.current = null;
+      }
+      if (notifyTimeoutRef.current) {
+        clearTimeout(notifyTimeoutRef.current);
+        notifyTimeoutRef.current = null;
       }
     };
   }, []);
@@ -533,6 +620,19 @@ const FrontstageApp: React.FC = () => {
   // Setup Tauri event listeners
   const setupEventListeners = async (unlisteners: (() => void)[]) => {
     try {
+      // C1: 监听统一生成状态事件（主要消费通道）
+      const unlistenGenerationStatus = await listen<{
+        phase: string;
+        progress: number;
+        message: string;
+        elapsed_ms: number;
+        task_id: string;
+        request_id?: string | null;
+      }>('generation-status', event => {
+        handleGenerationStatus(event.payload);
+      });
+      unlisteners.push(unlistenGenerationStatus);
+
       // 监听 frontstage-update 事件
       const unlisten1 = await listen<FrontstageEvent>('frontstage-update', event => {
         const { type, payload } = event.payload;
@@ -740,7 +840,7 @@ const FrontstageApp: React.FC = () => {
           message: p.message,
           status: p.status || 'running',
         });
-        setGenerationStatus(p.message);
+        setGenerationStatus(formatStatusWithElapsed(p.message));
         updateGenerationPhase(p.step_name);
         // v5.2.2 / v5.4.0: 区分即时阶段完成和后台阶段完成
         // GenesisPipeline 即时阶段 total_steps=2，后台阶段 total_steps=6
@@ -778,7 +878,8 @@ const FrontstageApp: React.FC = () => {
       }>('plan-generator-progress', event => {
         const p = event.payload;
         updateLastEventTime();
-        setGenerationStatus(p.message);
+        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message) || p.message;
+        setGenerationStatus(formatStatusWithElapsed(precise));
         updateGenerationPhase(p.stage);
       });
       unlisteners.push(unlisten4);
@@ -792,7 +893,8 @@ const FrontstageApp: React.FC = () => {
       }>('smart-execute-progress', event => {
         const p = event.payload;
         updateLastEventTime();
-        setGenerationStatus(p.message);
+        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message) || p.message;
+        setGenerationStatus(formatStatusWithElapsed(precise));
         updateGenerationPhase(p.stage);
       });
       unlisteners.push(unlisten5);
@@ -816,8 +918,9 @@ const FrontstageApp: React.FC = () => {
         if (p.step_id === '__complete__') {
           setGenerationStatus(p.message);
         } else if (p.status === 'running') {
-          setGenerationStatus(`${p.message} (${p.steps_completed + 1}/${p.total_steps})`);
-          updateGenerationPhase(p.message);
+          const precise = mapPrecisePhase(p.message) || p.message;
+          setGenerationStatus(formatStatusWithElapsed(`${precise} (${p.steps_completed + 1}/${p.total_steps})`));
+          updateGenerationPhase(precise);
         } else if (p.status === 'completed') {
           setGenerationStatus(p.message);
         } else if (p.status === 'failed') {
@@ -835,21 +938,25 @@ const FrontstageApp: React.FC = () => {
         score?: number;
         detail?: string;
       }>('orchestrator-step', event => {
+        // C1: 统一事件已覆盖 orchestrator 进度，跳过重叠更新
+        if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
         updateLastEventTime();
+        // A4-1.7: 映射到统一精确阶段文案
+        const precise = mapPrecisePhase(p.step_type) || mapPrecisePhase(p.detail);
         const stepNames: Record<string, string> = {
-          生成: '生成中...',
-          质检: '质检中...',
-          改写: '改写中...',
+          生成: '候选生成',
+          质检: 'Inspector 审校',
+          改写: '改写',
         };
-        let message = p.detail || stepNames[p.step_type] || p.step_type;
+        let message = precise || p.detail || stepNames[p.step_type] || p.step_type;
         if (p.step_type === '改写' && typeof p.loop_idx === 'number' && !p.detail) {
-          message = `第 ${p.loop_idx + 1} 轮优化中...`;
+          message = `改写（第 ${p.loop_idx + 1} 轮）`;
         }
         if (p.step_type === '质检' && typeof p.score === 'number' && !p.detail) {
-          message = `质检中... 评分 ${p.score}%`;
+          message = `Inspector 审校（评分 ${p.score}%）`;
         }
-        setGenerationStatus(message);
+        setGenerationStatus(formatStatusWithElapsed(message));
         setOrchestratorStatus({
           stepType: p.step_type,
           loopIdx: p.loop_idx,
@@ -857,7 +964,7 @@ const FrontstageApp: React.FC = () => {
           message,
           detail: p.detail,
         });
-        updateGenerationPhase(p.step_type);
+        updateGenerationPhase(message);
       });
       unlisteners.push(unlistenOrchestrator);
 
@@ -868,6 +975,8 @@ const FrontstageApp: React.FC = () => {
         message: string;
         progress: number;
       }>('agent-stage-update', event => {
+        // C1: 统一事件已覆盖 Agent 创作阶段，跳过重叠更新
+        if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
         updateLastEventTime();
         frontstageLogger.debug('[agent-stage-update]', {
@@ -875,15 +984,18 @@ const FrontstageApp: React.FC = () => {
           agent_type: p.agent_type,
           message: p.message,
         });
+        // A4-1.7: 优先映射到统一精确阶段文案
+        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message);
+        const displayMessage = precise || `${p.agent_type}: ${p.message}`;
         // v0.11.2: Agent 内部阶段不应覆盖更具体的进度（如候选生成）。
         // 如果当前状态包含具体进度，仅记录阶段；否则显示 Agent 阶段。
         setGenerationStatus(prev => {
           const base = cleanStatusBase(prev);
           const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
-          if (hasSpecificProgress) return prev;
-          return `${p.agent_type}: ${p.message}`;
+          if (hasSpecificProgress) return formatStatusWithElapsed(base);
+          return formatStatusWithElapsed(displayMessage);
         });
-        updateGenerationPhase(p.stage);
+        updateGenerationPhase(displayMessage);
       });
       unlisteners.push(unlisten7);
 
@@ -920,15 +1032,19 @@ const FrontstageApp: React.FC = () => {
           updateGenerationPhase(p.pipeline_context.step_name);
         }
 
+        // C1: 统一事件已覆盖 LLM 创作进度，跳过重叠的状态栏更新
+        if (shouldSkipOverlappingEvent()) return;
+
         // v0.11.2: LLM 心跳不应覆盖更具体的阶段进度（如"生成候选 1/2"）。
-        // 如果当前状态包含具体进度，仅更新时间；否则显示 LLM 心跳消息。
+        // A4-1.7: 优先映射到精确阶段文案，并基于前端计时器显示已用时间。
+        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message) || p.message;
         setGenerationStatus(prev => {
           const base = cleanStatusBase(prev);
           const hasSpecificProgress = /候选|第\s*\d+\s*轮|评分|匹配度|降级|失败|准备中/.test(base);
           if (hasSpecificProgress) {
-            return `${base} (${p.elapsed_seconds}s)`;
+            return formatStatusWithElapsed(base);
           }
-          return p.message;
+          return formatStatusWithElapsed(precise);
         });
       });
       unlisteners.push(unlisten8);
@@ -964,35 +1080,87 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
-  // v5.4.0: 刷新当前故事的 scenes 列表（用于 sync-event 回调）
-  const loadStoryScenes = async (storyId: string) => {
+  // B2: 刷新当前故事的 scenes 列表；传入 page 则使用分页接口并合并到本地状态
+  const loadStoryScenes = async (storyId: string, page?: number) => {
     try {
-      const result = await loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
-      setScenes(result);
+      const result =
+        page && page > 0
+          ? await loggedInvoke<Scene[]>('get_story_scenes_paged', {
+              story_id: storyId,
+              limit: SCENES_PAGE_SIZE,
+              offset: (page - 1) * SCENES_PAGE_SIZE,
+            })
+          : await loggedInvoke<Scene[]>('get_story_scenes', { story_id: storyId });
+      if (page && page > 0) {
+        setScenes(prev => {
+          const map = new Map(prev.map(s => [s.id, s]));
+          result.forEach(s => map.set(s.id, s));
+          return Array.from(map.values()).sort((a, b) => a.sequence_number - b.sequence_number);
+        });
+      } else {
+        setScenes(result);
+      }
     } catch (e) {
       frontstageLogger.error('Failed to load scenes', { error: e });
     }
   };
 
-  // v5.4.0: 刷新当前故事的 chapters 列表（用于 sync-event 回调）
-  const loadStoryChapters = async (storyId: string) => {
+  // B2: 刷新当前故事的 chapters 列表；传入 page 则使用分页接口并合并到本地状态
+  const loadStoryChapters = async (storyId: string, page?: number) => {
     try {
-      const result = await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
-      setChapters(result);
+      const result =
+        page && page > 0
+          ? await loggedInvoke<Chapter[]>('get_story_chapters_paged', {
+              story_id: storyId,
+              limit: CHAPTERS_PAGE_SIZE,
+              offset: (page - 1) * CHAPTERS_PAGE_SIZE,
+            })
+          : await loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
+      if (page && page > 0) {
+        setChapters(prev => {
+          const map = new Map(prev.map(c => [c.id, c]));
+          result.forEach(c => map.set(c.id, c));
+          return Array.from(map.values()).sort((a, b) => a.chapter_number - b.chapter_number);
+        });
+      } else {
+        setChapters(result);
+      }
     } catch (e) {
       frontstageLogger.error('Failed to load chapters', { error: e });
     }
   };
 
+  // B2: 从后端聚合获取全文字数，避免全量 chapters content 上传统计
+  const loadStoryWordCount = useCallback(async (storyId: string) => {
+    try {
+      const result = await loggedInvoke<{ total_chars: number }>('get_story_word_count', {
+        story_id: storyId,
+      });
+      setTotalWordCount(result.total_chars);
+    } catch (e) {
+      frontstageLogger.error('Failed to load story word count', { error: e });
+    }
+  }, []);
+
   const selectStory = async (story: Story) => {
     setCurrentStory(story);
     try {
+      // B2: 初始仅加载当前章附近内容，降低大 story 的 IPC payload
       const [result, scenesResult] = await Promise.all([
-        loggedInvoke<Chapter[]>('get_story_chapters', { story_id: story.id }),
-        loggedInvoke<Scene[]>('get_story_scenes', { story_id: story.id }),
+        loggedInvoke<Chapter[]>('get_story_chapters_paged', {
+          story_id: story.id,
+          limit: CHAPTERS_PAGE_SIZE,
+          offset: 0,
+        }),
+        loggedInvoke<Scene[]>('get_story_scenes_paged', {
+          story_id: story.id,
+          limit: SCENES_PAGE_SIZE,
+          offset: 0,
+        }),
       ]);
       setChapters(result);
       setScenes(scenesResult);
+      loadStoryWordCount(story.id);
       if (result.length > 0) {
         selectChapter(result[0]);
       } else {
@@ -1011,6 +1179,60 @@ const FrontstageApp: React.FC = () => {
       content_length: chapter.content?.length ?? 0,
       content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
     });
+
+    // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
+    if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
+      (async () => {
+        try {
+          const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
+          if (full) {
+            frontstageLogger.info('[selectChapter] Lazy-loaded full chapter', {
+              chapter_id: full.id,
+              content_length: full.content?.length ?? 0,
+            });
+            selectChapter(full);
+          }
+        } catch (e) {
+          frontstageLogger.error('Failed to lazy-load chapter content', { error: e });
+        }
+      })();
+      return;
+    }
+
+    // B2: 若本地尚未加载该章节（跨章切换），加载其所在分页
+    const chapterIndex = chapters.findIndex(c => c.id === chapter.id);
+    if (chapterIndex === -1 && currentStory) {
+      (async () => {
+        try {
+          const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
+          if (full) {
+            setChapters(prev => {
+              const map = new Map(prev.map(c => [c.id, c]));
+              map.set(full.id, full);
+              return Array.from(map.values()).sort(
+                (a, b) => a.chapter_number - b.chapter_number
+              );
+            });
+            selectChapter(full);
+          }
+        } catch (e) {
+          frontstageLogger.error('Failed to load missing chapter', { error: e });
+        }
+      })();
+      return;
+    }
+
+    // B2: 接近已加载章节末尾时预加载下一页
+    if (
+      chapterIndex >= 0 &&
+      chapters.length > 0 &&
+      chapterIndex >= chapters.length - 1 &&
+      currentStory
+    ) {
+      const nextPage = Math.floor(chapters.length / CHAPTERS_PAGE_SIZE) + 1;
+      loadStoryChapters(currentStory.id, nextPage);
+    }
+
     cancelAutoSave();
     setCurrentChapter(chapter);
     setContent(autoFormatText(chapter.content || ''));
@@ -1019,7 +1241,29 @@ const FrontstageApp: React.FC = () => {
     // Sync currentScene if chapter has associated scene
     if (chapter.scene_id) {
       const associatedScene = scenes.find(s => s.id === chapter.scene_id);
-      setCurrentScene(associatedScene || null);
+      if (!associatedScene) {
+        (async () => {
+          try {
+            const fullScene = await loggedInvoke<Scene | null>('get_scene', {
+              scene_id: chapter.scene_id,
+            });
+            if (fullScene) {
+              setScenes(prev => {
+                const map = new Map(prev.map(s => [s.id, s]));
+                map.set(fullScene.id, fullScene);
+                return Array.from(map.values()).sort(
+                  (a, b) => a.sequence_number - b.sequence_number
+                );
+              });
+              setCurrentScene(fullScene);
+            }
+          } catch (e) {
+            frontstageLogger.error('Failed to lazy-load associated scene', { error: e });
+          }
+        })();
+      } else {
+        setCurrentScene(associatedScene);
+      }
     } else {
       setCurrentScene(null);
     }
@@ -1057,27 +1301,51 @@ const FrontstageApp: React.FC = () => {
     })();
   }, [lastPipelineComplete, currentStory?.id, currentChapter?.id, selectChapter]);
 
+  // A4-1.8: 单次遍历计算中文字数 + 英文词数，避免两次正则 match
+  const computeWordCount = useCallback((html: string): number => {
+    const text = html.replace(/<[^>]*>/g, '');
+    let chinese = 0;
+    let english = 0;
+    let inWord = false;
+    for (const char of text) {
+      if (char >= '\u4e00' && char <= '\u9fa5') {
+        chinese++;
+        inWord = false;
+      } else if ((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z')) {
+        if (!inWord) {
+          english++;
+          inWord = true;
+        }
+      } else {
+        inWord = false;
+      }
+    }
+    return chinese + english;
+  }, []);
+
   const handleContentChange = useCallback(
     async (newContent: string) => {
       setContent(newContent);
       setIsSaved(false);
-
-      const text = newContent.replace(/<[^>]*>/g, '');
-      const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
-      const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
-      setWordCount(chineseChars + englishWords);
-
-      const computedWordCount = chineseChars + englishWords;
+      // A4-1.8: 使用 ref 保存最新内容，避免在输入关键路径立即创建保存任务对象
+      latestContentRef.current = newContent;
 
       if (currentChapter) {
+        // B1: 基于当前章节字数增量 diff 更新全文字数，避免每次输入都全量 reduce
+        const newWordCount = computeWordCount(newContent);
+        const delta = newWordCount - currentChapterPrevWordCountRef.current;
+        if (delta !== 0) {
+          setTotalWordCount(prev => prev + delta);
+        }
+        currentChapterPrevWordCountRef.current = newWordCount;
         // W4-F7: 自动保存非阻塞化 — 使用 requestIdleCallback + startTransition
         scheduleAutoSave(
-          {
+          () => ({
             chapterId: currentChapter.id,
             title: currentChapter.title,
-            content: newContent,
-            wordCount: computedWordCount,
-          },
+            content: latestContentRef.current,
+            wordCount: computeWordCount(latestContentRef.current),
+          }),
           async payload => {
             try {
               await loggedInvoke<unknown>('update_chapter', {
@@ -1086,6 +1354,7 @@ const FrontstageApp: React.FC = () => {
                 content: payload.content,
                 word_count: payload.wordCount,
               });
+              setWordCount(payload.wordCount);
               setIsSaved(true);
               justSavedRef.current = Date.now();
             } catch (e) {
@@ -1095,13 +1364,20 @@ const FrontstageApp: React.FC = () => {
           2000
         );
 
-        loggedInvoke<unknown>('notify_backstage_content_changed', {
-          text: newContent,
-          chapter_id: currentChapter.id,
-        }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
+        // A4-1.8: notify_backstage_content_changed IPC 节流至 350ms
+        if (notifyTimeoutRef.current) {
+          clearTimeout(notifyTimeoutRef.current);
+        }
+        notifyTimeoutRef.current = setTimeout(() => {
+          notifyTimeoutRef.current = null;
+          loggedInvoke<unknown>('notify_backstage_content_changed', {
+            text: latestContentRef.current,
+            chapter_id: currentChapter.id,
+          }).catch(e => frontstageLogger.error('Failed to notify content change', { error: e }));
+        }, 350);
       }
     },
-    [currentChapter]
+    [currentChapter, computeWordCount]
   );
 
   const openBackstage = async () => {
@@ -1139,9 +1415,9 @@ const FrontstageApp: React.FC = () => {
         return;
       }
 
-      if (typewriterIntervalRef.current) {
-        clearInterval(typewriterIntervalRef.current);
-        typewriterIntervalRef.current = null;
+      if (typewriterFrameRef.current) {
+        cancelAnimationFrame(typewriterFrameRef.current);
+        typewriterFrameRef.current = null;
       }
 
       // v0.7.5: 写作前预检，提前发现阻塞性问题；缺少合同/大纲时自动补齐
@@ -1349,22 +1625,22 @@ const FrontstageApp: React.FC = () => {
           }, 3000);
           return;
         }
+        // A4-1.9: 使用 requestAnimationFrame 替代 16ms setInterval 打字机效果
         let index = 0;
-        typewriterIntervalRef.current = setInterval(() => {
+        const typeFrame = () => {
           index += 3;
           if (index >= displayText.length) {
-            if (typewriterIntervalRef.current) {
-              clearInterval(typewriterIntervalRef.current);
-              typewriterIntervalRef.current = null;
-            }
+            typewriterFrameRef.current = null;
             setGeneratedText(displayText);
             stopElapsedTimer();
             setIsGenerating(false);
             setOrchestratorStatus(null);
           } else {
             setGeneratedText(displayText.slice(0, index));
+            typewriterFrameRef.current = requestAnimationFrame(typeFrame);
           }
-        }, 16);
+        };
+        typewriterFrameRef.current = requestAnimationFrame(typeFrame);
       } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
         stopElapsedTimer();
@@ -1478,14 +1754,29 @@ const FrontstageApp: React.FC = () => {
       cancelGenerationRef.current();
       cancelGenerationRef.current = null;
     }
+    // A4-1.9: 立即停止前端打字机动画，避免取消后仍有文本输出
+    if (typewriterFrameRef.current) {
+      cancelAnimationFrame(typewriterFrameRef.current);
+      typewriterFrameRef.current = null;
+    }
+    // A4-1.7: 立即清理前端运行状态，即使后端 join_all 尚未完成也能立刻反馈
+    stopElapsedTimer();
+    setIsGenerating(false);
+    setGenerationStatus('✓ 已取消生成');
+    // v0.11.2: 清理所有残留的后台活动，避免取消后状态栏仍显示"系统正在处理中"
+    useBackendActivityStore.getState().failAllRunning('用户已取消');
     // v0.11.5: 真正通知后端取消所有 Agent / LLM 任务，而不仅是清理前端状态
+    // A4-1.7: 即使后端 join_all 阻塞，前端状态也已先完成清理；设置 5s 超时避免挂起
     try {
-      await loggedInvoke<unknown>('agent_cancel_all_tasks', {});
+      await Promise.race([
+        loggedInvoke<unknown>('agent_cancel_all_tasks', {}),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('取消命令超时')), 5000)
+        ),
+      ]);
     } catch (e) {
       frontstageLogger.error('Failed to cancel agent tasks', { error: e });
     }
-    // v0.11.2: 清理所有残留的后台活动，避免取消后状态栏仍显示"系统正在处理中"
-    useBackendActivityStore.getState().failAllRunning('用户已取消');
     // v5.4.0: 如果有 session_id，调用后端取消 GenesisPipeline
     if (sessionIdRef.current) {
       try {
@@ -1499,11 +1790,8 @@ const FrontstageApp: React.FC = () => {
         setGenerationStatus('✓ 已取消生成');
       }
       sessionIdRef.current = null;
-    } else {
-      setGenerationStatus('✓ 已取消生成');
     }
-    setIsGenerating(false);
-  }, []);
+  }, [stopElapsedTimer]);
 
   // 检测用户输入是否是"创建新小说"意图（需要更长的超时）
   // v5.4.0: 增强检测，区分"创建新小说"和"续写当前故事"
@@ -2129,13 +2417,31 @@ const FrontstageApp: React.FC = () => {
     };
   }, [wensiMode, isZenMode, handleRequestGeneration]);
 
-  // Calculate total story word count
-  const totalWordCount = chapters.reduce((sum, c) => {
-    const text = c.content || '';
-    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
-    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
-    return sum + chineseChars + englishWords;
-  }, 0);
+  // B2: 当前章节变化时更新 diff 基准（用于输入时增量更新全文字数）
+  useEffect(() => {
+    currentChapterPrevWordCountRef.current = currentChapter
+      ? computeWordCount(currentChapter.content || '')
+      : 0;
+  }, [currentChapter, computeWordCount]);
+
+  // B2: 全文字数由后端 SQL 聚合返回，避免将全量 chapters content 传到前端再 reduce
+  useEffect(() => {
+    if (!currentStory?.id) {
+      setTotalWordCount(0);
+      return;
+    }
+    let cancelled = false;
+    loggedInvoke<{ total_chars: number }>('get_story_word_count', {
+      story_id: currentStory.id,
+    })
+      .then(result => {
+        if (!cancelled) setTotalWordCount(result.total_chars);
+      })
+      .catch(e => frontstageLogger.error('Failed to load story word count', { error: e }));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStory?.id]);
 
   return (
     <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>

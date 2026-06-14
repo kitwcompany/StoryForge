@@ -56,6 +56,9 @@ export const getCharacterByName = (storyId: string, name: string) =>
 export const getStoryChapters = (storyId: string) =>
   loggedInvoke<Chapter[]>('get_story_chapters', { story_id: storyId });
 
+export const getStoryChaptersPaged = (storyId: string, limit: number, offset: number) =>
+  loggedInvoke<Chapter[]>('get_story_chapters_paged', { story_id: storyId, limit, offset });
+
 export const getChapter = (id: string) => loggedInvoke<Chapter | null>('get_chapter', { id });
 
 export const updateChapter = (id: string, updates: UpdateChapterRequest) =>
@@ -81,6 +84,18 @@ export const createScene = (params: {
 
 export const getStoryScenes = (storyId: string) =>
   loggedInvoke<import('@/types/v3').Scene[]>('get_story_scenes', { story_id: storyId });
+
+export const getStoryScenesPaged = (storyId: string, limit: number, offset: number) =>
+  loggedInvoke<import('@/types/v3').Scene[]>('get_story_scenes_paged', {
+    story_id: storyId,
+    limit,
+    offset,
+  });
+
+export const getStoryWordCount = (storyId: string) =>
+  loggedInvoke<{ total_chars: number; scene_count: number }>('get_story_word_count', {
+    story_id: storyId,
+  });
 
 export const getScene = (sceneId: string) =>
   loggedInvoke<import('@/types/v3').Scene | null>('get_scene', { scene_id: sceneId });

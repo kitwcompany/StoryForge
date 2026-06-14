@@ -11,6 +11,7 @@ use arrow_array::{
     RecordBatchIterator, StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
+use datafusion_expr::{col, lit};
 use futures::TryStreamExt;
 use lancedb::{
     connect,
@@ -56,6 +57,14 @@ pub struct LanceVectorStore {
     db_path: String,
     db: Option<Connection>,
     table: Option<Table>,
+}
+
+/// Escape special LIKE pattern characters so user input is treated as literal text.
+fn escape_like_pattern(s: &str) -> String {
+    // Backslash must be replaced first so we don't double-escape the escapes.
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 impl LanceVectorStore {
@@ -173,13 +182,16 @@ impl LanceVectorStore {
             }
         };
 
-        // 如果数据量足够，自动创建向量索引
+        // 仅在数据量足够时尝试创建向量索引，失败时记录但不阻塞初始化
         if let Ok(count) = table.count_rows(None).await {
             if count >= 256 {
-                let _ = table
+                if let Err(e) = table
                     .create_index(&[VECTOR_COL], Index::Auto)
                     .execute()
-                    .await;
+                    .await
+                {
+                    log::warn!("[LanceVectorStore] Failed to create vector index: {}", e);
+                }
             }
         }
 
@@ -230,12 +242,13 @@ impl LanceVectorStore {
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
         let table = self.table()?;
 
+        let filter = col("story_id").eq(lit(story_id));
         let batches: Vec<RecordBatch> = table
             .query()
             .nearest_to(query_embedding.as_slice())?
             .column(VECTOR_COL)
             .distance_type(DistanceType::Cosine)
-            .only_if(format!("story_id = '{}'", story_id))
+            .only_if_expr(filter)
             .limit(top_k)
             .execute()
             .await?
@@ -306,15 +319,17 @@ impl LanceVectorStore {
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
         let table = self.table()?;
-        // Escape single quotes in query to prevent SQL injection in filter expressions
-        let safe_query = query.replace("'", "''");
+        // Use a parameterized story_id filter and a prefix LIKE on text to avoid
+        // full table scans and SQL injection risks. Wildcard characters in the
+        // user query are escaped so they are treated as literal text.
+        let prefix = format!("{}%", escape_like_pattern(query));
+        let filter = col("story_id")
+            .eq(lit(story_id))
+            .and(col("text").like(lit(prefix)));
 
         let batches: Vec<RecordBatch> = table
             .query()
-            .only_if(format!(
-                "story_id = '{}' AND text LIKE '%{}%'",
-                story_id, safe_query
-            ))
+            .only_if_expr(filter)
             .limit(top_k)
             .execute()
             .await?
@@ -367,39 +382,52 @@ impl LanceVectorStore {
         query_embedding: Vec<f32>,
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
-        const RRF_K: f32 = 60.0;
+        // Run vector and text searches concurrently to reduce latency.
+        let (vector_results, text_results) = tokio::try_join!(
+            self.search(story_id, query_embedding, top_k * 2),
+            self.text_search(story_id, query_text, top_k * 2),
+        )?;
 
-        let vector_results = self.search(story_id, query_embedding, top_k * 2).await?;
-        let text_results = self.text_search(story_id, query_text, top_k * 2).await?;
+        // RRF fusion is CPU-bound ranking work; move it off the async runtime.
+        let fused = tokio::task::spawn_blocking(
+            move || -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+                const RRF_K: f32 = 60.0;
 
-        let mut scores: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+                let mut scores: std::collections::HashMap<String, f32> =
+                    std::collections::HashMap::new();
 
-        for (rank, r) in vector_results.iter().enumerate() {
-            let score = 1.0 / (RRF_K + rank as f32 + 1.0);
-            *scores.entry(r.id.clone()).or_insert(0.0) += score;
-        }
+                for (rank, r) in vector_results.iter().enumerate() {
+                    let score = 1.0 / (RRF_K + rank as f32 + 1.0);
+                    *scores.entry(r.id.clone()).or_insert(0.0) += score;
+                }
 
-        for (rank, r) in text_results.iter().enumerate() {
-            let score = 1.0 / (RRF_K + rank as f32 + 1.0);
-            *scores.entry(r.id.clone()).or_insert(0.0) += score;
-        }
+                for (rank, r) in text_results.iter().enumerate() {
+                    let score = 1.0 / (RRF_K + rank as f32 + 1.0);
+                    *scores.entry(r.id.clone()).or_insert(0.0) += score;
+                }
 
-        let mut all_results: std::collections::HashMap<String, SearchResult> =
-            std::collections::HashMap::new();
-        for r in vector_results.into_iter().chain(text_results.into_iter()) {
-            all_results.entry(r.id.clone()).or_insert(r);
-        }
+                let mut all_results: std::collections::HashMap<String, SearchResult> =
+                    std::collections::HashMap::new();
+                for r in vector_results.into_iter().chain(text_results.into_iter()) {
+                    all_results.entry(r.id.clone()).or_insert(r);
+                }
 
-        let mut fused: Vec<SearchResult> = all_results
-            .into_iter()
-            .map(|(id, mut r)| {
-                r.score = scores.get(&id).copied().unwrap_or(0.0);
-                r
-            })
-            .collect();
+                let mut fused: Vec<SearchResult> = all_results
+                    .into_iter()
+                    .map(|(id, mut r)| {
+                        r.score = scores.get(&id).copied().unwrap_or(0.0);
+                        r
+                    })
+                    .collect();
 
-        fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-        fused.truncate(top_k);
+                fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+                fused.truncate(top_k);
+
+                Ok(fused)
+            },
+        )
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)??;
 
         Ok(fused)
     }

@@ -41,6 +41,7 @@ const mockTauri = {
                 return null;
 
             case "get_story_chapters":
+            case "get_story_chapters_paged":
                 return [
                     { id: "chap_001", story_id: args.storyId, chapter_number: 1, title: "第一章：开始", outline: "介绍主角", content: "这是第一章内容...", word_count: 1500, model_used: null, cost: null, created_at: "2025-04-01T00:00:00Z", updated_at: "2025-04-10T00:00:00Z" },
                     { id: "chap_002", story_id: args.storyId, chapter_number: 2, title: "第二章：转折", outline: "故事转折", content: "这是第二章内容...", word_count: 2000, model_used: null, cost: null, created_at: "2025-04-02T00:00:00Z", updated_at: "2025-04-10T00:00:00Z" }
@@ -48,6 +49,18 @@ const mockTauri = {
 
             case "get_chapter":
                 return { id: args.id, story_id: "story_001", chapter_number: 1, title: "示例章节", outline: "章节大纲", content: "章节内容...", word_count: 1500, model_used: null, cost: null, created_at: "2025-04-01T00:00:00Z", updated_at: "2025-04-10T00:00:00Z" };
+
+            case "get_story_scenes":
+            case "get_story_scenes_paged":
+                return [
+                    { id: "scene_001", story_id: args.storyId, sequence_number: 1, title: "开场", content: "场景内容...", execution_stage: "drafting", characters_present: [], character_conflicts: [], created_at: "2025-04-01T00:00:00Z", updated_at: "2025-04-10T00:00:00Z" }
+                ];
+
+            case "get_scene":
+                return { id: args.scene_id, story_id: "story_001", sequence_number: 1, title: "示例场景", content: "场景内容...", execution_stage: "drafting", characters_present: [], character_conflicts: [], created_at: "2025-04-01T00:00:00Z", updated_at: "2025-04-10T00:00:00Z" };
+
+            case "get_story_word_count":
+                return { total_chars: 3500, scene_count: 2 };
 
             case "update_chapter":
             case "delete_chapter":

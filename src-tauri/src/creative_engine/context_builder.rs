@@ -7,15 +7,18 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
+
+use tokio::sync::RwLock;
 
 use crate::{
     agents::{
         AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
         NarrativeStructureContext, StoryContext, StyleContext, WorldContext,
     },
+    config::settings::{default_context_budget_ratio, default_max_context_length, AppConfig},
     db::{
         repositories::{
             CharacterRepository, SceneRepository, StoryRepository, WorldBuildingRepository,
@@ -24,6 +27,7 @@ use crate::{
         Character, DbPool, Story,
     },
     error::AppError,
+    memory::tokenizer::{count_tokens, truncate_to_budget, truncate_to_budget_from_end},
 };
 
 /// 创作上下文缓存键
@@ -38,7 +42,7 @@ struct ContextCacheKey {
 /// 带 TTL 与容量上限的上下文缓存
 #[derive(Clone)]
 pub struct ContextCache {
-    inner: Arc<Mutex<ContextCacheInner>>,
+    inner: Arc<RwLock<ContextCacheInner>>,
 }
 
 struct ContextCacheInner {
@@ -50,7 +54,7 @@ struct ContextCacheInner {
 impl ContextCache {
     pub fn new(max_entries: usize, ttl: Duration) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(ContextCacheInner {
+            inner: Arc::new(RwLock::new(ContextCacheInner {
                 entries: std::collections::HashMap::new(),
                 max_entries,
                 ttl,
@@ -86,7 +90,9 @@ impl ContextCache {
         selected_text: &Option<String>,
     ) -> Option<AgentContext> {
         let key = Self::key(story_id, scene_number, current_content, selected_text);
-        let mut inner = self.inner.lock().ok()?;
+        // 使用 try_read 保持方法同步，避免在异步上下文中阻塞 worker。
+        // 若锁不可用则按未命中处理。
+        let inner = self.inner.try_read().ok()?;
         if let Some((ctx, created_at)) = inner.entries.get(&key) {
             if created_at.elapsed() < inner.ttl {
                 log::debug!(
@@ -95,8 +101,11 @@ impl ContextCache {
                 );
                 return Some(ctx.clone());
             }
-            inner.entries.remove(&key);
         }
+        // TTL 过期：降级为写锁移除过期条目。
+        drop(inner);
+        let mut inner = self.inner.try_write().ok()?;
+        inner.entries.remove(&key);
         None
     }
 
@@ -108,7 +117,9 @@ impl ContextCache {
         selected_text: &Option<String>,
         context: AgentContext,
     ) {
-        let Ok(mut inner) = self.inner.lock() else {
+        // 使用 try_write 保持方法同步，避免在异步上下文中阻塞 worker。
+        // 若锁不可用则静默放弃写入。
+        let Ok(mut inner) = self.inner.try_write() else {
             return;
         };
         let key = Self::key(story_id, scene_number, current_content, selected_text);
@@ -131,12 +142,14 @@ impl ContextCache {
 ///
 /// 命中缓存可跳过重复的 DB 查询、MemoryPack 构建与叙事结构分析，
 /// 显著降低 Writer → Inspector → Rewrite 闭环内的等待时间。
-fn default_context_cache() -> ContextCache {
-    ContextCache::new(50, Duration::from_secs(300))
-}
+///
+/// 使用进程级 OnceLock 替代 thread_local!，使跨线程请求能命中同一缓存。
+static DEFAULT_CONTEXT_CACHE: std::sync::OnceLock<ContextCache> = std::sync::OnceLock::new();
 
-thread_local! {
-    static DEFAULT_CONTEXT_CACHE: ContextCache = default_context_cache();
+fn default_context_cache() -> ContextCache {
+    DEFAULT_CONTEXT_CACHE
+        .get_or_init(|| ContextCache::new(50, Duration::from_secs(300)))
+        .clone()
 }
 
 /// 知识图谱实体摘要（用于注入提示词）
@@ -171,10 +184,62 @@ pub struct SceneStructure {
     pub characters_present: Vec<String>,
 }
 
+/// 上下文预算策略
+///
+/// 控制上下文构建时的 token 预算分配。默认使用 8192 tokens / 80% 预算比例，
+/// 与 `default_max_context_length` 保持一致。
+#[derive(Debug, Clone)]
+pub struct ContextBudget {
+    /// 目标模型最大上下文长度（token）
+    pub max_context_length: usize,
+    /// 实际使用的预算比例（0.0 - 1.0）
+    pub budget_ratio: f32,
+    /// 用于 token 计数的模型 family
+    pub model_family: String,
+}
+
+impl Default for ContextBudget {
+    fn default() -> Self {
+        Self {
+            max_context_length: default_max_context_length() as usize,
+            budget_ratio: default_context_budget_ratio(),
+            model_family: "cl100k".to_string(),
+        }
+    }
+}
+
+impl ContextBudget {
+    /// 总可用预算（不含系统提示预留）
+    pub fn total_budget(&self) -> usize {
+        (self.max_context_length as f32 * self.budget_ratio.clamp(0.1, 0.95)) as usize
+    }
+
+    /// 为系统提示/指令保留的 token 数
+    pub fn system_budget(&self) -> usize {
+        (self.total_budget() as f32 * 0.15) as usize
+    }
+
+    /// 为世界/角色/风格等关键设定保留的预算
+    pub fn story_context_budget(&self) -> usize {
+        (self.total_budget() as f32 * 0.25) as usize
+    }
+
+    /// 为近期场景/当前内容保留的预算
+    pub fn scene_budget(&self) -> usize {
+        (self.total_budget() as f32 * 0.40) as usize
+    }
+
+    /// 为用户输入/选中内容保留的预算
+    pub fn user_input_budget(&self) -> usize {
+        (self.total_budget() as f32 * 0.20) as usize
+    }
+}
+
 /// 上下文构建器
 pub struct StoryContextBuilder {
     pool: DbPool,
     cache: Option<ContextCache>,
+    budget: ContextBudget,
 }
 
 impl StoryContextBuilder {
@@ -186,7 +251,11 @@ impl StoryContextBuilder {
     /// 创建不带缓存的构建器（主要用于测试或需要强制重新加载的场景）
     #[allow(dead_code)]
     pub fn without_cache(pool: DbPool) -> Self {
-        Self { pool, cache: None }
+        Self {
+            pool,
+            cache: None,
+            budget: ContextBudget::default(),
+        }
     }
 
     /// 创建带有指定缓存的构建器
@@ -194,7 +263,34 @@ impl StoryContextBuilder {
         Self {
             pool,
             cache: Some(cache),
+            budget: ContextBudget::default(),
         }
+    }
+
+    /// 设置目标模型的上下文预算
+    ///
+    /// 调用方（如 Agent 服务）可根据当前路由到的模型传入 `max_context_length`
+    /// 与 `model_family`，避免上下文超过模型窗口。
+    pub fn with_context_budget(
+        mut self,
+        max_context_length: usize,
+        model_family: impl Into<String>,
+    ) -> Self {
+        self.budget.max_context_length = max_context_length;
+        self.budget.model_family = model_family.into();
+        self
+    }
+
+    /// 设置上下文预算比例（0.0 - 1.0，会被钳制到合理范围）
+    pub fn with_budget_ratio(mut self, ratio: f32) -> Self {
+        self.budget.budget_ratio = ratio.clamp(0.1, 0.95);
+        self
+    }
+
+    /// 从 AppConfig 读取预算比例（若配置存在）
+    pub fn with_app_config(mut self, config: &AppConfig) -> Self {
+        self.budget.budget_ratio = config.context_budget_ratio.clamp(0.1, 0.95);
+        self
     }
 
     /// 构建完整的 Agent 上下文
@@ -218,27 +314,73 @@ impl StoryContextBuilder {
             }
         }
 
-        // v0.9.3: 并行获取互相独立的上下文数据，减少构建时间
-        // personalizer_extension 仅依赖 story_id，可与其他查询并行
-        let (
-            story,
-            characters,
-            all_scenes,
-            world_rules,
-            style,
-            relevant_entities,
-            personalizer_extension,
-        ) = tokio::try_join!(
-            self.fetch_story_async(story_id),
-            self.fetch_characters_async(story_id),
-            self.fetch_all_scenes_async(story_id),
-            self.fetch_world_rules_async(story_id),
-            self.fetch_writing_style_async(story_id),
-            self.fetch_relevant_entities_async(story_id, 10),
+        // v0.9.7: 将所有同步 DB 查询与格式化操作整体包裹在单个 spawn_blocking 中，
+        // 避免多个独立 blocking 任务争抢 tokio worker；个性化扩展仅依赖 story_id，
+        // 保持异步并与上下文构建并行。
+        let pool = self.pool.clone();
+        let story_id_owned = story_id.to_string();
+        let current_content_owned = current_content.clone();
+        let selected_text_owned = selected_text.clone();
+
+        let (mut context, personalizer_extension) = tokio::try_join!(
+            async {
+                tokio::task::spawn_blocking(move || {
+                    let builder = StoryContextBuilder::without_cache(pool);
+                    builder.build_core_sync(
+                        &story_id_owned,
+                        scene_number,
+                        current_content_owned,
+                        selected_text_owned,
+                    )
+                })
+                .await
+                .map_err(|e| AppError::internal(format!("上下文构建任务失败: {}", e)))?
+            },
             self.compute_personalizer_extension_async(story_id),
         )?;
 
-        // 从 all_scenes 推导依赖数据
+        context.story.personalizer_extension = personalizer_extension;
+
+        if let Some(ref cache) = self.cache {
+            cache.put(
+                story_id,
+                scene_number,
+                &context.narrative.current_content,
+                &context.narrative.selected_text,
+                context.clone(),
+            );
+        }
+
+        Ok(context)
+    }
+
+    /// 同步构建上下文核心（所有 DB 查询与 CPU 轻量格式化均在线程池执行）。
+    fn build_core_sync(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_content: Option<String>,
+        selected_text: Option<String>,
+    ) -> Result<AgentContext, AppError> {
+        // 1. 同步 DB 查询
+        let story = self.fetch_story(story_id).map_err(AppError::internal)?;
+        let characters = self
+            .fetch_characters(story_id)
+            .map_err(AppError::internal)?;
+        let all_scenes = self
+            .fetch_all_scenes(story_id)
+            .map_err(AppError::internal)?;
+        let world_rules = self
+            .fetch_world_rules(story_id)
+            .map_err(AppError::internal)?;
+        let style = self
+            .fetch_writing_style(story_id)
+            .map_err(AppError::internal)?;
+        let relevant_entities = self
+            .fetch_relevant_entities(story_id, 10)
+            .map_err(AppError::internal)?;
+
+        // 2. 从 all_scenes 推导依赖数据
         let previous_scenes = self.filter_previous_scenes(&all_scenes, scene_number);
         let current_scene = match scene_number {
             Some(n) => all_scenes.into_iter().find(|s| s.sequence_number == n),
@@ -317,27 +459,49 @@ impl StoryContextBuilder {
         let scene_structure_text =
             Self::format_scene_structure(current_scene.as_ref(), &relevant_entities);
 
-        // v0.9.3: 风格混合、大纲上下文、叙事结构、活跃线索互相独立，并行构建
-        let (style_blend, outline_context_text, narrative_structure, active_threads) = tokio::try_join!(
-            self.fetch_style_blend_async(story_id, scene_number, current_scene.clone()),
-            self.build_outline_context_async(story_id, current_scene.clone()),
-            self.build_narrative_structure_context_async(story_id, scene_number),
-            self.fetch_active_threads_async(story_id),
-        )?;
+        // 3. 风格混合、大纲上下文、叙事结构、活跃线索（同步执行）
+        let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
+        let outline_context_text = self.build_outline_context(story_id, current_scene.as_ref());
+        let narrative_structure = self.build_narrative_structure_context(story_id, scene_number);
+        let active_threads = self.fetch_active_threads(story_id);
 
-        // v0.9.3: 预计算风格 DNA 扩展（依赖 style_blend）与 MemoryPack
-        // 互相独立，并行构建
-        let (style_dna_extension, memory_pack) = tokio::try_join!(
-            self.compute_style_dna_extension_async(story_id, &style_blend),
-            self.build_memory_pack_async(
+        // 4. 预计算风格 DNA 扩展与 MemoryPack
+        let style_dna_extension = self.compute_style_dna_extension(story_id, &style_blend);
+        let memory_pack = {
+            let orchestrator =
+                crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
+            match orchestrator.build_memory_pack(
                 story_id,
-                scene_number,
-                current_scene.clone(),
-                previous_chapters.clone(),
-            ),
-        )?;
+                scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
+                "write",
+                current_scene
+                    .as_ref()
+                    .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
+            ) {
+                Ok(mut pack) => {
+                    // 将 previous_chapters 吸收进 working_memory
+                    for chapter in &previous_chapters {
+                        pack.working_memory
+                            .push(crate::memory::orchestrator::MemoryEntry {
+                                layer: "working".to_string(),
+                                source: "previous_chapter".to_string(),
+                                chapter: chapter.number as i32,
+                                content: serde_json::json!({
+                                    "title": chapter.title,
+                                    "summary": chapter.summary
+                                }),
+                            });
+                    }
+                    Some(pack)
+                }
+                Err(e) => {
+                    log::warn!("[StoryContextBuilder] 记忆包构建失败: {}, 继续无记忆包", e);
+                    None
+                }
+            }
+        };
 
-        let context = AgentContext {
+        let mut context = AgentContext {
             story: StoryContext {
                 story_id: story_id.to_string(),
                 story_title: story.title,
@@ -354,7 +518,7 @@ impl StoryContextBuilder {
                     .or(story.pacing)
                     .unwrap_or_else(|| "正常".to_string()),
                 genre_profile_id: story.genre_profile_id,
-                personalizer_extension,
+                personalizer_extension: None,
             },
             narrative: NarrativeContext {
                 chapter_number: scene_number.map(|n| n.max(0) as u32).unwrap_or(1),
@@ -399,17 +563,174 @@ impl StoryContextBuilder {
             },
         };
 
-        if let Some(ref cache) = self.cache {
-            cache.put(
-                story_id,
-                scene_number,
-                &context.narrative.current_content,
-                &context.narrative.selected_text,
-                context.clone(),
-            );
-        }
+        self.apply_context_budget(&mut context);
 
         Ok(context)
+    }
+
+    /// 根据目标模型上下文窗口应用 token 预算控制
+    ///
+    /// 策略：
+    /// - 系统提示 / instruction 保留固定预留
+    /// - story context（世界观、角色、风格等关键设定）优先保留
+    /// - recent scenes / current content 超过预算时，先截断较早场景摘要，再截断当前内容
+    /// - user input / selected text 仅在仍有剩余预算时保留，否则截断
+    fn apply_context_budget(&self, context: &mut AgentContext) {
+        let family = self.budget.model_family.as_str();
+
+        fn format_story_summary(ctx: &AgentContext) -> String {
+            let mut parts = vec![
+                format!("作品: {}", ctx.story.story_title),
+                format!("题材: {}", ctx.story.genre),
+                format!("文风: {}", ctx.story.tone),
+                format!("节奏: {}", ctx.story.pacing),
+            ];
+            if let Some(ref desc) = ctx.story.description {
+                parts.push(format!("简介: {}", desc));
+            }
+            parts.join("\n")
+        }
+
+        fn format_style_summary(ctx: &AgentContext) -> String {
+            let mut parts = Vec::new();
+            if let Some(ref name) = ctx.style.writing_style_name {
+                parts.push(format!("文风名称: {}", name));
+            }
+            if let Some(ref desc) = ctx.style.writing_style_description {
+                parts.push(format!("文风描述: {}", desc));
+            }
+            if let Some(ref level) = ctx.style.writing_style_vocabulary_level {
+                parts.push(format!("词汇等级: {}", level));
+            }
+            if let Some(ref structure) = ctx.style.writing_style_sentence_structure {
+                parts.push(format!("句式特点: {}", structure));
+            }
+            if let Some(ref rules) = ctx.style.writing_style_custom_rules {
+                parts.push(format!("自定义规则: {}", rules));
+            }
+            if let Some(ref ext) = ctx.style.style_dna_extension {
+                parts.push(ext.clone());
+            }
+            parts.join("\n")
+        }
+
+        fn format_full_context(ctx: &AgentContext) -> String {
+            let mut parts = vec![
+                format_story_summary(ctx),
+                ctx.format_characters(),
+                ctx.world.world_rules.clone().unwrap_or_default(),
+                ctx.world.scene_structure.clone().unwrap_or_default(),
+                format_style_summary(ctx),
+                ctx.format_previous_chapters(),
+                ctx.narrative.current_content.clone().unwrap_or_default(),
+                ctx.narrative.selected_text.clone().unwrap_or_default(),
+                ctx.narrative.outline_context.clone().unwrap_or_default(),
+                ctx.narrative.active_threads.join(", "),
+            ];
+            if let Some(ref ns) = ctx.narrative.narrative_structure {
+                parts.push(format!(
+                    "当前幕: 第{}幕（{}） 戏剧功能: {}",
+                    ns.act_number, ns.current_act, ns.dramatic_function
+                ));
+            }
+            parts.join("\n")
+        }
+
+        let total = self.budget.total_budget();
+        let system_budget = self.budget.system_budget();
+        let story_context_budget = self.budget.story_context_budget();
+        let scene_budget = self.budget.scene_budget();
+        let user_input_budget = self.budget.user_input_budget();
+
+        // 1. 计算不可压缩的关键上下文 token 数
+        let story_tokens = count_tokens(&format_story_summary(context), family);
+        let character_tokens = count_tokens(&context.format_characters(), family);
+        let world_tokens =
+            count_tokens(&context.world.world_rules.as_deref().unwrap_or(""), family)
+                + count_tokens(
+                    &context.world.scene_structure.as_deref().unwrap_or(""),
+                    family,
+                );
+        let style_tokens = count_tokens(&format_style_summary(context), family);
+        let critical_tokens = story_tokens + character_tokens + world_tokens + style_tokens;
+
+        // 2. 若关键设定已超过 story_context_budget + system_budget，
+        //    仅对世界规则/场景结构做保守截断，保留角色与风格
+        if critical_tokens > story_context_budget + system_budget {
+            log::warn!(
+                "[StoryContextBuilder] critical context {} tokens exceeds budget {}, truncating world/scene structure",
+                critical_tokens,
+                story_context_budget + system_budget
+            );
+            if let Some(ref mut rules) = context.world.world_rules {
+                let max_world = (story_context_budget / 4).max(128);
+                if count_tokens(rules, family) > max_world {
+                    *rules = truncate_to_budget(rules, max_world, family);
+                }
+            }
+            if let Some(ref mut structure) = context.world.scene_structure {
+                let max_structure = (story_context_budget / 4).max(128);
+                if count_tokens(structure, family) > max_structure {
+                    *structure = truncate_to_budget(structure, max_structure, family);
+                }
+            }
+        }
+
+        // 3. 截断前文摘要：先减少单条长度，再移除最早场景
+        let mut previous_chapters_text = context.format_previous_chapters();
+        let mut previous_tokens = count_tokens(&previous_chapters_text, family);
+        while previous_tokens > scene_budget && !context.narrative.previous_chapters.is_empty() {
+            if context.narrative.previous_chapters.len() > 1 {
+                // 优先移除最早场景
+                context.narrative.previous_chapters.remove(0);
+            } else {
+                // 只剩一条时截断其摘要
+                let remaining = context.narrative.previous_chapters.first_mut().unwrap();
+                remaining.summary =
+                    truncate_to_budget(&remaining.summary, scene_budget / 2, family);
+            }
+            previous_chapters_text = context.format_previous_chapters();
+            previous_tokens = count_tokens(&previous_chapters_text, family);
+        }
+
+        // 4. 截断当前已写内容（保留最新）
+        if let Some(ref mut content) = context.narrative.current_content {
+            let remaining_scene_budget = scene_budget.saturating_sub(previous_tokens);
+            let max_current = remaining_scene_budget.max(128);
+            if count_tokens(content, family) > max_current {
+                *content = truncate_to_budget_from_end(content, max_current, family);
+            }
+        }
+
+        // 5. 截断用户选中内容
+        if let Some(ref mut selected) = context.narrative.selected_text {
+            if count_tokens(selected, family) > user_input_budget {
+                *selected = truncate_to_budget_from_end(selected, user_input_budget, family);
+            }
+        }
+
+        // 6. 最终兜底：若整体仍超过总预算，从 current_content 与 selected_text 再截断
+        let final_total = count_tokens(&format_full_context(context), family);
+        if final_total > total {
+            log::warn!(
+                "[StoryContextBuilder] final context {} tokens exceeds total budget {}, applying hard truncation",
+                final_total,
+                total
+            );
+            if let Some(ref mut content) = context.narrative.current_content {
+                let overage = final_total - total;
+                let target = count_tokens(content, family)
+                    .saturating_sub(overage)
+                    .max(128);
+                *content = truncate_to_budget_from_end(content, target, family);
+            }
+        }
+
+        log::debug!(
+            "[StoryContextBuilder] context budget applied: total_budget={} final_tokens={}",
+            total,
+            count_tokens(&format_full_context(context), family)
+        );
     }
 
     /// 快速构建（用于 intent 执行等场景）
@@ -801,6 +1122,7 @@ impl StoryContextBuilder {
     }
 
     /// v0.9.3: 预计算风格 DNA 提示词扩展，供候选间共享
+    /// v0.9.7: 风格混合时改为批量 IN 查询，避免每个 component 单独查库。
     fn compute_style_dna_extension(
         &self,
         story_id: &str,
@@ -808,32 +1130,37 @@ impl StoryContextBuilder {
     ) -> Option<String> {
         use crate::{creative_engine::style::dna::StyleDNA, db::repositories::StyleDnaRepository};
 
+        let dna_repo = StyleDnaRepository::new(self.pool.clone());
+
         if let Some(ref blend) = style_blend {
-            let dna_repo = StyleDnaRepository::new(self.pool.clone());
-            let mut dnas = Vec::new();
-            for comp in &blend.components {
-                if let Ok(Some(db_dna)) = dna_repo.get_by_id(&comp.dna_id) {
-                    if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                        dnas.push(dna);
-                    }
-                }
+            let dna_ids: Vec<String> = blend.components.iter().map(|c| c.dna_id.clone()).collect();
+            if dna_ids.is_empty() {
+                return None;
             }
+
+            let dnas: Vec<StyleDNA> = match dna_repo.get_many_by_ids(&dna_ids) {
+                Ok(db_dnas) => db_dnas
+                    .into_iter()
+                    .filter_map(|db_dna| serde_json::from_str::<StyleDNA>(&db_dna.dna_json).ok())
+                    .collect(),
+                Err(e) => {
+                    log::warn!("[StoryContextBuilder] 批量加载风格 DNA 失败: {}", e);
+                    return None;
+                }
+            };
+
             if !dnas.is_empty() {
                 let extension = blend.to_prompt_extension(&dnas);
                 if !extension.is_empty() {
                     return Some(extension);
                 }
             }
-        } else {
-            // 回退到单一 DNA
-            let dna_repo = StyleDnaRepository::new(self.pool.clone());
-            if let Ok(Some(style_dna_id)) = self.fetch_story_style_dna_id(story_id) {
-                if let Ok(Some(db_dna)) = dna_repo.get_by_id(&style_dna_id) {
-                    if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                        let extension = dna.to_prompt_extension();
-                        if !extension.is_empty() {
-                            return Some(extension);
-                        }
+        } else if let Ok(Some(style_dna_id)) = self.fetch_story_style_dna_id(story_id) {
+            if let Ok(Some(db_dna)) = dna_repo.get_by_id(&style_dna_id) {
+                if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                    let extension = dna.to_prompt_extension();
+                    if !extension.is_empty() {
+                        return Some(extension);
                     }
                 }
             }
@@ -1371,7 +1698,8 @@ mod tests {
             .unwrap();
         }
 
-        let builder = StoryContextBuilder::new(pool);
+        // 使用无缓存 builder，避免与使用相同 cache key 的其他测试互相污染
+        let builder = StoryContextBuilder::without_cache(pool);
         // 没有插入角色，且场景有冲突类型 — 应为 fatal
         let result = builder.build("story-1", Some(1), None, None).await;
 
@@ -1419,7 +1747,8 @@ mod tests {
             .unwrap();
         }
 
-        let builder = StoryContextBuilder::new(pool);
+        // 使用无缓存 builder，避免与使用相同 cache key 的其他测试互相污染
+        let builder = StoryContextBuilder::without_cache(pool);
         // 没有插入角色，但场景无冲突类型 — 应为 ok
         let result = builder.build("story-1", Some(1), None, None).await;
 
@@ -1496,6 +1825,160 @@ mod tests {
         assert!(cache.get("story-0", None, &None, &None).is_none());
         assert!(cache.get("story-1", None, &None, &None).is_some());
         assert!(cache.get("story-2", None, &None, &None).is_some());
+    }
+
+    #[test]
+    fn test_apply_context_budget_truncates_oldest_scenes_first() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let builder = StoryContextBuilder::without_cache(pool)
+            .with_context_budget(512, "cl100k")
+            .with_budget_ratio(0.8);
+        let family = builder.budget.model_family.clone();
+
+        let mut ctx = dummy_agent_context("budget-test");
+        ctx.narrative.previous_chapters = vec![
+            ChapterSummary {
+                title: "第一章".to_string(),
+                number: 1,
+                summary: "这是第一章的很长很长很长的摘要内容。".repeat(20),
+            },
+            ChapterSummary {
+                title: "第二章".to_string(),
+                number: 2,
+                summary: "这是第二章的很长很长很长的摘要内容。".repeat(20),
+            },
+            ChapterSummary {
+                title: "第三章".to_string(),
+                number: 3,
+                summary: "这是第三章的很长很长很长的摘要内容。".repeat(20),
+            },
+        ];
+        ctx.narrative.current_content = Some("当前章节正在续写的内容。".repeat(50));
+        ctx.narrative.selected_text = Some("用户选中的文本内容。".repeat(20));
+
+        let original_previous_tokens = count_tokens(&ctx.format_previous_chapters(), &family);
+        let original_current_tokens =
+            count_tokens(ctx.narrative.current_content.as_deref().unwrap(), &family);
+        let original_selected_tokens =
+            count_tokens(ctx.narrative.selected_text.as_deref().unwrap(), &family);
+
+        builder.apply_context_budget(&mut ctx);
+
+        let final_previous_tokens = count_tokens(&ctx.format_previous_chapters(), &family);
+        let final_current_tokens =
+            count_tokens(ctx.narrative.current_content.as_deref().unwrap(), &family);
+        let final_selected_tokens =
+            count_tokens(ctx.narrative.selected_text.as_deref().unwrap(), &family);
+
+        // 较早章节应被优先移除或截断
+        assert!(
+            ctx.narrative.previous_chapters.len() <= 3,
+            "章节数量不应增加"
+        );
+        assert!(
+            final_previous_tokens <= original_previous_tokens,
+            "前文 token 数应不增加"
+        );
+        // 当前内容应被保留但截断
+        assert!(
+            final_current_tokens <= original_current_tokens,
+            "当前内容 token 数应不增加"
+        );
+        // 选中内容应被截断
+        assert!(
+            final_selected_tokens <= original_selected_tokens,
+            "选中内容 token 数应不增加"
+        );
+    }
+
+    #[test]
+    fn test_apply_context_budget_total_within_budget() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let builder = StoryContextBuilder::without_cache(pool)
+            .with_context_budget(512, "cl100k")
+            .with_budget_ratio(0.8);
+        let family = builder.budget.model_family.clone();
+        let total_budget = builder.budget.total_budget();
+
+        let mut ctx = dummy_agent_context("budget-total-test");
+        // 构造一个远超过预算的上下文（简介保持较短，确保被截断的是可控字段）
+        ctx.story.description = Some("测试简介。".to_string());
+        ctx.narrative.previous_chapters = (1..=5)
+            .map(|i| ChapterSummary {
+                title: format!("第{}章", i),
+                number: i as u32,
+                summary: "这是很长很长很长的章节摘要内容。".repeat(40),
+            })
+            .collect();
+        ctx.narrative.current_content = Some("当前正在写作的章节正文。".repeat(200));
+        ctx.narrative.selected_text = Some("用户选中需要改写的文本。".repeat(50));
+
+        builder.apply_context_budget(&mut ctx);
+
+        // 复现 apply_context_budget 内部对最终上下文 token 总数的计算逻辑
+        fn format_full_context(ctx: &AgentContext) -> String {
+            let mut parts = vec![
+                format!("作品: {}", ctx.story.story_title),
+                format!("题材: {}", ctx.story.genre),
+                format!("文风: {}", ctx.story.tone),
+                format!("节奏: {}", ctx.story.pacing),
+            ];
+            if let Some(ref desc) = ctx.story.description {
+                parts.push(format!("简介: {}", desc));
+            }
+            let mut s = parts.join("\n");
+            s.push('\n');
+            s.push_str(&ctx.format_characters());
+            s.push('\n');
+            s.push_str(ctx.world.world_rules.as_deref().unwrap_or(""));
+            s.push('\n');
+            s.push_str(ctx.world.scene_structure.as_deref().unwrap_or(""));
+            s.push('\n');
+            if let Some(ref name) = ctx.style.writing_style_name {
+                s.push_str(&format!("文风名称: {}\n", name));
+            }
+            if let Some(ref desc) = ctx.style.writing_style_description {
+                s.push_str(&format!("文风描述: {}\n", desc));
+            }
+            if let Some(ref level) = ctx.style.writing_style_vocabulary_level {
+                s.push_str(&format!("词汇等级: {}\n", level));
+            }
+            if let Some(ref structure) = ctx.style.writing_style_sentence_structure {
+                s.push_str(&format!("句式特点: {}\n", structure));
+            }
+            if let Some(ref rules) = ctx.style.writing_style_custom_rules {
+                s.push_str(&format!("自定义规则: {}\n", rules));
+            }
+            if let Some(ref ext) = ctx.style.style_dna_extension {
+                s.push_str(ext);
+                s.push('\n');
+            }
+            s.push_str(&ctx.format_previous_chapters());
+            s.push('\n');
+            s.push_str(ctx.narrative.current_content.as_deref().unwrap_or(""));
+            s.push('\n');
+            s.push_str(ctx.narrative.selected_text.as_deref().unwrap_or(""));
+            s.push('\n');
+            s.push_str(ctx.narrative.outline_context.as_deref().unwrap_or(""));
+            s.push('\n');
+            s.push_str(&ctx.narrative.active_threads.join(", "));
+            if let Some(ref ns) = ctx.narrative.narrative_structure {
+                s.push('\n');
+                s.push_str(&format!(
+                    "当前幕: 第{}幕（{}） 戏剧功能: {}",
+                    ns.act_number, ns.current_act, ns.dramatic_function
+                ));
+            }
+            s
+        }
+
+        let final_total = count_tokens(&format_full_context(&ctx), &family);
+        assert!(
+            final_total <= total_budget,
+            "最终上下文 token 数 {} 应不超过总预算 {}",
+            final_total,
+            total_budget
+        );
     }
 
     fn dummy_agent_context(story_id: &str) -> AgentContext {

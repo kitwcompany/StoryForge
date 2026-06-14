@@ -13,10 +13,8 @@ pub struct AnthropicAdapter {
     api_base: String,
     default_max_tokens: i32,
     default_temperature: f32,
-    #[allow(dead_code)]
-    timeout_seconds: u64,
-    #[allow(dead_code)]
-    connect_timeout_seconds: u64,
+    generation_timeout: std::time::Duration,
+    connect_timeout: std::time::Duration,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,7 +66,7 @@ impl AnthropicAdapter {
         timeout_seconds: u64,
         connect_timeout_seconds: u64,
     ) -> Self {
-        let timeout = if timeout_seconds > 0 {
+        let generation_timeout = if timeout_seconds > 0 {
             Duration::from_secs(timeout_seconds)
         } else {
             Duration::from_secs(300)
@@ -79,7 +77,6 @@ impl AnthropicAdapter {
             Duration::from_secs(10)
         };
         let client = Client::builder()
-            .timeout(timeout)
             .connect_timeout(connect_timeout)
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -90,8 +87,8 @@ impl AnthropicAdapter {
             api_base: api_base.unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
             default_max_tokens: max_tokens,
             default_temperature: temperature,
-            timeout_seconds,
-            connect_timeout_seconds,
+            generation_timeout,
+            connect_timeout,
         }
     }
 
@@ -112,6 +109,8 @@ impl LlmAdapter for AnthropicAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        use super::adapter::{read_body_with_generation_timeout, send_with_connection_timeout};
+
         let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
@@ -125,23 +124,26 @@ impl LlmAdapter for AnthropicAdapter {
             stream: false,
         };
 
-        let response = self
-            .client
-            .post(format!("{}/messages", self.api_base))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
-            .json(&anthropic_req)
-            .send()
-            .await?;
+        let response = send_with_connection_timeout(
+            self.client
+                .post(format!("{}/messages", self.api_base))
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("Content-Type", "application/json")
+                .json(&anthropic_req),
+            self.connect_timeout,
+        )
+        .await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
             return Err(format!("Anthropic API error: {}", error_text).into());
         }
 
+        // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
+        let bytes = read_body_with_generation_timeout(response, self.generation_timeout).await?;
+
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async runtime。
-        let bytes = response.bytes().await?;
         let anthropic_resp: AnthropicResponse =
             tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
                 .await

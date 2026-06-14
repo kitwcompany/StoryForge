@@ -17,6 +17,25 @@ export function useScenes(storyId: string | null) {
   });
 }
 
+export function useScenesPaged(
+  storyId: string | null,
+  page: number,
+  pageSize: number = 5
+) {
+  return useQuery({
+    queryKey: [SCENES_KEY, storyId, { page }],
+    queryFn: async () => {
+      if (!storyId) return [];
+      return loggedInvoke<Scene[]>('get_story_scenes_paged', {
+        story_id: storyId,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      });
+    },
+    enabled: !!storyId && page > 0,
+  });
+}
+
 export function useScene(sceneId: string | null) {
   return useQuery({
     queryKey: [SCENES_KEY, 'detail', sceneId],

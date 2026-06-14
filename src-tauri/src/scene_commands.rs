@@ -144,6 +144,38 @@ pub async fn get_story_scenes(
 }
 
 #[command(rename_all = "snake_case")]
+pub async fn get_story_scenes_paged(
+    story_id: String,
+    limit: i64,
+    offset: i64,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<Scene>, AppError> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.get_by_story_paged(&story_id, limit, offset)
+        .map_err(AppError::from)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryWordCountResponse {
+    pub total_chars: i64,
+    pub scene_count: i64,
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn get_story_word_count(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<StoryWordCountResponse, AppError> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    let total_chars = repo.total_content_length_by_story(&story_id)?;
+    let scene_count = repo.count_by_story(&story_id)?;
+    Ok(StoryWordCountResponse {
+        total_chars,
+        scene_count,
+    })
+}
+
+#[command(rename_all = "snake_case")]
 pub async fn get_scene(
     scene_id: String,
     pool: State<'_, DbPool>,
@@ -165,13 +197,29 @@ pub async fn update_scene(
         "update_scene",
         scene_id
     );
-    let repo = SceneRepository::new(pool.inner().clone());
-    // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
-    let story_id_opt = repo.get_by_id(&scene_id).ok().flatten().map(|s| s.story_id);
-    let result = repo.update(&scene_id, &updates).map_err(|e| {
-        log::error!("[story_commands] {} failed: {}", "update_scene", e);
-        AppError::from(e)
-    })?;
+    // A3: 将同步 DB 查询/更新移到 spawn_blocking，避免阻塞 tokio worker。
+    let pool_clone = pool.inner().clone();
+    let scene_id_clone = scene_id.clone();
+    let updates_clone = updates.clone();
+    let (result, story_id_opt) =
+        tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>), AppError> {
+            let repo = SceneRepository::new(pool_clone);
+            // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
+            let story_id_opt = repo
+                .get_by_id(&scene_id_clone)
+                .ok()
+                .flatten()
+                .map(|s| s.story_id);
+            let result = repo.update(&scene_id_clone, &updates_clone).map_err(|e| {
+                log::error!("[story_commands] {} failed: {}", "update_scene", e);
+                AppError::from(e)
+            })?;
+            Ok((result, story_id_opt))
+        })
+        .await
+        .map_err(|e| {
+            AppError::from(format!("[update_scene] spawn_blocking join error: {}", e))
+        })??;
 
     // 自动 Ingest：当场景内容或关键元数据被更新时，后台分析并更新知识图谱
     let should_ingest = updates.content.is_some()
@@ -190,6 +238,24 @@ pub async fn update_scene(
         let app_handle_clone = app_handle.clone();
 
         tauri::async_runtime::spawn(async move {
+            // C2: 全局并发背压，限制同时运行的后台 ingest 任务数量。
+            let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
+                .acquire()
+                .await;
+            if permit.is_err() {
+                log::warn!(
+                    "[AutoIngest] Scene {}: failed to acquire ingest permit",
+                    scene_id_clone
+                );
+                return;
+            }
+            let _permit = permit.unwrap();
+
+            // C2: 场景更新触发的 ingest 不绑定用户 generation request_id，
+            // 但仍传入 CancellationToken 以支持内部优雅退出（无外部取消源）。
+            let cancel_token = tokio_util::sync::CancellationToken::new();
+            let cancel_ref = Some(&cancel_token);
+
             // 获取场景信息以确定 story_id
             let scene_repo = SceneRepository::new(pool_clone.clone());
             if let Ok(Some(scene)) = scene_repo.get_by_id(&scene_id_clone) {
@@ -209,7 +275,10 @@ pub async fn update_scene(
                             story_id: story_id.clone(),
                             scene_id: Some(scene_id_clone.clone()),
                         };
-                        match pipeline.ingest(&ingest_content).await {
+                        match pipeline
+                            .ingest_with_cancel(&ingest_content, cancel_ref)
+                            .await
+                        {
                             Ok(result) => Some(result),
                             Err(e) => {
                                 log::warn!(

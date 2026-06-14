@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getStoryChapters,
+  getStoryChaptersPaged,
   getChapter,
   createChapter,
   updateChapter,
@@ -17,6 +18,21 @@ export function useChapters(storyId: string | null) {
     queryKey: [CHAPTERS_KEY, storyId],
     queryFn: () => (storyId ? getStoryChapters(storyId) : Promise.resolve([])),
     enabled: !!storyId,
+  });
+}
+
+export function useChaptersPaged(
+  storyId: string | null,
+  page: number,
+  pageSize: number = 3
+) {
+  return useQuery<Chapter[]>({
+    queryKey: [CHAPTERS_KEY, storyId, { page }],
+    queryFn: () =>
+      storyId
+        ? getStoryChaptersPaged(storyId, pageSize, (page - 1) * pageSize)
+        : Promise.resolve([]),
+    enabled: !!storyId && page > 0,
   });
 }
 

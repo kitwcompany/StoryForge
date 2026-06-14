@@ -19,6 +19,18 @@ pub fn get_story_chapters(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn get_story_chapters_paged(
+    story_id: String,
+    limit: i64,
+    offset: i64,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::Chapter>, AppError> {
+    crate::db::ChapterRepository::new(pool.inner().clone())
+        .get_by_story_paged(&story_id, limit, offset)
+        .map_err(AppError::from)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_chapter(
     id: String,
     pool: State<'_, DbPool>,

@@ -2,6 +2,75 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.12.0] - 智能创作性能全面重构（2026-06-14）
+
+### 修复：点击「写一部小说/续写」后长期在个别进程上无响应、最后无输出
+
+- **本地/局域网模型默认单候选 + 全局并发限流**：`src-tauri/src/agents/orchestrator.rs` / `src-tauri/src/llm/service.rs`
+  - 本地/局域网模型固定 1 候选；远程模型默认可配置 1–2 候选
+  - 增加 `tokio::sync::Semaphore` 限制全局并发 Writer 数量：本地 1、远程 2
+  - 候选总超时硬上限从 270s 收紧到 90s
+- **LLM 调用层超时与取消加固**：`src-tauri/src/llm/service.rs` / `src-tauri/src/llm/adapter.rs` / `src-tauri/src/error.rs`
+  - 拆分连接超时与生成超时；连接超时可重试 1 次，生成超时不再重试
+  - 增加 `connect_timeout` 并覆盖响应体读取阶段
+  - 心跳任务 `AbortOnDrop` 保险，确保任何错误路径都中止
+- **写作上下文准备 spawn_blocking 化**：`src-tauri/src/agents/service.rs` / `src-tauri/src/creative_engine/context_builder.rs`
+  - 将同步 DB 查询块整体包裹 `tokio::task::spawn_blocking`，避免阻塞 tokio worker
+- **提示词构建减少重复 IO**：`src-tauri/src/agents/service.rs`
+  - `AppConfig` / `GenreProfile` / `StyleDNA` 进程级只读缓存，避免每次从磁盘加载
+- **SQLite 高频路径 spawn_blocking 化**：`src-tauri/src/scene_commands.rs` / `src-tauri/src/creation_commands.rs`
+- **全局 Mutex 替换**：`src-tauri/src/lib.rs` / `src-tauri/src/llm/service.rs` / `src-tauri/src/creative_engine/context_builder.rs`
+  - `DB_POOL` / `LLM_SERVICE` 改用 `OnceLock`/`OnceCell<Arc>`；`ContextCache` 改用 `tokio::sync::RwLock`
+
+### 优化：前端响应与大数据量场景
+
+- **前端生成状态可取消与反馈**：`src-frontend/src/frontstage/FrontstageApp.tsx` / `src-frontend/src/hooks/useBackendActivityListener.ts`
+  - 显示精确阶段（准备上下文 / 候选生成 / Inspector / 改写 / 最终输出 / 保存记忆）与已用时间
+  - 取消按钮可靠调用 `agent_cancel_all_tasks` 并清理状态
+- **前端输入路径减负**：`src-frontend/src/frontstage/FrontstageApp.tsx` / `src-frontend/src/frontstage/autoSave.ts`
+  - 字数统计移入 `requestIdleCallback`；IPC 节流 350ms；autoSave payload getter 化
+- **关闭/替换高频心跳**：`src-frontend/src/frontstage/FrontstageApp.tsx` / `src-frontend/src/frontstage/components/FrontstageBottomBar.tsx`
+  - 移除 1s setInterval 心跳，改用 CSS 动画；16ms 打字机改为 `requestAnimationFrame`
+- **字数统计增量化**：`src-frontend/src/frontstage/FrontstageApp.tsx` / `src-frontend/src/hooks/useExecutionState.ts`
+  - 当前章节字数增量 diff 更新 + 后端 SQL 聚合
+- **场景/章节数据分页与延迟加载**：`src-tauri/src/db/repositories.rs` / `src-frontend/src/hooks/useScenes.ts` / `useChapters.ts`
+  - 新增 `get_by_story_paged`，列表不返回 `content` 大字段
+- **合并 sync-event 失效**：`src-frontend/src/hooks/useSyncStore.ts`
+  - 9 次独立 `invalidateQueries` 合并为一次 predicate 批量刷新
+- **LanceDB 查询优化**：`src-tauri/src/vector/lancedb_store.rs`
+  - 参数化 filter；前缀 LIKE；`hybrid_search` RRF 移入 `spawn_blocking`
+- **Embedding 批处理**：`src-tauri/src/embeddings/provider.rs`
+  - Ollama/OpenAI 按 batch（32/100）请求
+- **前端状态拆分**：`src-frontend/src/stores/generationStore.ts` / `src-frontend/src/stores/bootstrapStore.ts`
+- **文思分析异步化**：`src-frontend/src/frontstage/ai-perception/textAnalyzer.worker.ts` / `asyncTextAnalyzer.ts` / `SmartHintSystem.tsx`
+  - 移入 Web Worker，支持 AbortSignal 取消
+- **RichTextEditor HTML 序列化节流**：`src-frontend/src/frontstage/components/RichTextEditor.tsx`
+  - `getText()` 轻量更新 + 200ms 防抖 `getHTML()`
+
+### 架构级优化
+
+- **统一生成状态事件**：`src-tauri/src/events.rs`
+  - 新增 `generation-status` 事件，前端统一消费，减少重复状态更新
+- **知识图谱虚拟化/LOD**：`src-frontend/src/components/KnowledgeGraph/KnowledgeGraphView.tsx`
+  - `onlyRenderVisibleElements`、viewport 裁剪、节点 >200 时 LOD 分层
+- **Agent 编排可观测性**：`src-tauri/src/agents/orchestrator.rs` / `src-tauri/src/agents/service.rs` / `src-tauri/src/llm/service.rs`
+  - 结构化 trace：上下文准备、候选、Inspector、改写、LLM TTFT、DB 耗时
+- **后台任务队列与背压**：`src-tauri/src/memory/writer.rs` / `src-tauri/src/memory/ingest.rs` / `src-tauri/src/agents/orchestrator.rs`
+  - `MemoryWriter + IngestPipeline` 全局 Semaphore（默认 2）、取消令牌注册表、取消传播
+- **真实 tokenizer 与上下文预算**：`src-tauri/src/memory/tokenizer.rs` / `src-tauri/src/memory/query.rs` / `src-tauri/src/creative_engine/context_builder.rs`
+  - 引入 `tiktoken-rs`；`record_llm_call` 与 `budget_control` 改用真实 token 计数
+  - `ContextBudget` 按系统提示 / 故事设定 / 场景 / 用户输入分配预算，优先截断较早 scene
+
+### 质量门禁
+
+- `cargo check --all-targets` ✅
+- `cargo test --all-targets` ✅ 357 passed
+- `npx tsc --noEmit` ✅
+- `npm run test:run` ✅ 126 passed, 3 skipped
+- `npx playwright test e2e/performance/stage3-performance.spec.ts` ✅ 3 passed
+
+---
+
 ## [v0.11.7] - 紧急修复：候选仍串行 + 输入框未打字即自动进入运行进程（2026-06-13）
 
 ### 修复：候选生成阶段仍显示“生成候选 1 / 2（本地模型串行）”并挂起 500s

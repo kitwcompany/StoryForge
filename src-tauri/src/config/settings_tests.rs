@@ -71,6 +71,7 @@ mod tests {
             model: "gpt-4".to_string(),
             api_key: "".to_string(),
             api_base: None,
+            is_local_model: false,
             max_tokens: 2000,
             temperature: 0.7,
             top_p: None,
@@ -114,6 +115,7 @@ mod tests {
             model: "gpt-4".to_string(),
             api_key: "".to_string(),
             api_base: None,
+            is_local_model: false,
             max_tokens: 2000,
             temperature: 0.7,
             top_p: None,
@@ -187,6 +189,7 @@ mod tests {
             model: "gpt-4".to_string(),
             api_key: "".to_string(),
             api_base: None,
+            is_local_model: false,
             max_tokens: 2000,
             temperature: 0.7,
             top_p: None,
@@ -230,6 +233,7 @@ mod tests {
             model: "gpt-4".to_string(),
             api_key: "".to_string(),
             api_base: None,
+            is_local_model: false,
             max_tokens: 2000,
             temperature: 0.7,
             top_p: None,
@@ -346,5 +350,46 @@ mod tests {
             .llm_profiles
             .contains_key("Qwen3.5-27B-Uncensored-Q4_K_M"));
         assert!(config.embedding_profiles.contains_key("bge-m3"));
+    }
+
+    // ==================== 本地/局域网地址检测 ====================
+
+    #[test]
+    fn test_is_private_url_recognizes_local_addresses() {
+        assert!(is_private_url("http://localhost:11434/v1/chat"));
+        assert!(is_private_url("https://127.0.0.1:11434"));
+        assert!(is_private_url("http://[::1]:11434"));
+        assert!(is_private_url("http://10.0.0.1:11434"));
+        assert!(is_private_url("http://10.255.255.255"));
+        assert!(is_private_url("http://192.168.1.100:11434"));
+        assert!(is_private_url("http://172.16.0.1"));
+        assert!(is_private_url("http://172.31.255.255"));
+    }
+
+    #[test]
+    fn test_is_private_url_rejects_public_addresses() {
+        assert!(!is_private_url("https://api.openai.com/v1"));
+        assert!(!is_private_url("http://8.8.8.8"));
+        assert!(!is_private_url("http://172.15.0.1"));
+        assert!(!is_private_url("http://172.32.0.1"));
+        assert!(!is_private_url("http://11.0.0.1"));
+    }
+
+    // ==================== 阶段一并发/超时默认配置 ====================
+
+    #[test]
+    fn test_default_writer_concurrency_values() {
+        let config = AppConfig::default();
+        assert_eq!(config.writer_local_concurrency, 1);
+        assert_eq!(config.writer_remote_concurrency, 2);
+    }
+
+    #[test]
+    fn test_default_candidate_timeout_values() {
+        let config = AppConfig::default();
+        assert_eq!(config.candidate_timeout_seconds, 120);
+        assert_eq!(config.candidate_timeout_local_seconds, 60);
+        assert_eq!(config.candidate_count, 1);
+        assert_eq!(config.candidate_max_retries, 0);
     }
 }

@@ -17,6 +17,7 @@ use crate::{
     creative_engine::style::{StyleChecker, StyleDNA},
     db::{repositories::StyleDnaRepository, DbPool},
     error::AppError,
+    events::{emit_generation_status, GenerationPhase},
 };
 
 /// 生成模式 — 决定 Orchestrator 执行路径
@@ -71,7 +72,10 @@ pub struct WorkflowConfig {
     /// 早期默认 true 是为了避免本地服务端排队，但实际导致候选 1 完全阻塞
     /// 候选 2，一旦候选 1 超时/挂起，用户就只能空等。改为默认并行，并
     /// 通过更短的本地超时（60s）来避免排队影响。
+    /// v0.11.8: 该字段已弃用，候选阶段始终并行。
     pub candidate_local_sequential: bool,
+    /// 候选生成阶段候选数量（默认 1，远端模型可在 1–2 之间配置）
+    pub candidate_count: u32,
 }
 
 impl WorkflowConfig {
@@ -88,6 +92,7 @@ impl WorkflowConfig {
             candidate_timeout_local_seconds: config.candidate_timeout_local_seconds,
             candidate_max_retries: config.candidate_max_retries,
             candidate_local_sequential: config.candidate_local_sequential,
+            candidate_count: config.candidate_count.max(1).min(2),
         }
     }
 }
@@ -105,6 +110,7 @@ impl Default for WorkflowConfig {
             candidate_timeout_local_seconds: 60,
             candidate_max_retries: 0,
             candidate_local_sequential: false,
+            candidate_count: 1,
         }
     }
 }
@@ -156,6 +162,49 @@ impl WorkflowStepType {
             WorkflowStepType::Inspection => "质检",
             WorkflowStepType::Rewrite => "改写",
         }
+    }
+}
+
+/// 结构化 generation trace 日志辅助。
+/// v0.11.x (C2): 按 request_id/task_id 聚合各阶段耗时，info 输出总体，debug 输出详细阶段。
+#[derive(Clone)]
+pub(crate) struct GenerationTrace {
+    request_id: String,
+}
+
+impl GenerationTrace {
+    fn new(request_id: impl Into<String>) -> Self {
+        Self {
+            request_id: request_id.into(),
+        }
+    }
+
+    fn log_phase(&self, phase: &str, elapsed_ms: u128, details: Option<&str>) {
+        log::debug!(
+            target: "generation_trace",
+            "{}",
+            serde_json::json!({
+                "event": "generation_trace",
+                "request_id": self.request_id,
+                "phase": phase,
+                "elapsed_ms": elapsed_ms,
+                "details": details.unwrap_or(""),
+            })
+        );
+    }
+
+    fn log_total(&self, elapsed_ms: u128, details: Option<&str>) {
+        log::info!(
+            target: "generation_trace",
+            "{}",
+            serde_json::json!({
+                "event": "generation_trace",
+                "request_id": self.request_id,
+                "phase": "total",
+                "elapsed_ms": elapsed_ms,
+                "details": details.unwrap_or(""),
+            })
+        );
     }
 }
 
@@ -215,6 +264,27 @@ impl AgentOrchestrator {
         );
     }
 
+    /// 发射统一生成状态事件 `generation-status`
+    ///
+    /// 与 `orchestrator-step` 并存，供新版前端统一消费；旧版事件继续发射以保持兼容。
+    fn emit_generation_status(
+        &self,
+        task_id: &str,
+        phase: GenerationPhase,
+        progress: f32,
+        message: impl Into<String>,
+        request_id: Option<String>,
+    ) {
+        emit_generation_status(
+            &self.app_handle,
+            task_id,
+            phase,
+            progress,
+            message,
+            request_id,
+        );
+    }
+
     /// 统一生成入口 — 根据 GenerationMode 选择执行路径
     ///
     /// - Fast: 单轮 Writer 生成，跳过质检，最低延迟
@@ -224,6 +294,16 @@ impl AgentOrchestrator {
         task: AgentTask,
         mode: GenerationMode,
     ) -> Result<WorkflowResult, AppError> {
+        // C1: 记录任务开始并发射统一的准备阶段事件
+        crate::events::record_generation_start(&task.id);
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.05,
+            "准备创作上下文...",
+            None,
+        );
+
         // BeforeAiWrite hook
         if let Some(manager) = crate::SKILL_MANAGER.get() {
             if let Ok(skill_manager) = manager.lock() {
@@ -245,22 +325,87 @@ impl AgentOrchestrator {
             }
         }
 
+        let trace = GenerationTrace::new(task.id.clone());
+        let generation_start = std::time::Instant::now();
+
         let result = match mode {
-            GenerationMode::Fast => self.execute_fast(task.clone()).await,
-            GenerationMode::Full => self.execute_full(task.clone()).await,
+            GenerationMode::Fast => self.execute_fast(task.clone(), &trace).await,
+            GenerationMode::Full => self.execute_full(task.clone(), &trace).await,
         };
+
+        trace.log_total(
+            generation_start.elapsed().as_millis(),
+            Some(&format!("mode={:?}", mode)),
+        );
 
         // v0.8.0: 自动写入记忆（创作完成后）
         // v0.9.5: 同时触发完整采摘（IngestPipeline → KG + 向量索引）
+        // v0.11.x (C2): 增加 Semaphore 背压与 CancellationToken 取消传播。
         if let Ok(ref workflow_result) = result {
+            self.emit_generation_status(
+                &task.id,
+                GenerationPhase::SavingMemory,
+                0.95,
+                "保存记忆并更新知识图谱...",
+                workflow_result.request_id.clone(),
+            );
+
+            // 若用户已取消该次生成，则不再启动后台 ingest。
+            if let Some(ref req_id) = workflow_result.request_id {
+                if self.service.is_cancelled(req_id) {
+                    log::info!(
+                        "[AgentOrchestrator] Generation {} was cancelled, skipping background ingest",
+                        req_id
+                    );
+                    return result;
+                }
+            }
+
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let writer = crate::memory::writer::MemoryWriter::new(pool.inner().clone());
             let story_id = task.context.story.story_id.clone();
             let chapter_number = task.context.narrative.chapter_number as i32;
             let content = workflow_result.final_content.clone();
             let app_handle = self.app_handle.clone();
+            let request_id = workflow_result.request_id.clone();
+
+            // 注册后台 ingest 取消令牌；用户调用 cancel_generation(request_id) 时可传播取消。
+            let parent_token = request_id
+                .as_ref()
+                .map(|req_id| crate::memory::writer::register_ingest_cancel_token(req_id));
+
             tauri::async_runtime::spawn(async move {
-                match writer.write(&story_id, chapter_number, &content).await {
+                // 全局并发背压：最多同时运行 2 个 ingest 后台任务。
+                let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
+                    .acquire()
+                    .await;
+                if permit.is_err() {
+                    log::warn!("[AgentOrchestrator] Failed to acquire ingest permit");
+                    if let Some(ref req_id) = request_id {
+                        crate::memory::writer::take_ingest_cancel_token(req_id);
+                    }
+                    return;
+                }
+                let _permit = permit.unwrap();
+
+                let child_token = parent_token.as_ref().map(|t| t.child_token());
+                let cancel_ref = child_token.as_ref();
+
+                if cancel_ref.map(|t| t.is_cancelled()).unwrap_or(false) {
+                    log::info!(
+                        "[AgentOrchestrator] Background ingest cancelled before start for story {}",
+                        story_id
+                    );
+                    if let Some(ref req_id) = request_id {
+                        crate::memory::writer::take_ingest_cancel_token(req_id);
+                    }
+                    return;
+                }
+
+                match writer
+                    .write_with_cancel(&story_id, chapter_number, &content, cancel_ref)
+                    .await
+                {
                     Ok(_) => {
                         log::info!("[AgentOrchestrator] Memory updated for story {}", story_id);
 
@@ -277,7 +422,10 @@ impl AgentOrchestrator {
                             scene_id: None,
                         };
 
-                        match pipeline.ingest(&ingest_content).await {
+                        match pipeline
+                            .ingest_with_cancel(&ingest_content, cancel_ref)
+                            .await
+                        {
                             Ok(ingest_result) => {
                                 let kg_repo =
                                     crate::db::repositories::KnowledgeGraphRepository::new(
@@ -312,6 +460,11 @@ impl AgentOrchestrator {
                     }
                     Err(e) => log::warn!("[AgentOrchestrator] Memory write failed: {}", e),
                 }
+
+                // 任务完成（无论成功与否），清理取消令牌注册表。
+                if let Some(ref req_id) = request_id {
+                    crate::memory::writer::take_ingest_cancel_token(req_id);
+                }
             });
         }
 
@@ -341,17 +494,52 @@ impl AgentOrchestrator {
 
         // v0.11.2: 发出完成/失败状态事件，让前端 backendActivityStore 正确结束活动
         match &result {
-            Ok(_) => self.emit_step_status_event(&task.id, "completed", "创作完成"),
-            Err(e) => self.emit_step_status_event(&task.id, "failed", &e.to_string()),
+            Ok(r) => {
+                self.emit_step_status_event(&task.id, "completed", "创作完成");
+                self.emit_generation_status(
+                    &task.id,
+                    GenerationPhase::Completed,
+                    1.0,
+                    "创作完成",
+                    r.request_id.clone(),
+                );
+            }
+            Err(e) => {
+                self.emit_step_status_event(&task.id, "failed", &e.to_string());
+                self.emit_generation_status(
+                    &task.id,
+                    GenerationPhase::Error,
+                    0.0,
+                    format!("创作失败: {}", e),
+                    None,
+                );
+            }
         }
 
         result
     }
 
     /// Fast 模式：单轮 LLM 生成，跳过 Inspector / StyleChecker
-    async fn execute_fast(&self, task: AgentTask) -> Result<WorkflowResult, AppError> {
+    async fn execute_fast(
+        &self,
+        task: AgentTask,
+        trace: &GenerationTrace,
+    ) -> Result<WorkflowResult, AppError> {
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None, None);
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::GeneratingCandidates,
+            0.2,
+            "正在生成内容...",
+            None,
+        );
+        let writer_start = std::time::Instant::now();
         let writer_result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
+        trace.log_phase(
+            "writer",
+            writer_start.elapsed().as_millis(),
+            Some("fast mode single-pass writer"),
+        );
 
         let steps = vec![WorkflowStepResult {
             step_type: WorkflowStepType::Generation,
@@ -361,9 +549,23 @@ impl AgentOrchestrator {
             suggestions: writer_result.suggestions.clone(),
         }];
 
+        let skill_start = std::time::Instant::now();
         let final_content = self
             .apply_writing_skills(&task.context, &writer_result.content)
             .await;
+        trace.log_phase(
+            "apply_writing_skills",
+            skill_start.elapsed().as_millis(),
+            None,
+        );
+
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::FinalOutput,
+            0.9,
+            "整理最终输出...",
+            writer_result.request_id.clone(),
+        );
 
         Ok(WorkflowResult {
             final_content,
@@ -385,15 +587,27 @@ impl AgentOrchestrator {
     /// 2. Inspector 质检
     /// 3. 如果分数 < threshold，将质检反馈传给 Writer 改写
     /// 4. 重复 2-3 直到分数达标或达到最大循环次数
-    pub async fn execute_full(&self, task: AgentTask) -> Result<WorkflowResult, AppError> {
+    pub async fn execute_full(
+        &self,
+        task: AgentTask,
+        trace: &GenerationTrace,
+    ) -> Result<WorkflowResult, AppError> {
         let mut steps: Vec<WorkflowStepResult> = Vec::new();
         let mut rewrite_count: u32 = 0;
         let mut was_rewritten = false;
 
         // 步骤1: Writer 生成初稿
         self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None, None);
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::GeneratingCandidates,
+            0.2,
+            "正在生成初稿...",
+            None,
+        );
 
         // v0.7.8: 2 候选并行生成选优（续写场景且有风格指纹时启用）
+        let candidate_start = std::time::Instant::now();
         let (writer_result, request_id, mut current_content) =
             if task.context.style.style_fingerprint.is_some()
                 || task
@@ -404,7 +618,7 @@ impl AgentOrchestrator {
                     .map(|c| c.len() > 100)
                     .unwrap_or(false)
             {
-                let (r, req_id, content) = self.generate_candidates(&task, 2).await?;
+                let (r, req_id, content) = self.generate_candidates(&task, 2, trace).await?;
                 (r, Some(req_id), content)
             } else {
                 let result = Box::pin(self.service.execute_writer_raw(task.clone())).await?;
@@ -412,6 +626,11 @@ impl AgentOrchestrator {
                 let content = result.content.clone();
                 (result, req_id, content)
             };
+        trace.log_phase(
+            "candidates",
+            candidate_start.elapsed().as_millis(),
+            Some("writer initial draft / candidate generation"),
+        );
 
         steps.push(WorkflowStepResult {
             step_type: WorkflowStepType::Generation,
@@ -427,6 +646,13 @@ impl AgentOrchestrator {
             if let Some(ref req_id) = request_id {
                 if self.service.is_cancelled(req_id) {
                     log::info!("[AgentOrchestrator] Cancellation requested for request_id {}, stopping feedback loop", req_id);
+                    self.emit_generation_status(
+                        &task.id,
+                        GenerationPhase::Cancelled,
+                        0.0,
+                        "生成已取消",
+                        request_id.clone(),
+                    );
                     return Ok(WorkflowResult {
                         final_content: current_content,
                         final_score: 0.0,
@@ -449,6 +675,13 @@ impl AgentOrchestrator {
                 None,
                 Some("正在评估内容与风格一致性..."),
             );
+            self.emit_generation_status(
+                &task.id,
+                GenerationPhase::Inspecting,
+                0.5,
+                format!("Inspector 审校（第 {} 轮）...", loop_idx + 1),
+                request_id.clone(),
+            );
             let inspect_task = AgentTask {
                 id: format!("{}-inspect-{}", task.id, loop_idx),
                 agent_type: AgentType::Inspector,
@@ -458,7 +691,13 @@ impl AgentOrchestrator {
                 tier: None,
             };
 
+            let inspect_start = std::time::Instant::now();
             let inspect_result = Box::pin(self.service.execute_task(inspect_task)).await?;
+            trace.log_phase(
+                "inspector",
+                inspect_start.elapsed().as_millis(),
+                Some(&format!("loop {}", loop_idx)),
+            );
             let base_inspect_score = inspect_result.score.unwrap_or(0.0);
             let mut style_issues = Vec::new();
 
@@ -471,6 +710,7 @@ impl AgentOrchestrator {
                 + narrative_score * self.config.narrative_weight;
 
             // StyleChecker 验证（保留原有逻辑作为兜底）
+            let db_start = std::time::Instant::now();
             if let Some(ref blend) = task.context.style.style_blend {
                 let pool = self.app_handle.state::<DbPool>();
                 {
@@ -505,6 +745,11 @@ impl AgentOrchestrator {
                     }
                 }
             }
+            trace.log_phase(
+                "db_query_style_dna",
+                db_start.elapsed().as_millis(),
+                Some(&format!("loop {}", loop_idx)),
+            );
 
             self.emit_step_event(
                 &task.id,
@@ -578,6 +823,13 @@ impl AgentOrchestrator {
                 None,
                 Some(&rewrite_reason),
             );
+            self.emit_generation_status(
+                &task.id,
+                GenerationPhase::Rewriting,
+                0.7,
+                format!("改写优化（第 {} 轮）...", loop_idx + 1),
+                request_id.clone(),
+            );
             let mut rewrite_context = task.context.clone();
             rewrite_context.narrative.selected_text = Some(current_content.clone());
             let rewrite_task = AgentTask {
@@ -600,7 +852,13 @@ impl AgentOrchestrator {
                 tier: None,
             };
 
+            let rewrite_start = std::time::Instant::now();
             let rewrite_result = Box::pin(self.service.execute_task(rewrite_task)).await?;
+            trace.log_phase(
+                "rewrite",
+                rewrite_start.elapsed().as_millis(),
+                Some(&format!("loop {}", loop_idx)),
+            );
             current_content = rewrite_result.content.clone();
 
             self.emit_step_event(
@@ -634,9 +892,23 @@ impl AgentOrchestrator {
                 (0.0, final_score, Vec::new())
             };
 
+        let skill_start = std::time::Instant::now();
         let final_content = self
             .apply_writing_skills(&task.context, &current_content)
             .await;
+        trace.log_phase(
+            "apply_writing_skills",
+            skill_start.elapsed().as_millis(),
+            None,
+        );
+
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::FinalOutput,
+            0.9,
+            "整理最终输出...",
+            request_id.clone(),
+        );
 
         Ok(WorkflowResult {
             final_content,
@@ -944,11 +1216,21 @@ impl AgentOrchestrator {
         &self,
         task: &AgentTask,
         count: usize,
+        trace: &GenerationTrace,
     ) -> Result<(AgentResult, String, String), AppError> {
-        // v0.11.7: 候选阶段超时使用硬上限，忽略用户旧配置里可能保存的 600s 等大值。
+        // v0.11.8: 候选阶段超时与并发重构
+        // - 本地模型固定 1 候选；远端模型默认 1 候选，配置明确指定时才允许 2。
+        // - 总超时硬上限 90s（取代原来的 180s/270s），避免用户长期无响应。
         const MAX_LOCAL_CANDIDATE_TIMEOUT: u64 = 60;
         const MAX_REMOTE_CANDIDATE_TIMEOUT: u64 = 120;
+        const MAX_TOTAL_CANDIDATE_TIMEOUT: u64 = 90;
+
         let is_local = self.service.is_target_model_local(AgentType::Writer);
+        let effective_count = if is_local {
+            1usize
+        } else {
+            count.min(self.config.candidate_count.max(1).min(2) as usize)
+        };
         let per_candidate_timeout = if is_local {
             self.config
                 .candidate_timeout_local_seconds
@@ -959,13 +1241,24 @@ impl AgentOrchestrator {
                 .min(MAX_REMOTE_CANDIDATE_TIMEOUT)
         };
         let total_timeout_seconds = per_candidate_timeout
-            .saturating_mul(count as u64)
+            .saturating_mul(effective_count as u64)
             .saturating_add(30)
-            .max(180);
+            .min(MAX_TOTAL_CANDIDATE_TIMEOUT);
 
-        match timeout(
+        log::info!(
+            "[Orchestrator] Candidate strategy: local={}, effective_count={}, \
+             per_candidate_timeout={}s, total_timeout={}s, task={}",
+            is_local,
+            effective_count,
+            per_candidate_timeout,
+            total_timeout_seconds,
+            task.id
+        );
+
+        let candidate_start = std::time::Instant::now();
+        let result = match timeout(
             Duration::from_secs(total_timeout_seconds),
-            self.generate_candidates_inner(task, count),
+            self.generate_candidates_inner(task, effective_count, trace),
         )
         .await
         {
@@ -988,7 +1281,13 @@ impl AgentOrchestrator {
                 );
                 Err(AppError::llm_timeout(total_timeout_seconds * 1000))
             }
-        }
+        };
+        trace.log_phase(
+            "candidates",
+            candidate_start.elapsed().as_millis(),
+            Some(&format!("count={}", effective_count)),
+        );
+        result
     }
 
     /// - 候选1: 0.82 (更保守，接近训练分布)
@@ -997,6 +1296,7 @@ impl AgentOrchestrator {
         &self,
         task: &AgentTask,
         count: usize,
+        trace: &GenerationTrace,
     ) -> Result<(AgentResult, String, String), AppError> {
         let temps = [0.82_f32, 1.0_f32];
 
@@ -1012,9 +1312,22 @@ impl AgentOrchestrator {
             None,
             Some("正在准备候选生成上下文..."),
         );
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::PreparingContext,
+            0.1,
+            "准备候选生成上下文...",
+            None,
+        );
 
         // 1. 预准备共享上下文：预检、补齐、prompt 构建、策略计算只做一次
+        let prepare_start = std::time::Instant::now();
         let prepared = self.service.prepare_writer_context(task).await?;
+        trace.log_phase(
+            "prepare_writer_context",
+            prepare_start.elapsed().as_millis(),
+            Some("candidate shared context"),
+        );
         self.emit_step_event(
             &task.id,
             WorkflowStepType::Generation,
@@ -1068,6 +1381,13 @@ impl AgentOrchestrator {
             None,
             Some(&format!("生成候选中（共 {} 个）", count)),
         );
+        self.emit_generation_status(
+            &task.id,
+            GenerationPhase::GeneratingCandidates,
+            0.25,
+            format!("生成候选中（共 {} 个）...", count),
+            None,
+        );
 
         // 4. 执行候选：强制并行执行
         let results: Vec<Result<AgentResult, AppError>> =
@@ -1082,6 +1402,13 @@ impl AgentOrchestrator {
                             None,
                             None,
                             Some(&format!("生成候选 {} / {}", i + 1, count)),
+                        );
+                        this.emit_generation_status(
+                            &task.id,
+                            GenerationPhase::GeneratingCandidates,
+                            0.25 + 0.15 * ((i + 1) as f32 / count.max(1) as f32),
+                            format!("生成候选 {} / {}...", i + 1, count),
+                            None,
                         );
                         let result = this
                             .service
@@ -1380,5 +1707,36 @@ mod tests {
         assert!(summary.contains("85%"));
         assert!(summary.contains("初稿通过质检"));
         assert!(summary.contains("建议1"));
+    }
+
+    // ==================== 阶段一候选超时/并发策略 ====================
+
+    #[test]
+    fn test_workflow_config_clamps_candidate_count() {
+        let mut app_config = crate::config::AppConfig::default();
+        app_config.candidate_count = 5;
+        let config = WorkflowConfig::from_app_config(&app_config);
+        assert_eq!(config.candidate_count, 2, "远端候选数应被限制在 2 以内");
+    }
+
+    #[test]
+    fn test_candidate_total_timeout_never_exceeds_90s() {
+        // 复现 generate_candidates 中的超时计算逻辑，确保默认配置下总超时 ≤ 90s。
+        // 本地模型固定 1 候选、远端默认 1 候选；per-candidate 超时取硬上限。
+        let config = WorkflowConfig::default();
+
+        let local_per = config.candidate_timeout_local_seconds.min(60);
+        let local_total = local_per.saturating_mul(1).saturating_add(30).min(90);
+        assert_eq!(local_per, 60);
+        assert_eq!(local_total, 90);
+
+        let remote_per = config.candidate_timeout_seconds.min(120);
+        let remote_total = remote_per.saturating_mul(1).saturating_add(30).min(90);
+        assert_eq!(remote_per, 120);
+        assert_eq!(remote_total, 90);
+
+        // 远端 2 候选配置（用户显式设置）时，总超时仍被硬上限 90s 截断
+        let remote_total_2 = remote_per.saturating_mul(2).saturating_add(30).min(90);
+        assert_eq!(remote_total_2, 90);
     }
 }

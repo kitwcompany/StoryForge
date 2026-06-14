@@ -16,11 +16,44 @@ import type {
 
 // ==================== 辅助函数 ====================
 
-/** 将 HTML 内容转为纯文本 */
+/** 解码常见 HTML 实体（Worker 安全，不依赖 DOM） */
+function decodeHtmlEntities(html: string): string {
+  return (
+    html
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      // 十进制/十六进制数字实体
+      .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+  );
+}
+
+/** 将 HTML 内容转为纯文本（不依赖 DOM，可在 Worker 中运行） */
 function htmlToText(html: string): string {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return tmp.textContent || tmp.innerText || '';
+  return decodeHtmlEntities(
+    html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+  ).trim();
+}
+
+/** 从 HTML 中提取段落文本（不依赖 DOM） */
+export function extractParagraphs(html: string): string[] {
+  const paragraphs: string[] = [];
+  // 匹配 <p ...>...</p>，内容可能包含嵌套标签
+  const regex = /<p[^>]*>(.*?)<\/p>/gis;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) !== null) {
+    const text = decodeHtmlEntities(match[1].replace(/<[^>]+>/g, '')).trim();
+    if (text.length > 0) {
+      paragraphs.push(text);
+    }
+  }
+  return paragraphs;
 }
 
 /** 按段落分割文本 */

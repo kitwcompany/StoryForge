@@ -1,6 +1,6 @@
 [package]
 name = "storyforge"
-version = "0.11.7"
+version = "0.12.0"
 edition = "2021"
 
 [build-dependencies]
@@ -52,6 +52,7 @@ futures-util = "0.3.32"
 lancedb = "0.27"
 arrow-array = "57"
 arrow-schema = "57"
+datafusion-expr = "52.5"
 
 # ZIP file handling (配置导出)
 zip = "0.6"
@@ -61,6 +62,9 @@ tera = "1.20"
 
 # Cron expression parsing (v5.5.1 - P1-13 修复)
 cron = "0.15"
+
+# Real tokenizer for token counting and context budget management
+tiktoken-rs = "0.6"
 
 # Book deconstruction - file parsing
 pdf-extract = "0.7"
