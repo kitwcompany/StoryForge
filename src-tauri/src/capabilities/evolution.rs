@@ -357,10 +357,7 @@ pub fn sanitize_evolved_description(raw: &str) -> Option<String> {
         .to_string();
 
     // 折叠多余空白
-    let collapsed: String = text
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
 
     let collapsed = collapsed.trim().to_string();
 
