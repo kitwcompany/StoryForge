@@ -8,10 +8,12 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.13.0-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.13.1-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
+**最新动态**：v0.13.1 修复智能创作卡死在「准备上下文」阶段的问题——能力进化反馈环未清洗 LLM `<think>` 思考链，导致被污染的 `when_to_use` 描述注入 PlanGenerator prompt 拖垮计划生成。三层防御（写入清洗 + 加载过滤 + 数据清理）彻底根治。
+
+> 🐛 v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
 
 > 🌿 第一性原理：**把大灾难变成即时可见的小债务。** 蚂蚁搬家，不积巨石。
 

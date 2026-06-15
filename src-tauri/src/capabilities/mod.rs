@@ -30,7 +30,32 @@ fn load_evolved_descriptions() -> HashMap<String, String> {
         return HashMap::new();
     }
     match std::fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Ok(content) => {
+            let raw: HashMap<String, String> = serde_json::from_str(&content).unwrap_or_default();
+            // v0.13.1: 防御性过滤 —— 旧版本可能已保存被污染的描述（LLM <think>
+            // 思考链、超长文本）。这些会注入 PlanGenerator prompt 拖慢智能创作，
+            // 必须在加载时丢弃。
+            let cleaned: HashMap<String, String> = raw
+                .into_iter()
+                .filter_map(|(id, desc)| {
+                    let is_polluted = desc.contains("<think>")
+                        || desc.contains("</think>")
+                        || desc.chars().count() > 300;
+                    if is_polluted {
+                        log::warn!(
+                            "[CapabilityRegistry] Discarding polluted evolved description for '{}' (len={}, has_think={})",
+                            id,
+                            desc.chars().count(),
+                            desc.contains("<think>")
+                        );
+                        None
+                    } else {
+                        Some((id, desc))
+                    }
+                })
+                .collect();
+            cleaned
+        }
         Err(e) => {
             log::warn!(
                 "[CapabilityRegistry] Failed to load evolved descriptions: {}",

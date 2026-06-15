@@ -1,11 +1,22 @@
-# StoryForge (草苔) v0.12.0 项目完成状态
+# StoryForge (草苔) v0.13.1 项目完成状态
 
-> 最后更新: 2026-06-14（v0.12.0 + 智能创作性能全面重构）
+> 最后更新: 2026-06-15（v0.13.1 + 智能创作「准备上下文」卡死根因修复）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.13.1 修复智能创作卡死在「准备上下文」阶段（2026-06-15）
+
+**根因**：能力进化反馈环 `evolve_capability_descriptions` 未清洗 LLM `<think>` 思考链，被污染的 `when_to_use` 描述注入 PlanGenerator prompt，导致计划生成 LLM 卡死、前端 300s 超时退出。
+
+**修复（三层防御）**：
+- 写入清洗：`sanitize_evolved_description()`（`capabilities/evolution.rs`）剥离 `<think>` 标签 + 300 字符上限 + 5 个单测
+- 加载防御：`load_evolved_descriptions`（`capabilities/mod.rs`）过滤污染条目
+- 数据清理：用户机器 `evolved_descriptions.json` 已重置为 `{}`
+
+**验证**：`cargo check` 零错误；`cargo test --lib` 392/392 通过（零回归）
 
 ### v0.12.0 智能创作性能全面重构（2026-06-14）
 

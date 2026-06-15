@@ -2,6 +2,33 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.13.1] - 修复智能创作卡死在「准备上下文」阶段（2026-06-15）
+
+### 根因
+
+智能创作（幕前续写 / 智能输入栏）会卡死在「准备上下文」阶段，最终前端 300 秒超时退出。
+
+**完整因果链：**
+
+1. 能力进化反馈环 `CapabilityEvolution::evolve_capability_descriptions`（`capabilities/evolution.rs`）将 LLM 返回内容直接 `trim()` 后保存为能力的 `when_to_use` 描述，**零清洗**。
+2. 部分推理模型（qwen / deepseek 等）在正文前输出 `<think>...</think>` 思考链，且常常未闭合即被截断。这段 982 字符的中英混杂思考链被当作 `writer` 的 `when_to_use` 持久化到 `evolved_descriptions.json`。
+3. 应用启动时 `load_evolved_descriptions` → `update_when_to_use` **无校验**地赋值，污染进入 `CapabilityRegistry`。
+4. 每次智能创作，`to_llm_context()` 把这段污染文本注入 `PlanGenerator` 的 prompt。
+5. 计划生成 LLM 被混乱输入干扰，无法输出有效 JSON 计划，卡在「准备上下文 / 生成计划」阶段，前端 300s 超时退出。
+
+**证据：** 应用日志显示启动正常但用户操作期间无任何运行日志；用户机器 `evolved_descriptions.json` 内容确认为未闭合的 `<think>` 思考链。
+
+### 修复（三层防御）
+
+- **写入清洗**（`src-tauri/src/capabilities/evolution.rs`）：新增 `sanitize_evolved_description()`，剥离 `<think>...</think>` 标签（含未闭合情况）、去除 markdown 代码块、300 字符上限、<20 字符拒绝；新增 5 个单元测试覆盖各类污染输入。
+- **加载防御**（`src-tauri/src/capabilities/mod.rs`）：`load_evolved_descriptions()` 过滤含 `<think>` 标签或超 300 字符的条目，丢弃并 `warn` 告警，防止历史污染数据再次注入。
+- **数据清理**：用户机器 `evolved_descriptions.json` 已重置为 `{}`，立即恢复。
+
+### 验证
+
+- `cargo check` 零错误
+- `cargo test --lib` **392/392 通过**（原 387 + 新增 5），零回归
+
 ## [v0.13.0] - 分时介入架构：解开「质量与速度不可兼得」的根本矛盾（2026-06-14）
 
 ### 核心变更：分时介入架构（三条时间线）

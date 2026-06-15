@@ -260,9 +260,13 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
 
             match evolution_result {
                 Ok(Ok(response)) => {
-                    let improved = response.content.trim().to_string();
-                    if !improved.is_empty() && improved.len() > 20 {
-                        improvements.push((capability_id, improved));
+                    // v0.13.1: 清洗 LLM 输出 —— 部分模型（如 qwen/deepseek）会在正文前
+                    // 输出 <think>...</think> 思考链。若不剥离，这段混乱文本会被当作
+                    // when_to_use 注入 PlanGenerator 的 prompt，污染计划生成、拖慢甚至
+                    // 卡死智能创作的「准备上下文」阶段。
+                    let improved = sanitize_evolved_description(&response.content);
+                    if let Some(clean) = improved {
+                        improvements.push((capability_id, clean));
                     }
                 }
                 Ok(Err(e)) => {
@@ -310,5 +314,119 @@ Respond with ONLY the improved description text (1-2 sentences). Do not include 
     /// Get execution statistics for all capabilities
     pub fn get_statistics(&self) -> HashMap<String, (usize, usize)> {
         self.store.get_statistics()
+    }
+}
+
+/// 清洗 LLM 生成的能力描述，确保只有干净、简短的正文被保存为 when_to_use。
+///
+/// 处理：
+/// 1. 剥离 `<think>...</think>` 思考链（部分推理模型默认输出）。
+/// 2. 剥离 markdown 代码块包裹。
+/// 3. 长度上限 300 字符（when_to_use 应是 1-2 句话）。
+/// 4. 拒绝仍包含 `<think>` 残片或过短（<20 字符）的结果。
+///
+/// 返回 None 表示输出不可用，调用方应跳过此次进化。
+pub fn sanitize_evolved_description(raw: &str) -> Option<String> {
+    const MAX_LEN: usize = 300;
+    const MIN_LEN: usize = 20;
+
+    let mut text = raw.trim().to_string();
+
+    // 反复剥离 <think>...</think>（可能有多段或未闭合）
+    loop {
+        if let Some(start) = text.find("<think>") {
+            if let Some(end_rel) = text[start..].find("</think>") {
+                let end = start + end_rel + "</think>".len();
+                text.replace_range(start..end, "");
+                continue;
+            } else {
+                // 未闭合的 <think>：丢弃从 <think> 到结尾的全部内容
+                // （模型把正文写在了思考块里且没闭合）
+                text.truncate(start);
+            }
+        }
+        break;
+    }
+
+    // 剥离 markdown 代码块
+    text = text
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim()
+        .to_string();
+
+    // 折叠多余空白
+    let collapsed: String = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let collapsed = collapsed.trim().to_string();
+
+    // 长度与残留标签校验
+    if collapsed.len() < MIN_LEN {
+        log::warn!(
+            "[CapabilityEvolution] Sanitized description too short ({} chars), skipping",
+            collapsed.len()
+        );
+        return None;
+    }
+    if collapsed.contains("<think>") || collapsed.contains("</think>") {
+        log::warn!(
+            "[CapabilityEvolution] Sanitized description still contains <think> tags, skipping"
+        );
+        return None;
+    }
+
+    let result = if collapsed.chars().count() > MAX_LEN {
+        // 按字符截断到上限，避免截断多字节字符
+        let truncated: String = collapsed.chars().take(MAX_LEN).collect();
+        truncated
+    } else {
+        collapsed
+    };
+
+    Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_evolved_description;
+
+    #[test]
+    fn strips_think_block_and_keeps_body() {
+        let raw = "<think>\nLet me analyze...\nThis is reasoning.\n</think>\nUse when writing new story content or continuing a scene.";
+        let cleaned = sanitize_evolved_description(raw).unwrap();
+        assert!(!cleaned.contains("<think>"));
+        assert!(!cleaned.contains("reasoning"));
+        assert!(cleaned.contains("writing new story content"));
+    }
+
+    #[test]
+    fn rejects_unclosed_think_block() {
+        // 未闭合 <think>：正文被当作思考链一并丢弃 → 结果过短 → None
+        let raw = "<think>\nLet me analyze the execution history of writer";
+        assert!(sanitize_evolved_description(raw).is_none());
+    }
+
+    #[test]
+    fn truncates_overlong_description() {
+        let long = "Use when writing. ".repeat(50);
+        let cleaned = sanitize_evolved_description(&long).unwrap();
+        assert!(cleaned.chars().count() <= 300);
+    }
+
+    #[test]
+    fn rejects_too_short() {
+        assert!(sanitize_evolved_description("ok").is_none());
+    }
+
+    #[test]
+    fn strips_code_fences() {
+        let raw = "```\nUse when you need to write new story content for the novel.\n```";
+        let cleaned = sanitize_evolved_description(raw).unwrap();
+        assert!(!cleaned.contains("```"));
+        assert!(cleaned.contains("write new story content"));
     }
 }
