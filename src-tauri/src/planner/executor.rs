@@ -76,6 +76,7 @@ impl PlanExecutor {
         &self,
         context: &PlanContext,
     ) -> Result<PlanExecutionResult, AppError> {
+        log::info!("[PlanExecutor] execute_with_context START");
         // Before generating a new plan, check PlanTemplateLibrary for matching
         // templates
         let mut plan = if let Some(template_plan) = self.find_template(&context.user_input) {
@@ -85,11 +86,20 @@ impl PlanExecutor {
             );
             self.adapt_template_plan(template_plan, context)
         } else {
+            log::info!("[PlanExecutor] No template found, calling PlanGenerator::generate_plan...");
             let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
             let generator =
                 PlanGenerator::new(llm_service).with_app_handle(self.app_handle.clone());
+            let t_plan = std::time::Instant::now();
             match generator.generate_plan(context).await {
-                Ok(plan) => plan,
+                Ok(plan) => {
+                    log::info!(
+                        "[PlanExecutor] Plan generation succeeded in {:?} ({} steps)",
+                        t_plan.elapsed(),
+                        plan.steps.len()
+                    );
+                    plan
+                }
                 Err(e) => {
                     log::warn!(
                         "[PlanExecutor] Plan generation failed ({}), falling back to direct writer",
@@ -686,6 +696,7 @@ impl PlanExecutor {
         params: &HashMap<String, serde_json::Value>,
         plan_context: &PlanContext,
     ) -> Result<serde_json::Value, AppError> {
+        log::info!("[PlanExecutor::execute_writer] START");
         let story_id = params
             .get("story_id")
             .and_then(|v| v.as_str())
@@ -705,6 +716,7 @@ impl PlanExecutor {
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
         let sw = (plan_context.style_weight as f32 / 100.0).clamp(0.0, 1.0);
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+        log::info!("[PlanExecutor::execute_writer] Loading AppConfig...");
         let mut config = crate::config::AppConfig::load(&app_dir)
             .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
             .unwrap_or_default();
@@ -716,9 +728,18 @@ impl PlanExecutor {
             self.app_handle.clone(),
         );
         let selected_text = plan_context.selected_text.clone();
+        log::info!(
+            "[PlanExecutor::execute_writer] Calling build_agent_context (story_id={})...",
+            story_id
+        );
+        let t_ctx = std::time::Instant::now();
         let mut context = self
             .build_agent_context(&story_id, current_content, selected_text)
             .await?;
+        log::info!(
+            "[PlanExecutor::execute_writer] build_agent_context done in {:?}",
+            t_ctx.elapsed()
+        );
         // v0.8.0: 使用 PlanContext 中的章节号（用户当前编辑的场景），而非最新场景
         context.narrative.chapter_number = plan_context.chapter_number.max(1) as u32;
 
@@ -756,9 +777,16 @@ impl PlanExecutor {
             tier: None,
         };
 
+        log::info!("[PlanExecutor::execute_writer] Calling orchestrator.generate(Full)...");
+        let t_gen = std::time::Instant::now();
         let workflow_result = orchestrator
             .generate(task, crate::agents::orchestrator::GenerationMode::Full)
             .await?;
+        log::info!(
+            "[PlanExecutor::execute_writer] orchestrator.generate(Full) done in {:?} (score={})",
+            t_gen.elapsed(),
+            workflow_result.final_score
+        );
         Ok(serde_json::json!({
             "content": workflow_result.final_content,
             "score": Some(workflow_result.final_score as f64),

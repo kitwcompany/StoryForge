@@ -53,10 +53,20 @@ pub async fn smart_execute(
         };
 
     emit_progress("loading_context", "正在读取故事信息...", 1, 5);
+    log::info!(
+        "[smart_execute] START user_input={:?} current_content_len={}",
+        user_input,
+        current_content
+            .as_ref()
+            .map(|c| c.chars().count())
+            .unwrap_or(0)
+    );
 
     // 构建 PlanContext：从当前系统状态推断
     // v0.9.5: 将同步 DB 查询移入 spawn_blocking，避免阻塞 tokio worker
     let pool_for_loader = pool.clone();
+    log::info!("[smart_execute] STEP 1/5 loading stories+chapters (spawn_blocking)...");
+    let t1 = std::time::Instant::now();
     let (stories, current_story, current_story_id, chapters) =
         tokio::task::spawn_blocking(move || -> Result<SmartExecuteContext, AppError> {
             let stories = StoryRepository::new(pool_for_loader.clone())
@@ -82,6 +92,13 @@ pub async fn smart_execute(
         })
         .await
         .map_err(|e| AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e)))??;
+    log::info!(
+        "[smart_execute] STEP 1/5 done in {:?} (stories={}, chapters={}, story_id={:?})",
+        t1.elapsed(),
+        stories.len(),
+        chapters.len(),
+        current_story_id
+    );
 
     let chapter_count = chapters.len();
 
@@ -330,6 +347,11 @@ pub async fn smart_execute(
         chapter_number,
     ) = if let Some(ref story_id) = current_story_id {
         emit_progress("loading_context", "正在读取章节与场景结构...", 1, 5);
+        log::info!(
+            "[smart_execute] STEP 2/5 loading scenes (spawn_blocking, story_id={})...",
+            story_id
+        );
+        let t2 = std::time::Instant::now();
         let pool_for_scenes = pool.clone();
         let story_id_for_scenes = story_id.clone();
         let scenes = tokio::task::spawn_blocking(move || {
@@ -339,6 +361,11 @@ pub async fn smart_execute(
         .await
         .map_err(|e| AppError::internal(format!("[smart_execute] 场景加载任务失败: {}", e)))?
         .map_err(|e| AppError::internal(format!("[smart_execute] Failed to load scenes: {}", e)))?;
+        log::info!(
+            "[smart_execute] STEP 2/5 done in {:?} (scenes={})",
+            t2.elapsed(),
+            scenes.len()
+        );
         let scene_count = scenes.len();
 
         let scenes_summary: Vec<crate::planner::SceneStructureSummary> = scenes
@@ -408,6 +435,10 @@ pub async fn smart_execute(
         };
 
         emit_progress("loading_context", "正在读取世界观、角色与伏笔...", 1, 5);
+        log::info!(
+            "[smart_execute] STEP 3/5 loading world/chars/foreshadowing (spawn_blocking)..."
+        );
+        let t3 = std::time::Instant::now();
 
         // v0.9.5: 将多个同步上下文查询批量移入 spawn_blocking
         let pool_for_context = pool.clone();
@@ -468,8 +499,11 @@ pub async fn smart_execute(
             .map_err(|e| {
                 AppError::internal(format!("[smart_execute] 上下文加载任务失败: {}", e))
             })?;
+        log::info!("[smart_execute] STEP 3/5 done in {:?}", t3.elapsed());
 
         emit_progress("loading_context", "正在读取风格配置...", 1, 5);
+        log::info!("[smart_execute] STEP 4/5 loading style+MCP...");
+        let t4 = std::time::Instant::now();
 
         // 风格DNA / 风格混合
         let style_dna_info = {
@@ -513,8 +547,13 @@ pub async fn smart_execute(
         };
 
         // 异步加载MCP工具列表
+        log::info!("[smart_execute] STEP 4a acquiring MCP_CONNECTIONS lock...");
         let mcp_tools_available = {
             let connections = crate::MCP_CONNECTIONS.lock().await;
+            log::info!(
+                "[smart_execute] STEP 4a MCP lock acquired, {} connections",
+                connections.len()
+            );
             connections
                 .iter()
                 .flat_map(|(_id, client)| {
@@ -526,6 +565,11 @@ pub async fn smart_execute(
                 })
                 .collect::<Vec<_>>()
         };
+
+        log::info!(
+            "[smart_execute] STEP 4/5 done in {:?} (context loading complete)",
+            t4.elapsed()
+        );
 
         (
             scenes,
@@ -601,11 +645,18 @@ pub async fn smart_execute(
 
     // 执行计划（内部会自动检查模板库并生成计划）
     emit_progress("executing", "开始执行创作计划...", 3, 5);
+    log::info!("[smart_execute] STEP 5/5 calling PlanExecutor::execute_with_context...");
     let executor = crate::planner::PlanExecutor::new(app_handle);
+    let t5 = std::time::Instant::now();
     let result = executor
         .execute_with_context(&plan_context)
         .await
         .map_err(|e| AppError::internal(format!("[smart_execute] Plan execution failed: {}", e)))?;
+    log::info!(
+        "[smart_execute] STEP 5/5 done in {:?}, total elapsed: {:?}",
+        t5.elapsed(),
+        t1.elapsed()
+    );
     emit_progress("completed", "创作计划执行完成", 5, 5);
 
     // 如果计划执行失败（所有步骤都失败或没有内容/空内容），返回错误
