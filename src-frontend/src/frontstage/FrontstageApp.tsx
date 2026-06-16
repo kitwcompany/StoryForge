@@ -520,6 +520,10 @@ const FrontstageApp: React.FC = () => {
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // C1: 记录最近一次收到统一生成状态事件的时间，用于跳过重叠的旧事件
   const lastGenerationStatusAtRef = useRef<number>(0);
+  // v0.13.1: 诊断数据收集——记录最后的原始进度事件和输入，用于超时/失败时弹窗
+  const lastProgressEventRef = useRef<Record<string, any> | null>(null);
+  const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
+  const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
 
   // A4-1.7: 根据生成开始时间计算已用秒数
   const getElapsedSeconds = useCallback(() => {
@@ -527,6 +531,42 @@ const FrontstageApp: React.FC = () => {
       ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
       : 0;
   }, []);
+
+  // v0.13.1: 捕获诊断信息，在超时/错误时弹出诊断卡片
+  const captureDiagnosticInfo = useCallback((errorMsg: string) => {
+    const now = Date.now();
+    const elapsed = generationStartTimeRef.current
+      ? Math.floor((now - generationStartTimeRef.current) / 1000)
+      : 0;
+    const timeSinceLastEvent = lastEventTimeRef.current
+      ? Math.floor((now - lastEventTimeRef.current) / 1000)
+      : 0;
+    const lastEvt = lastProgressEventRef.current;
+    const backendVersion = (window as any).__STORYFORGE_VERSION__ || 'unknown';
+
+    const info: Record<string, string> = {
+      '发生时间': new Date().toISOString(),
+      '应用版本': backendVersion,
+      '当前阶段（UI 判定）': currentToastPhaseRef.current || '未知',
+      '当前状态文字': generationStatus || '无',
+      '已用时（秒）': String(elapsed),
+      '距最后一次进度事件（秒）': String(timeSinceLastEvent),
+      '是否收到过后端响应': timeSinceLastEvent < elapsed ? '是' : '否',
+      '最后事件类型': lastEvt?.stage || lastEvt?.step_type || '无',
+      '最后事件消息': lastEvt?.message || lastEvt?.detail || '无',
+      '最后事件详情': JSON.stringify(lastEvt || {}, null, 0),
+      '作品ID': currentStory?.id || '无',
+      '章数': chapters?.length ? String(chapters.length) : '未知',
+      '场数': scenes?.length ? String(scenes.length) : '未知',
+      '当前章节号': currentChapter?.chapter_number ? String(currentChapter.chapter_number) : '无',
+      '编辑器字数': editorRef.current?.getText()?.length ? String(editorRef.current.getText().length) : '未知',
+      '模型是否在运行': '请检查 Ollama / API 服务状态',
+      '错误信息': errorMsg,
+      '提示': '请复制以上信息到 GitHub Issue 或发给开发者排查',
+    };
+    setDiagnosticData(info);
+    setShowDiagnosticCard(true);
+  }, [generationStatus, currentStory, chapters, scenes, currentChapter]);
 
   // A4-1.7: 将基础文案与已用时间拼接（避免重复追加时间后缀）
   const formatStatusWithElapsed = useCallback(
@@ -592,16 +632,17 @@ const FrontstageApp: React.FC = () => {
   }, [scheduleFallbackPrompt]);
 
   // C1: 处理统一生成状态事件，更新底部状态栏与 orchestratorStatus
-  const handleGenerationStatus = useCallback(
-    (p: {
-      phase: string;
-      progress: number;
-      message: string;
-      elapsed_ms: number;
-      task_id: string;
-      request_id?: string | null;
-    }) => {
-      lastGenerationStatusAtRef.current = Date.now();
+	  const handleGenerationStatus = useCallback(
+	    (p: {
+	      phase: string;
+	      progress: number;
+	      message: string;
+	      elapsed_ms: number;
+	      task_id: string;
+	      request_id?: string | null;
+	    }) => {
+	      lastProgressEventRef.current = { stage: p.phase, message: p.message, step: p.progress };
+	      lastGenerationStatusAtRef.current = Date.now();
       updateLastEventTime();
       const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
       const message = precise || p.message;
@@ -922,6 +963,7 @@ const FrontstageApp: React.FC = () => {
         total_steps: number;
       }>('smart-execute-progress', event => {
         const p = event.payload;
+        lastProgressEventRef.current = event.payload as any;
         updateLastEventTime();
         const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message) || p.message;
         setGenerationStatus(formatStatusWithElapsed(precise));
@@ -939,6 +981,7 @@ const FrontstageApp: React.FC = () => {
         total_steps: number;
       }>('plan-executor-step', event => {
         const p = event.payload;
+        lastProgressEventRef.current = event.payload as any;
         updateLastEventTime();
         frontstageLogger.debug('[plan-executor-step]', {
           status: p.status,
@@ -970,6 +1013,7 @@ const FrontstageApp: React.FC = () => {
         score?: number;
         detail?: string;
       }>('orchestrator-step', event => {
+        lastProgressEventRef.current = event.payload as any;
         // C1: 统一事件已覆盖 orchestrator 进度，跳过重叠更新
         if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
@@ -1709,6 +1753,8 @@ const FrontstageApp: React.FC = () => {
         } else {
           toast.error(`生成失败: ${msg}`);
         }
+        // v0.13.1: 弹出诊断卡片，方便用户复制报错信息
+        captureDiagnosticInfo(msg);
         setIsGenerating(false);
         setGenerationStatus('');
         setOrchestratorStatus(null);
@@ -2176,6 +2222,8 @@ const FrontstageApp: React.FC = () => {
         } else {
           toast.error(`执行失败: ${msg}`);
         }
+        // v0.13.1: 弹出诊断卡片
+        captureDiagnosticInfo(msg);
       } finally {
         stopElapsedTimer();
         cancelGenerationRef.current = null;
@@ -2473,7 +2521,15 @@ const FrontstageApp: React.FC = () => {
     };
   }, [currentStory?.id]);
 
+  // v0.13.1: 诊断信息转换为可复制的纯文本
+  const diagnosticText = useMemo(() => {
+    return Object.entries(diagnosticData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+  }, [diagnosticData]);
+
   return (
+    <>
     <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
       <FrontstageHeader
         currentStory={currentStory}
@@ -2718,6 +2774,71 @@ const FrontstageApp: React.FC = () => {
 
       {/* 故事上下文信息已整合至编辑器侧边栏与幕后工作室 */}
     </div>
+
+    {/* v0.13.1: 智能创作异常中断诊断卡片 */}
+    {showDiagnosticCard && (
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center"
+        style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+        onClick={() => setShowDiagnosticCard(false)}
+      >
+        <div
+          className="rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl"
+          style={{
+            background: 'var(--parchment, #f5f0e1)',
+            border: '1px solid var(--warm-sand, #d4c5a9)',
+            color: 'var(--charcoal, #2c2c2c)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          <h3
+            className="text-lg font-bold mb-3"
+            style={{ color: 'var(--charcoal, #2c2c2c)' }}
+          >
+            🐛 智能创作诊断报告
+          </h3>
+          <p className="text-sm mb-3" style={{ opacity: 0.7 }}>
+            生成过程被中断。请复制下方信息发给开发者帮助排查。
+          </p>
+          <textarea
+            readOnly
+            className="w-full h-56 rounded-lg p-3 text-xs font-mono resize-none mb-3 bg-white/70 border"
+            style={{
+              borderColor: 'var(--warm-sand, #d4c5a9)',
+              color: 'var(--charcoal, #2c2c2c)',
+            }}
+            value={diagnosticText}
+            onClick={e => (e.target as HTMLTextAreaElement).select()}
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                background: 'var(--warm-sand, #d4c5a9)',
+                color: 'var(--charcoal, #2c2c2c)',
+              }}
+              onClick={() => setShowDiagnosticCard(false)}
+            >
+              关闭
+            </button>
+            <button
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors text-white"
+              style={{ background: 'var(--accent, #5b8c5a)' }}
+              onClick={() => {
+                navigator.clipboard.writeText(diagnosticText).then(() => {
+                  toast.success('诊断信息已复制到剪贴板，请粘贴给开发者');
+                }).catch(() => {
+                  toast.error('复制失败，请手动选择文本框内容');
+                });
+              }}
+            >
+              📋 复制诊断信息
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 
