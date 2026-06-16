@@ -533,40 +533,45 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   // v0.13.1: 捕获诊断信息，在超时/错误时弹出诊断卡片
-  const captureDiagnosticInfo = useCallback((errorMsg: string) => {
-    const now = Date.now();
-    const elapsed = generationStartTimeRef.current
-      ? Math.floor((now - generationStartTimeRef.current) / 1000)
-      : 0;
-    const timeSinceLastEvent = lastEventTimeRef.current
-      ? Math.floor((now - lastEventTimeRef.current) / 1000)
-      : 0;
-    const lastEvt = lastProgressEventRef.current;
-    const backendVersion = (window as any).__STORYFORGE_VERSION__ || 'unknown';
+  const captureDiagnosticInfo = useCallback(
+    (errorMsg: string) => {
+      const now = Date.now();
+      const elapsed = generationStartTimeRef.current
+        ? Math.floor((now - generationStartTimeRef.current) / 1000)
+        : 0;
+      const timeSinceLastEvent = lastEventTimeRef.current
+        ? Math.floor((now - lastEventTimeRef.current) / 1000)
+        : 0;
+      const lastEvt = lastProgressEventRef.current;
+      const backendVersion = (window as any).__STORYFORGE_VERSION__ || 'unknown';
 
-    const info: Record<string, string> = {
-      '发生时间': new Date().toISOString(),
-      '应用版本': backendVersion,
-      '当前阶段（UI 判定）': currentToastPhaseRef.current || '未知',
-      '当前状态文字': generationStatus || '无',
-      '已用时（秒）': String(elapsed),
-      '距最后一次进度事件（秒）': String(timeSinceLastEvent),
-      '是否收到过后端响应': timeSinceLastEvent < elapsed ? '是' : '否',
-      '最后事件类型': lastEvt?.stage || lastEvt?.step_type || '无',
-      '最后事件消息': lastEvt?.message || lastEvt?.detail || '无',
-      '最后事件详情': JSON.stringify(lastEvt || {}, null, 0),
-      '作品ID': currentStory?.id || '无',
-      '章数': chapters?.length ? String(chapters.length) : '未知',
-      '场数': scenes?.length ? String(scenes.length) : '未知',
-      '当前章节号': currentChapter?.chapter_number ? String(currentChapter.chapter_number) : '无',
-      '编辑器字数': editorRef.current?.getText()?.length ? String(editorRef.current.getText().length) : '未知',
-      '模型是否在运行': '请检查 Ollama / API 服务状态',
-      '错误信息': errorMsg,
-      '提示': '请复制以上信息到 GitHub Issue 或发给开发者排查',
-    };
-    setDiagnosticData(info);
-    setShowDiagnosticCard(true);
-  }, [generationStatus, currentStory, chapters, scenes, currentChapter]);
+      const info: Record<string, string> = {
+        发生时间: new Date().toISOString(),
+        应用版本: backendVersion,
+        '当前阶段（UI 判定）': currentToastPhaseRef.current || '未知',
+        当前状态文字: generationStatus || '无',
+        '已用时（秒）': String(elapsed),
+        '距最后一次进度事件（秒）': String(timeSinceLastEvent),
+        是否收到过后端响应: timeSinceLastEvent < elapsed ? '是' : '否',
+        最后事件类型: lastEvt?.stage || lastEvt?.step_type || '无',
+        最后事件消息: lastEvt?.message || lastEvt?.detail || '无',
+        最后事件详情: JSON.stringify(lastEvt || {}, null, 0),
+        作品ID: currentStory?.id || '无',
+        章数: chapters?.length ? String(chapters.length) : '未知',
+        场数: scenes?.length ? String(scenes.length) : '未知',
+        当前章节号: currentChapter?.chapter_number ? String(currentChapter.chapter_number) : '无',
+        编辑器字数: editorRef.current?.getText()?.length
+          ? String(editorRef.current.getText().length)
+          : '未知',
+        模型是否在运行: '请检查 Ollama / API 服务状态',
+        错误信息: errorMsg,
+        提示: '请复制以上信息到 GitHub Issue 或发给开发者排查',
+      };
+      setDiagnosticData(info);
+      setShowDiagnosticCard(true);
+    },
+    [generationStatus, currentStory, chapters, scenes, currentChapter]
+  );
 
   // A4-1.7: 将基础文案与已用时间拼接（避免重复追加时间后缀）
   const formatStatusWithElapsed = useCallback(
@@ -632,17 +637,17 @@ const FrontstageApp: React.FC = () => {
   }, [scheduleFallbackPrompt]);
 
   // C1: 处理统一生成状态事件，更新底部状态栏与 orchestratorStatus
-	  const handleGenerationStatus = useCallback(
-	    (p: {
-	      phase: string;
-	      progress: number;
-	      message: string;
-	      elapsed_ms: number;
-	      task_id: string;
-	      request_id?: string | null;
-	    }) => {
-	      lastProgressEventRef.current = { stage: p.phase, message: p.message, step: p.progress };
-	      lastGenerationStatusAtRef.current = Date.now();
+  const handleGenerationStatus = useCallback(
+    (p: {
+      phase: string;
+      progress: number;
+      message: string;
+      elapsed_ms: number;
+      task_id: string;
+      request_id?: string | null;
+    }) => {
+      lastProgressEventRef.current = { stage: p.phase, message: p.message, step: p.progress };
+      lastGenerationStatusAtRef.current = Date.now();
       updateLastEventTime();
       const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
       const message = precise || p.message;
@@ -2530,314 +2535,316 @@ const FrontstageApp: React.FC = () => {
 
   return (
     <>
-    <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
-      <FrontstageHeader
-        currentStory={currentStory}
-        currentChapter={currentChapter}
-        wordCount={wordCount}
-        totalWordCount={totalWordCount}
-        fontSize={fontSize}
-        isSaved={isSaved}
-        isZenMode={isZenMode}
-        wensiMode={wensiMode}
-        orchestratorStatus={orchestratorStatus}
-        bootstrapProgress={bootstrapProgress}
-        onOpenBackstage={openBackstage}
-        onCycleWensiMode={cycleWensiMode}
-        onToggleZenMode={() => setIsZenMode(prev => !prev)}
-      />
+      <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
+        <FrontstageHeader
+          currentStory={currentStory}
+          currentChapter={currentChapter}
+          wordCount={wordCount}
+          totalWordCount={totalWordCount}
+          fontSize={fontSize}
+          isSaved={isSaved}
+          isZenMode={isZenMode}
+          wensiMode={wensiMode}
+          orchestratorStatus={orchestratorStatus}
+          bootstrapProgress={bootstrapProgress}
+          onOpenBackstage={openBackstage}
+          onCycleWensiMode={cycleWensiMode}
+          onToggleZenMode={() => setIsZenMode(prev => !prev)}
+        />
 
-      {/* Main Content */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Editor + Bottom Input */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <main className="frontstage-main" style={{ flex: 1, minHeight: 0 }}>
-            {currentChapter && (
-              <div className="chapter-header">
-                <h1 className="chapter-title">
-                  {currentChapter.title || `第${currentChapter.chapter_number}章`}
-                </h1>
-              </div>
-            )}
+        {/* Main Content */}
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          {/* Editor + Bottom Input */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <main className="frontstage-main" style={{ flex: 1, minHeight: 0 }}>
+              {currentChapter && (
+                <div className="chapter-header">
+                  <h1 className="chapter-title">
+                    {currentChapter.title || `第${currentChapter.chapter_number}章`}
+                  </h1>
+                </div>
+              )}
 
-            <RichTextEditor
-              ref={editorRef}
-              content={content}
-              onChange={handleContentChange}
-              wensiMode={wensiMode}
-              generatedText={generatedText}
-              isGenerating={isGenerating}
-              onAcceptGeneration={handleAcceptGeneration}
-              onRejectGeneration={handleRejectGeneration}
-              onRequestGeneration={handleRequestGeneration}
-              onSmartGeneration={handleSmartGeneration}
-              onSlashCommand={handleSlashCommand}
-              onShowStatus={message => {
-                setOrchestratorStatus({ stepType: 'editor', message });
-                setTimeout(() => {
-                  setOrchestratorStatus(current => (current?.message === message ? null : current));
-                }, 3000);
-              }}
-              placeholder="开始写作..."
-              characters={characters}
-              fontSize={fontSize}
-              onFontSizeChange={setFontSize}
-              isZenMode={isZenMode}
-              onZenModeChange={setIsZenMode}
-              storyId={currentStory?.id}
-              chapterId={currentChapter?.id}
-              chapterNumber={currentChapter?.chapter_number}
-              smartGhostText={smartGhostText}
-              inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
-              onClearInlineSuggestion={() => setInlineSuggestion(null)}
-              subscription={subscription}
-            />
-          </main>
-
-          <FrontstageBottomBar
-            isZenMode={isZenMode}
-            isGenerating={isGenerating}
-            generationStatus={generationStatus}
-            inputValue={inputValue}
-            ghostHint={ghostHint}
-            hintSource={hintSource}
-            modelStatus={modelStatus}
-            modelName={modelName}
-            modelProvider={activeChatModel?.provider}
-            modelApiBase={activeChatModel?.api_base}
-            modelLatency={chatConnectionState?.result?.latency}
-            lastCheckedAt={chatConnectionState?.lastCheckedAt}
-            onGoToSettings={openBackstage}
-            onInputChange={setInputValue}
-            onInputSubmit={handleInputSubmit}
-            onCancelGeneration={handleCancelGeneration}
-            onInputFocus={handleInputFocus}
-            onInputKeyDown={handleInputKeyDown}
-          />
-        </div>
-      </div>
-
-      {/* Floating WenSi Panel */}
-      {showWenSiPanel && (
-        <div className="fixed bottom-6 right-6 w-[420px] max-w-[calc(100vw-3rem)] z-40">
-          <div className="bg-[var(--parchment-dark)] border border-[var(--warm-sand)] rounded-xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--warm-sand)]">
-              <span className="text-sm font-medium text-[var(--charcoal)]">文思泉涌</span>
-              <button
-                onClick={() => setShowWenSiPanel(false)}
-                className="text-[var(--stone-gray)] hover:text-[var(--charcoal)] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-3">
-              <WenSiPanel
-                storyId={currentStory?.id}
-                chapterId={currentChapter?.id}
-                isPro={subscription?.isPro ?? false}
-                onShowUpgrade={trigger => {
-                  setUpgradeTrigger(trigger);
-                  setShowUpgradePanel(true);
-                }}
-                hasAutoWriteQuota={subscription?.hasAutoWriteQuota || (async () => true)}
-                hasAutoReviseQuota={subscription?.hasAutoReviseQuota || (async () => true)}
-                editorContent={editorRef.current?.getText()}
-                selectedText={editorRef.current?.getSelectedText()}
+              <RichTextEditor
+                ref={editorRef}
+                content={content}
+                onChange={handleContentChange}
+                wensiMode={wensiMode}
+                generatedText={generatedText}
+                isGenerating={isGenerating}
+                onAcceptGeneration={handleAcceptGeneration}
+                onRejectGeneration={handleRejectGeneration}
+                onRequestGeneration={handleRequestGeneration}
+                onSmartGeneration={handleSmartGeneration}
+                onSlashCommand={handleSlashCommand}
                 onShowStatus={message => {
-                  setOrchestratorStatus({ stepType: 'wensi', message });
+                  setOrchestratorStatus({ stepType: 'editor', message });
                   setTimeout(() => {
                     setOrchestratorStatus(current =>
                       current?.message === message ? null : current
                     );
                   }, 3000);
                 }}
-                onReviseResult={text => {
-                  if (editorRef.current) {
-                    // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
-                    const html = autoFormatText(text);
-                    editorRef.current.insertText(html);
-                    toast.success('修改内容已应用到编辑器');
-                  }
-                }}
-                onFreePrompt={prompt => {
-                  handleSmartGeneration(prompt);
-                  setShowWenSiPanel(false);
-                }}
+                placeholder="开始写作..."
+                characters={characters}
+                fontSize={fontSize}
+                onFontSizeChange={setFontSize}
+                isZenMode={isZenMode}
+                onZenModeChange={setIsZenMode}
+                storyId={currentStory?.id}
+                chapterId={currentChapter?.id}
+                chapterNumber={currentChapter?.chapter_number}
+                smartGhostText={smartGhostText}
+                inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
+                onClearInlineSuggestion={() => setInlineSuggestion(null)}
+                subscription={subscription}
               />
-            </div>
+            </main>
+
+            <FrontstageBottomBar
+              isZenMode={isZenMode}
+              isGenerating={isGenerating}
+              generationStatus={generationStatus}
+              inputValue={inputValue}
+              ghostHint={ghostHint}
+              hintSource={hintSource}
+              modelStatus={modelStatus}
+              modelName={modelName}
+              modelProvider={activeChatModel?.provider}
+              modelApiBase={activeChatModel?.api_base}
+              modelLatency={chatConnectionState?.result?.latency}
+              lastCheckedAt={chatConnectionState?.lastCheckedAt}
+              onGoToSettings={openBackstage}
+              onInputChange={setInputValue}
+              onInputSubmit={handleInputSubmit}
+              onCancelGeneration={handleCancelGeneration}
+              onInputFocus={handleInputFocus}
+              onInputKeyDown={handleInputKeyDown}
+            />
           </div>
         </div>
-      )}
 
-      {/* F1 帮助面板 */}
-      {showHelpPanel && !isZenMode && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
-          <div className="frontstage-help-panel">
-            <div className="frontstage-help-header">
-              <span className="text-sm font-medium">快捷键指南</span>
-              <button
-                onClick={() => setShowHelpPanel(false)}
-                className="text-[var(--stone-gray)] hover:text-[var(--charcoal)] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        {/* Floating WenSi Panel */}
+        {showWenSiPanel && (
+          <div className="fixed bottom-6 right-6 w-[420px] max-w-[calc(100vw-3rem)] z-40">
+            <div className="bg-[var(--parchment-dark)] border border-[var(--warm-sand)] rounded-xl shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--warm-sand)]">
+                <span className="text-sm font-medium text-[var(--charcoal)]">文思泉涌</span>
+                <button
+                  onClick={() => setShowWenSiPanel(false)}
+                  className="text-[var(--stone-gray)] hover:text-[var(--charcoal)] transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-3">
+                <WenSiPanel
+                  storyId={currentStory?.id}
+                  chapterId={currentChapter?.id}
+                  isPro={subscription?.isPro ?? false}
+                  onShowUpgrade={trigger => {
+                    setUpgradeTrigger(trigger);
+                    setShowUpgradePanel(true);
+                  }}
+                  hasAutoWriteQuota={subscription?.hasAutoWriteQuota || (async () => true)}
+                  hasAutoReviseQuota={subscription?.hasAutoReviseQuota || (async () => true)}
+                  editorContent={editorRef.current?.getText()}
+                  selectedText={editorRef.current?.getSelectedText()}
+                  onShowStatus={message => {
+                    setOrchestratorStatus({ stepType: 'wensi', message });
+                    setTimeout(() => {
+                      setOrchestratorStatus(current =>
+                        current?.message === message ? null : current
+                      );
+                    }, 3000);
+                  }}
+                  onReviseResult={text => {
+                    if (editorRef.current) {
+                      // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
+                      const html = autoFormatText(text);
+                      editorRef.current.insertText(html);
+                      toast.success('修改内容已应用到编辑器');
+                    }
+                  }}
+                  onFreePrompt={prompt => {
+                    handleSmartGeneration(prompt);
+                    setShowWenSiPanel(false);
+                  }}
+                />
+              </div>
             </div>
-            <div className="frontstage-help-body">
-              <div className="frontstage-help-section">
-                <h4>写作</h4>
-                <div className="frontstage-help-row">
-                  <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
-                  <span>AI 续写</span>
-                </div>
-                <div className="frontstage-help-row">
-                  <kbd>/</kbd>
-                  <span>输入任意指令</span>
-                </div>
-                <div className="frontstage-help-row">
-                  <kbd>Tab</kbd>
-                  <span>接受 AI 建议</span>
-                </div>
-                <div className="frontstage-help-row">
-                  <kbd>Esc</kbd>
-                  <span>拒绝 AI 建议</span>
-                </div>
+          </div>
+        )}
+
+        {/* F1 帮助面板 */}
+        {showHelpPanel && !isZenMode && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
+            <div className="frontstage-help-panel">
+              <div className="frontstage-help-header">
+                <span className="text-sm font-medium">快捷键指南</span>
+                <button
+                  onClick={() => setShowHelpPanel(false)}
+                  className="text-[var(--stone-gray)] hover:text-[var(--charcoal)] transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div className="frontstage-help-section">
-                <h4>模式</h4>
-                <div className="frontstage-help-row">
-                  <kbd>Ctrl</kbd>+<kbd>Space</kbd>
-                  <span>循环文思模式</span>
+              <div className="frontstage-help-body">
+                <div className="frontstage-help-section">
+                  <h4>写作</h4>
+                  <div className="frontstage-help-row">
+                    <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+                    <span>AI 续写</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <kbd>/</kbd>
+                    <span>输入任意指令</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <kbd>Tab</kbd>
+                    <span>接受 AI 建议</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <kbd>Esc</kbd>
+                    <span>拒绝 AI 建议</span>
+                  </div>
                 </div>
-                <div className="frontstage-help-row">
-                  <kbd>F11</kbd>
-                  <span>禅模式</span>
+                <div className="frontstage-help-section">
+                  <h4>模式</h4>
+                  <div className="frontstage-help-row">
+                    <kbd>Ctrl</kbd>+<kbd>Space</kbd>
+                    <span>循环文思模式</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <kbd>F11</kbd>
+                    <span>禅模式</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <kbd>F1</kbd>
+                    <span>本帮助面板</span>
+                  </div>
                 </div>
-                <div className="frontstage-help-row">
-                  <kbd>F1</kbd>
-                  <span>本帮助面板</span>
-                </div>
-              </div>
-              <div className="frontstage-help-section">
-                <h4>操作</h4>
-                <div className="frontstage-help-row">
-                  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>
-                  <span>回幕后工作室</span>
-                </div>
-                <div className="frontstage-help-row">
-                  <span className="no-kbd">点击标题</span>
-                  <span>回幕后工作室</span>
-                </div>
-                <div className="frontstage-help-row">
-                  <span className="no-kbd">修 / 批 / 幕</span>
-                  <span>侧边栏快捷按钮</span>
+                <div className="frontstage-help-section">
+                  <h4>操作</h4>
+                  <div className="frontstage-help-row">
+                    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>
+                    <span>回幕后工作室</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <span className="no-kbd">点击标题</span>
+                    <span>回幕后工作室</span>
+                  </div>
+                  <div className="frontstage-help-row">
+                    <span className="no-kbd">修 / 批 / 幕</span>
+                    <span>侧边栏快捷按钮</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 智能文思 — 统一提示系统 */}
-      <SmartHintSystem
-        htmlContent={content}
-        isEnabled={!isZenMode && wensiMode !== 'off'}
-        isZenMode={isZenMode}
-        onGhostSuggestion={setSmartGhostText}
-        onInlineSuggestion={subscription.isPro ? handleInlineSuggestion : undefined}
-        subscription={subscription}
-      />
+        {/* 智能文思 — 统一提示系统 */}
+        <SmartHintSystem
+          htmlContent={content}
+          isEnabled={!isZenMode && wensiMode !== 'off'}
+          isZenMode={isZenMode}
+          onGhostSuggestion={setSmartGhostText}
+          onInlineSuggestion={subscription.isPro ? handleInlineSuggestion : undefined}
+          subscription={subscription}
+        />
 
-      {/* 付费引导面板 */}
-      <UpgradePanel
-        isOpen={showUpgradePanel}
-        onClose={() => setShowUpgradePanel(false)}
-        trigger={upgradeTrigger}
-        onUpgraded={() => subscription.fetchStatus()}
-      />
+        {/* 付费引导面板 */}
+        <UpgradePanel
+          isOpen={showUpgradePanel}
+          onClose={() => setShowUpgradePanel(false)}
+          trigger={upgradeTrigger}
+          onUpgraded={() => subscription.fetchStatus()}
+        />
 
-      {/* 禅模式退出提示 */}
-      {isZenMode && (
-        <button onClick={() => setIsZenMode(false)} className="zen-mode-exit">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
-          </svg>
-          退出禅模式 (F11)
-        </button>
-      )}
+        {/* 禅模式退出提示 */}
+        {isZenMode && (
+          <button onClick={() => setIsZenMode(false)} className="zen-mode-exit">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+            </svg>
+            退出禅模式 (F11)
+          </button>
+        )}
 
-      {/* 故事上下文信息已整合至编辑器侧边栏与幕后工作室 */}
-    </div>
+        {/* 故事上下文信息已整合至编辑器侧边栏与幕后工作室 */}
+      </div>
 
-    {/* v0.13.1: 智能创作异常中断诊断卡片 */}
-    {showDiagnosticCard && (
-      <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center"
-        style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
-        onClick={() => setShowDiagnosticCard(false)}
-      >
+      {/* v0.13.1: 智能创作异常中断诊断卡片 */}
+      {showDiagnosticCard && (
         <div
-          className="rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl"
-          style={{
-            background: 'var(--parchment, #f5f0e1)',
-            border: '1px solid var(--warm-sand, #d4c5a9)',
-            color: 'var(--charcoal, #2c2c2c)',
-          }}
-          onClick={e => e.stopPropagation()}
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+          onClick={() => setShowDiagnosticCard(false)}
         >
-          <h3
-            className="text-lg font-bold mb-3"
-            style={{ color: 'var(--charcoal, #2c2c2c)' }}
-          >
-            🐛 智能创作诊断报告
-          </h3>
-          <p className="text-sm mb-3" style={{ opacity: 0.7 }}>
-            生成过程被中断。请复制下方信息发给开发者帮助排查。
-          </p>
-          <textarea
-            readOnly
-            className="w-full h-56 rounded-lg p-3 text-xs font-mono resize-none mb-3 bg-white/70 border"
+          <div
+            className="rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl"
             style={{
-              borderColor: 'var(--warm-sand, #d4c5a9)',
+              background: 'var(--parchment, #f5f0e1)',
+              border: '1px solid var(--warm-sand, #d4c5a9)',
               color: 'var(--charcoal, #2c2c2c)',
             }}
-            value={diagnosticText}
-            onClick={e => (e.target as HTMLTextAreaElement).select()}
-          />
-          <div className="flex gap-2 justify-end">
-            <button
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-3" style={{ color: 'var(--charcoal, #2c2c2c)' }}>
+              🐛 智能创作诊断报告
+            </h3>
+            <p className="text-sm mb-3" style={{ opacity: 0.7 }}>
+              生成过程被中断。请复制下方信息发给开发者帮助排查。
+            </p>
+            <textarea
+              readOnly
+              className="w-full h-56 rounded-lg p-3 text-xs font-mono resize-none mb-3 bg-white/70 border"
               style={{
-                background: 'var(--warm-sand, #d4c5a9)',
+                borderColor: 'var(--warm-sand, #d4c5a9)',
                 color: 'var(--charcoal, #2c2c2c)',
               }}
-              onClick={() => setShowDiagnosticCard(false)}
-            >
-              关闭
-            </button>
-            <button
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors text-white"
-              style={{ background: 'var(--accent, #5b8c5a)' }}
-              onClick={() => {
-                navigator.clipboard.writeText(diagnosticText).then(() => {
-                  toast.success('诊断信息已复制到剪贴板，请粘贴给开发者');
-                }).catch(() => {
-                  toast.error('复制失败，请手动选择文本框内容');
-                });
-              }}
-            >
-              📋 复制诊断信息
-            </button>
+              value={diagnosticText}
+              onClick={e => (e.target as HTMLTextAreaElement).select()}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  background: 'var(--warm-sand, #d4c5a9)',
+                  color: 'var(--charcoal, #2c2c2c)',
+                }}
+                onClick={() => setShowDiagnosticCard(false)}
+              >
+                关闭
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors text-white"
+                style={{ background: 'var(--accent, #5b8c5a)' }}
+                onClick={() => {
+                  navigator.clipboard
+                    .writeText(diagnosticText)
+                    .then(() => {
+                      toast.success('诊断信息已复制到剪贴板，请粘贴给开发者');
+                    })
+                    .catch(() => {
+                      toast.error('复制失败，请手动选择文本框内容');
+                    });
+                }}
+              >
+                📋 复制诊断信息
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
     </>
   );
 };
