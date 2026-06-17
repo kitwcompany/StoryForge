@@ -70,9 +70,11 @@ fn env_or_default(var: &str, default: &str) -> String {
     std::env::var(var).unwrap_or_else(|_| default.to_string())
 }
 
-/// 默认 LLM 请求超时（秒）。本地大模型生成长文本较慢，300 秒比 120
-/// 秒更能避免误超时。
-pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 300;
+/// 默认 LLM 请求超时（秒）。
+/// v0.13.4: 从 300 秒降至 240 秒，确保后端能在前端 300 秒超时前返回结果，
+/// 避免前端已超时但后端仍在重试的错配。需要更长时间的用户可在模型配置中
+/// 手动调高单个 profile 的 timeout_seconds。
+pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 240;
 
 /// 判断 URL 是否指向本地/局域网地址（localhost / 127.0.0.1 / 私有网段）。
 pub fn is_private_url(url: &str) -> bool {
@@ -513,6 +515,116 @@ pub struct LlmProfile {
     /// 用户/系统标签，例如 ["fast", "local", "reasoning"]
     #[serde(default)]
     pub tags: Vec<String>,
+    /// 是否支持 system prompt（部分本地模型或特定 API 不支持）
+    #[serde(default = "default_true")]
+    pub supports_system_prompt: bool,
+    /// 是否支持流式输出
+    #[serde(default = "default_true")]
+    pub supports_streaming: bool,
+    /// 知识截止日期（可选，如 "2024-06"）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub knowledge_cutoff: Option<String>,
+    /// Reasoning effort 等级（low / medium / high），仅 reasoning 模型有效
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+}
+
+impl LlmProfile {
+    /// v0.14.0: 根据 provider/model 名称关键字自动推断并补齐能力标签
+    pub fn infer_capabilities(&mut self) -> bool {
+        let model_lower = self.model.to_lowercase();
+        let name_lower = self.name.to_lowercase();
+        let combined = format!("{} {}", model_lower, name_lower);
+
+        let mut changed = false;
+        let mut add = |cap: ModelCapability| {
+            if !self.capabilities.contains(&cap) {
+                self.capabilities.push(cap);
+                true
+            } else {
+                false
+            }
+        };
+
+        // 所有现代模型默认支持 Chat / Completion / Streaming
+        changed |= add(ModelCapability::Chat);
+        changed |= add(ModelCapability::Completion);
+        changed |= add(ModelCapability::Streaming);
+
+        // Reasoning 模型关键字
+        let reasoning_keywords = [
+            "reasoning",
+            "r1",
+            "o1",
+            "o3",
+            "deepseek",
+            "qwq",
+            "think",
+        ];
+        if reasoning_keywords.iter().any(|k| combined.contains(k)) {
+            changed |= add(ModelCapability::Reasoning);
+        }
+
+        // Vision 模型关键字
+        let vision_keywords = [
+            "vision",
+            "vl",
+            "gemma-4",
+            "llava",
+            "qwen2.5-vl",
+            "qwen-vl",
+            "gpt-4o",
+            "claude-3",
+        ];
+        if vision_keywords.iter().any(|k| combined.contains(k)) {
+            changed |= add(ModelCapability::Vision);
+            // 具备 Vision 时通常也支持多模态 Chat
+            if self.kind == ModelKind::Chat {
+                self.kind = ModelKind::Multimodal;
+                changed = true;
+            }
+        }
+
+        // LongContext 模型关键字
+        let long_context_keywords = [
+            "128k",
+            "200k",
+            "1m",
+            "100k",
+            "kimi",
+            "claude-3",
+            "gpt-4o",
+            "qwen3",
+        ];
+        if long_context_keywords.iter().any(|k| combined.contains(k))
+            || self.max_context_length >= 32768
+        {
+            changed |= add(ModelCapability::LongContext);
+        }
+
+        // JSON mode / Structured output（主流 API 模型）
+        if matches!(
+            self.provider,
+            LlmProvider::OpenAI | LlmProvider::Anthropic | LlmProvider::DeepSeek | LlmProvider::Qwen
+        ) {
+            changed |= add(ModelCapability::JsonMode);
+            changed |= add(ModelCapability::StructuredOutput);
+        }
+
+        // Tool use（主流 API 与部分本地模型）
+        if matches!(
+            self.provider,
+            LlmProvider::OpenAI | LlmProvider::Anthropic | LlmProvider::DeepSeek | LlmProvider::Qwen
+        ) || (self.provider == LlmProvider::Ollama && self.max_context_length >= 8192)
+        {
+            changed |= add(ModelCapability::ToolUse);
+        }
+
+        // FunctionCalling 兼容旧标签
+        changed |= add(ModelCapability::FunctionCalling);
+
+        changed
+    }
 }
 
 fn default_true() -> bool {
@@ -578,6 +690,20 @@ pub enum ModelCapability {
     JsonMode,
     Vision,
     LongContext,
+    /// 推理链 / thinking / DeepSeek-R1 / o1 类
+    Reasoning,
+    /// 现代工具调用（兼容 FunctionCalling）
+    ToolUse,
+    /// 强制 JSON schema / response_format
+    StructuredOutput,
+    /// 支持流式输出
+    Streaming,
+    /// 明确标注为轻量快模型
+    Fast,
+    /// 文本嵌入（统一模型视图用）
+    Embedding,
+    /// 文生图
+    ImageGeneration,
 }
 
 /// 模型种类 — 明确区分生成模型的用途
@@ -709,6 +835,10 @@ impl Default for AppConfig {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec!["placeholder".to_string()],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
         llm_profiles.insert(qwen35.id.clone(), qwen35);
 
@@ -746,6 +876,10 @@ impl Default for AppConfig {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec!["placeholder".to_string()],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
         llm_profiles.insert(gemma4.id.clone(), gemma4);
 
@@ -1109,6 +1243,10 @@ impl AppConfig {
                 profile.kind = ModelKind::Multimodal;
                 needs_save = true;
             }
+            // v0.14.0: 自动推断并补齐现代能力标签
+            if profile.infer_capabilities() {
+                needs_save = true;
+            }
         }
 
         // 清理指向不存在模型的 Agent 映射
@@ -1388,6 +1526,10 @@ impl AppConfig {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec!["legacy".to_string()],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
 
         self.llm_profiles

@@ -754,20 +754,17 @@ impl AgentService {
             );
             let mapping = self.get_agent_mapping(agent_type);
             let routing_request = self.build_routing_request(agent_type, tier, mapping.as_ref());
-            let profile = self
-                .llm_service
-                .select_profile_for_request(&routing_request)?;
             self.emit_event(
                 &task.id,
                 agent_type,
                 AgentStage::Generating,
-                &format!("路由选择模型: {}", profile.name),
+                "通过模型网关路由并生成...",
                 0.35,
             );
             let (rid, result) = self
                 .llm_service
-                .generate_with_profile_and_request_id(
-                    &profile.id,
+                .generate_for_request_with_request_id(
+                    routing_request,
                     prompt.clone(),
                     effective_max,
                     temperature,

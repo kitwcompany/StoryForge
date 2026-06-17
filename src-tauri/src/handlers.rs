@@ -39,6 +39,10 @@ tauri::generate_handler![
     router::benchmark_model_for_task,
     router::get_model_health_reports,
     router::submit_route_feedback,
+    model_gateway::commands::get_gateway_status,
+    model_gateway::commands::refresh_model_health,
+    model_gateway::commands::simulate_gateway_route,
+    model_gateway::commands::probe_model_gateway,
     // LLM commands
     llm::commands::llm_generate,
     llm::commands::llm_generate_stream,

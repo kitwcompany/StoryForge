@@ -17,7 +17,12 @@ export type ModelCapability =
   | 'vision'
   | 'long_context'
   | 'embedding'
-  | 'image_generation';
+  | 'image_generation'
+  | 'reasoning'
+  | 'tool_use'
+  | 'structured_output'
+  | 'streaming'
+  | 'fast';
 
 // 模型类型
 export type ModelType = 'chat' | 'embedding' | 'multimodal' | 'image';
@@ -108,6 +113,42 @@ export interface RouteFeedback {
   comment?: string;
 }
 
+// v0.14.0: 模型网关健康快照
+export type GatewayHealthStatus = 'unknown' | 'healthy' | 'degraded' | 'unhealthy';
+
+export interface ModelHealthSnapshot {
+  model_id: string;
+  model_name: string;
+  status: GatewayHealthStatus;
+  ttfb_ms?: number;
+  tps?: number;
+  success_rate_24h?: number;
+  avg_latency_ms?: number;
+  last_error?: string;
+  last_checked_at?: string;
+  enabled: boolean;
+  is_primary?: boolean;
+  is_fallback?: boolean;
+}
+
+export interface GatewayStatus {
+  last_probe_at?: string;
+  primary_model_id?: string;
+  models: ModelHealthSnapshot[];
+  is_probing: boolean;
+}
+
+export interface RankedCandidate {
+  model_id: string;
+  model_name: string;
+  score: number;
+  reason: string;
+}
+
+export interface GatewayRoutingDecision extends RoutingDecision {
+  candidates: RankedCandidate[];
+}
+
 // 基础模型配置（通用字段）
 export interface BaseModelConfig {
   id: string;
@@ -128,6 +169,11 @@ export interface BaseModelConfig {
   cost_per_1k_input?: number;
   cost_per_1k_output?: number;
   tags?: string[];
+  // v0.14.0 模型网关元数据
+  supports_system_prompt?: boolean;
+  supports_streaming?: boolean;
+  knowledge_cutoff?: string;
+  reasoning_effort?: 'low' | 'medium' | 'high';
 }
 
 // 文本生成模型配置

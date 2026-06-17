@@ -88,6 +88,10 @@ mod tests {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
 
         config.add_llm_profile(new_profile).unwrap();
@@ -132,6 +136,10 @@ mod tests {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
 
         config.add_llm_profile(profile).unwrap();
@@ -206,6 +214,10 @@ mod tests {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
         config.add_llm_profile(second).unwrap();
         config.set_active_llm_profile("second").unwrap();
@@ -250,6 +262,10 @@ mod tests {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
         config.add_llm_profile(second).unwrap();
 

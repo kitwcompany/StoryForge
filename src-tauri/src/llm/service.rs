@@ -369,12 +369,17 @@ impl LlmService {
                 temperature,
                 context_label,
                 None,
+                None,
+                None,
             )
             .await;
         result
     }
 
     /// 根据任务请求生成文本，返回 (request_id, Result)，支持取消
+    ///
+    /// v0.14.0: 优先通过 ModelGateway 执行，实现模型健康感知与自动 fallback。
+    /// 若网关不可用则回退到旧版本地路由。
     pub async fn generate_for_request_with_request_id(
         &self,
         request: RoutingRequest,
@@ -383,10 +388,40 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
         request_id: Option<String>,
+        timeout_seconds_override: Option<u64>,
+        max_retries_override: Option<u32>,
     ) -> (String, Result<GenerateResponse, AppError>) {
+        let req_id = request_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        // 优先尝试模型网关
+        let gateway = self.app_handle.state::<crate::model_gateway::executor::GatewayExecutor>();
+        let gateway_request = crate::model_gateway::types::GatewayRequest {
+            prompt: prompt.clone(),
+            agent_id: context_label.unwrap_or("llm_service").to_string(),
+            task: request.task,
+            complexity: Some(request.complexity),
+            budget_priority: request.budget_priority,
+            speed_priority: request.speed_priority,
+            estimated_input_tokens: request.estimated_input_tokens,
+            max_tokens,
+            temperature,
+            stream: false,
+            request_id: req_id.clone(),
+            context_label: context_label.map(|s| s.to_string()),
+            timeout_seconds_override,
+            max_retries_override,
+        };
+        match gateway.generate(gateway_request).await {
+            Ok(resp) => return (req_id, Ok(resp)),
+            Err(e) => {
+                log::warn!("[LlmService] ModelGateway 调用失败，回退旧路径: {}", e);
+            }
+        }
+
+        // 回退：旧版本地路由
         let profile = match self.select_profile_for_request(&request) {
             Ok(p) => p,
-            Err(e) => return (request_id.unwrap_or_default(), Err(e)),
+            Err(e) => return (req_id, Err(e)),
         };
         self.generate_with_profile_and_request_id(
             &profile.id,
@@ -394,7 +429,7 @@ impl LlmService {
             max_tokens,
             temperature,
             context_label,
-            request_id,
+            Some(req_id),
             None,
             None,
         )
@@ -1766,6 +1801,10 @@ mod tests {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
         let response = GenerateResponse {
             content: "OK".to_string(),
@@ -1816,6 +1855,10 @@ mod tests {
             cost_per_1k_input: None,
             cost_per_1k_output: None,
             tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
         };
         let response = GenerateResponse {
             content: "OK".to_string(),

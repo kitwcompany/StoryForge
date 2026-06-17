@@ -69,12 +69,14 @@ export function getMockTauriInitScript() {
           case 'list_stories':
             return [mockStory];
           case 'get_story_chapters':
+          case 'get_story_chapters_paged':
             mockContent = enablePersistence
               ? (sessionStorage.getItem(STORAGE_KEY) || '')
               : '';
             mockChapter.content = mockContent;
             return [mockChapter];
           case 'get_story_scenes':
+          case 'get_story_scenes_paged':
             return [];
           case 'get_chapter':
             mockContent = enablePersistence
@@ -123,6 +125,13 @@ export function getMockTauriInitScript() {
             return mockSettings;
           case 'get_models':
             return [];
+          case 'get_gateway_status':
+            return {
+              last_probe_at: undefined,
+              primary_model_id: undefined,
+              models: [],
+              is_probing: false,
+            };
           case 'get_config':
             return {
               model: 'default',

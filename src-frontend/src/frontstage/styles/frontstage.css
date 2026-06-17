@@ -3687,3 +3687,115 @@ body {
     padding: 8px 12px 10px;
   }
 }
+
+/* ==================== v0.14.0 Model Gateway Multi-Model Status ==================== */
+
+.model-status-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 48px;
+}
+
+.model-status-more {
+  font-size: 9px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+
+.model-tooltip-wide {
+  min-width: 280px;
+  max-width: 340px;
+}
+
+.model-tooltip-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--stone-gray);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.model-tooltip-refresh:hover:not(:disabled) {
+  background: var(--warm-sand);
+  color: var(--charcoal);
+}
+
+.model-tooltip-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.model-tooltip-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--warm-sand);
+}
+
+.model-tooltip-model:last-child {
+  border-bottom: none;
+}
+
+.model-tooltip-model-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.model-tooltip-model-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.model-tooltip-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.model-tooltip-badge-primary {
+  background: oklch(65% 0.22 145 / 0.15);
+  color: oklch(55% 0.18 145);
+}
+
+.model-tooltip-badge-fallback {
+  background: oklch(75% 0.16 95 / 0.2);
+  color: oklch(55% 0.14 85);
+}
+
+.model-tooltip-meta {
+  font-size: 10px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+
+.model-tooltip-fallback {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--warm-sand);
+}
+
+.model-tooltip-fallback .model-tooltip-value {
+  color: oklch(60% 0.22 25);
+  font-weight: 600;
+}

@@ -27,8 +27,9 @@ import { useSettings, useModels } from '@/hooks/useSettings';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
 import { useGenerationStore } from '@/stores/generationStore';
 import { useBootstrapStore } from '@/stores/bootstrapStore';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import type { Scene } from '@/types/v3';
+import type { GatewayStatus } from '@/types/llm';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelineProgress';
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
@@ -497,15 +498,19 @@ const FrontstageApp: React.FC = () => {
   const chatConnectionState = activeChatModelId ? connectionStates[activeChatModelId] : undefined;
   const queryClient = useQueryClient();
 
-  // v0.11.0: 状态栏模型状态从 store 派生
-  const modelStatus: 'connected' | 'disconnected' | 'connecting' = chatConnectionState
-    ? chatConnectionState.isChecking
-      ? 'connecting'
-      : chatConnectionState.result.success
-        ? 'connected'
-        : 'disconnected'
-    : 'connecting';
-  const modelName = activeChatModel?.name || activeChatModelId || '未配置';
+  // v0.14.0: 通过模型网关获取所有启用模型的健康状态
+  const {
+    data: gatewayStatus,
+    isLoading: isGatewayLoading,
+    refetch: refetchGateway,
+  } = useQuery<GatewayStatus>({
+    queryKey: ['gateway-status'],
+    queryFn: async () => {
+      return await loggedInvoke<GatewayStatus>('get_gateway_status');
+    },
+    refetchInterval: 30000,
+    staleTime: 10000,
+  });
 
   // v0.11.0: 启动模型连接轮询，状态栏展示当前可用模型与连接质量
   useEffect(() => {
@@ -1628,18 +1633,18 @@ const FrontstageApp: React.FC = () => {
       setOrchestratorStatus(null);
       startElapsedTimer();
 
-      // v0.11.5: 前端超时从 600 秒缩短到 300 秒，与后端总超时（本地约 150s / 远程约 270s）
-      // 保持一定余量。超时后主动清理 backendActivityStore，避免状态栏卡死。
+      // v0.13.4: 前端超时从 300 秒延长到 330 秒，为后端 240 秒 LLM 超时 +
+      // 上下文准备预留余量，避免后端尚未返回时前端就先超时。
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 300 秒内响应');
+          useBackendActivityStore.getState().failAllRunning('前端超时：模型未在 330 秒内响应');
           reject(
             new Error(
-              '前端超时：模型响应超过300秒（5分钟）。本地模型生成长文本较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
+              '前端超时：模型响应超过330秒（5分30秒）。本地模型生成长文本较慢，请检查模型是否仍在运行，或尝试使用更快的模型。'
             )
           );
-        }, 300000);
+        }, 330000);
       });
       cancelGenerationRef.current = () => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -1998,8 +2003,8 @@ const FrontstageApp: React.FC = () => {
       // 创建新小说涉及多步LLM调用（概念→正文→世界观→大纲→角色→场景→伏笔），本地模型可能需要5-10分钟
       // v5.4.0: 移除 stories.length === 0 限制，用户输入明确的创建意图时始终创建新小说
       const isBootstrap = isNovelCreationIntent(userInput);
-      // v0.11.5: 前端超时统一缩短到 300 秒，避免用户空等 10 分钟。
-      const timeoutSeconds = 300;
+      // v0.13.4: 前端超时统一延长到 330 秒，与后端 240 秒 LLM 超时保持余量。
+      const timeoutSeconds = 330;
       const timeoutMs = timeoutSeconds * 1000;
 
       // v0.7.5: 非 Bootstrap 请求先执行预检；缺少合同/大纲时自动补齐
@@ -2676,12 +2681,10 @@ const FrontstageApp: React.FC = () => {
               inputValue={inputValue}
               ghostHint={ghostHint}
               hintSource={hintSource}
-              modelStatus={modelStatus}
-              modelName={modelName}
-              modelProvider={activeChatModel?.provider}
-              modelApiBase={activeChatModel?.api_base}
-              modelLatency={chatConnectionState?.result?.latency}
-              lastCheckedAt={chatConnectionState?.lastCheckedAt}
+              gatewayModels={gatewayStatus?.models || []}
+              allModels={allModels}
+              isGatewayLoading={isGatewayLoading}
+              onRefreshGateway={() => refetchGateway()}
               onGoToSettings={openBackstage}
               onInputChange={setInputValue}
               onInputSubmit={handleInputSubmit}

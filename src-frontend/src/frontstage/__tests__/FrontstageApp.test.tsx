@@ -22,7 +22,17 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 // Mock Tauri services
 vi.mock('@/services/tauri', () => ({
-  loggedInvoke: vi.fn(),
+  loggedInvoke: vi.fn((cmd: string) => {
+    if (cmd === 'get_gateway_status') {
+      return Promise.resolve({
+        last_probe_at: undefined,
+        primary_model_id: undefined,
+        models: [],
+        is_probing: false,
+      });
+    }
+    return Promise.resolve(undefined);
+  }),
   recordFeedback: vi.fn(),
   smartExecute: vi.fn(),
   getInputHint: vi.fn(),

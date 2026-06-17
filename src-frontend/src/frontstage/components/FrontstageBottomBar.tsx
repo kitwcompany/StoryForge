@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Send, X, Activity, Loader2 } from 'lucide-react';
+import { Send, X, Activity, Loader2, RefreshCw } from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import type { BackendActivity } from '@/stores/backendActivityStore';
+import type { ModelHealthSnapshot, ModelConfig } from '@/types/llm';
 
 interface FrontstageBottomBarProps {
   isZenMode: boolean;
@@ -11,12 +12,11 @@ interface FrontstageBottomBarProps {
   inputValue: string;
   ghostHint: string;
   hintSource: 'llm' | 'history';
-  modelStatus: 'connected' | 'disconnected' | 'connecting';
-  modelName: string;
-  modelProvider?: string;
-  modelApiBase?: string;
-  modelLatency?: number;
-  lastCheckedAt?: number;
+  // v0.14.0: 多模型状态
+  gatewayModels: ModelHealthSnapshot[];
+  allModels: ModelConfig[];
+  isGatewayLoading?: boolean;
+  onRefreshGateway?: () => void;
   onGoToSettings?: () => void;
   onInputChange: (value: string) => void;
   onInputSubmit: () => void;
@@ -73,12 +73,10 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   inputValue,
   ghostHint,
   hintSource,
-  modelStatus,
-  modelName,
-  modelProvider,
-  modelApiBase,
-  modelLatency,
-  lastCheckedAt,
+  gatewayModels,
+  allModels,
+  isGatewayLoading,
+  onRefreshGateway,
   onGoToSettings,
   onInputChange,
   onInputSubmit,
@@ -96,6 +94,37 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   // 避免每秒强制 React 重渲染。
 
   if (isZenMode) return null;
+
+  const primaryModel = gatewayModels.find(m => m.is_primary) || gatewayModels[0];
+  const fallbackModel = gatewayModels.find(m => m.is_fallback);
+
+  const getModelConfig = (modelId: string) => allModels.find(m => m.id === modelId);
+
+  const statusClass = (status: ModelHealthSnapshot['status']) => {
+    switch (status) {
+      case 'healthy':
+        return 'status-connected';
+      case 'degraded':
+        return 'status-connecting';
+      case 'unhealthy':
+        return 'status-disconnected';
+      default:
+        return 'status-connecting';
+    }
+  };
+
+  const statusText = (status: ModelHealthSnapshot['status']) => {
+    switch (status) {
+      case 'healthy':
+        return '健康';
+      case 'degraded':
+        return '降级';
+      case 'unhealthy':
+        return '不可用';
+      default:
+        return '未探测';
+    }
+  };
 
   const hasAnyActivity = isGenerating || !!primaryActivity;
   const displayMessage =
@@ -116,53 +145,92 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
       <div className="frontstage-bottom-bar-inner">
         {/* 输入框 */}
         <div className="frontstage-input-pill">
-          {/* 模型状态指示器 */}
+          {/* v0.14.0: 多模型状态指示器 */}
           <div
             className="model-status-wrapper"
             onMouseEnter={() => setShowModelTooltip(true)}
             onMouseLeave={() => setShowModelTooltip(false)}
           >
-            <div className={`model-status-dot status-${modelStatus}`} />
+            <div className="model-status-dots">
+              {gatewayModels.length === 0 ? (
+                <div className="model-status-dot status-connecting" />
+              ) : (
+                gatewayModels.slice(0, 5).map(m => (
+                  <div
+                    key={m.model_id}
+                    className={`model-status-dot ${statusClass(m.status)}`}
+                    title={`${m.model_name}: ${statusText(m.status)}`}
+                  />
+                ))
+              )}
+              {gatewayModels.length > 5 && (
+                <span className="model-status-more">+{gatewayModels.length - 5}</span>
+              )}
+            </div>
             {showModelTooltip && (
-              <div className="model-tooltip">
+              <div className="model-tooltip model-tooltip-wide">
                 <div className="model-tooltip-header">
-                  <span className="model-name">{modelName || '未配置'}</span>
-                  <span className={`model-status-text status-${modelStatus}`}>
-                    {modelStatus === 'connected'
-                      ? '已连接'
-                      : modelStatus === 'connecting'
-                        ? '检测中'
-                        : '未连接'}
-                  </span>
+                  <span className="model-name">模型状态</span>
+                  {onRefreshGateway && (
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        onRefreshGateway();
+                      }}
+                      disabled={isGatewayLoading}
+                      className="model-tooltip-refresh"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isGatewayLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
                 </div>
                 <div className="model-tooltip-body">
-                  {modelProvider && (
+                  {gatewayModels.length === 0 ? (
                     <div className="model-tooltip-row">
-                      <span className="model-tooltip-label">提供商</span>
-                      <span className="model-tooltip-value">{modelProvider}</span>
+                      <span className="model-tooltip-value">暂无可用模型</span>
+                    </div>
+                  ) : (
+                    gatewayModels.map(m => {
+                      const cfg = getModelConfig(m.model_id);
+                      return (
+                        <div key={m.model_id} className="model-tooltip-row model-tooltip-model">
+                          <div className="model-tooltip-model-left">
+                            <div className={`model-status-dot ${statusClass(m.status)}`} />
+                            <span className="model-tooltip-value">{m.model_name}</span>
+                            {m.is_primary && (
+                              <span className="model-tooltip-badge model-tooltip-badge-primary">
+                                主模型
+                              </span>
+                            )}
+                            {m.is_fallback && (
+                              <span className="model-tooltip-badge model-tooltip-badge-fallback">
+                                fallback
+                              </span>
+                            )}
+                          </div>
+                          <div className="model-tooltip-model-right">
+                            {cfg?.provider && (
+                              <span className="model-tooltip-meta">{cfg.provider}</span>
+                            )}
+                            {typeof m.ttfb_ms === 'number' && m.ttfb_ms > 0 && (
+                              <span className="model-tooltip-meta">TTFB {m.ttfb_ms}ms</span>
+                            )}
+                            {typeof m.tps === 'number' && m.tps > 0 && (
+                              <span className="model-tooltip-meta">{m.tps.toFixed(1)} t/s</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  {fallbackModel && (
+                    <div className="model-tooltip-row model-tooltip-fallback">
+                      <span className="model-tooltip-value">
+                        主模型不可用，将 fallback 到 {fallbackModel.model_name}
+                      </span>
                     </div>
                   )}
-                  {modelApiBase && (
-                    <div className="model-tooltip-row">
-                      <span className="model-tooltip-label">API Base</span>
-                      <span className="model-tooltip-value">{abbreviateApiBase(modelApiBase)}</span>
-                    </div>
-                  )}
-                  {modelStatus === 'connected' &&
-                    typeof modelLatency === 'number' &&
-                    modelLatency > 0 && (
-                      <div className="model-tooltip-row">
-                        <span className="model-tooltip-label">延迟</span>
-                        <span className="model-tooltip-value">{modelLatency}ms</span>
-                      </div>
-                    )}
-                  {lastCheckedAt && lastCheckedAt > 0 && (
-                    <div className="model-tooltip-row">
-                      <span className="model-tooltip-label">检测于</span>
-                      <span className="model-tooltip-value">{formatTimeAgo(lastCheckedAt)}</span>
-                    </div>
-                  )}
-                  {modelStatus !== 'connected' && onGoToSettings && (
+                  {gatewayModels.some(m => m.status !== 'healthy') && onGoToSettings && (
                     <div className="model-tooltip-row">
                       <button
                         onClick={e => {

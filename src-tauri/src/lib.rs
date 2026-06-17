@@ -26,6 +26,7 @@ mod llm;
 mod logging;
 mod mcp;
 mod memory;
+mod model_gateway;
 mod narrative;
 mod pipeline;
 mod planner;
@@ -629,6 +630,28 @@ pub fn run() {
                     log::warn!("[Setup] 加载配置失败，使用默认嵌入: {}", e);
                     embeddings::provider::init_global_provider(&config::AppConfig::default());
                 }
+            }
+
+            // v0.14.0: 初始化模型网关执行器与健康探测调度器
+            {
+                let app_config = APP_CONFIG.lock().unwrap().clone().unwrap_or_default();
+                let llm_service = app
+                    .state::<crate::llm::service::LlmService>()
+                    .inner()
+                    .clone();
+                let registry = crate::router::UnifiedModelRegistry::from_app_config(&app_config);
+                let gateway_registry = crate::model_gateway::registry::GatewayRegistry::new(registry);
+                let gateway_executor = crate::model_gateway::executor::GatewayExecutor::new(
+                    app.handle().clone(),
+                    gateway_registry,
+                    llm_service,
+                );
+                app.manage(gateway_executor.clone());
+                crate::model_gateway::scheduler::spawn_health_probe_scheduler(
+                    app.handle().clone(),
+                    gateway_executor,
+                );
+                log::info!("[ModelGateway] 网关执行器与健康探测调度器已初始化");
             }
 
             if let Some(pool) = get_pool() {

@@ -45,6 +45,11 @@ pub struct ModelConfigInput {
     pub cost_per_1k_input: Option<f64>,
     pub cost_per_1k_output: Option<f64>,
     pub tags: Option<Vec<String>>,
+    // v0.14.0 模型网关元数据
+    pub supports_system_prompt: Option<bool>,
+    pub supports_streaming: Option<bool>,
+    pub knowledge_cutoff: Option<String>,
+    pub reasoning_effort: Option<String>,
 }
 
 // ============================================================================
@@ -74,6 +79,12 @@ fn parse_capabilities(caps: Vec<String>) -> Vec<ModelCapability> {
             "json_mode" => Some(ModelCapability::JsonMode),
             "vision" => Some(ModelCapability::Vision),
             "long_context" => Some(ModelCapability::LongContext),
+            "reasoning" => Some(ModelCapability::Reasoning),
+            "tool_use" => Some(ModelCapability::ToolUse),
+            "structured_output" => Some(ModelCapability::StructuredOutput),
+            "streaming" => Some(ModelCapability::Streaming),
+            "fast" => Some(ModelCapability::Fast),
+            "image_generation" => Some(ModelCapability::ImageGeneration),
             _ => None,
         })
         .collect()
@@ -124,6 +135,12 @@ fn build_llm_profile(
             "json_mode" => Some(ModelCapability::JsonMode),
             "vision" => Some(ModelCapability::Vision),
             "long_context" => Some(ModelCapability::LongContext),
+            "reasoning" => Some(ModelCapability::Reasoning),
+            "tool_use" => Some(ModelCapability::ToolUse),
+            "structured_output" => Some(ModelCapability::StructuredOutput),
+            "streaming" => Some(ModelCapability::Streaming),
+            "fast" => Some(ModelCapability::Fast),
+            "image_generation" => Some(ModelCapability::ImageGeneration),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -176,6 +193,10 @@ fn build_llm_profile(
         cost_per_1k_output: config.cost_per_1k_output,
         tags: config.tags.clone().unwrap_or_default(),
         model_source,
+        supports_system_prompt: config.supports_system_prompt.unwrap_or(true),
+        supports_streaming: config.supports_streaming.unwrap_or(true),
+        knowledge_cutoff: config.knowledge_cutoff.clone(),
+        reasoning_effort: config.reasoning_effort.clone(),
     }
 }
 

@@ -48,7 +48,7 @@ pub async fn read_body_with_generation_timeout(
     Ok(chunks.into_iter().flatten().collect())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub prompt: String,
     pub max_tokens: Option<i32>,

@@ -834,6 +834,16 @@ impl AgentOrchestrator {
         task: AgentTask,
         trace: &GenerationTrace,
     ) -> Result<WorkflowResult, AppError> {
+        // v0.13.4: 为 Full 模式设置整体时间预算（270 秒），避免多次 LLM 调用
+        //（候选 + Inspector + Rewrite）累积超过前端 330 秒超时，导致前端先超时。
+        const FULL_MODE_BUDGET_SECONDS: u64 = 270;
+        let total_start = std::time::Instant::now();
+        let remaining_budget_secs = || {
+            FULL_MODE_BUDGET_SECONDS
+                .saturating_sub(total_start.elapsed().as_secs())
+                .max(1)
+        };
+
         let mut steps: Vec<WorkflowStepResult> = Vec::new();
         let mut rewrite_count: u32 = 0;
         let mut was_rewritten = false;

@@ -38,7 +38,7 @@ pub enum TaskType {
 }
 
 /// 任务复杂度
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Complexity {
     Low,
@@ -98,6 +98,15 @@ impl Default for RoutingRequest {
     }
 }
 
+/// 排序后的候选模型
+#[derive(Debug, Clone, Serialize)]
+pub struct RankedCandidate {
+    pub model_id: String,
+    pub model_name: String,
+    pub score: f64,
+    pub reason: String,
+}
+
 /// 路由决策结果
 #[derive(Debug, Clone, Serialize)]
 pub struct RoutingDecision {
@@ -106,6 +115,8 @@ pub struct RoutingDecision {
     pub reason: String,
     pub estimated_cost: f64,
     pub estimated_time_ms: u64,
+    /// v0.14.0: 有序候选链，第一个是 primary
+    pub candidates: Vec<RankedCandidate>,
 }
 
 /// 统一模型路由器
@@ -121,14 +132,14 @@ impl UnifiedModelRouter {
 
     /// 执行路由，选择最合适的生成模型
     pub fn route(&self, request: &RoutingRequest) -> Result<RoutingDecision, AppError> {
-        let candidates: Vec<&LlmProfile> = self
+        let suitable_models: Vec<&LlmProfile> = self
             .registry
             .generative_models()
             .into_iter()
             .filter(|m| self.is_suitable(m, request))
             .collect();
 
-        if candidates.is_empty() {
+        if suitable_models.is_empty() {
             return Err(AppError::Internal {
                 message: format!(
                     "没有满足任务 {:?} 与约束 {:?} 的可用模型，请在模型管理中启用并配置模型",
@@ -137,27 +148,38 @@ impl UnifiedModelRouter {
             });
         }
 
-        let mut best: Option<&LlmProfile> = None;
-        let mut best_score = f64::MIN;
+        let mut scored: Vec<(f64, &LlmProfile)> = suitable_models
+            .into_iter()
+            .map(|m| (score_model(m, request), m))
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        for model in candidates {
-            let score = score_model(model, request);
-            if score > best_score {
-                best_score = score;
-                best = Some(model);
-            }
-        }
+        let (best_score, model) = scored.first().copied().unwrap();
+        let candidates: Vec<RankedCandidate> = scored
+            .into_iter()
+            .take(3)
+            .map(|(score, m)| RankedCandidate {
+                model_id: m.id.clone(),
+                model_name: m.name.clone(),
+                score,
+                reason: format!(
+                    "任务 {:?} 复杂度 {:?} 得分 {:.1}",
+                    request.task, request.complexity, score
+                ),
+            })
+            .collect();
 
-        let model = best.unwrap(); // candidates 非空，safe
         Ok(RoutingDecision {
             model_id: model.id.clone(),
             model_name: model.name.clone(),
             reason: format!(
-                "基于 {:?} 任务、{:?} 复杂度、成本优先级 {:?}、速度优先级 {:?} 选择",
-                request.task, request.complexity, request.budget_priority, request.speed_priority
+                "基于 {:?} 任务、{:?} 复杂度、成本优先级 {:?}、速度优先级 {:?} 选择，得分 {:.1}",
+                request.task, request.complexity, request.budget_priority, request.speed_priority,
+                best_score
             ),
             estimated_cost: model.cost_per_1k_output.unwrap_or(0.0),
             estimated_time_ms: estimated_time_ms(model.speed_tier),
+            candidates,
         })
     }
 
@@ -182,6 +204,12 @@ impl UnifiedModelRouter {
             reason: "选择 Embedding 模型".to_string(),
             estimated_cost: 0.0,
             estimated_time_ms: 2000,
+            candidates: vec![RankedCandidate {
+                model_id: model.id.clone(),
+                model_name: model.name.clone(),
+                score: 0.0,
+                reason: "embedding 唯一候选".to_string(),
+            }],
         })
     }
 
@@ -198,7 +226,7 @@ impl UnifiedModelRouter {
         self.registry.generative_models()
     }
 
-    fn is_suitable(&self, model: &LlmProfile, request: &RoutingRequest) -> bool {
+    pub fn is_suitable(&self, model: &LlmProfile, request: &RoutingRequest) -> bool {
         // 任务类型硬性过滤
         match request.task {
             TaskType::Vision => {
@@ -258,7 +286,7 @@ impl UnifiedModelRouter {
     }
 }
 
-fn score_model(model: &LlmProfile, request: &RoutingRequest) -> f64 {
+pub fn score_model(model: &LlmProfile, request: &RoutingRequest) -> f64 {
     let mut score = 0.0;
 
     // 1. 任务质量匹配

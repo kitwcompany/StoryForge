@@ -2,6 +2,42 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.14.0] - 模型网关（Model Gateway）：自动路由、健康探测与多模型状态栏（2026-06-17）
+
+### 新增：模型网关架构
+
+- 新增 `model_gateway` 后端模块，包含：
+  - `health`: 模型健康探测与注册表，维护每个启用模型的 TTFB、TPS、成功率
+  - `registry`: 网关视角的模型注册表
+  - `dispatcher`: 任务分类与动态复杂度评估
+  - `executor`: 候选链执行与自动 fallback
+  - `scheduler`: 启动时全量探测 + 定时 healthy ping / degraded 重试
+  - `commands`: 向前端暴露 `get_gateway_status`、`refresh_model_health` 等命令
+- 扩展 `ModelCapability`：新增 `reasoning`、`tool_use`、`structured_output`、`streaming`、`fast`、`image_generation`
+- 扩展 `LlmProfile`：新增 `supports_system_prompt`、`supports_streaming`、`knowledge_cutoff`、`reasoning_effort`
+- 启动时自动根据 provider/model 名称推断并补齐能力标签
+
+### 智能路由与降级
+
+- `LlmService::generate_for_request_with_request_id` 优先走 `ModelGateway`，主模型失败时自动 fallback 到次优模型
+- `AgentService` 无固定映射路径统一走网关，支持 timeout/max_retries 覆盖透传
+- `execute_time_sliced` 等直接调用 `generate_for_task` 的路径也已通过网关执行
+- 路由评分融合实时健康数据：unhealthy 模型大幅降权，healthy 模型按 TPS/TTFB 微调
+
+### 前端多模型状态栏
+
+- 幕前底部输入栏从「单模型状态」升级为「所有可连接模型状态」
+- 通过 `get_gateway_status` 每 30 秒拉取所有 enabled 模型的健康快照
+- 状态点颜色区分 healthy / degraded / unhealthy / unknown
+- Tooltip 展示每个模型的提供商、TTFB、TPS、主模型/fallback 标记
+- 提供刷新按钮可手动重新探测
+
+### 验证
+
+- `cargo check` 零错误
+- `cargo test --lib` 392/392 通过
+- `npx tsc --noEmit` 零错误
+
 ## [v0.13.3] - 诊断卡片安全网：修复「准备上下文」退出未弹诊断卡片（2026-06-17）
 
 ### 根因
