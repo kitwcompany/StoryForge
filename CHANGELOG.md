@@ -2,6 +2,48 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.13.2] - 诊断卡片增强 + 前端自救计时器 + 心跳日志（2026-06-17）
+
+### 诊断卡片改进（根据首次用户反馈）
+
+首次诊断报告揭示了多个问题，本次逐一修复：
+
+- **版本号显示**：注入 `__STORYFORGE_VERSION__` 到窗口对象，诊断卡片不再显示 "unknown"
+- **已用时修复**：新增独立 `diagnosticStartTimeRef`，不会被 `stopElapsedTimer` 意外清空
+- **后端响应判定修复**：改用 `backendEverRespondedRef` 精确追踪是否收到过后端事件
+- **新诊断字段**：增加「作品存在」（显示 currentStory 是否 null）、「后端超时配置」、「模型建议」
+- **心跳接入诊断**：`llm-generating-progress` 事件也记录到 `lastProgressEventRef`
+
+### 后端心跳可观测性
+
+- 心跳 `app_handle.emit` 结果改为 `log::warn!` 级别记录（无论日志过滤设置如何都能输出）
+- 心跳日志包含已用时秒数和消息内容，帮助确认心跳是否真正在运行
+
+### 前端自救计时器
+
+- `scheduleFallbackPrompt` 从单次 `setTimeout` 改为自我循环的递归调度
+- 即使后端心跳完全不送达，前端每 10 秒自动更新状态栏显示 "AI 正在深度思考中...（已用时 XX 秒，距上次响应 YY 秒）"
+- 用户不会再看到 269 秒零反馈
+
+### 不再错误假设 Ollama
+
+- 将诊断提示中的 "请检查 Ollama / API 服务状态" 改为通用 "请检查模型服务（vllm/Ollama/OpenAI）"
+- 适配使用 vllm + Qwen 等非 Ollama 模型的用户
+
+### 防止 activityStore 提前清空
+
+- 新增 `smartExecuteInFlightRef`，防止 `useBackendActivityStore` 效果在 smart_execute 仍在飞行中时清空 `isGenerating` 和计时器
+- 仅在 `smart_execute` 返回后才允许 activityStore 清空状态
+
+### 验证
+
+- `cargo check` 零错误
+- `cargo +nightly fmt -- --check` 通过
+- `npx tsc --noEmit` 零错误
+- `npx prettier --check` 全部通过
+- `npm run build` 通过
+- `NODE_ENV=test npx vitest run` 126 passed, 3 skipped（零回归）
+
 ## [v0.13.1] - 修复智能创作卡死在「准备上下文」阶段（2026-06-15）
 
 ### 根因

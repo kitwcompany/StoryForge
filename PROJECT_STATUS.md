@@ -1,11 +1,35 @@
-# StoryForge (草苔) v0.13.1 项目完成状态
+# StoryForge (草苔) v0.13.2 项目完成状态
 
-> 最后更新: 2026-06-15（v0.13.1 + 智能创作「准备上下文」卡死根因修复）
+> 最后更新: 2026-06-17（v0.13.2 + 诊断卡片增强 + 前端自救计时器）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.13.2 诊断卡片增强 + 前端自救计时器 + 心跳日志（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 诊断卡片版本号 | ✅ | 注入 `__STORYFORGE_VERSION__`，不再显示 unknown |
+| 诊断已用时修复 | ✅ | 独立 `diagnosticStartTimeRef`，不被意外清空 |
+| 后端响应判定 | ✅ | `backendEverRespondedRef` 精确追踪 |
+| 新诊断字段 | ✅ | 作品存在、后端超时配置、模型建议 |
+| 心跳接入诊断 | ✅ | `llm-generating-progress` 记录到 `lastProgressEventRef` |
+| 后端心跳日志 | ✅ | `log::warn!` 级别输出，确认心跳是否运行 |
+| 前端自救计时器 | ✅ | 自我循环，每 10s 更新已用时，心跳中断也不沉默 |
+| 去 Ollama 化 | ✅ | 诊断提示改为通用「vllm/Ollama/OpenAI」 |
+| smartExecuteInFlightRef | ✅ | 防止 activityStore 提前清空生成状态 |
+
+#### 质量门禁
+| 检查项 | 状态 |
+|--------|------|
+| `cargo check` | ✅ 通过 |
+| `cargo +nightly fmt --check` | ✅ 通过 |
+| `npx tsc --noEmit` | ✅ 通过 |
+| `npx prettier --check` | ✅ 通过 |
+| `npm run build` | ✅ 通过 |
+| `NODE_ENV=test npx vitest run` | ✅ 126/126 passed |
 
 ### v0.13.1 修复智能创作卡死在「准备上下文」阶段（2026-06-15）
 

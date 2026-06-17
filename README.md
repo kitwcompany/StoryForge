@@ -11,7 +11,7 @@
 [![Version](https://img.shields.io/badge/version-v0.13.1-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.13.1 修复智能创作卡死在「准备上下文」阶段的问题——能力进化反馈环未清洗 LLM `<think>` 思考链，导致被污染的 `when_to_use` 描述注入 PlanGenerator prompt 拖垮计划生成。三层防御（写入清洗 + 加载过滤 + 数据清理）彻底根治。
+**最新动态**：v0.13.2 诊断卡片增强 + 前端自救计时器。新增诊断数据自动收集，智能创作卡死时弹出诊断卡片，所有对诊断有用的信息一目了然；前端独立自救计时器确保即使后端心跳中断也不沉默。同时修复了诊断卡片的多个问题（版本号显示、已用时被意外清空、后端响应判定等）以及 Rust nightly 代码格式化问题。
 
 > 🐛 v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
 
