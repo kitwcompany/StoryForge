@@ -1,96 +1,83 @@
-import { useState, useEffect } from 'react';
 import { Check, Compass } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useUpdateStory } from '@/hooks/useStories';
-import toast from 'react-hot-toast';
+
+const METHODOLOGIES = [
+  { id: '', name: '无（自由创作）', description: '不指定特定方法论，AI 自由发挥' },
+  {
+    id: 'snowflake',
+    name: '雪花法',
+    description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者',
+  },
+  {
+    id: 'scene_structure',
+    name: '场景节拍',
+    description: '以场景为单位构建叙事节拍，适合重视节奏的作者',
+  },
+  {
+    id: 'hero_journey',
+    name: '英雄之旅',
+    description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事',
+  },
+  {
+    id: 'character_depth',
+    name: '人物深度',
+    description: '以人物为核心驱动故事，适合重视角色塑造的作者',
+  },
+  {
+    id: 'world_building',
+    name: '高密度世界构建',
+    description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说',
+  },
+];
+
+const SNOWFLAKE_STEPS = [
+  '1. 一句话概括',
+  '2. 一段式概括',
+  '3. 人物概述',
+  '4. 一页纸大纲',
+  '5. 人物详细背景',
+  '6. 四页纸大纲',
+  '7. 人物完整档案',
+  '8. 场景清单',
+  '9. 场景扩展',
+  '10. 初稿写作',
+];
+
+const WORLD_BUILDING_PHASES = [
+  '1. 最小世界种子',
+  '2. 状态网扩张',
+  '3. 多线交织与回流',
+  '4. 密度迭代与克制',
+];
 
 export function MethodologySettings() {
   const currentStory = useAppStore(s => s.currentStory);
   const updateStoryMutation = useUpdateStory();
 
-  const [methodologyId, setMethodologyId] = useState(currentStory?.methodology_id || '');
-  const [methodologyStep, setMethodologyStep] = useState(currentStory?.methodology_step || 1);
+  const methodologyId = currentStory?.methodology_id || '';
+  const methodologyStep = currentStory?.methodology_step || 1;
 
-  useEffect(() => {
-    if (currentStory) {
-      setMethodologyId(currentStory.methodology_id || '');
-      setMethodologyStep(currentStory.methodology_step || 1);
-    }
-  }, [currentStory?.id]);
-
-  const methodologies = [
-    { id: '', name: '无（自由创作）', description: '不指定特定方法论，AI 自由发挥' },
-    {
-      id: 'snowflake',
-      name: '雪花法',
-      description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者',
-    },
-    {
-      id: 'scene_structure',
-      name: '场景节拍',
-      description: '以场景为单位构建叙事节拍，适合重视节奏的作者',
-    },
-    {
-      id: 'hero_journey',
-      name: '英雄之旅',
-      description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事',
-    },
-    {
-      id: 'character_depth',
-      name: '人物深度',
-      description: '以人物为核心驱动故事，适合重视角色塑造的作者',
-    },
-    {
-      id: 'world_building',
-      name: '高密度世界构建',
-      description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说',
-    },
-  ];
-
-  const snowflakeSteps = [
-    '1. 一句话概括',
-    '2. 一段式概括',
-    '3. 人物概述',
-    '4. 一页纸大纲',
-    '5. 人物详细背景',
-    '6. 四页纸大纲',
-    '7. 人物完整档案',
-    '8. 场景清单',
-    '9. 场景扩展',
-    '10. 初稿写作',
-  ];
-
-  const worldBuildingPhases = [
-    '1. 最小世界种子',
-    '2. 状态网扩张',
-    '3. 多线交织与回流',
-    '4. 密度迭代与克制',
-  ];
-
-  const handleSave = () => {
+  const handleSelectMethodology = (id: string) => {
     if (!currentStory) return;
-    updateStoryMutation.mutate(
-      {
-        id: currentStory.id,
-        updates: {
-          methodology_id: methodologyId || undefined,
-          methodology_step:
-            methodologyId === 'snowflake' || methodologyId === 'world_building'
-              ? methodologyStep
-              : undefined,
-        },
+    const isStructured = id === 'snowflake' || id === 'world_building';
+    updateStoryMutation.mutate({
+      id: currentStory.id,
+      updates: {
+        methodology_id: id || undefined,
+        methodology_step: isStructured ? methodologyStep || 1 : undefined,
       },
-      {
-        onSuccess: () => {
-          toast.success('创作方法论已保存');
-        },
-        onError: (err: any) => {
-          toast.error(`保存失败: ${err?.message || String(err)}`);
-        },
-      }
-    );
+    });
+  };
+
+  const handleSelectStep = (step: number) => {
+    if (!currentStory) return;
+    updateStoryMutation.mutate({
+      id: currentStory.id,
+      updates: { methodology_step: step },
+    });
   };
 
   if (!currentStory) {
@@ -123,10 +110,10 @@ export function MethodologySettings() {
             <div>
               <label className="block text-sm text-gray-400 mb-2">选择方法论</label>
               <div className="space-y-2">
-                {methodologies.map(m => (
+                {METHODOLOGIES.map(m => (
                   <button
                     key={m.id}
-                    onClick={() => setMethodologyId(m.id)}
+                    onClick={() => handleSelectMethodology(m.id)}
                     className={`w-full p-3 rounded-lg text-left transition-colors border ${
                       methodologyId === m.id
                         ? 'bg-cinema-gold/20 border-cinema-gold/50'
@@ -144,10 +131,10 @@ export function MethodologySettings() {
               <div>
                 <label className="block text-sm text-gray-400 mb-2">当前步骤（雪花法）</label>
                 <div className="space-y-1.5">
-                  {snowflakeSteps.map((step, idx) => (
+                  {SNOWFLAKE_STEPS.map((step, idx) => (
                     <button
                       key={idx}
-                      onClick={() => setMethodologyStep(idx + 1)}
+                      onClick={() => handleSelectStep(idx + 1)}
                       className={`w-full p-2 rounded-lg text-left text-sm transition-colors ${
                         methodologyStep === idx + 1
                           ? 'bg-cinema-gold/20 text-cinema-gold'
@@ -167,10 +154,10 @@ export function MethodologySettings() {
                   当前阶段（高密度世界构建）
                 </label>
                 <div className="space-y-1.5">
-                  {worldBuildingPhases.map((phase, idx) => (
+                  {WORLD_BUILDING_PHASES.map((phase, idx) => (
                     <button
                       key={idx}
-                      onClick={() => setMethodologyStep(idx + 1)}
+                      onClick={() => handleSelectStep(idx + 1)}
                       className={`w-full p-2 rounded-lg text-left text-sm transition-colors ${
                         methodologyStep === idx + 1
                           ? 'bg-cinema-gold/20 text-cinema-gold'
@@ -187,7 +174,21 @@ export function MethodologySettings() {
             <div className="flex justify-end pt-4 border-t border-cinema-800">
               <Button
                 variant="primary"
-                onClick={handleSave}
+                onClick={() => {
+                  // 保留显式保存入口，用于刷新/确认当前选择
+                  if (currentStory) {
+                    updateStoryMutation.mutate({
+                      id: currentStory.id,
+                      updates: {
+                        methodology_id: methodologyId || undefined,
+                        methodology_step:
+                          methodologyId === 'snowflake' || methodologyId === 'world_building'
+                            ? methodologyStep
+                            : undefined,
+                      },
+                    });
+                  }
+                }}
                 isLoading={updateStoryMutation.isPending}
               >
                 <Check className="w-4 h-4 mr-2" />

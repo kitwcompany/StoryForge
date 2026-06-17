@@ -2,6 +2,49 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.14.1] - 后台设置即时更新重构：统一状态层与乐观更新（2026-06-17）
+
+### 统一后台设置状态层
+
+- 新增 `SettingsProvider`（`src/contexts/SettingsContext.tsx` + `src/contexts/settingsContextBase.ts`），在 `main.tsx` 全局挂载
+- 所有后台设置数据（`settings`、`models`、`agentMappings`）通过 `useSettingsContext()` 统一读取
+- 所有写操作集中管理：
+  - `updateSettings`：保存通用设置
+  - `createModel` / `updateModel` / `deleteModel`：模型配置 CRUD
+  - `setActiveModel`：切换当前活跃模型
+  - `updateAgentMapping`：更新 Agent 模型映射
+
+### 乐观更新与失败回滚
+
+- 每个 mutation 均实现 `onMutate` 乐观更新、`onError` 自动回滚、`onSettled` 统一缓存失效
+- 失败时 UI 自动恢复到修改前状态，并弹出明确 toast 错误提示
+- 统一失效范围覆盖 `settings` / `models` / `agent-mappings` / `model-health-reports`，确保跨标签页/跨组件同步
+
+### 组件状态漂移治理
+
+- `GeneralSettings.tsx`：移除本地 `useState/useEffect`，所有输入直接绑定 `settings`；debounce 只包裹提交调用
+- `MethodologySettings.tsx`：移除本地 state，选择方法论/步骤即时保存并回显
+- `AgentConfig.tsx`：接入 Context 的 `updateAgentMapping`，下拉变更即时生效
+- `UnifiedModelManager.tsx` / `ModelModal.tsx`：接入 Context 进行模型增删改查与活跃模型切换
+- `ModelList.tsx` / `ModelCard.tsx`：增加删除中状态，防止重复点击
+
+### 底层 hooks 同步增强
+
+- `useSettings.ts` 各 mutation 补齐乐观更新与统一失效，保留给非设置页面/遗留代码使用
+- `useStories.ts` 的 `useUpdateStory` 增加乐观更新，并同步刷新 Zustand 中的 `currentStory`
+- 新增通用防抖 hook：`src/hooks/useDebounceCallback.ts`
+
+### 代码格式修复
+
+- 运行 `cargo +nightly fmt` 修复 v0.14.0 模型网关相关 Rust 文件的 nightly rustfmt 格式问题，使 CI 的 `Check Rust formatting` 步骤通过
+
+### 验证
+
+- `npx tsc --noEmit` 零错误
+- 本次修改文件 `eslint --max-warnings 0` 通过
+- `cargo +nightly fmt -- --check` 通过
+- `cargo check` 零错误
+
 ## [v0.14.0] - 模型网关（Model Gateway）：自动路由、健康探测与多模型状态栏（2026-06-17）
 
 ### 新增：模型网关架构

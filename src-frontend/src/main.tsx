@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import App from './App';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
+import { SettingsProvider } from '@/contexts/SettingsContext';
 import './index.css';
 
 // 注入版本号供诊断使用
@@ -29,8 +30,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ConnectionStatus />
-        <App />
+        <SettingsProvider>
+          <ConnectionStatus />
+          <App />
+        </SettingsProvider>
         <Toaster
           position="top-right"
           toastOptions={{

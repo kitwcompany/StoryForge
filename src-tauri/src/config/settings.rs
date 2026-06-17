@@ -552,15 +552,7 @@ impl LlmProfile {
         changed |= add(ModelCapability::Streaming);
 
         // Reasoning 模型关键字
-        let reasoning_keywords = [
-            "reasoning",
-            "r1",
-            "o1",
-            "o3",
-            "deepseek",
-            "qwq",
-            "think",
-        ];
+        let reasoning_keywords = ["reasoning", "r1", "o1", "o3", "deepseek", "qwq", "think"];
         if reasoning_keywords.iter().any(|k| combined.contains(k)) {
             changed |= add(ModelCapability::Reasoning);
         }
@@ -587,14 +579,7 @@ impl LlmProfile {
 
         // LongContext 模型关键字
         let long_context_keywords = [
-            "128k",
-            "200k",
-            "1m",
-            "100k",
-            "kimi",
-            "claude-3",
-            "gpt-4o",
-            "qwen3",
+            "128k", "200k", "1m", "100k", "kimi", "claude-3", "gpt-4o", "qwen3",
         ];
         if long_context_keywords.iter().any(|k| combined.contains(k))
             || self.max_context_length >= 32768
@@ -605,7 +590,10 @@ impl LlmProfile {
         // JSON mode / Structured output（主流 API 模型）
         if matches!(
             self.provider,
-            LlmProvider::OpenAI | LlmProvider::Anthropic | LlmProvider::DeepSeek | LlmProvider::Qwen
+            LlmProvider::OpenAI
+                | LlmProvider::Anthropic
+                | LlmProvider::DeepSeek
+                | LlmProvider::Qwen
         ) {
             changed |= add(ModelCapability::JsonMode);
             changed |= add(ModelCapability::StructuredOutput);
@@ -614,7 +602,10 @@ impl LlmProfile {
         // Tool use（主流 API 与部分本地模型）
         if matches!(
             self.provider,
-            LlmProvider::OpenAI | LlmProvider::Anthropic | LlmProvider::DeepSeek | LlmProvider::Qwen
+            LlmProvider::OpenAI
+                | LlmProvider::Anthropic
+                | LlmProvider::DeepSeek
+                | LlmProvider::Qwen
         ) || (self.provider == LlmProvider::Ollama && self.max_context_length >= 8192)
         {
             changed |= add(ModelCapability::ToolUse);

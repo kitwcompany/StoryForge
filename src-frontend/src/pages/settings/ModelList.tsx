@@ -14,6 +14,7 @@ export function ModelList({
   onSetActive,
   onRetry,
   onDelete,
+  deletingId,
   groupTitle,
   showAddButton = true,
   showTypeHeader = true,
@@ -27,6 +28,7 @@ export function ModelList({
   onSetActive: (modelId: string) => void;
   onRetry?: (modelId: string) => void;
   onDelete?: (modelId: string) => void;
+  deletingId?: string | null;
   groupTitle?: string;
   showAddButton?: boolean;
   showTypeHeader?: boolean;
@@ -81,6 +83,7 @@ export function ModelList({
               model={model}
               isActive={model.id === activeModelId}
               connectionStatus={connectionStatus[model.id]}
+              isDeleting={deletingId === model.id}
               onEdit={() => onEdit(model)}
               onSetActive={() => onSetActive(model.id)}
               onRetry={onRetry ? () => onRetry(model.id) : undefined}

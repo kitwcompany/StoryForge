@@ -391,10 +391,14 @@ impl LlmService {
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
     ) -> (String, Result<GenerateResponse, AppError>) {
-        let req_id = request_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let req_id = request_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         // 优先尝试模型网关
-        let gateway = self.app_handle.state::<crate::model_gateway::executor::GatewayExecutor>();
+        let gateway = self
+            .app_handle
+            .state::<crate::model_gateway::executor::GatewayExecutor>();
         let gateway_request = crate::model_gateway::types::GatewayRequest {
             prompt: prompt.clone(),
             agent_id: context_label.unwrap_or("llm_service").to_string(),

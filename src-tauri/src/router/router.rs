@@ -174,7 +174,10 @@ impl UnifiedModelRouter {
             model_name: model.name.clone(),
             reason: format!(
                 "基于 {:?} 任务、{:?} 复杂度、成本优先级 {:?}、速度优先级 {:?} 选择，得分 {:.1}",
-                request.task, request.complexity, request.budget_priority, request.speed_priority,
+                request.task,
+                request.complexity,
+                request.budget_priority,
+                request.speed_priority,
                 best_score
             ),
             estimated_cost: model.cost_per_1k_output.unwrap_or(0.0),

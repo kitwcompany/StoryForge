@@ -640,7 +640,8 @@ pub fn run() {
                     .inner()
                     .clone();
                 let registry = crate::router::UnifiedModelRegistry::from_app_config(&app_config);
-                let gateway_registry = crate::model_gateway::registry::GatewayRegistry::new(registry);
+                let gateway_registry =
+                    crate::model_gateway::registry::GatewayRegistry::new(registry);
                 let gateway_executor = crate::model_gateway::executor::GatewayExecutor::new(
                     app.handle().clone(),
                     gateway_registry,

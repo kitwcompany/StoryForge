@@ -2,13 +2,12 @@
 //!
 //! v0.14.0: 将调用方请求转换为 `RoutingRequest`，支持动态复杂度评估。
 
+use super::types::GatewayRequest;
 use crate::{
     config::settings::LlmProfile,
     memory::tokenizer::count_tokens,
     router::{Complexity, RoutingConstraint, RoutingRequest, TaskType},
 };
-
-use super::types::GatewayRequest;
 
 /// 任务分类器
 #[derive(Debug, Clone, Default)]
@@ -33,7 +32,8 @@ impl TaskClassifier {
                 crate::config::settings::ModelCapability::Vision,
             )),
             TaskType::ImageGeneration => {
-                // ImageGeneration 在 registry 中通过 kind 过滤，这里不需要额外约束
+                // ImageGeneration 在 registry 中通过 kind
+                // 过滤，这里不需要额外约束
             }
             _ => {}
         }
@@ -123,7 +123,10 @@ pub fn evaluate_model_fit(model: &LlmProfile, request: &RoutingRequest) -> f64 {
     }
 
     // 摘要/头脑风暴偏好 fast
-    if matches!(request.task, TaskType::Summarization | TaskType::Brainstorming) {
+    if matches!(
+        request.task,
+        TaskType::Summarization | TaskType::Brainstorming
+    ) {
         if model
             .capabilities
             .contains(&crate::config::settings::ModelCapability::Fast)

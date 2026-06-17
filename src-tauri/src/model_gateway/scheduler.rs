@@ -1,6 +1,7 @@
 //! Model Gateway — 健康探测调度器
 //!
-//! v0.14.0: 负责在应用启动时执行全量探测，并按计划对 healthy/degraded 模型进行轻量 ping。
+//! v0.14.0: 负责在应用启动时执行全量探测，并按计划对 healthy/degraded
+//! 模型进行轻量 ping。
 
 use std::time::Duration;
 

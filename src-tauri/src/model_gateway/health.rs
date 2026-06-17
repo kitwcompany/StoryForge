@@ -7,9 +7,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::config::settings::LlmProfile;
-
 use super::types::{HealthStatus, ModelHealthSnapshot, ProbeResult};
+use crate::config::settings::LlmProfile;
 
 /// 单个模型的历史健康记录
 #[derive(Debug, Clone, Default)]

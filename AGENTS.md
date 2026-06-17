@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.14.0
+- **版本**: v0.14.1
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,14 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.14.1 后台设置即时更新重构** (2026-06-17) — 引入 `SettingsProvider` 统一后台设置状态层，消除本地 state 与 server state 的双向漂移。关键变更：
+    - **统一状态层**：新增 `src/contexts/SettingsContext.tsx`/`settingsContextBase.ts`/`hooks/useSettingsContext.ts`，在 `main.tsx` 全局挂载；
+    - **乐观更新与回滚**：所有设置写操作（保存通用设置、创建/更新/删除/激活模型、更新 Agent 映射）均内置 `onMutate` 乐观更新 + `onError` 回滚 + `onSettled` 统一失效；
+    - **组件重构**：`GeneralSettings`、`MethodologySettings` 移除本地 `useState/useEffect`，直接绑定 TanStack Query 数据；`AgentConfig`、`UnifiedModelManager`、`ModelModal` 接入 Context；
+    - **跨状态同步**：`useUpdateStory` 乐观更新同时刷新 query 缓存与 Zustand `currentStory`；
+    - **统一失效范围**：设置 family 内 `settings`/`models`/`agent-mappings`/`model-health-reports` 一并失效，确保跨标签页/跨组件即时同步；
+    - **验证**：`npx tsc --noEmit` 通过，修改文件 `eslint --max-warnings 0` 通过，`cargo +nightly fmt -- --check` 通过，`cargo check` 通过。
 
   - **v0.13.3 诊断卡片安全网：修复「准备上下文」长时间延时后退出但未弹诊断卡片** (2026-06-17) — 根因：诊断卡片仅在 `catch` 块触发，但存在多条静默退出路径（成功路径中返回空内容 / `success: false`、状态流转异常等）。关键变更：
     - **防御性诊断**：在 `handleRequestGeneration` 与 `handleSmartGeneration` 的成功路径中，遇到 `final_content` 为空或 `success: false` 时立即调用 `captureDiagnosticInfo` 并弹诊断卡片；

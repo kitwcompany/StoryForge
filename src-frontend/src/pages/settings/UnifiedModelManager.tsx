@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Plus, Database, MessageSquare, Sparkles, Image, Filter, Cpu } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useModels, useSetActiveModel, useDeleteModel } from '@/hooks/useSettings';
-import { useSettings } from '@/hooks/useSettings';
+import { useSettingsContext } from '@/hooks/useSettingsContext';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
 import type { ModelConfig, ModelType } from '@/types/llm';
 import { cn } from '@/utils/cn';
@@ -30,10 +29,7 @@ export function UnifiedModelManager() {
   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   const [addModelType, setAddModelType] = useState<ModelType>('chat');
 
-  const { data: models = [], isLoading } = useModels();
-  const { data: settings } = useSettings();
-  const setActiveModelMutation = useSetActiveModel();
-  const deleteModelMutation = useDeleteModel();
+  const { models, settings, isLoading, setActiveModel, deleteModel } = useSettingsContext();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const activeModelIds = settings?.active_models ?? {};
@@ -89,14 +85,16 @@ export function UnifiedModelManager() {
   };
 
   // 处理删除模型
-  const handleDelete = (modelId: string) => {
+  const handleDelete = async (modelId: string) => {
     if (!confirm('确定要删除该模型配置吗？如果该模型正被 Agent 使用，对应映射会被自动清除。')) {
       return;
     }
     setDeletingId(modelId);
-    deleteModelMutation.mutate(modelId, {
-      onSettled: () => setDeletingId(null),
-    });
+    try {
+      await deleteModel(modelId);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   if (isLoading) {
@@ -198,10 +196,11 @@ export function UnifiedModelManager() {
                 onAdd={() => handleAdd(type)}
                 onEdit={setEditingModel}
                 onSetActive={modelId => {
-                  setActiveModelMutation.mutate({ type, modelId });
+                  setActiveModel(type, modelId);
                 }}
                 onRetry={handleRetry}
                 onDelete={handleDelete}
+                deletingId={deletingId}
                 showTypeHeader={false}
               />
             </div>

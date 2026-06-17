@@ -3,7 +3,7 @@ import { X, Eye, EyeOff, RefreshCw, MessageSquare, Database, Sparkles, Image } f
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useForm } from 'react-hook-form';
-import { useCreateModel, useUpdateModel } from '@/hooks/useSettings';
+import { useSettingsContext } from '@/hooks/useSettingsContext';
 import {
   getModelProviders,
   getProviderDefaultModels,
@@ -11,9 +11,41 @@ import {
   getModelApiKey,
 } from '@/services/settings';
 import toast from 'react-hot-toast';
-import type { ModelType, ModelConfig, LlmProvider } from '@/types/llm';
+import type {
+  ModelType,
+  ModelConfig,
+  LlmProvider,
+  ChatModelConfig,
+  MultimodalModelConfig,
+  ModelCapability,
+} from '@/types/llm';
 import { cn } from '@/utils/cn';
 import { normalizeFloat } from '@/utils/numberFormat';
+
+interface ModelFormData {
+  name: string;
+  provider: LlmProvider;
+  model: string;
+  description?: string;
+  api_key?: string;
+  api_base?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  dimensions?: number;
+  is_default?: boolean;
+  enabled?: boolean;
+}
+
+function isChatOrMultimodal(model: ModelConfig): model is ChatModelConfig | MultimodalModelConfig {
+  return model.type === 'chat' || model.type === 'multimodal';
+}
+
+function isChatModel(model: ModelConfig): model is ChatModelConfig {
+  return model.type === 'chat';
+}
 
 const typeLabels: Record<ModelType, string> = {
   chat: '聊天',
@@ -42,7 +74,7 @@ export function ModelModal({
   const [selectedType, setSelectedType] = useState<ModelType>(model?.type || initialType);
   const effectiveType = model ? model.type : selectedType;
 
-  const defaultValues = {
+  const defaultValues: ModelFormData = {
     name: '',
     provider: 'openai' as LlmProvider,
     model: '',
@@ -50,27 +82,26 @@ export function ModelModal({
     api_base: '',
     temperature: 0.7,
     max_tokens: 4096,
-    top_p: undefined as number | undefined,
-    frequency_penalty: undefined as number | undefined,
-    presence_penalty: undefined as number | undefined,
+    top_p: undefined,
+    frequency_penalty: undefined,
+    presence_penalty: undefined,
     dimensions: 1536,
     is_default: false,
     enabled: true,
   };
 
-  const { register, handleSubmit, watch, setValue, getValues } = useForm({
+  const { register, handleSubmit, watch, setValue, getValues } = useForm<ModelFormData>({
     defaultValues: model
       ? {
           ...defaultValues,
           ...model,
           api_key: model.api_key === '***' ? '' : model.api_key || '',
-          temperature:
-            model.type === 'chat' || model.type === 'multimodal'
-              ? normalizeFloat((model as any).temperature ?? 0.7, 2)
-              : 0.7,
-          top_p: (model as any).top_p,
-          frequency_penalty: (model as any).frequency_penalty,
-          presence_penalty: (model as any).presence_penalty,
+          temperature: isChatOrMultimodal(model)
+            ? normalizeFloat(model.temperature ?? 0.7, 2)
+            : 0.7,
+          top_p: isChatModel(model) ? model.top_p : undefined,
+          frequency_penalty: isChatModel(model) ? model.frequency_penalty : undefined,
+          presence_penalty: isChatModel(model) ? model.presence_penalty : undefined,
         }
       : defaultValues,
   });
@@ -92,16 +123,33 @@ export function ModelModal({
   const requiresApiKey = providers.find(p => p.id === provider)?.requiresApiKey ?? true;
   const showApiKeyField = requiresApiKey || provider === 'custom';
 
-  const createModelMutation = useCreateModel();
-  const updateModelMutation = useUpdateModel();
+  const { createModel, updateModel } = useSettingsContext();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false);
 
-  const onSubmit = (data: any) => {
-    const payload: any = {
+  const onSubmit = async (data: ModelFormData) => {
+    const payload: {
+      name: string;
+      provider: LlmProvider;
+      model: string;
+      description?: string;
+      api_base?: string;
+      model_type: ModelType;
+      is_default: boolean;
+      enabled: boolean;
+      api_key?: string;
+      temperature?: number;
+      max_tokens?: number;
+      top_p?: number;
+      frequency_penalty?: number;
+      presence_penalty?: number;
+      capabilities?: ModelCapability[];
+      dimensions?: number;
+    } = {
       name: data.name,
       provider: data.provider,
       model: data.model,
@@ -131,13 +179,13 @@ export function ModelModal({
     if (effectiveType === 'chat' || effectiveType === 'multimodal') {
       payload.temperature = normalizeFloat(Number(data.temperature), 2);
       payload.max_tokens = Number(data.max_tokens);
-      if (data.top_p !== undefined && data.top_p !== '') {
+      if (data.top_p !== undefined) {
         payload.top_p = normalizeFloat(Number(data.top_p), 2);
       }
-      if (data.frequency_penalty !== undefined && data.frequency_penalty !== '') {
+      if (data.frequency_penalty !== undefined) {
         payload.frequency_penalty = normalizeFloat(Number(data.frequency_penalty), 2);
       }
-      if (data.presence_penalty !== undefined && data.presence_penalty !== '') {
+      if (data.presence_penalty !== undefined) {
         payload.presence_penalty = normalizeFloat(Number(data.presence_penalty), 2);
       }
       payload.capabilities =
@@ -150,10 +198,16 @@ export function ModelModal({
       payload.dimensions = Number(data.dimensions);
     }
 
-    if (model) {
-      updateModelMutation.mutate({ id: model.id, config: payload }, { onSuccess: onClose });
-    } else {
-      createModelMutation.mutate(payload as Omit<ModelConfig, 'id'>, { onSuccess: onClose });
+    setIsSubmitting(true);
+    try {
+      if (model) {
+        await updateModel(model.id, payload);
+      } else {
+        await createModel({ ...payload, type: effectiveType } as Omit<ModelConfig, 'id'>);
+      }
+      onClose();
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -477,7 +531,7 @@ export function ModelModal({
               <Button type="button" variant="ghost" onClick={onClose}>
                 取消
               </Button>
-              <Button type="submit" variant="primary">
+              <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>
                 {model ? '保存' : '创建'}
               </Button>
             </div>

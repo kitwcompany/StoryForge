@@ -21,9 +21,9 @@ import {
   Route,
   HeartPulse,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useSettings, useExportSettings, useImportSettings } from '@/hooks/useSettings';
+import { useExportSettings, useImportSettings } from '@/hooks/useSettings';
+import { useSettingsContext } from '@/hooks/useSettingsContext';
 import { cn } from '@/utils/cn';
 import { logFeatureUsage } from '@/services/tauri';
 
@@ -51,11 +51,9 @@ type TabType =
 export function Settings() {
   const [activeTab, setActiveTab] = useState<TabType>('models');
 
-  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const { isLoading } = useSettingsContext();
   const exportSettings = useExportSettings();
   const importSettings = useImportSettings();
-
-  const isLoading = settingsLoading;
 
   // Feature usage telemetry
   useEffect(() => {

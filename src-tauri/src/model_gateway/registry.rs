@@ -2,12 +2,11 @@
 //!
 //! v0.14.0: 包装 `router::UnifiedModelRegistry`，附加健康快照与能力索引。
 
+use super::types::ModelHealthSnapshot;
 use crate::{
     config::settings::{LlmProfile, ModelCapability},
     router::UnifiedModelRegistry,
 };
-
-use super::types::ModelHealthSnapshot;
 
 /// 网关模型注册表
 #[derive(Debug, Clone)]

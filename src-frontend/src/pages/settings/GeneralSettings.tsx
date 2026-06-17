@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Settings2,
   BookOpen,
@@ -12,7 +12,8 @@ import {
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useUpdater } from '@/hooks/useUpdater';
-import { useSettings, useSaveSettings } from '@/hooks/useSettings';
+import { useSettingsContext } from '@/hooks/useSettingsContext';
+import { useDebounceCallback } from '@/hooks/useDebounceCallback';
 import { EditorSettings } from '@/components/EditorSettings';
 import {
   colorThemeList,
@@ -22,6 +23,14 @@ import {
 } from '@/frontstage/config/colorThemes';
 import { cn } from '@/utils/cn';
 import { normalizeFloat, formatDisplayFloat } from '@/utils/numberFormat';
+import type { WritingStrategy } from '@/types/llm';
+
+const DEFAULT_WRITING_STRATEGY: WritingStrategy = {
+  run_mode: 'fast',
+  conflict_level: 50,
+  pace: 'balanced',
+  ai_freedom: 'medium',
+};
 
 // 颜色主题选择器组件
 function ColorThemeSelector() {
@@ -76,94 +85,30 @@ export function GeneralSettings() {
     installUpdate,
   } = useUpdater(false);
 
-  const { data: settings } = useSettings();
-  const saveSettingsMutation = useSaveSettings();
-  const [concurrency, setConcurrency] = useState(settings?.book_deconstruction_concurrency ?? 3);
-  const [rewriteThreshold, setRewriteThreshold] = useState(settings?.rewrite_threshold ?? 0.75);
-  const [maxFeedbackLoops, setMaxFeedbackLoops] = useState(settings?.max_feedback_loops ?? 2);
-  const [writingStrategy, setWritingStrategy] = useState(
-    settings?.writing_strategy ?? {
-      run_mode: 'fast' as const,
-      conflict_level: 50,
-      pace: 'balanced' as const,
-      ai_freedom: 'medium' as const,
-    }
-  );
+  const { settings, updateSettings, isPending } = useSettingsContext();
 
-  // 同步设置值
-  useEffect(() => {
-    if (settings?.book_deconstruction_concurrency !== undefined) {
-      setConcurrency(settings.book_deconstruction_concurrency);
-    }
-    if (settings?.rewrite_threshold !== undefined) {
-      setRewriteThreshold(settings.rewrite_threshold);
-    }
-    if (settings?.max_feedback_loops !== undefined) {
-      setMaxFeedbackLoops(settings.max_feedback_loops);
-    }
-    if (settings?.writing_strategy !== undefined) {
-      setWritingStrategy(settings.writing_strategy);
-    }
-  }, [
-    settings?.book_deconstruction_concurrency,
-    settings?.rewrite_threshold,
-    settings?.max_feedback_loops,
-    settings?.writing_strategy,
-  ]);
+  const concurrency = settings?.book_deconstruction_concurrency ?? 3;
+  const rewriteThreshold = settings?.rewrite_threshold ?? 0.75;
+  const maxFeedbackLoops = settings?.max_feedback_loops ?? 2;
+  const writingStrategy = settings?.writing_strategy ?? DEFAULT_WRITING_STRATEGY;
+
+  const debouncedUpdateSettings = useDebounceCallback(updateSettings, 300);
 
   const handleConcurrencyChange = (value: number) => {
-    setConcurrency(value);
-    // 防抖保存：300ms 后保存
-    const timer = setTimeout(() => {
-      if (settings) {
-        saveSettingsMutation.mutate({
-          ...settings,
-          book_deconstruction_concurrency: value,
-        });
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+    debouncedUpdateSettings({ book_deconstruction_concurrency: value });
   };
 
   const handleRewriteThresholdChange = (value: number) => {
     const normalized = normalizeFloat(value, 2);
-    setRewriteThreshold(normalized);
-    const timer = setTimeout(() => {
-      if (settings) {
-        saveSettingsMutation.mutate({
-          ...settings,
-          rewrite_threshold: normalized,
-        });
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+    debouncedUpdateSettings({ rewrite_threshold: normalized });
   };
 
   const handleMaxFeedbackLoopsChange = (value: number) => {
-    setMaxFeedbackLoops(value);
-    const timer = setTimeout(() => {
-      if (settings) {
-        saveSettingsMutation.mutate({
-          ...settings,
-          max_feedback_loops: value,
-        });
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+    debouncedUpdateSettings({ max_feedback_loops: value });
   };
 
-  const handleWritingStrategyChange = (partial: Partial<typeof writingStrategy>) => {
-    const next = { ...writingStrategy, ...partial };
-    setWritingStrategy(next);
-    const timer = setTimeout(() => {
-      if (settings) {
-        saveSettingsMutation.mutate({
-          ...settings,
-          writing_strategy: next,
-        });
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+  const handleWritingStrategyChange = (partial: Partial<WritingStrategy>) => {
+    debouncedUpdateSettings({ writing_strategy: { ...writingStrategy, ...partial } });
   };
 
   return (
@@ -267,7 +212,14 @@ export function GeneralSettings() {
                 <Zap className="w-4 h-4 text-cinema-gold" />
                 <span className="text-sm text-white">LLM 并发数</span>
               </div>
-              <span className="text-lg font-bold text-cinema-gold font-mono">{concurrency}</span>
+              <span
+                className={cn(
+                  'text-lg font-bold text-cinema-gold font-mono',
+                  isPending && 'opacity-70'
+                )}
+              >
+                {concurrency}
+              </span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -319,7 +271,12 @@ export function GeneralSettings() {
                   <Sparkles className="w-4 h-4 text-cinema-gold" />
                   <span className="text-sm text-white">质检阈值</span>
                 </div>
-                <span className="text-lg font-bold text-cinema-gold font-mono">
+                <span
+                  className={cn(
+                    'text-lg font-bold text-cinema-gold font-mono',
+                    isPending && 'opacity-70'
+                  )}
+                >
                   {formatDisplayFloat(rewriteThreshold, 2)}
                 </span>
               </div>
@@ -358,7 +315,12 @@ export function GeneralSettings() {
                   <RefreshCw className="w-4 h-4 text-cinema-gold" />
                   <span className="text-sm text-white">最大改写轮数</span>
                 </div>
-                <span className="text-lg font-bold text-cinema-gold font-mono">
+                <span
+                  className={cn(
+                    'text-lg font-bold text-cinema-gold font-mono',
+                    isPending && 'opacity-70'
+                  )}
+                >
                   {maxFeedbackLoops}
                 </span>
               </div>
@@ -443,7 +405,12 @@ export function GeneralSettings() {
                   <Zap className="w-4 h-4 text-cinema-gold" />
                   <span className="text-sm text-white">冲突强度</span>
                 </div>
-                <span className="text-lg font-bold text-cinema-gold font-mono">
+                <span
+                  className={cn(
+                    'text-lg font-bold text-cinema-gold font-mono',
+                    isPending && 'opacity-70'
+                  )}
+                >
                   {writingStrategy.conflict_level}
                 </span>
               </div>
@@ -491,7 +458,7 @@ export function GeneralSettings() {
                     key={opt.id}
                     onClick={() =>
                       handleWritingStrategyChange({
-                        pace: opt.id as typeof writingStrategy.pace,
+                        pace: opt.id as WritingStrategy['pace'],
                       })
                     }
                     className={`p-3 rounded-lg text-left transition-colors border ${
@@ -520,7 +487,7 @@ export function GeneralSettings() {
                     key={opt.id}
                     onClick={() =>
                       handleWritingStrategyChange({
-                        ai_freedom: opt.id as typeof writingStrategy.ai_freedom,
+                        ai_freedom: opt.id as WritingStrategy['ai_freedom'],
                       })
                     }
                     className={`p-3 rounded-lg text-left transition-colors border ${

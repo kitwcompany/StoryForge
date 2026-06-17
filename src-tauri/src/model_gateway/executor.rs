@@ -4,16 +4,15 @@
 
 use tauri::AppHandle;
 
-use crate::{
-    error::AppError,
-    llm::{adapter::GenerateRequest, service::LlmService, GenerateResponse as LlmGenerateResponse},
-};
-
 use super::{
     dispatcher::TaskClassifier,
     health::{HealthRegistry, ProbeEngine},
     registry::GatewayRegistry,
     types::{GatewayRequest, GatewayRoutingDecision, ProbeResult},
+};
+use crate::{
+    error::AppError,
+    llm::{adapter::GenerateRequest, service::LlmService, GenerateResponse as LlmGenerateResponse},
 };
 
 /// 网关执行器
@@ -27,11 +26,7 @@ pub struct GatewayExecutor {
 }
 
 impl GatewayExecutor {
-    pub fn new(
-        app_handle: AppHandle,
-        registry: GatewayRegistry,
-        llm_service: LlmService,
-    ) -> Self {
+    pub fn new(app_handle: AppHandle, registry: GatewayRegistry, llm_service: LlmService) -> Self {
         Self {
             app_handle,
             registry,
@@ -64,8 +59,8 @@ impl GatewayExecutor {
             .iter()
             .filter_map(|c| self.registry.get(&c.model_id).map(|m| (c.score, m)))
             .map(|(base_score, m)| {
-                let mut score = base_score
-                    + super::dispatcher::evaluate_model_fit(m, &routing_request);
+                let mut score =
+                    base_score + super::dispatcher::evaluate_model_fit(m, &routing_request);
 
                 // 健康权重
                 if let Some(ref h) = health {
@@ -112,10 +107,7 @@ impl GatewayExecutor {
     }
 
     /// 统一生成入口：选择候选链并顺序执行 fallback
-    pub async fn generate(
-        &self,
-        request: GatewayRequest,
-    ) -> Result<LlmGenerateResponse, AppError> {
+    pub async fn generate(&self, request: GatewayRequest) -> Result<LlmGenerateResponse, AppError> {
         let decision = self.select_candidates(&request)?;
 
         if decision.candidates.is_empty() {

@@ -4,12 +4,11 @@
 
 use tauri::{command, AppHandle, State};
 
-use crate::error::AppError;
-
 use super::{
     executor::GatewayExecutor,
     types::{GatewayRoutingDecision, GatewayStatus, ModelHealthSnapshot, ProbeResult},
 };
+use crate::error::AppError;
 
 /// 获取网关整体状态（供前端底部状态栏展示）
 #[command]
@@ -29,7 +28,10 @@ pub async fn get_gateway_status(
     let models = registry.models_with_health(&health);
 
     Ok(GatewayStatus {
-        last_probe_at: models.iter().filter_map(|m| m.last_checked_at.clone()).max(),
+        last_probe_at: models
+            .iter()
+            .filter_map(|m| m.last_checked_at.clone())
+            .max(),
         primary_model_id: None, // TODO: 从当前活跃任务获取
         models,
         is_probing: false,

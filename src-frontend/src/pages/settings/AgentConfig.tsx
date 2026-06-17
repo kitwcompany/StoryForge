@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Bot, SlidersHorizontal, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
-import { useAgentMappings, useUpdateAgentMapping, useModels } from '@/hooks/useSettings';
+import { useSettingsContext } from '@/hooks/useSettingsContext';
 import type { AgentModelMapping, ModelConfig, TaskType, Complexity, Priority } from '@/types/llm';
 
 const ALL_AGENTS: AgentModelMapping[] = [
@@ -48,7 +48,7 @@ const ALL_AGENTS: AgentModelMapping[] = [
 ];
 
 function useModelOptions(type: ModelConfig['type']) {
-  const { data: models = [] } = useModels();
+  const { models } = useSettingsContext();
   return useMemo(() => {
     const filtered = models.filter(m => m.type === type);
     return [
@@ -145,8 +145,7 @@ function PolicySelect<T extends string>({
 }
 
 export function AgentConfig() {
-  const { data: mappings = [], isLoading: mappingsLoading } = useAgentMappings();
-  const updateMapping = useUpdateAgentMapping();
+  const { agentMappings: mappings, isLoading: mappingsLoading, updateAgentMapping } = useSettingsContext();
   const chatOptions = useModelOptions('chat');
   const embeddingOptions = useModelOptions('embedding');
   const multimodalOptions = useModelOptions('multimodal');
@@ -175,7 +174,7 @@ export function AgentConfig() {
     field: keyof AgentModelMapping,
     value: string | string[] | undefined
   ) => {
-    updateMapping.mutate({
+    updateAgentMapping({
       ...agent,
       [field]:
         value === undefined || (typeof value === 'string' && value === '') ? undefined : value,
@@ -237,7 +236,7 @@ export function AgentConfig() {
                         value={agent.chat_model_id}
                         options={chatOptions}
                         onChange={value => handleChange(agent, 'chat_model_id', value)}
-                        disabled={updateMapping.isPending}
+
                       />
                     </div>
                     <div>
@@ -246,7 +245,7 @@ export function AgentConfig() {
                         value={agent.embedding_model_id}
                         options={embeddingOptions}
                         onChange={value => handleChange(agent, 'embedding_model_id', value)}
-                        disabled={updateMapping.isPending}
+
                       />
                     </div>
                     <div>
@@ -255,7 +254,7 @@ export function AgentConfig() {
                         value={agent.multimodal_model_id}
                         options={multimodalOptions}
                         onChange={value => handleChange(agent, 'multimodal_model_id', value)}
-                        disabled={updateMapping.isPending}
+
                       />
                     </div>
                   </div>
@@ -269,7 +268,7 @@ export function AgentConfig() {
                             value={agent.task_type}
                             options={TASK_TYPE_OPTIONS}
                             onChange={value => handleChange(agent, 'task_type', value)}
-                            disabled={updateMapping.isPending}
+    
                             placeholder="使用 Agent 默认"
                           />
                         </div>
@@ -279,7 +278,7 @@ export function AgentConfig() {
                             value={agent.complexity}
                             options={COMPLEXITY_OPTIONS}
                             onChange={value => handleChange(agent, 'complexity', value)}
-                            disabled={updateMapping.isPending}
+    
                             placeholder="使用 Agent 默认"
                           />
                         </div>
@@ -289,7 +288,7 @@ export function AgentConfig() {
                             value={agent.budget_priority}
                             options={PRIORITY_OPTIONS}
                             onChange={value => handleChange(agent, 'budget_priority', value)}
-                            disabled={updateMapping.isPending}
+    
                             placeholder="使用 Agent 默认"
                           />
                         </div>
@@ -299,7 +298,7 @@ export function AgentConfig() {
                             value={agent.speed_priority}
                             options={PRIORITY_OPTIONS}
                             onChange={value => handleChange(agent, 'speed_priority', value)}
-                            disabled={updateMapping.isPending}
+    
                             placeholder="使用 Agent 默认"
                           />
                         </div>
@@ -310,7 +309,7 @@ export function AgentConfig() {
                         <ConstraintInput
                           constraints={agent.constraints || []}
                           onChange={values => handleChange(agent, 'constraints', values)}
-                          disabled={updateMapping.isPending}
+  
                         />
                       </div>
                     </div>

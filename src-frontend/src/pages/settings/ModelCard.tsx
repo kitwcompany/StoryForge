@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Star, Edit2, Key, Globe, RotateCcw, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Star, Edit2, Key, Globe, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
@@ -11,6 +11,7 @@ export function ModelCard({
   model,
   isActive,
   connectionStatus,
+  isDeleting,
   onEdit,
   onSetActive,
   onRetry,
@@ -22,6 +23,7 @@ export function ModelCard({
     result?: ConnectionTestResult;
     isChecking?: boolean;
   };
+  isDeleting?: boolean;
   onEdit: () => void;
   onSetActive: () => void;
   onRetry?: () => void;
@@ -173,8 +175,9 @@ export function ModelCard({
                 variant="ghost"
                 size="sm"
                 onClick={onDelete}
+                disabled={isDeleting}
                 title="删除模型配置"
-                className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-50"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
