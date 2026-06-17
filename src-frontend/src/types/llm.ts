@@ -287,6 +287,13 @@ export interface AppSettings {
 
   // 写作策略配置
   writing_strategy: WritingStrategy;
+
+  // v0.14.3: AI 生成模式
+  // - 'auto': 场景智能路由（续写 TimeSliced，重写 Full）— 推荐
+  // - 'time_sliced': 强制分时模式（最快，单次 LLM 调用，30-60s）
+  // - 'fast': 强制 Fast 模式（单次 LLM + 风格技能，约 60s）
+  // - 'full': 强制 Full 模式（Writer + Inspector + Rewrite 闭环，2-5 分钟）
+  generation_mode?: 'auto' | 'time_sliced' | 'fast' | 'full';
 }
 
 export interface WritingStrategy {

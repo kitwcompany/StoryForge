@@ -749,6 +749,9 @@ impl PlanExecutor {
             self.app_handle.clone(),
         );
         let selected_text = plan_context.selected_text.clone();
+        // v0.14.3: 保留副本用于后续场景路由判断
+        let has_selected_text = selected_text.is_some();
+        let current_content_len = current_content.as_deref().map(|s| s.len()).unwrap_or(0);
         log::info!(
             "[PlanExecutor::execute_writer] Calling build_agent_context (story_id={})...",
             story_id
@@ -798,13 +801,49 @@ impl PlanExecutor {
             tier: None,
         };
 
-        log::info!("[PlanExecutor::execute_writer] Calling orchestrator.generate(Full)...");
-        let t_gen = std::time::Instant::now();
-        let workflow_result = orchestrator
-            .generate(task, crate::agents::orchestrator::GenerationMode::Full)
-            .await?;
+        // v0.14.3: 场景智能路由——续写默认走 TimeSliced（快速生成 30-60s），
+        // 重写选中文本走 Full（含 Inspector 质检），用户可在设置中显式覆盖。
+        // 修复 v0.13.0 设计文档（time-sliced-intervention-design.md:456）的实现遗漏：
+        // 该文档明确指定 smart_execute 默认 TimeSliced，但实施时漏改了 PlanExecutor
+        // 路径。 模式选择优先级：plan 参数 > AppConfig.generation_mode >
+        // 场景智能路由
+        let app_config_mode = crate::config::AppConfig::load(&app_dir)
+            .ok()
+            .map(|c| c.generation_mode.clone())
+            .unwrap_or_else(|| "auto".to_string());
+        let mode_str = params
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| app_config_mode.clone());
+
+        let mode = match mode_str.as_str() {
+            "full" => crate::agents::orchestrator::GenerationMode::Full,
+            "fast" => crate::agents::orchestrator::GenerationMode::Fast,
+            "time_sliced" | "timesliced" => crate::agents::orchestrator::GenerationMode::TimeSliced,
+            _ => {
+                // "auto" 或其他：场景智能路由
+                if has_selected_text {
+                    // 重写选中文本：用户明确要求改写，需要质检循环
+                    crate::agents::orchestrator::GenerationMode::Full
+                } else {
+                    // 续写或新章节首段：速度优先，问题靠后台审计修正
+                    crate::agents::orchestrator::GenerationMode::TimeSliced
+                }
+            }
+        };
+
         log::info!(
-            "[PlanExecutor::execute_writer] orchestrator.generate(Full) done in {:?} (score={})",
+            "[PlanExecutor::execute_writer] Calling orchestrator.generate({:?}) (selected_text={}, current_content_len={})...",
+            mode,
+            has_selected_text,
+            current_content_len
+        );
+        let t_gen = std::time::Instant::now();
+        let workflow_result = orchestrator.generate(task, mode).await?;
+        log::info!(
+            "[PlanExecutor::execute_writer] orchestrator.generate({:?}) done in {:?} (score={})",
+            mode,
             t_gen.elapsed(),
             workflow_result.final_score
         );

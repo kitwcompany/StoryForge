@@ -2,6 +2,85 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.14.3] - 智能创作生成内容根因修复——场景智能路由（2026-06-17）
+
+### 真正的根本症结（v0.14.2 超时防线之上）
+
+v0.14.2 建立了五层超时防线，但**仅能避免无限等待，不能让生成真正完成**。继续深入查找发现：
+
+**`smart_execute` 路径写死 `GenerationMode::Full`**，导致每次智能创作触发：
+- 1 次 Writer（含 prepare_writer_context + 候选生成）
+- 最多 2 次 Inspector（每次 50s）
+- 最多 2 次 Rewrite（每次 67s）
+
+累计最多 **5 次同步 LLM 调用 × 50-67s = 250-335 秒**，远超 v0.14.2 的 200s 前端超时和 180s 后端超时，**必然超时退出，无法生成内容**。
+
+**设计文档实施遗漏**：`docs/plans/2026-06-14-time-sliced-intervention-design.md:456` 明确指定 `smart_execute` 默认 `TimeSliced`，但实施时只改了 `agents/executor.rs:79`（任务系统入口），漏改了 `smart_execute` 实际走的 `PlanExecutor::execute_writer` 路径。
+
+### 修复内容（场景智能路由）
+
+#### 第一层：PlanExecutor::execute_writer 场景智能路由（P0 - 核心）
+
+**文件：`src-tauri/src/planner/executor.rs:803-833`**
+
+添加场景智能路由逻辑，优先级：plan 参数 > AppConfig.generation_mode > 场景智能默认：
+- `selected_text` 非空（重写选中文本）→ `GenerationMode::Full`（含质检改写）
+- `selected_text` 为空（续写或新章节首段）→ `GenerationMode::TimeSliced`（单次 LLM，30-60s）
+- 用户可在设置或 plan 参数中显式覆盖（`auto`/`time_sliced`/`fast`/`full`）
+
+#### 第二层：AppConfig 新增 generation_mode 配置（P1）
+
+**文件：`src-tauri/src/config/settings.rs`**
+
+- 新增 `AppConfig.generation_mode` 字段，默认 `"auto"`（场景智能路由）
+- 可选值：`auto`、`time_sliced`、`fast`、`full`
+
+#### 第三层：前端 GeneralSettings 暴露生成模式下拉（P1）
+
+**文件：`src-frontend/src/pages/settings/GeneralSettings.tsx`**
+
+在"写作策略"区域顶部新增"AI 生成模式"下拉，4 个选项：
+- **智能路由（推荐）**：续写快速、重写精修
+- **分时模式**：最快（30-60秒）
+- **快速模式**：单次 + 风格技能（约 60秒）
+- **精修模式**：含质检改写（2-5 分钟）
+
+#### 第四层：超时与 max_tokens 默认值优化（P2）
+
+**文件：`src-tauri/src/config/settings.rs`**
+
+- `DEFAULT_LLM_TIMEOUT_SECONDS`: 240 → **120**（生成 1500 tokens × 30 tokens/s ≈ 50s，120s 留 2.4× 余量）
+- LlmProfile 默认 `max_tokens`: 8192 → **2500**（续写 800-1500 字足够，避免 LLM 生成过长内容拖慢响应）
+
+### 路径一致性验证
+
+| 路径 | 修复前 | 修复后 |
+|------|-------|-------|
+| AiGenerationExecutor（任务系统） | TimeSliced ✅ | TimeSliced |
+| smart_execute → PlanExecutor → execute_writer | **Full ❌** | **场景智能路由** |
+| Genesis（新建小说） | Full | Full（保持不变） |
+| auto_write / auto_revise | TimeSliced ✅ | TimeSliced |
+| Workflow Scheduler | Full | Full（自动化保持不变） |
+
+### 预期效果
+
+| 场景 | v0.14.2 之前 | v0.14.3 |
+|------|-------------|---------|
+| 续写（最常见） | 200-300s 必超时 | **30-60s 稳定生成** |
+| 重写选中文本 | 200-300s 必超时 | 60-180s（Full 受预算约束） |
+| 新章首段 | 200-300s 必超时 | **30-60s 稳定生成** |
+| 新建小说 Genesis | 不变（双阶段） | 不变 |
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **392/392** 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `NODE_ENV=test npx vitest run` ✅ 126/126 通过
+- `cargo +nightly fmt` ✅ 通过
+
+### 核心价值
+**用户最常用的"续写"场景从"必然超时无法生成"变为"30-60 秒稳定生成"**，智能创作功能从不可用变为可用。质量改善由后台审计（time-sliced 第二阶段）异步保证，不阻塞用户写作流。
+
 ## [v0.14.2] - 智能创作超时退出根因修复：多层超时防线（2026-06-17）
 
 ### 核心问题

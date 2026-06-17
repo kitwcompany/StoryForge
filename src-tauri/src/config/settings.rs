@@ -74,7 +74,11 @@ fn env_or_default(var: &str, default: &str) -> String {
 /// v0.13.4: 从 300 秒降至 240 秒，确保后端能在前端 300 秒超时前返回结果，
 /// 避免前端已超时但后端仍在重试的错配。需要更长时间的用户可在模型配置中
 /// 手动调高单个 profile 的 timeout_seconds。
-pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 240;
+///
+/// v0.14.3: 从 240 降至 120 秒。生成 1500 tokens × 30 tokens/s ≈ 50s，
+/// 120s 留 2.4× 余量。配合 v0.14.2 的首字节超时 60s 与绝对超时 1.5x，
+/// 整个 LLM 调用最多 180s，远低于 smart_execute 整体 180s 超时。
+pub const DEFAULT_LLM_TIMEOUT_SECONDS: u64 = 120;
 
 /// 判断 URL 是否指向本地/局域网地址（localhost / 127.0.0.1 / 私有网段）。
 pub fn is_private_url(url: &str) -> bool {
@@ -316,9 +320,20 @@ pub struct AppConfig {
     pub store_api_keys_securely: bool,
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
+    /// v0.14.3: AI 生成模式（auto/time_sliced/fast/full）
+    /// - auto: 场景智能路由（续写 TimeSliced，重写 Full）
+    /// - time_sliced: 强制分时模式（最快，单次 LLM）
+    /// - fast: 强制 Fast 模式（单次 LLM + 风格技能）
+    /// - full: 强制 Full 模式（Writer + Inspector + Rewrite 闭环）
+    #[serde(default = "default_generation_mode")]
+    pub generation_mode: String,
     /// OAuth 客户端配置
     #[serde(default)]
     pub auth_clients: Option<HashMap<String, crate::auth::OAuthClientConfig>>,
+}
+
+fn default_generation_mode() -> String {
+    "auto".to_string()
 }
 
 fn default_rewrite_threshold() -> f32 {
@@ -806,7 +821,7 @@ impl Default for AppConfig {
                 "http://localhost:11434/v1",
             )),
             is_local_model: false,
-            max_tokens: 8192,
+            max_tokens: 2500,
             temperature: 0.8,
             top_p: None,
             frequency_penalty: None,
@@ -847,7 +862,7 @@ impl Default for AppConfig {
                 "http://localhost:11435/v1",
             )),
             is_local_model: false,
-            max_tokens: 8192,
+            max_tokens: 2500,
             temperature: 0.7,
             top_p: None,
             frequency_penalty: None,
@@ -926,7 +941,7 @@ impl Default for AppConfig {
                 api_key: "".to_string(),
                 model: "".to_string(),
                 api_base: None,
-                max_tokens: 8192,
+                max_tokens: 2500,
                 temperature: 0.8,
             },
             llm_profiles,
@@ -961,6 +976,7 @@ impl Default for AppConfig {
             share_usage_data: default_share_usage_data(),
             store_api_keys_securely: default_store_api_keys_securely(),
             writing_strategy: WritingStrategy::default(),
+            generation_mode: default_generation_mode(),
             auth_clients: Default::default(),
         }
     }

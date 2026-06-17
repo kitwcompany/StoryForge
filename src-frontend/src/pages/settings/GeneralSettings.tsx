@@ -369,6 +369,32 @@ export function GeneralSettings() {
           </div>
 
           <div className="space-y-6">
+            {/* v0.14.3: AI 生成模式 */}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">
+                AI 生成模式
+                <span className="ml-2 text-xs text-cinema-gold/70">v0.14.3 新增</span>
+              </label>
+              <select
+                value={settings?.generation_mode ?? 'auto'}
+                onChange={e =>
+                  debouncedUpdateSettings({
+                    generation_mode: e.target.value as 'auto' | 'time_sliced' | 'fast' | 'full',
+                  })
+                }
+                disabled={isPending}
+                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+              >
+                <option value="auto">智能路由（推荐）— 续写快速、重写精修</option>
+                <option value="time_sliced">分时模式 — 最快（30-60秒）</option>
+                <option value="fast">快速模式 — 单次 + 风格技能（约 60秒）</option>
+                <option value="full">精修模式 — 含质检改写（2-5 分钟）</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1.5">
+                智能路由：续写场景自动用分时模式快速生成（推荐）；选中文本重写自动用精修模式含质检。可手动覆盖此行为。
+              </p>
+            </div>
+
             {/* 运行模式 */}
             <div>
               <label className="block text-sm text-gray-400 mb-2">运行模式</label>
