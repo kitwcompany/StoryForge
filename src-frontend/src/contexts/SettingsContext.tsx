@@ -47,9 +47,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     queryFn: getModels,
   });
 
-  const { data: agentMappings = [], isLoading: mappingsLoading } = useQuery<
-    AgentModelMapping[]
-  >({
+  const { data: agentMappings = [], isLoading: mappingsLoading } = useQuery<AgentModelMapping[]>({
     queryKey: [AGENT_MAPPINGS_KEY],
     queryFn: getAgentMappings,
   });

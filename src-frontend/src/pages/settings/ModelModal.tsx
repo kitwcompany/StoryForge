@@ -531,7 +531,12 @@ export function ModelModal({
               <Button type="button" variant="ghost" onClick={onClose}>
                 取消
               </Button>
-              <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>
+              <Button
+                type="submit"
+                variant="primary"
+                isLoading={isSubmitting}
+                disabled={isSubmitting}
+              >
                 {model ? '保存' : '创建'}
               </Button>
             </div>
