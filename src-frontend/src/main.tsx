@@ -8,7 +8,7 @@ import { ConnectionStatus } from '@/components/ConnectionStatus';
 import './index.css';
 
 // 注入版本号供诊断使用
-(window as any).__STORYFORGE_VERSION__ = '0.13.1';
+(window as any).__STORYFORGE_VERSION__ = '0.13.3';
 
 const queryClient = new QueryClient({
   defaultOptions: {

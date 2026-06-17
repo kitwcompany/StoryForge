@@ -1,11 +1,28 @@
-# StoryForge (草苔) v0.13.2 项目完成状态
+# StoryForge (草苔) v0.13.3 项目完成状态
 
-> 最后更新: 2026-06-17（v0.13.2 + 诊断卡片增强 + 前端自救计时器）
+> 最后更新: 2026-06-17（v0.13.3 + 诊断卡片安全网）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v0.13.3 诊断卡片安全网：修复「准备上下文」退出未弹诊断卡片（2026-06-17）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 诊断卡片全局安全网 | ✅ | `smartExecuteNeedDiagnosticRef` + `isGenerating` 监听，异常结束兜底弹窗 |
+| 用户取消识别 | ✅ | `lastGenerationCancelledRef` 避免取消后误弹诊断卡片 |
+| 成功路径空内容诊断 | ✅ | `final_content` 为空 / `success: false` 时立即 `captureDiagnosticInfo` |
+| 后端响应判定修复 | ✅ | `startElapsedTimer` 不再启动即标记为已响应 |
+
+#### 质量门禁
+| 检查项 | 状态 |
+|--------|------|
+| `cargo check` | ✅ 通过 |
+| `cargo test --lib` | ✅ 392/392 通过 |
+| `npx tsc --noEmit` | ✅ 通过 |
+| `NODE_ENV=test npx vitest run` | ✅ 126/126 passed |
 
 ### v0.13.2 诊断卡片增强 + 前端自救计时器 + 心跳日志（2026-06-17）
 

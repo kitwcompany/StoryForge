@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.11.1
+- **版本**: v0.13.3
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,12 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.13.3 诊断卡片安全网：修复「准备上下文」长时间延时后退出但未弹诊断卡片** (2026-06-17) — 根因：诊断卡片仅在 `catch` 块触发，但存在多条静默退出路径（成功路径中返回空内容 / `success: false`、状态流转异常等）。关键变更：
+    - **防御性诊断**：在 `handleRequestGeneration` 与 `handleSmartGeneration` 的成功路径中，遇到 `final_content` 为空或 `success: false` 时立即调用 `captureDiagnosticInfo` 并弹诊断卡片；
+    - **全局安全网**：新增 `smartExecuteNeedDiagnosticRef` 与 `lastGenerationCancelledRef`，监听 `isGenerating` 从 `true` 到 `false` 的转换，若本次生成曾启动且未被用户主动取消，则兜底弹出诊断卡片；
+    - **修复响应判定**：`startElapsedTimer` 不再在启动时就将 `backendEverRespondedRef` 设为 `true`，仅在实际收到后端事件后才标记，提升诊断信息准确性；
+    - **验证**：`cargo check` 通过，`cargo test --lib` 392/392 通过，`npx tsc --noEmit` 通过，`NODE_ENV=test npx vitest run` 126/126 通过。
 
   - **v0.13.2 诊断卡片增强 + 前端自救计时器** (2026-06-17) — 根据首次诊断报告修复多个问题：版本号显示、已用时被意外清空、后端响应判定逻辑 bug；新增 `smartExecuteInFlightRef` 防止 activityStore 提前清空生成状态；`scheduleFallbackPrompt` 改为自我循环的前端自救计时器，即使后端心跳中断也能每 10s 更新已用时；后端心跳改为 `log::warn!` 级别输出，确认心跳是否运行；诊断提示去 Ollama 化，适配 vllm/Qwen 用户。验证：`cargo check` 通过，`npx tsc --noEmit` 通过，`NODE_ENV=test npx vitest run` 126/126 通过。
 

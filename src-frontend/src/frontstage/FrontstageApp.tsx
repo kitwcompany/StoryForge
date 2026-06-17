@@ -444,6 +444,17 @@ const FrontstageApp: React.FC = () => {
     return unsub;
   }, []);
 
+  // v0.13.3: 诊断卡片安全网——任何非用户取消的异常结束都兜底弹出诊断卡片
+  useEffect(() => {
+    if (!isGenerating && smartExecuteNeedDiagnosticRef.current) {
+      smartExecuteNeedDiagnosticRef.current = false;
+      if (!lastGenerationCancelledRef.current) {
+        captureDiagnosticInfo('生成过程异常结束，未收到有效内容');
+      }
+      lastGenerationCancelledRef.current = false;
+    }
+  }, [isGenerating]);
+
   // v5.3.0: 统一 Pipeline 进度监听（同时更新 bootstrapProgress + 顶部 Toast 大阶段）
   const { progress: pipelineProgress } = usePipelineProgress({ pipelineType: 'genesis' });
   const lastPipelineComplete = usePipelineComplete();
@@ -530,6 +541,10 @@ const FrontstageApp: React.FC = () => {
   const backendEverRespondedRef = useRef<boolean>(false);
   // v0.13.2: smart_execute 飞行中标记，防 activityStore 提前清空状态
   const smartExecuteInFlightRef = useRef<boolean>(false);
+  // v0.13.3: 安全网——标记本次 smart_execute 是否仍需要诊断卡片兜底
+  const smartExecuteNeedDiagnosticRef = useRef<boolean>(false);
+  // v0.13.3: 用户主动取消时跳过安全网诊断
+  const lastGenerationCancelledRef = useRef<boolean>(false);
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
 
@@ -638,7 +653,7 @@ const FrontstageApp: React.FC = () => {
   const startElapsedTimer = useCallback(() => {
     generationStartTimeRef.current = Date.now();
     lastEventTimeRef.current = Date.now();
-    backendEverRespondedRef.current = true; // v0.13.2
+    // v0.13.3: 不要在启动时就认为后端已响应，应等真正收到事件后再标记
     diagnosticStartTimeRef.current = Date.now(); // v0.13.2
     scheduleFallbackPrompt();
   }, [scheduleFallbackPrompt]);
@@ -1632,6 +1647,7 @@ const FrontstageApp: React.FC = () => {
 
       try {
         smartExecuteInFlightRef.current = true;
+        smartExecuteNeedDiagnosticRef.current = true; // v0.13.3
         const result = await Promise.race([
           smartExecute({
             user_input: context || '续写',
@@ -1699,6 +1715,9 @@ const FrontstageApp: React.FC = () => {
         if (!text.trim()) {
           frontstageLogger.error('[Generation] Backend returned empty content');
           toast.error('AI 返回了空内容，请检查模型配置或重试', { duration: 5000 });
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
+          captureDiagnosticInfo('AI 返回了空内容（final_content 为空）');
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -1741,6 +1760,7 @@ const FrontstageApp: React.FC = () => {
           index += 3;
           if (index >= displayText.length) {
             typewriterFrameRef.current = null;
+            smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
             setGeneratedText(displayText);
             stopElapsedTimer();
             setIsGenerating(false);
@@ -1791,6 +1811,7 @@ const FrontstageApp: React.FC = () => {
         }
         // v0.13.1: 弹出诊断卡片，方便用户复制报错信息
         smartExecuteInFlightRef.current = false;
+        smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
         captureDiagnosticInfo(msg);
         setIsGenerating(false);
         setGenerationStatus('');
@@ -1863,6 +1884,8 @@ const FrontstageApp: React.FC = () => {
 
   // 取消当前生成
   const handleCancelGeneration = useCallback(async () => {
+    lastGenerationCancelledRef.current = true; // v0.13.3
+    smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
     if (cancelGenerationRef.current) {
       cancelGenerationRef.current();
       cancelGenerationRef.current = null;
@@ -2092,6 +2115,7 @@ const FrontstageApp: React.FC = () => {
 
       try {
         smartExecuteInFlightRef.current = true;
+        smartExecuteNeedDiagnosticRef.current = true; // v0.13.3
         const result = await Promise.race([
           smartExecute({
             user_input: userInput,
@@ -2131,6 +2155,7 @@ const FrontstageApp: React.FC = () => {
         if (hasContent) {
           // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
           // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
+          smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
           if (isBootstrapCompleted) {
             toast.success('小说已创建！第一章已生成，您可以开始写作了');
           } else {
@@ -2152,11 +2177,18 @@ const FrontstageApp: React.FC = () => {
           }
         } else if (isBackgroundBootstrap) {
           // 后台生成中，final_content 为空是预期行为，已在上文提示用户
+          smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
         } else if (!result.success) {
           // 后端返回了失败
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
+          captureDiagnosticInfo('后端返回创作失败（success=false）');
           toast.error('创作失败：AI 未能生成内容，请检查模型配置或稍后重试');
         } else {
           // 后端返回了成功但没有内容 — 显示明确的错误提示（修复"没有提示地停止"）
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
+          captureDiagnosticInfo('后端返回成功但 final_content 为空');
           toast.error('AI 返回了空内容，请检查模型配置或稍后重试', { duration: 5000 });
           frontstageLogger.error(
             '[SmartGeneration] Backend returned success=true but empty final_content',
@@ -2263,6 +2295,7 @@ const FrontstageApp: React.FC = () => {
         }
         // v0.13.1: 弹出诊断卡片
         smartExecuteInFlightRef.current = false;
+        smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
         captureDiagnosticInfo(msg);
       } finally {
         stopElapsedTimer();

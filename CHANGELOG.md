@@ -2,6 +2,45 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.13.3] - 诊断卡片安全网：修复「准备上下文」退出未弹诊断卡片（2026-06-17）
+
+### 根因
+
+v0.13.2 已修复多数诊断卡片问题，但用户反馈「输入续写指令后，智能创作在『准备上下文』阶段长时间延时后退出，仍然没有弹出诊断卡片」。
+
+诊断卡片仅在 `catch` 块中触发，而实际运行中存在多条**静默退出路径**：
+
+1. `handleRequestGeneration` / `handleSmartGeneration` 成功返回后，若 `final_content` 为空或 `result.success === false`，仅弹出 toast 就提前 `return`，不会调用 `captureDiagnosticInfo`。
+2. 某些状态流转异常（如 `useBackendActivityStore` 订阅回调、`isGenerating` 被异常清空）也可能绕过 `catch` 块。
+3. `startElapsedTimer` 在启动时就把 `backendEverRespondedRef` 设为 `true`，导致诊断信息里「是否收到过后端响应」始终显示「是」，干扰判断。
+
+### 修复
+
+#### 1. 全局诊断卡片安全网
+
+- 新增 `smartExecuteNeedDiagnosticRef`：标记本次 `smart_execute` 是否仍需要诊断卡片兜底。
+- 新增 `lastGenerationCancelledRef`：区分用户主动取消与异常结束，避免误弹。
+- 新增 `useEffect` 监听 `isGenerating` 从 `true` → `false`：只要生成曾启动且非用户取消，就兜底调用 `captureDiagnosticInfo('生成过程异常结束，未收到有效内容')` 弹出诊断卡片。
+
+#### 2. 堵上成功路径中的静默退出
+
+- `handleRequestGeneration`：当后端返回 `final_content` 为空时，立即调用 `captureDiagnosticInfo('AI 返回了空内容（final_content 为空）')`。
+- `handleSmartGeneration`：当 `result.success === false` 或 `final_content` 为空时，同样立即调用 `captureDiagnosticInfo`。
+- 正常完成有内容时，清除 `smartExecuteNeedDiagnosticRef`，安全网不再兜底。
+- 用户主动取消时，设置 `lastGenerationCancelledRef` 并清除诊断需求，避免弹窗。
+
+#### 3. 修正后端响应判定
+
+- `startElapsedTimer` 不再在启动时设置 `backendEverRespondedRef = true`。
+- 只有真正收到 `llm-generating-progress` 等后端事件并通过 `updateLastEventTime` 时，才标记为已响应，使诊断信息更准确。
+
+### 验证
+
+- `cargo check` 零错误（仅既有 warning）
+- `cargo test --lib` 392/392 通过
+- `npx tsc --noEmit` 零错误
+- `NODE_ENV=test npx vitest run` 126 passed, 3 skipped（零回归）
+
 ## [v0.13.2] - 诊断卡片增强 + 前端自救计时器 + 心跳日志（2026-06-17）
 
 ### 诊断卡片改进（根据首次用户反馈）
