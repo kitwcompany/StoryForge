@@ -663,6 +663,14 @@ async fn smart_execute_inner(
         )
     };
 
+    // v0.15.3: 续写请求但没有作品时，返回友好错误而非让 PlanExecutor 崩溃
+    if current_story_id.is_none() {
+        return Err(AppError::validation_failed(
+            "请先在左侧选择或创建一个作品，再使用智能创作功能",
+            Some("no_story_selected"),
+        ));
+    }
+
     emit_progress("context_loaded", "故事上下文加载完成", 2, 5);
 
     // Clone values before they are moved into plan_context
