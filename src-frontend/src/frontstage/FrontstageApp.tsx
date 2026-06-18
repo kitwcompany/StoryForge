@@ -711,8 +711,7 @@ const FrontstageApp: React.FC = () => {
       lastGenerationStatusAtRef.current = Date.now();
       // v0.16.2: 主流程结束阶段（已完成/出错/已取消）后，标记 ref 让后续后台
       // progress event 不再触发 sinceLastEvent 重置。
-      const isTerminal =
-        p.phase === '已完成' || p.phase === '出错' || p.phase === '已取消';
+      const isTerminal = p.phase === '已完成' || p.phase === '出错' || p.phase === '已取消';
       if (isTerminal) {
         mainGenerationCompletedRef.current = true;
       }
