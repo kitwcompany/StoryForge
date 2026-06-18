@@ -153,11 +153,8 @@ pub fn sanitize_style_brief(text: &str) -> SanitizeOutcome {
             let lower_text = sanitized.to_lowercase();
             let lower_name = name.to_lowercase();
             if lower_text.contains(&lower_name) {
-                sanitized = case_insensitive_replace(
-                    &sanitized,
-                    name,
-                    "具备相同手工艺特征的写作风格",
-                );
+                sanitized =
+                    case_insensitive_replace(&sanitized, name, "具备相同手工艺特征的写作风格");
                 removed.push((*name).to_string());
             }
         } else if sanitized.contains(name) {

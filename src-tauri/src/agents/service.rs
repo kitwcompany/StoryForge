@@ -2911,7 +2911,10 @@ fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<Strin
         s.push_str(&format!("• 主情绪 / 读者爽点承诺：{}\n", payoff));
     }
     if let Some(arena) = obj.get("conflict_arena").and_then(|v| v.as_str()) {
-        s.push_str(&format!("• 冲突场（推荐安排关键场面发生于此）：{}\n", arena));
+        s.push_str(&format!(
+            "• 冲突场（推荐安排关键场面发生于此）：{}\n",
+            arena
+        ));
     }
 
     if let Some(rel) = obj.get("pressure_relationship").and_then(|v| v.as_object()) {

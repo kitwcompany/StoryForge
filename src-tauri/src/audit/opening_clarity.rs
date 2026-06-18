@@ -87,7 +87,17 @@ impl OpeningClarityGate {
         // 2. Humiliation
         if contains_any(
             &snippet,
-            &["嘲", "辱", "讽", "看不起", "瞧不起", "废物", "丢脸", "羞", "贱"],
+            &[
+                "嘲",
+                "辱",
+                "讽",
+                "看不起",
+                "瞧不起",
+                "废物",
+                "丢脸",
+                "羞",
+                "贱",
+            ],
         ) {
             hits.push(OpeningElement::Humiliation);
         } else {
@@ -97,7 +107,9 @@ impl OpeningClarityGate {
         // 3. Loss
         if contains_any(
             &snippet,
-            &["失去", "夺走", "破碎", "倒塌", "死了", "走了", "再也", "丢", "逝", "不复"],
+            &[
+                "失去", "夺走", "破碎", "倒塌", "死了", "走了", "再也", "丢", "逝", "不复",
+            ],
         ) {
             hits.push(OpeningElement::Loss);
         } else {
@@ -107,7 +119,18 @@ impl OpeningClarityGate {
         // 4. Puzzle
         if contains_any(
             &snippet,
-            &["为何", "为什么", "怎么会", "诡异", "异常", "疑", "秘密", "谜", "诡谲", "不对劲"],
+            &[
+                "为何",
+                "为什么",
+                "怎么会",
+                "诡异",
+                "异常",
+                "疑",
+                "秘密",
+                "谜",
+                "诡谲",
+                "不对劲",
+            ],
         ) {
             hits.push(OpeningElement::Puzzle);
         } else {
@@ -141,15 +164,15 @@ impl OpeningClarityGate {
         let passed = must_have_anchor && hits.len() >= 4;
 
         let rationale = if passed {
-            format!(
-                "开篇命中 {}/{} 要素，物理锚点存在，达标",
-                hits.len(),
-                total
-            )
+            format!("开篇命中 {}/{} 要素，物理锚点存在，达标", hits.len(), total)
         } else if !must_have_anchor {
             "开篇缺少物理锚点（具体可视化场景），读者难以入戏".to_string()
         } else {
-            format!("开篇仅命中 {}/{} 要素，建议增加危险/羞辱/失去/谜题之一", hits.len(), total)
+            format!(
+                "开篇仅命中 {}/{} 要素，建议增加危险/羞辱/失去/谜题之一",
+                hits.len(),
+                total
+            )
         };
 
         OpeningClarityReport {
@@ -172,7 +195,10 @@ fn signal_for_genre(canonical: &str, snippet: &str) -> bool {
         return contains_any(snippet, &["岳", "妻", "婿", "豪门", "千金", "倒插门"]);
     }
     if canonical.contains("修真") || canonical.contains("玄幻") {
-        return contains_any(snippet, &["灵", "气", "真", "丹", "宗", "派", "剑", "诀", "境"]);
+        return contains_any(
+            snippet,
+            &["灵", "气", "真", "丹", "宗", "派", "剑", "诀", "境"],
+        );
     }
     if canonical.contains("末世") || canonical.contains("丧尸") {
         return contains_any(snippet, &["丧尸", "尸", "末日", "感染", "病毒", "废墟"]);

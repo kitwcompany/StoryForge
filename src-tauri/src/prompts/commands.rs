@@ -26,10 +26,7 @@ pub fn save_prompt_override(
 
 /// 重置某个 prompt 到内置默认（删除 override）
 #[command(rename_all = "snake_case")]
-pub fn reset_prompt_override(
-    prompt_id: String,
-    pool: State<'_, DbPool>,
-) -> Result<(), AppError> {
+pub fn reset_prompt_override(prompt_id: String, pool: State<'_, DbPool>) -> Result<(), AppError> {
     registry::reset_override(pool.inner(), &prompt_id)
 }
 

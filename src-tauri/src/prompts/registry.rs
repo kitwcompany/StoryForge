@@ -215,7 +215,8 @@ fn load_overrides(pool: &DbPool) -> Result<HashMap<String, String>, AppError> {
 
 fn load_single_override(pool: &DbPool, prompt_id: &str) -> Result<Option<String>, AppError> {
     let conn = pool.get()?;
-    let mut stmt = conn.prepare("SELECT overridden_content FROM prompt_overrides WHERE prompt_id = ?1")?;
+    let mut stmt =
+        conn.prepare("SELECT overridden_content FROM prompt_overrides WHERE prompt_id = ?1")?;
     let mut rows = stmt.query(rusqlite::params![prompt_id])?;
     if let Some(row) = rows.next()? {
         let content: String = row.get(0)?;
@@ -243,7 +244,11 @@ mod tests {
     fn builtin_prompts_have_nonempty_defaults() {
         for p in builtin_prompts() {
             let default = (p.default)();
-            assert!(!default.trim().is_empty(), "prompt {} has empty default", p.id);
+            assert!(
+                !default.trim().is_empty(),
+                "prompt {} has empty default",
+                p.id
+            );
         }
     }
 

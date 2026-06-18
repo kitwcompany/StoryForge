@@ -4,8 +4,7 @@
 
 use super::SelectedStrategy;
 use crate::creative_engine::{
-    beat_cards::builtin_beat_cards,
-    pressure_relationships::builtin_pressure_relationships,
+    beat_cards::builtin_beat_cards, pressure_relationships::builtin_pressure_relationships,
     story_engines::builtin_story_engines,
 };
 use crate::intent::InputClarity;
@@ -53,7 +52,9 @@ fn default_arena_for(canonical: Option<&str>) -> &'static str {
         Some("Cultivation") | Some("Xianxia") | Some("Xuanhuan") | Some("Wuxia") => "宗门大比",
         Some("Urban") | Some("Realistic") => "公司复盘会",
         Some("Romance") | Some("Light Novel") => "公开质证",
-        Some("Suspense/Mystery") | Some("Tomb Raiding") | Some("Cthulhu/Lovecraftian") => "法庭翻案",
+        Some("Suspense/Mystery") | Some("Tomb Raiding") | Some("Cthulhu/Lovecraftian") => {
+            "法庭翻案"
+        }
         Some("Historical") | Some("Hegemony/Conquest") | Some("National Destiny") => "朝堂质证",
         Some("Game/Esports") | Some("Sports") => "公开赛事",
         Some("Sci-Fi") | Some("Mecha / Stellar Warfare") | Some("Cyberpunk") => "听证会",
@@ -71,7 +72,9 @@ fn recommend_pressure_relationship(canonical: Option<&str>) -> Option<String> {
         Some("Urban") | Some("Realistic") => "pressure_relationship.superior_vs_outsider",
         Some("Romance") | Some("Light Novel") => "pressure_relationship.ex_spouse",
         Some("Behind-the-Scenes") => "pressure_relationship.backstage_vs_frontstage",
-        Some("Suspense/Mystery") | Some("Tomb Raiding") => "pressure_relationship.rival_collaborator",
+        Some("Suspense/Mystery") | Some("Tomb Raiding") => {
+            "pressure_relationship.rival_collaborator"
+        }
         Some("Historical") | Some("Hegemony/Conquest") | Some("National Destiny") => {
             "pressure_relationship.true_vs_fake_heir"
         }
@@ -91,35 +94,42 @@ fn recommend_pressure_relationship(canonical: Option<&str>) -> Option<String> {
 
 fn recommend_story_engines(canonical: Option<&str>) -> Vec<String> {
     let candidates: &[&str] = match canonical {
-        Some("Cultivation") | Some("Xianxia") | Some("Xuanhuan") => {
-            &["story_engine.progression_ladder", "story_engine.public_arena"]
-        }
+        Some("Cultivation") | Some("Xianxia") | Some("Xuanhuan") => &[
+            "story_engine.progression_ladder",
+            "story_engine.public_arena",
+        ],
         Some("Wuxia") => &["story_engine.hidden_identity", "story_engine.public_arena"],
         Some("Urban") | Some("Realistic") => &[
             "story_engine.voice_authority_flip",
             "story_engine.stakeholder_collision",
         ],
-        Some("Romance") | Some("Light Novel") => {
-            &["story_engine.contract_binding", "story_engine.mistaken_identity"]
-        }
-        Some("Suspense/Mystery") | Some("Tomb Raiding") => {
-            &["story_engine.conspiracy_clue_chain", "story_engine.object_proof"]
-        }
-        Some("Cthulhu/Lovecraftian") | Some("Supernatural") | Some("Weird/Uncanny") => {
-            &["story_engine.forbidden_bargain", "story_engine.sealed_memory"]
-        }
-        Some("Historical") | Some("Hegemony/Conquest") | Some("National Destiny") => {
-            &["story_engine.class_displacement", "story_engine.public_arena"]
-        }
+        Some("Romance") | Some("Light Novel") => &[
+            "story_engine.contract_binding",
+            "story_engine.mistaken_identity",
+        ],
+        Some("Suspense/Mystery") | Some("Tomb Raiding") => &[
+            "story_engine.conspiracy_clue_chain",
+            "story_engine.object_proof",
+        ],
+        Some("Cthulhu/Lovecraftian") | Some("Supernatural") | Some("Weird/Uncanny") => &[
+            "story_engine.forbidden_bargain",
+            "story_engine.sealed_memory",
+        ],
+        Some("Historical") | Some("Hegemony/Conquest") | Some("National Destiny") => &[
+            "story_engine.class_displacement",
+            "story_engine.public_arena",
+        ],
         Some("Game/Esports") | Some("Sports") => {
             &["story_engine.trial_assessment", "story_engine.rule_exploit"]
         }
-        Some("Post-apocalyptic") | Some("Doomsday Pioneer") => {
-            &["story_engine.procedure_against_clock", "story_engine.forced_low_point"]
-        }
-        Some("System") | Some("Simulator") => {
-            &["story_engine.progression_ladder", "story_engine.rule_exploit"]
-        }
+        Some("Post-apocalyptic") | Some("Doomsday Pioneer") => &[
+            "story_engine.procedure_against_clock",
+            "story_engine.forced_low_point",
+        ],
+        Some("System") | Some("Simulator") => &[
+            "story_engine.progression_ladder",
+            "story_engine.rule_exploit",
+        ],
         Some("Rebirth") | Some("Quick Transmigration") | Some("Transmigration") => &[
             "story_engine.rebirth_second_chance",
             "story_engine.long_revenge_via_bait",
@@ -128,9 +138,10 @@ fn recommend_story_engines(canonical: Option<&str>) -> Vec<String> {
             "story_engine.backstage_mission_pov",
             "story_engine.stakeholder_collision",
         ],
-        Some("Cyberpunk") | Some("Sci-Fi") | Some("Mecha / Stellar Warfare") => {
-            &["story_engine.conspiracy_clue_chain", "story_engine.rule_exploit"]
-        }
+        Some("Cyberpunk") | Some("Sci-Fi") | Some("Mecha / Stellar Warfare") => &[
+            "story_engine.conspiracy_clue_chain",
+            "story_engine.rule_exploit",
+        ],
         _ => &["story_engine.public_arena", "story_engine.object_proof"],
     };
     let builtin = builtin_story_engines();
@@ -312,7 +323,10 @@ pub fn serialize_quartet_for_prompt(
             })
             .collect();
         if !resolved.is_empty() {
-            out.insert("story_engines".to_string(), serde_json::Value::Array(resolved));
+            out.insert(
+                "story_engines".to_string(),
+                serde_json::Value::Array(resolved),
+            );
         }
     }
 
@@ -362,8 +376,14 @@ mod prompt_serialization_tests {
         s.beat_card_ids = vec!["beat_card.rule_exploit_win".to_string()];
         let v = serialize_quartet_for_prompt(&s).unwrap();
         let o = v.as_object().expect("expected object");
-        assert_eq!(o.get("emotional_payoff").and_then(|v| v.as_str()), Some("燃"));
-        assert_eq!(o.get("conflict_arena").and_then(|v| v.as_str()), Some("宗门大比"));
+        assert_eq!(
+            o.get("emotional_payoff").and_then(|v| v.as_str()),
+            Some("燃")
+        );
+        assert_eq!(
+            o.get("conflict_arena").and_then(|v| v.as_str()),
+            Some("宗门大比")
+        );
         assert!(o.get("pressure_relationship").is_some());
         let engines = o.get("story_engines").and_then(|v| v.as_array()).unwrap();
         assert_eq!(engines.len(), 2);
