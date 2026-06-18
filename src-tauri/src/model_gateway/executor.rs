@@ -169,7 +169,17 @@ impl GatewayExecutor {
         };
 
         let request = GenerateRequest {
-            prompt: "Respond with exactly the word OK.".to_string(),
+            prompt: crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default())
+                .ok()
+                .and_then(|cfg| {
+                    if cfg.probe_prompt_override.is_empty() {
+                        None
+                    } else {
+                        Some(cfg.probe_prompt_override.clone())
+                    }
+                })
+                .unwrap_or_else(|| "Respond with exactly the word OK.".to_string())
+                .to_string(),
             max_tokens: Some(4),
             temperature: Some(0.0),
             ..Default::default()

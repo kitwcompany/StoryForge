@@ -321,6 +321,10 @@ export interface AppSettings {
   context_budget_ratio?: number;
   writer_local_concurrency?: number;
   keep_revision_history?: boolean;
+
+  // v0.16.0: 提示词覆盖
+  writer_system_prompt_override?: string;
+  probe_prompt_override?: string;
 }
 
 export interface WritingStrategy {

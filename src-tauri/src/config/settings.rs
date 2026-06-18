@@ -342,6 +342,12 @@ pub struct AppConfig {
     pub frontend_timeout_secs: u64,
     #[serde(default = "default_llm_first_chunk_timeout")]
     pub llm_first_chunk_timeout_secs: u64,
+    /// v0.16.0: Writer 系统提示词覆盖（空则用默认）
+    #[serde(default)]
+    pub writer_system_prompt_override: String,
+    /// v0.16.0: 模型探测提示词覆盖（空则用默认）
+    #[serde(default)]
+    pub probe_prompt_override: String,
     /// OAuth 客户端配置
     #[serde(default)]
     pub auth_clients: Option<HashMap<String, crate::auth::OAuthClientConfig>>,
@@ -1014,6 +1020,8 @@ impl Default for AppConfig {
             executor_step_timeout_secs: default_executor_step_timeout(),
             frontend_timeout_secs: default_frontend_timeout(),
             llm_first_chunk_timeout_secs: default_llm_first_chunk_timeout(),
+            writer_system_prompt_override: String::new(),
+            probe_prompt_override: String::new(),
             auth_clients: Default::default(),
         }
     }
