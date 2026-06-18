@@ -542,7 +542,7 @@ const FrontstageApp: React.FC = () => {
   // A4-1.8: notify_backstage_content_changed 节流定时器
   const notifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 备用机制：记录最后收到事件的时间，如果10秒内无新事件则显示提示
-  const lastEventTimeRef = useRef<number>(Date.now());
+  const lastEventTimeRef = useRef<number | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // C1: 记录最近一次收到统一生成状态事件的时间，用于跳过重叠的旧事件
   const lastGenerationStatusAtRef = useRef<number>(0);
@@ -643,7 +643,7 @@ const FrontstageApp: React.FC = () => {
   const scheduleFallbackPrompt = useCallback(() => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     const tick = () => {
-      const sinceLastEvent = Date.now() - lastEventTimeRef.current;
+      if (!lastEventTimeRef.current || !generationStartTimeRef.current) return;
       const totalElapsed = generationStartTimeRef.current
         ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
         : 0;
