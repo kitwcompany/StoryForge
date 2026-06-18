@@ -236,6 +236,8 @@ export interface AgentModelMapping {
   budget_priority?: Priority;
   speed_priority?: Priority;
   constraints?: string[];
+  /** v0.15.0: 强制锁定此模型，网关不会替换 */
+  force_locked?: boolean;
 }
 
 // 完整应用配置

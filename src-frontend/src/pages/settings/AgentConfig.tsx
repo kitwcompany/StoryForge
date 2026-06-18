@@ -176,7 +176,7 @@ export function AgentConfig() {
   const handleChange = (
     agent: AgentModelMapping,
     field: keyof AgentModelMapping,
-    value: string | string[] | undefined
+    value: string | string[] | boolean | undefined
   ) => {
     updateAgentMapping({
       ...agent,
@@ -258,6 +258,24 @@ export function AgentConfig() {
                         onChange={value => handleChange(agent, 'multimodal_model_id', value)}
                       />
                     </div>
+                  </div>
+
+                  {/* v0.15.0: 强制锁定模型，网关不会根据算力档案替换 */}
+                  <div className="px-4 pb-3">
+                    <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={agent.force_locked || false}
+                        onChange={e => handleChange(agent, 'force_locked', e.target.checked)}
+                        className="rounded border-cinema-600 bg-cinema-800"
+                      />
+                      🔒 强制锁定此模型（网关不会自动替换为更快模型）
+                    </label>
+                    {agent.force_locked && (
+                      <p className="text-xs text-cinema-gold/70 mt-1.5 ml-6">
+                        已锁定：网关将始终使用你指定的模型，跳过智能调度
+                      </p>
+                    )}
                   </div>
 
                   {isExpanded && (

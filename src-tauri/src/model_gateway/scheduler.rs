@@ -20,6 +20,13 @@ pub fn spawn_health_probe_scheduler(app_handle: AppHandle, executor: GatewayExec
         // 启动时全量探测
         run_full_probe(&executor).await;
 
+        // v0.15.0: 启动 30s 后运行流式基准，结果写入 capability_store
+        let bench_executor = executor.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            bench_executor.run_initial_benchmark().await;
+        });
+
         let mut healthy_interval = interval(Duration::from_secs(300));
         let mut retry_interval = interval(Duration::from_secs(60));
 

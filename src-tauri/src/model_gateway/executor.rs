@@ -2,7 +2,7 @@
 //!
 //! v0.14.0: 按候选链顺序执行，主模型失败时自动降级。
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use super::{
     dispatcher::TaskClassifier,
@@ -193,7 +193,7 @@ impl GatewayExecutor {
             Ok(resp) => {
                 let duration_ms = start.elapsed().as_millis() as u64;
                 let total_tokens = resp.tokens_used.max(1);
-                let ttft_ms = duration_ms.saturating_sub(10); // 简化估计
+                let ttft_ms = duration_ms / 3; // v0.15.0: 粗略估计，真实TTFB由benchmark.rs流式基准提供
                 let tps = if duration_ms > ttft_ms {
                     total_tokens as f64 * 1000.0 / (duration_ms - ttft_ms).max(1) as f64
                 } else {
@@ -223,5 +223,76 @@ impl GatewayExecutor {
                 Ok(result)
             }
         }
+    }
+
+    /// v0.15.0: 启动时运行流式基准（短+长任务），结果写入 capability_store
+    /// 供 select_candidates 三维打分使用。真实 TTFB/TPS 替换旧 probe 魔法数。
+    pub async fn run_initial_benchmark(&self) {
+        use crate::model_gateway::{benchmark::StreamBenchmark, capability_store::CapabilityStore};
+
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        let profiles = StreamBenchmark::load_enabled_profiles(&app_dir);
+        if profiles.is_empty() {
+            log::info!("[GatewayExecutor] 无启用模型，跳过基准");
+            return;
+        }
+        log::info!(
+            "[GatewayExecutor] 启动首轮流式基准（{} 个模型）",
+            profiles.len()
+        );
+
+        let pool = match crate::get_pool() {
+            Some(p) => p,
+            None => {
+                log::error!("[GatewayExecutor] 无法获取 DB 连接池，基准跳过");
+                return;
+            }
+        };
+        let benchmarker = StreamBenchmark::new(pool.clone());
+        let store = CapabilityStore::new(pool);
+
+        for profile in &profiles {
+            log::info!("[GatewayExecutor] 基准短任务 {}...", profile.name);
+            let short = benchmarker.run_benchmark(profile, false).await;
+            log::info!("[GatewayExecutor] 基准长任务 {}...", profile.name);
+            let long = benchmarker.run_benchmark(profile, true).await;
+
+            let cap = crate::model_gateway::types::CapabilityProfile {
+                model_id: profile.id.clone(),
+                short_ttfb_ms_p50: short.real_ttfb_ms,
+                long_ttfb_ms_p50: long.real_ttfb_ms,
+                sustained_tps: long.sustained_tps,
+                short_output_tps: short.sustained_tps,
+                success_rate_24h: Some(if short.success && long.success {
+                    1.0
+                } else {
+                    0.5
+                }),
+                last_full_benchmark_at: Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64,
+                ),
+                benchmark_sample_count: 1,
+                status: crate::model_gateway::types::HealthStatus::Unknown,
+                ..Default::default()
+            };
+            if let Err(e) = store.upsert(&cap) {
+                log::error!("[GatewayExecutor] 保存算力档案失败 {}: {}", profile.id, e);
+            } else {
+                log::info!(
+                    "[GatewayExecutor] 算力档案已保存 {}: 长TTFB={:?}ms TPS={:?}",
+                    profile.name,
+                    long.real_ttfb_ms,
+                    long.sustained_tps
+                );
+            }
+        }
+        log::info!("[GatewayExecutor] 首轮基准完成");
     }
 }
