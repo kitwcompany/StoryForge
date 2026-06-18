@@ -168,18 +168,33 @@ impl GatewayExecutor {
             });
         };
 
-        let request = GenerateRequest {
-            prompt: crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default())
-                .ok()
-                .and_then(|cfg| {
-                    if cfg.probe_prompt_override.is_empty() {
-                        None
-                    } else {
-                        Some(cfg.probe_prompt_override.clone())
-                    }
+        // v0.17.1: 优先从 PromptRegistry 读取，回退到 AppConfig.probe_prompt_override，
+        // 最后回退到内置默认。让前端能在「提示词」面板编辑探测 prompt。
+        let probe_prompt = {
+            let from_registry = self
+                .app_handle
+                .try_state::<crate::db::DbPool>()
+                .and_then(|pool| {
+                    crate::prompts::registry::resolve_prompt(pool.inner(), "model_gateway_probe")
+                        .ok()
+                });
+            from_registry
+                .or_else(|| {
+                    crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default())
+                        .ok()
+                        .and_then(|cfg| {
+                            if cfg.probe_prompt_override.is_empty() {
+                                None
+                            } else {
+                                Some(cfg.probe_prompt_override.clone())
+                            }
+                        })
                 })
                 .unwrap_or_else(|| "Respond with exactly the word OK.".to_string())
-                .to_string(),
+        };
+
+        let request = GenerateRequest {
+            prompt: probe_prompt,
             max_tokens: Some(4),
             temperature: Some(0.0),
             ..Default::default()

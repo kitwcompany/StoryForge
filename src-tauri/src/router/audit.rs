@@ -43,6 +43,15 @@ pub struct ModelHealthReport {
     pub last_error: Option<String>,
     /// 综合健康评级：healthy / degraded / unhealthy
     pub status: String,
+    /// v0.17.1: 最近聚合的调用次数（让用户判断数据是否陈旧）
+    #[serde(default)]
+    pub total_calls: i64,
+    /// v0.17.1: 最近一次调用时间（ISO8601）
+    #[serde(default)]
+    pub last_called_at: Option<String>,
+    /// v0.17.1: 报告生成时间（ISO8601），刷新后端会更新
+    #[serde(default)]
+    pub generated_at: String,
 }
 
 /// 路由反馈条目：用户或系统对某次路由结果的评价
@@ -149,6 +158,7 @@ pub fn get_model_health_reports(
             .push(call);
     }
 
+    let now_iso = chrono::Local::now().to_rfc3339();
     let mut reports = Vec::new();
     for (model_id, calls) in by_model {
         let model_name = calls
@@ -174,6 +184,9 @@ pub fn get_model_health_reports(
             .find(|c| !c.success)
             .and_then(|c| c.error_message.clone());
 
+        // v0.17.1: 最近一次调用时间（用 calls 已按 created_at DESC 排序）
+        let last_called_at = calls.first().map(|c| c.created_at.to_rfc3339());
+
         let status = if success_rate >= 0.95 && avg_latency < 10000.0 {
             "healthy"
         } else if success_rate >= 0.7 {
@@ -191,6 +204,9 @@ pub fn get_model_health_reports(
             avg_quality_score: avg_quality,
             last_error,
             status,
+            total_calls: calls.len() as i64,
+            last_called_at,
+            generated_at: now_iso.clone(),
         });
     }
 
@@ -205,6 +221,9 @@ pub fn get_model_health_reports(
                 avg_quality_score: None,
                 last_error: None,
                 status: "unknown".to_string(),
+                total_calls: 0,
+                last_called_at: None,
+                generated_at: now_iso.clone(),
             });
         }
     }

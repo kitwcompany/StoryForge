@@ -20,6 +20,7 @@ import {
   Cpu,
   Route,
   HeartPulse,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useExportSettings, useImportSettings } from '@/hooks/useSettings';
@@ -36,6 +37,7 @@ import { WorkflowSettings } from './settings/WorkflowSettings';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { AgentConfig } from './settings/AgentConfig';
 import { AccountSettings } from './settings/AccountSettings';
+import { PromptsPanel } from './settings/PromptsPanel';
 
 type TabType =
   | 'models'
@@ -45,6 +47,7 @@ type TabType =
   | 'methodology'
   | 'workflows'
   | 'general'
+  | 'prompts'
   | 'account'
   | 'stats';
 
@@ -144,6 +147,12 @@ export function Settings() {
           label="通用设置"
         />
         <TabButton
+          active={activeTab === 'prompts'}
+          onClick={() => setActiveTab('prompts')}
+          icon={<FileText className="w-4 h-4" />}
+          label="提示词"
+        />
+        <TabButton
           active={activeTab === 'stats'}
           onClick={() => setActiveTab('stats')}
           icon={<BarChart3 className="w-4 h-4" />}
@@ -169,6 +178,7 @@ export function Settings() {
           {activeTab === 'methodology' && <MethodologySettings />}
           {activeTab === 'workflows' && <WorkflowSettings />}
           {activeTab === 'general' && <GeneralSettings />}
+          {activeTab === 'prompts' && <PromptsPanel />}
           {activeTab === 'stats' && <StatsSettings />}
           {activeTab === 'account' && <AccountSettings />}
         </>

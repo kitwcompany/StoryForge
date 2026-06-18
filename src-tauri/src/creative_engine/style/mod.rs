@@ -18,6 +18,8 @@ pub mod dna;
 pub mod drift_checker;
 pub mod evolution;
 pub mod fingerprint;
+// v0.17.1: 在世作者保护与手工艺滑块翻译表
+pub mod living_author_guard;
 pub mod metrics;
 
 pub use blend::StyleBlendConfig;

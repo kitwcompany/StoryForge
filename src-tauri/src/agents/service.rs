@@ -226,6 +226,17 @@ impl AgentService {
         self.llm_service.is_cancelled(request_id)
     }
 
+    /// v0.17.1: 解析 prompt id（先查 DB override，否则回退到内置默认）。
+    /// 该函数在没有 DbPool 的早期启动场景下也能工作。
+    fn resolve_prompt(&self, prompt_id: &str) -> String {
+        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            if let Ok(content) = crate::prompts::registry::resolve_prompt(pool.inner(), prompt_id) {
+                return content;
+            }
+        }
+        crate::prompts::registry::resolve_prompt_default(prompt_id).unwrap_or_default()
+    }
+
     /// 从用户指令中提取明确的题材要求
     fn extract_genre_from_instruction(instruction: &str) -> Option<String> {
         let lower = instruction.to_lowercase();
@@ -1733,7 +1744,7 @@ impl AgentService {
     async fn build_writer_prompt(&self, task: &AgentTask, tier: SubscriptionTier) -> String {
         use std::collections::HashMap;
 
-        use crate::prompts::{PromptLibrary, TemplateEngine};
+        use crate::prompts::TemplateEngine;
 
         let ctx = &task.context;
         let has_selection = ctx
@@ -1837,8 +1848,9 @@ impl AgentService {
         tokio::task::yield_now().await;
 
         emit_and_yield("正在渲染系统提示词...", 0.16);
-        let mut system_prompt =
-            TemplateEngine::render_with_conditions(PromptLibrary::writer_system_template(), &vars);
+        // v0.17.1: 通过 PromptRegistry 读取，支持用户在前端覆盖
+        let writer_system_tpl = self.resolve_prompt("writer_system");
+        let mut system_prompt = TemplateEngine::render_with_conditions(&writer_system_tpl, &vars);
         tokio::task::yield_now().await;
 
         // 注入写作策略约束
@@ -2246,14 +2258,50 @@ impl AgentService {
         }
 
         emit_and_yield("正在组装最终提示词...", 0.195);
+
+        // v0.17.1: 注入智能后台预访谈推断出的中文叙事四元组（含桥段卡），
+        // 让 Writer 在生成时同时考虑「主情绪 + 高压关系 + 冲突场 + 引擎 + 桥段卡」。
+        // 数据来自 PlanExecutor::execute_writer 注入的 `narrative_quartet` 参数。
+        if let Some(quartet) = task.parameters.get("narrative_quartet") {
+            if let Some(section) = render_narrative_quartet_section(quartet) {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(&section);
+            }
+        }
+
+        // v0.17.1: Living Author Guard —— 在最终 prompt 组装后，扫描并替换在世作者
+        // 姓名为「具备相同手工艺特征的写作风格」+ 手工艺滑块描述。
+        // 目的：1) 不直接对在世作者点名模仿；2) 把模仿型描述拆解为可量化维度。
+        let guard_outcome =
+            crate::creative_engine::style::living_author_guard::sanitize_style_brief(
+                &system_prompt,
+            );
+        system_prompt = guard_outcome.sanitized;
+        if guard_outcome.require_craft_sliders {
+            log::info!(
+                "[build_writer_prompt] living_author_guard 命中 {} 位作者，已替换并追加手工艺滑块",
+                guard_outcome.removed_authors.len()
+            );
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(
+                &crate::creative_engine::style::living_author_guard::render_craft_sliders(
+                    &crate::creative_engine::style::living_author_guard::default_craft_sliders(),
+                ),
+            );
+        }
+
         let user_prompt = if has_selection {
             vars.insert(
                 "selected_text".to_string(),
                 ctx.narrative.selected_text.clone().unwrap_or_default(),
             );
-            TemplateEngine::render_with_conditions(PromptLibrary::writer_rewrite_template(), &vars)
+            // v0.17.1: 通过 PromptRegistry 读取
+            let tpl = self.resolve_prompt("writer_rewrite");
+            TemplateEngine::render_with_conditions(&tpl, &vars)
         } else {
-            TemplateEngine::render_with_conditions(PromptLibrary::writer_continue_template(), &vars)
+            // v0.17.1: 通过 PromptRegistry 读取
+            let tpl = self.resolve_prompt("writer_continue");
+            TemplateEngine::render_with_conditions(&tpl, &vars)
         };
         tokio::task::yield_now().await;
 
@@ -2264,7 +2312,7 @@ impl AgentService {
     fn build_inspector_prompt(&self, task: &AgentTask) -> String {
         use std::collections::HashMap;
 
-        use crate::prompts::{PromptLibrary, TemplateEngine};
+        use crate::prompts::TemplateEngine;
 
         let ctx = &task.context;
         let mut vars = HashMap::new();
@@ -2273,10 +2321,8 @@ impl AgentService {
         vars.insert("characters".to_string(), ctx.format_characters());
         vars.insert("content".to_string(), task.input.clone());
 
-        let system_prompt = TemplateEngine::render_with_conditions(
-            PromptLibrary::inspector_system_template(),
-            &vars,
-        );
+        let inspector_tpl = self.resolve_prompt("inspector_system");
+        let system_prompt = TemplateEngine::render_with_conditions(&inspector_tpl, &vars);
 
         format!("{}\n\n【待检查内容】\n{}", system_prompt, task.input)
     }
@@ -2284,14 +2330,15 @@ impl AgentService {
     fn build_outline_prompt(&self, task: &AgentTask) -> String {
         use std::collections::HashMap;
 
-        use crate::prompts::{PromptLibrary, TemplateEngine};
+        use crate::prompts::TemplateEngine;
 
         let ctx = &task.context;
         let mut vars = HashMap::new();
         vars.insert("premise".to_string(), task.input.clone());
         vars.insert("characters".to_string(), ctx.format_characters());
 
-        TemplateEngine::render_with_conditions(PromptLibrary::outline_planner_template(), &vars)
+        let outline_tpl = self.resolve_prompt("outline_planner");
+        TemplateEngine::render_with_conditions(&outline_tpl, &vars)
     }
 
     fn build_style_prompt(&self, task: &AgentTask) -> String {
@@ -2845,4 +2892,131 @@ pub fn get_available_agents() -> Vec<(AgentType, String, String)> {
             AgentType::PlotAnalyzer.description().to_string(),
         ),
     ]
+}
+
+/// 把 `narrative_quartet` JSON 渲染为 Writer prompt 注入片段（v0.17.1 中文叙事增强）。
+///
+/// 该 JSON 结构由 `strategy::quartet_inference::serialize_quartet_for_prompt` 生成，
+/// 包含主情绪 / 高压关系 / 冲突场 / 剧情引擎 / 桥段卡五要素。本函数用中文标题
+/// 与重点标记把它渲染成 Writer 可读的提示，避免重复传递大段 JSON。
+fn render_narrative_quartet_section(quartet: &serde_json::Value) -> Option<String> {
+    let obj = quartet.as_object()?;
+    if obj.is_empty() {
+        return None;
+    }
+    let mut s = String::new();
+    s.push_str("【中文叙事四件套（智能后台推断，请在续写中体现）】\n");
+
+    if let Some(payoff) = obj.get("emotional_payoff").and_then(|v| v.as_str()) {
+        s.push_str(&format!("• 主情绪 / 读者爽点承诺：{}\n", payoff));
+    }
+    if let Some(arena) = obj.get("conflict_arena").and_then(|v| v.as_str()) {
+        s.push_str(&format!("• 冲突场（推荐安排关键场面发生于此）：{}\n", arena));
+    }
+
+    if let Some(rel) = obj.get("pressure_relationship").and_then(|v| v.as_object()) {
+        let name = rel.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let pressure = rel
+            .get("pressure_source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        s.push_str(&format!(
+            "• 高压关系：{}（自带压力来源 — {}）\n",
+            name, pressure
+        ));
+    }
+
+    if let Some(engines) = obj.get("story_engines").and_then(|v| v.as_array()) {
+        if !engines.is_empty() {
+            s.push_str("• 剧情引擎（请正交组合这些叙事动力）：\n");
+            for e in engines {
+                let name = e.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let payoff = e.get("payoff").and_then(|v| v.as_str()).unwrap_or("");
+                let best = e.get("best_payoff").and_then(|v| v.as_str()).unwrap_or("");
+                let avoid = e.get("avoid").and_then(|v| v.as_str()).unwrap_or("");
+                s.push_str(&format!(
+                    "    - {}：{} | 最佳收束：{} | 反例：{}\n",
+                    name, payoff, best, avoid
+                ));
+            }
+        }
+    }
+
+    if let Some(cards) = obj.get("beat_cards").and_then(|v| v.as_array()) {
+        if !cards.is_empty() {
+            s.push_str("• 桥段卡（建议借用其叙事功能，但用本作设定重写）：\n");
+            for c in cards {
+                let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let func = c.get("function").and_then(|v| v.as_str()).unwrap_or("");
+                let remix = c.get("remix_hint").and_then(|v| v.as_str()).unwrap_or("");
+                let avoid = c.get("avoid").and_then(|v| v.as_str()).unwrap_or("");
+                s.push_str(&format!(
+                    "    - {}：{} | 重构提示：{} | 反例：{}\n",
+                    name, func, remix, avoid
+                ));
+            }
+        }
+    }
+
+    s.push_str(
+        "\n注意：以上四件套是「叙事方向参考」，不是模板。请用本作角色、场景、设定重新组织，\
+         避免直接套用名称或情节链。\n",
+    );
+
+    Some(s)
+}
+
+#[cfg(test)]
+mod narrative_quartet_render_tests {
+    use super::*;
+
+    #[test]
+    fn empty_object_returns_none() {
+        let v = serde_json::json!({});
+        assert!(render_narrative_quartet_section(&v).is_none());
+    }
+
+    #[test]
+    fn null_returns_none() {
+        let v = serde_json::Value::Null;
+        assert!(render_narrative_quartet_section(&v).is_none());
+    }
+
+    #[test]
+    fn full_quartet_renders_with_chinese_labels() {
+        let v = serde_json::json!({
+            "emotional_payoff": "燃",
+            "conflict_arena": "宗门大比",
+            "pressure_relationship": {
+                "name": "师徒宗门",
+                "pressure_source": "等级忠诚背叛禁忌技艺"
+            },
+            "story_engines": [
+                {
+                    "name": "成长阶梯引擎",
+                    "payoff": "升级可见",
+                    "best_payoff": "前后差距",
+                    "avoid": "抽象升级"
+                }
+            ],
+            "beat_cards": [
+                {
+                    "name": "规则破解式",
+                    "function": "理解规则漏洞反向获胜",
+                    "remix_hint": "可叠加双层反转",
+                    "avoid": "神预知"
+                }
+            ]
+        });
+        let out = render_narrative_quartet_section(&v).expect("expected section");
+        assert!(out.contains("中文叙事四件套"));
+        assert!(out.contains("主情绪"));
+        assert!(out.contains("燃"));
+        assert!(out.contains("宗门大比"));
+        assert!(out.contains("师徒宗门"));
+        assert!(out.contains("成长阶梯引擎"));
+        assert!(out.contains("规则破解式"));
+        // 强调"重写、不套用"原则
+        assert!(out.contains("不是模板"));
+    }
 }

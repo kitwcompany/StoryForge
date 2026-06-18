@@ -105,6 +105,10 @@ export interface ModelHealthReport {
   avg_quality_score?: number;
   last_error?: string;
   status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  // v0.17.1: 数据新鲜度与调用次数
+  total_calls?: number;
+  last_called_at?: string;
+  generated_at?: string;
 }
 
 export interface RouteFeedback {

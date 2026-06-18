@@ -208,12 +208,17 @@ pub struct AppSettingsExport {
     pub settings: AppSettingsData,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettingsData {
+    #[serde(default)]
     pub models: HashMap<String, Vec<serde_json::Value>>,
+    #[serde(default)]
     pub active_models: HashMap<String, String>,
+    #[serde(default)]
     pub agent_mappings: Vec<AgentMapping>,
+    #[serde(default)]
     pub general: GeneralSettings,
+    #[serde(default)]
     pub privacy: PrivacySettings,
     /// 拆书分析 LLM 并发数
     #[serde(default = "default_concurrency")]
@@ -226,6 +231,36 @@ pub struct AppSettingsData {
     pub max_feedback_loops: u32,
     #[serde(default)]
     pub writing_strategy: super::settings::WritingStrategy,
+
+    // v0.17.1: 补齐 v0.16.0 引入但未在 IPC 暴露的字段，
+    // 修复「超时设置一改就弹出 保存设置失败: undefined」的根因。
+    // 全部带 #[serde(default)]，前端只需发送 patch 即可。
+    #[serde(default)]
+    pub style_weight: Option<f32>,
+    #[serde(default)]
+    pub narrative_weight: Option<f32>,
+    #[serde(default)]
+    pub skip_rewrite_threshold: Option<f32>,
+    #[serde(default)]
+    pub keep_revision_history: Option<bool>,
+    #[serde(default)]
+    pub context_budget_ratio: Option<f32>,
+    #[serde(default)]
+    pub generation_mode: Option<String>,
+    #[serde(default)]
+    pub llm_connect_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub smart_execute_total_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub executor_step_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub frontend_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub llm_first_chunk_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub writer_system_prompt_override: Option<String>,
+    #[serde(default)]
+    pub probe_prompt_override: Option<String>,
 }
 
 fn default_concurrency() -> usize {
@@ -398,6 +433,21 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         rewrite_threshold: config.rewrite_threshold,
         max_feedback_loops: config.max_feedback_loops,
         writing_strategy: config.writing_strategy.clone(),
+
+        // v0.17.1: 暴露 v0.16.0 引入的高级字段，供前端编辑
+        style_weight: Some(config.style_weight),
+        narrative_weight: Some(config.narrative_weight),
+        skip_rewrite_threshold: Some(config.skip_rewrite_threshold),
+        keep_revision_history: Some(config.keep_revision_history),
+        context_budget_ratio: Some(config.context_budget_ratio),
+        generation_mode: Some(config.generation_mode.clone()),
+        llm_connect_timeout_secs: Some(config.llm_connect_timeout_secs),
+        smart_execute_total_timeout_secs: Some(config.smart_execute_total_timeout_secs),
+        executor_step_timeout_secs: Some(config.executor_step_timeout_secs),
+        frontend_timeout_secs: Some(config.frontend_timeout_secs),
+        llm_first_chunk_timeout_secs: Some(config.llm_first_chunk_timeout_secs),
+        writer_system_prompt_override: Some(config.writer_system_prompt_override.clone()),
+        probe_prompt_override: Some(config.probe_prompt_override.clone()),
     })
 }
 
@@ -447,6 +497,51 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     config.line_height = settings.general.line_height;
     config.share_usage_data = settings.privacy.share_usage_data;
     config.store_api_keys_securely = settings.privacy.store_api_keys_securely;
+
+    // v0.17.1: 保存 v0.16.0 高级字段（None 表示前端未触及，保持原值）。
+    // 修复「超时设置一改就弹出 保存设置失败: undefined 且数字不变」的根因。
+    if let Some(v) = settings.style_weight {
+        config.style_weight = v.clamp(0.0, 1.0);
+    }
+    if let Some(v) = settings.narrative_weight {
+        config.narrative_weight = v.clamp(0.0, 1.0);
+    }
+    if let Some(v) = settings.skip_rewrite_threshold {
+        config.skip_rewrite_threshold = v.clamp(0.0, 1.0);
+    }
+    if let Some(v) = settings.keep_revision_history {
+        config.keep_revision_history = v;
+    }
+    if let Some(v) = settings.context_budget_ratio {
+        config.context_budget_ratio = v.clamp(0.1, 1.0);
+    }
+    if let Some(v) = settings.generation_mode {
+        // 仅接受白名单值，避免脏数据
+        if matches!(v.as_str(), "auto" | "time_sliced" | "fast" | "full") {
+            config.generation_mode = v;
+        }
+    }
+    if let Some(v) = settings.llm_connect_timeout_secs {
+        config.llm_connect_timeout_secs = v.clamp(5, 300);
+    }
+    if let Some(v) = settings.smart_execute_total_timeout_secs {
+        config.smart_execute_total_timeout_secs = v.clamp(30, 600);
+    }
+    if let Some(v) = settings.executor_step_timeout_secs {
+        config.executor_step_timeout_secs = v.clamp(10, 300);
+    }
+    if let Some(v) = settings.frontend_timeout_secs {
+        config.frontend_timeout_secs = v.clamp(30, 600);
+    }
+    if let Some(v) = settings.llm_first_chunk_timeout_secs {
+        config.llm_first_chunk_timeout_secs = v.clamp(5, 300);
+    }
+    if let Some(v) = settings.writer_system_prompt_override {
+        config.writer_system_prompt_override = v;
+    }
+    if let Some(v) = settings.probe_prompt_override {
+        config.probe_prompt_override = v;
+    }
 
     config.save(&app_dir).map_err(AppError::from)
 }

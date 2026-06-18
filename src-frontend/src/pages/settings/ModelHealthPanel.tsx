@@ -86,7 +86,14 @@ export function ModelHealthPanel() {
           <HeartPulse className="w-6 h-6 text-cinema-gold" />
           <div>
             <h2 className="text-xl font-semibold text-white">模型健康报告</h2>
-            <p className="text-sm text-gray-500">基于最近调用记录评估模型可用性与质量</p>
+            <p className="text-sm text-gray-500">
+              基于最近调用记录评估模型可用性与质量
+              {reports[0]?.generated_at && (
+                <span className="ml-2 text-gray-600">
+                  · 数据更新于 {new Date(reports[0].generated_at).toLocaleString()}
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <Button variant="ghost" onClick={() => refetch()} isLoading={isLoading}>
@@ -163,6 +170,26 @@ export function ModelHealthPanel() {
                       label="状态"
                       value={status.label}
                       valueClassName={status.color}
+                    />
+                  </div>
+
+                  {/* v0.17.1: 数据新鲜度——总调用数 + 最近一次调用时间 */}
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <MetricItem
+                      icon={<Activity className="w-3.5 h-3.5" />}
+                      label="近期调用次数"
+                      value={
+                        typeof report.total_calls === 'number' ? `${report.total_calls} 次` : '0 次'
+                      }
+                    />
+                    <MetricItem
+                      icon={<Clock className="w-3.5 h-3.5" />}
+                      label="最近一次调用"
+                      value={
+                        report.last_called_at
+                          ? new Date(report.last_called_at).toLocaleString()
+                          : '尚无记录'
+                      }
                     />
                   </div>
 

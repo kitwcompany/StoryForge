@@ -65,7 +65,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     Partial<AppSettings>,
     OptimisticContext<AppSettings>
   >({
-    mutationFn: saveSettings,
+    // v0.17.1: 后端 save_settings 期望完整 AppSettingsData。
+    // 之前直接发送 patch 会让 models / active_models / agent_mappings / general / privacy
+    // 字段缺失，导致 IPC 反序列化失败（前端表现为「保存设置失败: undefined」），
+    // 同时让 frontend_timeout_secs 等数字框无法保存。
+    // 修复：读取 query 缓存中的完整 settings，合并 patch 后再下发。
+    mutationFn: async patch => {
+      const current = queryClient.getQueryData<AppSettings>([SETTINGS_KEY]);
+      const merged: Partial<AppSettings> = current ? { ...current, ...patch } : patch;
+      return saveSettings(merged);
+    },
     onMutate: async patch => {
       await queryClient.cancelQueries({ queryKey: [SETTINGS_KEY] });
       const previousSettings = queryClient.getQueryData<AppSettings>([SETTINGS_KEY]);

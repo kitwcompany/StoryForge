@@ -255,6 +255,90 @@ pub struct IntentExecutionResult {
     pub summary: String,
 }
 
+/// 输入清晰度（v0.17.1 智能后台预访谈）
+///
+/// 用于决定 StrategySelector 是否在后台静默补全四元组
+/// （主情绪 / 高压关系 / 冲突场 / 剧情引擎 / 桥段卡）。
+/// **不弹选项卡打扰用户**——完全后台决定，对前端透明。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputClarity {
+    /// 模糊输入：仅含题材或非常笼统的指令（"写一篇修仙打脸"/"我要写小说"/"续写"）
+    /// → 后端透明补全四元组并注入 Writer prompt
+    Vague,
+    /// 含部分故事元素：题材 + 主角设定 / 题材 + 钩子 / 题材 + 情境
+    /// → 后端补全 1-2 项缺失维度
+    WithSeed,
+    /// 含完整故事概念：明确角色、冲突、目标、场景
+    /// → 后端不主动追加，尊重用户已有意图
+    WithFullConcept,
+}
+
+impl InputClarity {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            InputClarity::Vague => "vague",
+            InputClarity::WithSeed => "with_seed",
+            InputClarity::WithFullConcept => "with_full_concept",
+        }
+    }
+
+    /// 是否需要后端透明补全四元组
+    pub fn needs_quartet_inference(&self) -> bool {
+        matches!(self, InputClarity::Vague | InputClarity::WithSeed)
+    }
+}
+
+/// 启发式输入清晰度检测（v0.17.1 智能后台预访谈）
+///
+/// 不调 LLM，纯字面分析，避免拖慢 smart_execute。三档判定：
+/// - 长度 < 8 字符 或 仅含题材关键词 → Vague
+/// - 含 1-2 个故事元素（角色/动作/冲突词）→ WithSeed
+/// - 含 ≥3 个故事元素 → WithFullConcept
+pub fn detect_input_clarity(user_input: &str) -> InputClarity {
+    let trimmed = user_input.trim();
+    if trimmed.is_empty() {
+        return InputClarity::Vague;
+    }
+
+    // 字数（按 Unicode scalar 近似中文字数）
+    let char_count = trimmed.chars().count();
+    if char_count < 8 {
+        return InputClarity::Vague;
+    }
+
+    // 故事元素信号词（出现 ≥3 个 = WithFullConcept；1-2 个 = WithSeed；0 个 = Vague）
+    const ELEMENT_SIGNALS: &[&str] = &[
+        // 角色信号
+        "主角", "他", "她", "我", "弟子", "少年", "少女", "青年", "女主", "男主",
+        // 动作信号
+        "杀", "救", "夺", "护", "复仇", "逆袭", "追", "逃", "斗", "比",
+        // 冲突信号
+        "陷害", "背叛", "误会", "争夺", "羞辱", "证明", "揭露", "对决",
+        // 场景信号
+        "拍卖", "庭审", "大比", "婚礼", "公开", "禁地", "宗门", "家宴",
+        // 关系信号
+        "师父", "师兄", "师姐", "敌人", "恋人", "前夫", "前妻", "继承",
+        // 目标信号
+        "为了", "想要", "决定", "立志", "誓言", "目标", "重生", "归来",
+    ];
+    let mut signal_count = 0;
+    for signal in ELEMENT_SIGNALS {
+        if trimmed.contains(signal) {
+            signal_count += 1;
+            if signal_count >= 3 {
+                return InputClarity::WithFullConcept;
+            }
+        }
+    }
+
+    if signal_count == 0 {
+        InputClarity::Vague
+    } else {
+        InputClarity::WithSeed
+    }
+}
+
 /// 意图执行器 - 将解析后的意图调度到具体 Agent 执行
 pub struct IntentExecutor {
     agent_service: AgentService,
@@ -594,5 +678,61 @@ mod tests {
         let summary = IntentExecutor::build_summary(&intent, &steps);
         assert!(summary.contains("自由对话"));
         assert!(summary.contains("1 个 Agent"));
+    }
+}
+
+#[cfg(test)]
+mod input_clarity_tests {
+    use super::*;
+
+    #[test]
+    fn empty_input_is_vague() {
+        assert_eq!(detect_input_clarity(""), InputClarity::Vague);
+        assert_eq!(detect_input_clarity("   "), InputClarity::Vague);
+    }
+
+    #[test]
+    fn short_input_is_vague() {
+        assert_eq!(detect_input_clarity("写小说"), InputClarity::Vague);
+        assert_eq!(detect_input_clarity("续写"), InputClarity::Vague);
+    }
+
+    #[test]
+    fn genre_only_is_vague() {
+        // 仅含题材关键词，没有故事元素信号词
+        assert_eq!(
+            detect_input_clarity("写一篇修仙小说，要爽文风格"),
+            InputClarity::Vague
+        );
+    }
+
+    #[test]
+    fn with_one_or_two_signals_is_seed() {
+        // 含 1 个角色信号
+        assert_eq!(
+            detect_input_clarity("主角在山中修炼了三年"),
+            InputClarity::WithSeed
+        );
+        // 含 2 个信号（主角 + 复仇），超过 8 字下限
+        assert_eq!(
+            detect_input_clarity("主角下山誓要找仇人复仇"),
+            InputClarity::WithSeed
+        );
+    }
+
+    #[test]
+    fn with_three_plus_signals_is_full_concept() {
+        // 主角 + 师父 + 复仇 = 3 个信号
+        assert_eq!(
+            detect_input_clarity("主角的师父被人陷害，他立志复仇"),
+            InputClarity::WithFullConcept
+        );
+    }
+
+    #[test]
+    fn quartet_inference_decision() {
+        assert!(InputClarity::Vague.needs_quartet_inference());
+        assert!(InputClarity::WithSeed.needs_quartet_inference());
+        assert!(!InputClarity::WithFullConcept.needs_quartet_inference());
     }
 }

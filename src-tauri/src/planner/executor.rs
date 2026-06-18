@@ -793,6 +793,18 @@ impl PlanExecutor {
             );
         }
 
+        // v0.17.1: 把智能后台预访谈推断出的中文叙事四元组注入 task.parameters，
+        // 让 build_writer_prompt 在末尾追加 prompt 片段。
+        if let Some(ref selected) = plan_context.selected_strategy {
+            if let Ok(quartet) =
+                crate::strategy::quartet_inference::serialize_quartet_for_prompt(selected)
+            {
+                if !quartet.is_null() {
+                    enriched_params.insert("narrative_quartet".to_string(), quartet);
+                }
+            }
+        }
+
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::Writer,

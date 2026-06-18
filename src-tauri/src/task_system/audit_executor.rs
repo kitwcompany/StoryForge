@@ -181,7 +181,7 @@ fn build_inspector_prompt(payload: &AuditPayload) -> String {
     let genre = payload.genre.as_deref().unwrap_or("未知");
 
     format!(
-        r#"你是一名严苛的专业小说编辑。请对以下正文片段进行 7 维度质量审计。
+        r#"你是一名严苛的专业小说编辑。请对以下正文片段进行 11 维度质量审计。
 这是异步审计，结果将以 inline 标注形式呈现给作者，请聚焦"可操作的问题"，避免泛泛而谈。
 
 === 作品信息 ===
@@ -194,7 +194,11 @@ fn build_inspector_prompt(payload: &AuditPayload) -> String {
 4. foreshadow 伏笔：是否与前后形成有机联系
 5. pacing 节奏：快慢是否得当，有无冗余
 6. style 风格：描写是否生动，对白是否自然
-7. memory 设定遵守：是否违背世界观/角色当前状态/物理逻辑（最重要）
+7. memory 设定遵守：是否违背世界观/角色当前状态/物理逻辑
+8. desire 人物欲望：主角是否有清晰、可视化的目标驱动行动（v0.17.1 新增）
+9. payoff 情感回报：读者期待的情绪兑现（怕/燃/爽/虐）是否兑现到位（v0.17.1 新增）
+10. aftertaste 余韵：结尾是否留有悬念、未尽之意或情感钩子（v0.17.1 新增）
+11. opening_clarity 开篇清晰：前 200 字是否同时给出 危险/羞辱/失去/谜题 之一与物理锚点（v0.17.1 新增）
 
 === 待审计正文 ===
 {content}
@@ -218,7 +222,7 @@ fn build_inspector_prompt(payload: &AuditPayload) -> String {
 - paragraph_index 是问题所在段落的序号（从 0 开始，按空行分段）。若无法定位，填 0
 - score 是该维度的自评（0-20），低于 14 才报告
 - 如果没有需要报告的问题，返回 {{"issues": []}}
-- dimension 必须是上述 7 个之一"#,
+- dimension 必须是上述 11 个之一"#,
         title = title,
         genre = genre,
         content = truncate_content(&payload.content, 4000),
@@ -303,13 +307,18 @@ fn parse_inspector_issues(content: &str) -> Vec<InspectorIssue> {
 }
 
 /// Phase 0 实证：memory 维度是最大波动源，优先级最高。
+/// v0.17.1：新增 desire/payoff/aftertaste/opening_clarity 四维。
 fn dimension_priority(dim: &str) -> u8 {
     match dim.to_lowercase().as_str() {
         "memory" => 5,
         "continuity" => 4,
         "logic" => 3,
+        "payoff" => 3,
+        "opening_clarity" => 3,
+        "desire" => 2,
         "character" => 2,
         "foreshadow" => 2,
+        "aftertaste" => 1,
         "pacing" => 1,
         "style" => 1,
         _ => 0,
@@ -325,6 +334,10 @@ fn dimension_label(dim: &str) -> &str {
         "foreshadow" => "伏笔",
         "pacing" => "节奏",
         "style" => "风格",
+        "desire" => "欲望驱动",
+        "payoff" => "情感回报",
+        "aftertaste" => "余韵",
+        "opening_clarity" => "开篇清晰",
         _ => "其他",
     }
 }
@@ -395,6 +408,24 @@ mod tests {
         assert_eq!(dimension_label("memory"), "设定遵守");
         assert_eq!(dimension_label("continuity"), "连续性");
         assert_eq!(dimension_label("logic"), "逻辑连贯");
+    }
+
+    /// v0.17.1: 新增 4 维度的标签与优先级
+    #[test]
+    fn new_dimensions_v17_labels() {
+        assert_eq!(dimension_label("desire"), "欲望驱动");
+        assert_eq!(dimension_label("payoff"), "情感回报");
+        assert_eq!(dimension_label("aftertaste"), "余韵");
+        assert_eq!(dimension_label("opening_clarity"), "开篇清晰");
+    }
+
+    #[test]
+    fn new_dimensions_v17_priority_within_existing_range() {
+        // 新维度应介于既有 high/medium/low 之间，不破坏 memory > continuity > others 的总序
+        assert!(dimension_priority("memory") > dimension_priority("payoff"));
+        assert!(dimension_priority("payoff") >= dimension_priority("character"));
+        assert!(dimension_priority("aftertaste") >= dimension_priority("style"));
+        assert!(dimension_priority("opening_clarity") > dimension_priority("style"));
     }
 
     #[test]

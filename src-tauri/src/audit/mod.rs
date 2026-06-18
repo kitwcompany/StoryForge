@@ -22,6 +22,8 @@ use crate::{
 };
 
 pub mod commands;
+// v0.17.1: 开篇清晰度门骨架（不接入生产）
+pub mod opening_clarity;
 
 /// 审计报告
 #[derive(Debug, Clone, Serialize, Deserialize)]

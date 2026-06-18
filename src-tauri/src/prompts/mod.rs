@@ -3,9 +3,12 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+pub mod commands;
 pub mod engine;
 pub mod evolver;
 pub mod methodologies;
+// v0.17.1: 全局提示词注册表 + 用户覆盖
+pub mod registry;
 pub use engine::{PromptLibrary, TemplateEngine};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

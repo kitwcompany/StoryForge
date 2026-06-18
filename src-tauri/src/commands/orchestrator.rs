@@ -686,10 +686,12 @@ async fn smart_execute_inner(
 
     // v0.10.0: 构建当前故事的创作策略上下文
     // v0.14.0: spawn_blocking 包裹同步 DB 查询
+    // v0.17.1: 输入清晰度检测 → 后端透明补全中文叙事四元组
     let strategy_story = current_story.clone();
     let strategy_pool = pool.clone();
+    let input_clarity = crate::intent::detect_input_clarity(&user_input);
     let selected_strategy = tokio::task::spawn_blocking(move || {
-        build_selected_strategy(&strategy_story, &strategy_pool)
+        build_selected_strategy(&strategy_story, &strategy_pool, input_clarity)
     })
     .await
     .unwrap_or(None);
@@ -895,6 +897,7 @@ pub async fn get_input_hint(
 fn build_selected_strategy(
     current_story: &Option<crate::db::Story>,
     pool: &crate::db::DbPool,
+    input_clarity: crate::intent::InputClarity,
 ) -> Option<crate::strategy::SelectedStrategy> {
     let story = current_story.as_ref()?;
     if story.genre_profile_id.is_none()
@@ -912,10 +915,17 @@ fn build_selected_strategy(
         strategy.style_dna_ids.push(dna_id.clone());
     }
 
+    // v0.17.1: 取出 GenreProfile 的 canonical_name 与 reader_promise
+    // 供智能后台预访谈使用（不调 LLM，纯启发式）
+    let mut canonical_name: Option<String> = None;
+    let mut reader_promise: Option<String> = None;
+
     if let Some(ref profile_id) = story.genre_profile_id {
         let repo = crate::db::GenreProfileRepository::new(pool.clone());
         if let Ok(Some(profile)) = repo.get_by_id(profile_id) {
             rationale_parts.push(format!("体裁画像：{}", profile.genre_name));
+            canonical_name = Some(profile.canonical_name.clone());
+            reader_promise = profile.reader_promise.clone();
         } else {
             rationale_parts.push(format!("体裁画像 ID：{}", profile_id));
         }
@@ -925,6 +935,22 @@ fn build_selected_strategy(
     }
     if let Some(ref dna_id) = story.style_dna_id {
         rationale_parts.push(format!("风格 DNA：{}", dna_id));
+    }
+
+    // v0.17.1: 模糊或半确定输入时透明补全中文叙事四元组
+    crate::strategy::infer_narrative_quartet(
+        &mut strategy,
+        canonical_name.as_deref(),
+        reader_promise.as_deref(),
+        input_clarity,
+    );
+
+    if strategy.emotional_payoff.is_some()
+        || strategy.pressure_relationship_id.is_some()
+        || !strategy.story_engine_ids.is_empty()
+        || !strategy.beat_card_ids.is_empty()
+    {
+        rationale_parts.push(format!("智能后台四元组（{}）", input_clarity.as_str()));
     }
 
     strategy.rationale = rationale_parts.join("，");

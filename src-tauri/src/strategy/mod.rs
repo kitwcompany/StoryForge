@@ -5,10 +5,12 @@
 
 pub mod asset_catalog;
 pub mod models;
+pub mod quartet_inference;
 pub mod selector;
 
 pub use asset_catalog::load_all_assets;
 pub use models::{
     AssetKind, SelectableAsset, SelectedStrategy, SelectionContext, StrategyOverrides,
 };
+pub use quartet_inference::infer_narrative_quartet;
 pub use selector::StrategySelector;

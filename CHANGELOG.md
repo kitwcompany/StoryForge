@@ -2,6 +2,50 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.17.1] - 智能后台预访谈 + Anti-AI 改写闸 + 在世作者保护 + 提示词注册表 + 关键 Bug 修复（2026-06-19）
+
+### 关键 Bug 修复
+
+- **修复超时设置保存失败 undefined**：`AppSettingsData` 长期缺失 v0.16.0 引入的 timeout / advanced override 字段（`frontend_timeout_secs` / `executor_step_timeout_secs` / `smart_execute_total_timeout_secs` / `llm_connect_timeout_secs` / `llm_first_chunk_timeout_secs` / `style_weight` / `narrative_weight` / `skip_rewrite_threshold` / `keep_revision_history` / `context_budget_ratio` / `generation_mode` / `writer_system_prompt_override` / `probe_prompt_override`），任何尝试调整超时数字都触发 IPC 反序列化失败。修复：后端 `AppSettingsData` 全部字段加 `#[serde(default)]` + 13 个新 `Option<T>` 字段；`save_settings` 按 `if let Some()` 应用；`get_settings` 同步暴露；前端 `SettingsContext.updateSettingsMutation` 读取 query 缓存合并 patch 后下发完整对象。
+- **模型健康报告增强**：`ModelHealthReport` 新增 `total_calls` / `last_called_at` / `generated_at` 三字段；前端 `useModelHealthReports` 关掉缓存（`staleTime: 0` / `gcTime: 0` / `refetchOnMount: 'always'`）确保每次打开 Settings/模型健康都是最新数据；ModelHealthPanel 头部显示「数据更新于 X」与每个模型的「近期调用次数」「最近一次调用」时间，让用户能直接判断数据新鲜度。
+
+### 提示词注册表（PromptRegistry）
+
+把分散在 `prompts/engine.rs` / `llm/prompt.rs` / `task_system/audit_executor.rs` 的硬编码 prompt 全部抽取到统一注册表：
+
+- **Migration 93** `prompt_overrides` 表 —— `prompt_id` PK + `overridden_content` + `updated_at`。
+- **`prompts/registry.rs`**：8 个内置 prompt（writer_system / writer_continue / writer_rewrite / inspector_system / style_checker_system / outline_planner / commentator_system / model_gateway_probe），分 6 类（写作核心 / 审校与质量 / 评点 / 规划 / 分析 / 探测），含名称 / 描述 / 变量列表 / 默认内容元数据；`list_prompts()` / `resolve_prompt()` / `save_override()` / `reset_override()` API。
+- **IPC 命令**：`list_prompt_entries` / `save_prompt_override` / `reset_prompt_override` / `resolve_prompt_content`（全部 `rename_all = "snake_case"`）。
+- **前端 PromptsPanel**：Settings 新增「提示词」标签页，按分类折叠分组展示，每条 prompt 可展开编辑，显示「已覆盖 / 未保存 / 当前内置默认」状态徽章 + 支持的模板变量列表 + 保存覆盖 / 恢复默认按钮。
+- **运行时接入**：`AgentService::resolve_prompt(id)` 优先查 DB override，否则回退默认；Writer / Inspector / OutlinePlanner 全部经 registry 读取；Model Gateway 探测 prompt 同步接入 registry → AppConfig.probe_prompt_override → 内置默认三层降级。
+- **5 个单测** + 验证零回归（391 → 396 passing）。
+
+### 智能后台预访谈（v0.17.0 后续）
+
+- **InputClarity 三档判定**：`intent.rs::detect_input_clarity()` —— Vague / WithSeed / WithFullConcept，启发式不调 LLM；6 个单测。
+- **NarrativeQuartet 透明推断**：`strategy/quartet_inference.rs` —— 当用户输入处于 Vague/WithSeed 时，后端透明补全 5 元组（emotional_payoff / pressure_relationship / conflict_arena / story_engine / beat_card）；不弹卡片，全部走 GenreProfile.reader_promise + 默认推荐；8 个单测。
+- **Writer Prompt 注入**：PlanExecutor::execute_writer 把序列化后的四元组写入 `task.parameters["narrative_quartet"]`；`build_writer_prompt` 末尾追加「叙事四元组」段；3 个单测。
+
+### Anti-AI 改写闸 + 开篇清晰度门（骨架）
+
+- **AI cliché 词表 +7**：关键在于 / 值得注意的是 / 综上所述 / 让我们 / 在某种程度上 / 与此同时 / 这一切的背后。
+- **`anti_ai/rewriter.rs`**：`AntiAiRewriter` 骨架 —— `RewriteStrategy`（LocalReplace / ParagraphRewrite / ChapterRewrite）+ `should_trigger`（overall_score < 60 或任一 high severity）+ 异步 `rewrite()` 入口（v0.17.1 直接返回原文，v0.17.2 接 LLM）；4 个单测。
+- **`audit/opening_clarity.rs`**：6 要素门（Danger / Humiliation / Loss / Puzzle / PhysicalAnchor / GenreSignal），按前 200 字检查；`signal_for_genre()` 为 5 种主流题材（赘婿 / 修真 / 末世 / 悬疑 / 校园）提供差异化检测词；5 个单测。
+- **AuditExecutor 7→11 维**：`task_system/audit_executor.rs` prompt 扩 4 维（desire / payoff / aftertaste / opening_clarity），`dimension_priority` / `dimension_label` 同步更新；2 个新单测。
+
+### 在世作者保护
+
+- **`creative_engine/style/living_author_guard.rs`** —— 在世作者黑名单 41 位（中文 26 + 外文 15），命中即替换为「具备相同手工艺特征的写作风格」+ 自动追加「手工艺滑块」段（5 维 × 3 档：句长偏好 / 对话比例 / 比喻密度 / 内心独白比例 / 视角粘度）。
+- **`build_writer_prompt` 接入**：在最终组装后调用 `sanitize_style_brief()` 自动清洗。
+- 6 个单测。
+
+### 验证
+
+- `cargo check` 零错误（33 warnings 全为既有）
+- `cargo test --lib` 396 passed / 48 failed（48 为 v0.17.0 起 V092 测试 DB 基线，零新回归）
+- `npx tsc --noEmit` 零错误
+- 新增 33 个单测全部通过（6 + 8 + 3 + 4 + 5 + 2 + 6 + 5 prompt registry）
+
 ## [v0.17.0] - 中文叙事增强：桥段卡 / 剧情引擎 / 高压关系 / 读者承诺四件套（2026-06-19）
 
 ### 新增功能

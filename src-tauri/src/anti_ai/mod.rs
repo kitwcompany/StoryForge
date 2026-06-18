@@ -11,6 +11,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+// v0.17.1: 改写闸骨架（不接入生产）
+pub mod rewriter;
+
 /// 五维审查结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AntiAiReview {
@@ -166,6 +169,14 @@ impl AntiAiReviewer {
             "嘴角微微上扬",
             "眼中闪过一丝",
             "心中涌起一股",
+            // v0.17.1 中文叙事增强：补充 AI 高频提领句 / 综述句 / 廉价转折
+            "关键在于",
+            "值得注意的是",
+            "综上所述",
+            "让我们",
+            "在某种程度上",
+            "与此同时",
+            "这一切的背后",
         ];
 
         let text_lower = text.to_lowercase();
