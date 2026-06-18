@@ -200,6 +200,10 @@ pub struct AgentMapping {
     /// v0.11.0: 约束标签列表（如 "local_only", "min_quality:high"）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<String>,
+    /// v0.15.0: 强制锁定此模型，网关不会根据算力档案替换
+    /// 默认 false（用户偏好，网关可根据算力覆盖）
+    #[serde(default)]
+    pub force_locked: bool,
 }
 
 /// 写作策略配置
@@ -931,6 +935,7 @@ impl Default for AppConfig {
                     budget_priority: None,
                     speed_priority: None,
                     constraints: vec![],
+                    force_locked: false,
                 },
             );
         }

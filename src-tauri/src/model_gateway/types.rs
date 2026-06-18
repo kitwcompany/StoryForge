@@ -126,3 +126,120 @@ pub struct GatewayStatus {
     /// 是否正在探测中
     pub is_probing: bool,
 }
+
+// ============================================================================
+// v0.15.0: 智能调度器新增类型
+// ============================================================================
+
+/// 任务复杂度分类（v0.15.0 核心决策依据）
+///
+/// 网关依据此分类决定"快模型 vs 推理大模型"：
+/// - `LightTool`：短 prompt + 短输出（意图识别、输入提示、JSON 提取）→
+///   优先快模型
+/// - `BalancedWork`：中等任务（设定修改、伏笔提取、章节摘要）→ 平衡
+/// - `HeavyCreation`：长 prompt + 长输出（Writer 续写、Inspector
+///   质检、Rewrite）→ 优先推理大模型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskClass {
+    /// 轻量工具任务：短输入 + 短输出，延迟敏感，优先选最快模型
+    LightTool,
+    /// 平衡工作：中等长度，质量与速度兼顾
+    BalancedWork,
+    /// 重型创作：长输入 + 长输出，质量优先，优先推理大模型
+    HeavyCreation,
+}
+
+impl Default for TaskClass {
+    fn default() -> Self {
+        Self::BalancedWork
+    }
+}
+
+impl TaskClass {
+    /// 短任务基准字段选择器：LightTool 看 short_ttfb
+    pub fn prefers_speed(&self) -> bool {
+        matches!(self, TaskClass::LightTool)
+    }
+
+    /// 重型任务：看 sustained_tps 和质量
+    pub fn prefers_quality(&self) -> bool {
+        matches!(self, TaskClass::HeavyCreation)
+    }
+}
+
+/// 流式基准测试结果（v0.15.0）
+///
+/// 由 benchmark.rs 通过 LlmService::generate_stream 采集，
+/// 记录真实的 first-chunk TTFB 和持续 token/s。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BenchmarkResult {
+    pub success: bool,
+    /// 真实首字节延迟（毫秒）——流式第一个 chunk 的时间戳
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub real_ttfb_ms: Option<u64>,
+    /// 总耗时（毫秒）
+    pub duration_ms: u64,
+    /// 输出 token 数
+    pub output_tokens: u32,
+    /// 输入 token 数（估算）
+    pub input_tokens: u32,
+    /// 持续生成速度 tokens/s = output_tokens / ((duration - ttfb) / 1000)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sustained_tps: Option<f64>,
+    /// 错误信息
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// 持久化算力档案（v0.15.0）
+///
+/// 存储于 SQLite `model_capability_profile` 表，跨应用启动保留。
+/// 网关三维打分的核心数据源。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CapabilityProfile {
+    pub model_id: String,
+    /// 短任务 TTFB p50（毫秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_ttfb_ms_p50: Option<u64>,
+    /// 短任务 TTFB p95（毫秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_ttfb_ms_p95: Option<u64>,
+    /// 长任务 TTFB p50（毫秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub long_ttfb_ms_p50: Option<u64>,
+    /// 长任务 TTFB p95（毫秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub long_ttfb_ms_p95: Option<u64>,
+    /// 长输出持续 token/s（创作场景核心指标）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sustained_tps: Option<f64>,
+    /// 短输出 token/s
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_output_tps: Option<f64>,
+    /// 最近 24 小时成功率
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_rate_24h: Option<f64>,
+    /// 上次完整基准时间戳（unix 秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_full_benchmark_at: Option<i64>,
+    /// 上次健康探测时间戳
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_health_probe_at: Option<i64>,
+    /// 基准样本数
+    pub benchmark_sample_count: i64,
+    /// 健康状态
+    pub status: HealthStatus,
+    /// 状态原因
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_reason: Option<String>,
+    /// 综合能力得分（0-100）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capability_score: Option<f64>,
+    /// 速度得分
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_score: Option<f64>,
+    /// 质量得分
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality_score: Option<f64>,
+}

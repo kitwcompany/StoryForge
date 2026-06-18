@@ -3210,6 +3210,42 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         record_migration(conn, 90)?;
     }
 
+    // Migration 91: v0.15.0 ModelGateway 算力档案持久化表
+    // 网关升级为智能调度器，存储每个模型的流式基准实测数据，
+    // 跨应用启动保留，用于任务复杂度路由（LightTool→快模型，
+    // HeavyCreation→推理大模型）
+    if current_version < 91 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS model_capability_profile (
+                model_id              TEXT PRIMARY KEY,
+                short_ttfb_ms_p50     INTEGER,
+                short_ttfb_ms_p95     INTEGER,
+                long_ttfb_ms_p50      INTEGER,
+                long_ttfb_ms_p95      INTEGER,
+                sustained_tps         REAL,
+                short_output_tps      REAL,
+                success_rate_24h      REAL,
+                last_full_benchmark_at INTEGER,
+                last_health_probe_at  INTEGER,
+                benchmark_sample_count INTEGER NOT NULL DEFAULT 0,
+                status                TEXT NOT NULL DEFAULT 'unknown',
+                status_reason         TEXT,
+                capability_score      REAL,
+                speed_score           REAL,
+                quality_score         REAL,
+                created_at            INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at            INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_capability_status
+                ON model_capability_profile(status);
+            CREATE INDEX IF NOT EXISTS idx_capability_score
+                ON model_capability_profile(capability_score);
+            ",
+        )?;
+        record_migration(conn, 91)?;
+    }
+
     Ok(())
 }
 

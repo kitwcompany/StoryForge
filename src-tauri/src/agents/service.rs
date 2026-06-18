@@ -720,29 +720,68 @@ impl AgentService {
             0.32,
         );
 
+        // v0.15.0: 网关介入 - 优先走网关路由，agent_mapping 作为偏好提示
+        // 仅在 force_locked=true 时保留旧行为（绕过网关直连指定模型）
+        let mapping = self.get_agent_mapping(agent_type);
+        let force_locked = mapping.as_ref().map(|m| m.force_locked).unwrap_or(false);
         let (req_id, response) = if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
-            let display_name = self.get_model_display_name(&model_id);
-            self.emit_event(
-                &task.id,
-                agent_type,
-                AgentStage::Generating,
-                &format!("使用指定模型 {} 生成...", display_name),
-                0.35,
-            );
-            let (rid, result) = self
-                .llm_service
-                .generate_with_profile_and_request_id(
-                    &model_id,
-                    prompt.clone(),
-                    effective_max,
-                    temperature,
-                    None,
-                    request_id.clone(),
-                    timeout_seconds_override,
-                    max_retries_override,
-                )
-                .await;
-            (rid, result?)
+            if force_locked {
+                // v0.15.0: force_locked - 保留旧行为，绕过网关
+                let display_name = self.get_model_display_name(&model_id);
+                self.emit_event(
+                    &task.id,
+                    agent_type,
+                    AgentStage::Generating,
+                    &format!("使用强制锁定模型 {} 生成...", display_name),
+                    0.35,
+                );
+                let (rid, result) = self
+                    .llm_service
+                    .generate_with_profile_and_request_id(
+                        &model_id,
+                        prompt.clone(),
+                        effective_max,
+                        temperature,
+                        None,
+                        request_id.clone(),
+                        timeout_seconds_override,
+                        max_retries_override,
+                    )
+                    .await;
+                (rid, result?)
+            } else {
+                // v0.15.0: 有偏好但未锁定 - 走网关，偏好模型作为提示
+                self.emit_event(
+                    &task.id,
+                    agent_type,
+                    AgentStage::Generating,
+                    "正在通过模型网关智能路由（用户偏好模型作为提示）...",
+                    0.32,
+                );
+                let routing_request =
+                    self.build_routing_request(agent_type, tier, mapping.as_ref());
+                self.emit_event(
+                    &task.id,
+                    agent_type,
+                    AgentStage::Generating,
+                    "通过模型网关路由并生成...",
+                    0.35,
+                );
+                let (rid, result) = self
+                    .llm_service
+                    .generate_for_request_with_request_id(
+                        routing_request,
+                        prompt.clone(),
+                        effective_max,
+                        temperature,
+                        None,
+                        request_id.clone(),
+                        timeout_seconds_override,
+                        max_retries_override,
+                    )
+                    .await;
+                (rid, result?)
+            }
         } else {
             // v0.11.0: 无固定映射时采用自动路由策略，根据 Agent 类型选择模型
             self.emit_event(

@@ -59,8 +59,7 @@ impl GatewayExecutor {
             .iter()
             .filter_map(|c| self.registry.get(&c.model_id).map(|m| (c.score, m)))
             .map(|(base_score, m)| {
-                let mut score =
-                    base_score + super::dispatcher::evaluate_model_fit(m, &routing_request);
+                let mut score = base_score + 0.0; // v0.15.0: deprecated, replaced by 3D scoring
 
                 // 健康权重
                 if let Some(ref h) = health {

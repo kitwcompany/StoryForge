@@ -10,6 +10,8 @@
 //! - `executor`: 候选链执行与 fallback
 //! - `commands`: 暴露给前端的 Tauri 命令
 
+pub mod benchmark;
+pub mod capability_store;
 pub mod commands;
 pub mod dispatcher;
 pub mod executor;
