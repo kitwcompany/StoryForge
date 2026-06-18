@@ -644,10 +644,9 @@ const FrontstageApp: React.FC = () => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     const tick = () => {
       if (!lastEventTimeRef.current || !generationStartTimeRef.current) return;
-      const totalElapsed = generationStartTimeRef.current
-        ? Math.floor((Date.now() - generationStartTimeRef.current) / 1000)
-        : 0;
-      if (sinceLastEvent > 10000) {
+      const sinceLastEvent = Math.floor((Date.now() - lastEventTimeRef.current) / 1000);
+      const totalElapsed = Math.floor((Date.now() - generationStartTimeRef.current) / 1000);
+      if (sinceLastEvent > 10) {
         setGenerationStatus(prev => {
           // 如果已经有模型生成中的提示，不要覆盖
           if (prev.includes('正在生成中') || prev.includes('等待响应')) return prev;
