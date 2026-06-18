@@ -315,12 +315,6 @@ export interface AppSettings {
   llm_first_chunk_timeout_secs?: number;
 
   // v0.16.0: 创作参数微调
-  skip_rewrite_threshold?: number;
-  style_weight?: number;
-  narrative_weight?: number;
-  context_budget_ratio?: number;
-  writer_local_concurrency?: number;
-  keep_revision_history?: boolean;
 
   // v0.16.0: 提示词覆盖
   writer_system_prompt_override?: string;
