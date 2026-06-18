@@ -45,10 +45,22 @@ const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
   },
   {
     phase: '内容审校',
-    patterns: ['内容审校', 'inspector', '质检', 'inspecting', 'inspect', 'inspection', 'review', '审校'],
+    patterns: [
+      '内容审校',
+      'inspector',
+      '质检',
+      'inspecting',
+      'inspect',
+      'inspection',
+      'review',
+      '审校',
+    ],
   },
   { phase: '改写', patterns: ['改写', '润色改写', 'rewrite', 'rewriting', 'revise', '润色'] },
-  { phase: '最终输出', patterns: ['最终输出', '已完成', 'final_output', 'finalize', '最终', 'final output'] },
+  {
+    phase: '最终输出',
+    patterns: ['最终输出', '已完成', 'final_output', 'finalize', '最终', 'final output'],
+  },
   { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
 ];
 
