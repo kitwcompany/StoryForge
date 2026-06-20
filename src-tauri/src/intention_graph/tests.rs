@@ -268,4 +268,206 @@ mod tests {
         let stats = repo.get_statistics().expect("Get stats failed");
         assert!(stats.execution_graph_count > 0, "Should count execution graphs");
     }
+
+    // ==================== 真实模型集成测试（需模型端点可达）====================
+    // 标记 #[ignore] 避免 CI 运行；本地验证用 `cargo test --lib -- --ignored`
+
+    use crate::intention_graph::builder::IntentSynthesisPipeline;
+
+    /// 真实模型端点（从本机 StoryForge app_config 读取）
+    const REAL_LLM_URL: &str = "http://10.62.239.13:17092/v1/chat/completions";
+    const REAL_LLM_MODEL: &str = "gemma4-e2b";
+
+    /// 调用真实 LLM 提取意图（模拟 synthesize_query_with_llm 的核心逻辑）
+    async fn call_real_llm_for_intent(user_input: &str) -> Option<(String, String, f64)> {
+        let system_prompt = r#"你是一个意图分析器。分析用户的创作指令，提取核心意图。
+输出严格的 JSON 格式：
+{"verb": "<动词>", "object": "<宾语>", "confidence": <0.0-1.0>}
+动词必须是以下之一：generate, write, create, enhance, polish, revise, edit, inspect, check, analyze, plan, outline, structure, manage, update, query, search, fetch
+宾语必须是以下之一：prose, content, chapter, scene, story, style, character, world, outline, structure, quality, data, plot
+只输出 JSON。"#;
+
+        let body = serde_json::json!({
+            "model": REAL_LLM_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": format!("用户指令：{}", user_input)}
+            ],
+            "max_tokens": 100,
+            "temperature": 0.1
+        });
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(REAL_LLM_URL)
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?;
+
+        let content = resp.get("choices")?
+            .get(0)?
+            .get("message")?
+            .get("content")?
+            .as_str()?;
+
+        // 剥离 markdown 代码块
+        let raw = content.trim();
+        let json_str = if raw.starts_with("```") {
+            raw.trim_start_matches("```json")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim()
+        } else {
+            raw
+        };
+
+        let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
+        Some((
+            parsed.get("verb")?.as_str()?.to_string(),
+            parsed.get("object")?.as_str()?.to_string(),
+            parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.7),
+        ))
+    }
+
+    /// 真实模型端到端测试：写一部异星球末世生存题材的小说
+    ///
+    /// 验证完整路径：真实 LLM 意图合成 → 归一化 → AssetSync 填充 → PPR 发现
+    #[tokio::test]
+    #[ignore] // 需要真实模型端点，CI 环境跳过
+    async fn test_real_model_full_pipeline() {
+        let user_input = "写一部异星球末世生存题材的小说";
+
+        // Step 1: 真实 LLM 意图合成
+        let (verb_raw, object_raw, confidence) = call_real_llm_for_intent(user_input)
+            .await
+            .expect("LLM 调用失败——请确认模型端点可达");
+
+        eprintln!("[Real] LLM 原始输出: verb={}, object={}, confidence={}", verb_raw, object_raw, confidence);
+
+        // Step 2: 归一化（模拟 builder.rs 的 normalize_verb/normalize_object）
+        let verb = IntentSynthesisPipeline::normalize_verb(&verb_raw);
+        let object = IntentSynthesisPipeline::normalize_object(&object_raw);
+        let primary_intent = format!("{} {}", verb, object);
+
+        eprintln!("[Real] 归一化后: {} → {}", format!("{} {}", verb_raw, object_raw), primary_intent);
+
+        // 验证归一化后是 AssetSync 注册的标准意图
+        let standard_intents = [
+            "generate prose", "inspect quality", "revise content",
+            "enhance style", "plan structure", "manage character",
+            "manage world building", "external search", "fetch data",
+        ];
+        assert!(
+            standard_intents.contains(&primary_intent.as_str()),
+            "归一化后 '{}' 应是标准意图之一", primary_intent
+        );
+
+        // Step 3: AssetSync 填充 + PPR 发现
+        let pool = crate::db::connection::create_test_pool().expect("Failed to create test pool");
+        let repo = graph::IntentionGraphRepository::new(pool);
+        let sync_engine = asset_sync::AssetSyncEngine::new(repo.clone());
+        sync_engine
+            .full_initialize(&crate::capabilities::CapabilityRegistry::new(), &[])
+            .expect("AssetSync failed");
+
+        // Step 4: 用归一化后的意图发现资产
+        let root_intention = IntentionNode::atomic(&verb, &object, &primary_intent);
+        let scorer = GraphScorer::new(scorer::PprConfig::default());
+        let discovery = discovery::LayeredDiscovery::new(scorer);
+        let results = discovery
+            .discover(&root_intention, &repo, 10)
+            .expect("Discovery failed");
+
+        assert!(!results.is_empty(), "发现结果不应为空");
+
+        // Step 5: 验证 writer 被发现
+        let has_writer = results.iter().any(|r| {
+            r.asset.name.contains("writer") || r.asset.id.contains("writer")
+        });
+        assert!(has_writer, "writer 应被发现（意图: {}）", primary_intent);
+
+        eprintln!("[Real] ✓ 全流程通过:");
+        eprintln!("  输入: '{}'", user_input);
+        eprintln!("  LLM: {} {} (conf={:.2}) → 归一化: {}", verb_raw, object_raw, confidence, primary_intent);
+        eprintln!("  发现 {} 个资产:", results.len());
+        for (i, r) in results.iter().enumerate().take(5) {
+            eprintln!("    #{} {:?} {} (score={:.3})",
+                i + 1, r.asset.asset_type, r.asset.name, r.score);
+        }
+    }
+
+    /// 真实模型：多场景意图合成稳定性
+    ///
+    /// 验证目标：LLM 意图合成 → 归一化 → 能在图中发现资产。
+    /// 不硬编码期望动词-宾语（LLM 的合理理解可能与规则不同），
+    /// 而是验证归一化后的意图能发现至少一个资产。
+    #[tokio::test]
+    #[ignore]
+    async fn test_real_model_intent_stability() {
+        let test_cases = vec![
+            "写一部异星球末世生存题材的小说",
+            "续写下一章",
+            "润色这段文字",
+            "检查角色一致性",
+            "修改主角设定",
+            "生成故事大纲",
+        ];
+
+        // 准备意图图
+        let pool = crate::db::connection::create_test_pool().expect("Failed to create test pool");
+        let repo = graph::IntentionGraphRepository::new(pool);
+        let sync_engine = asset_sync::AssetSyncEngine::new(repo.clone());
+        sync_engine
+            .full_initialize(&crate::capabilities::CapabilityRegistry::new(), &[])
+            .expect("AssetSync failed");
+        let scorer = GraphScorer::new(scorer::PprConfig::default());
+        let discovery = discovery::LayeredDiscovery::new(scorer);
+
+        let mut passed = 0;
+        for input in &test_cases {
+            match call_real_llm_for_intent(input).await {
+                Some((verb_raw, object_raw, _conf)) => {
+                    let verb = IntentSynthesisPipeline::normalize_verb(&verb_raw);
+                    let object = IntentSynthesisPipeline::normalize_object(&object_raw);
+                    let primary_intent = format!("{} {}", verb, object);
+
+                    // 用归一化后的意图发现资产
+                    let root_intention = IntentionNode::atomic(&verb, &object, &primary_intent);
+                    let results = discovery.discover(&root_intention, &repo, 10);
+
+                    match results {
+                        Ok(ref r) if !r.is_empty() => {
+                            let top = &r[0];
+                            eprintln!(
+                                "[Real] ✓ '{}' → raw({},{}) → norm({}) → 发现{}资产，top: {} (score={:.3})",
+                                input, verb_raw, object_raw, primary_intent,
+                                r.len(), top.asset.name, top.score
+                            );
+                            passed += 1;
+                        }
+                        Ok(_) => {
+                            eprintln!(
+                                "[Real] ✗ '{}' → norm({}) → 发现 0 资产（意图未注册？）",
+                                input, primary_intent
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("[Real] ✗ '{}' → 发现失败: {}", input, e);
+                        }
+                    }
+                }
+                None => {
+                    eprintln!("[Real] ✗ '{}' → LLM 调用失败", input);
+                }
+            }
+        }
+
+        eprintln!("[Real] 意图合成稳定性: {}/{} 通过", passed, test_cases.len());
+        assert!(passed >= 4, "至少 4/6 场景应发现资产，实际 {}/6", passed);
+    }
 }

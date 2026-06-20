@@ -44,7 +44,31 @@ impl LayeredDiscovery {
         let mut edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
 
         // 1a. intention → asset 边（TriggeredBy / HasIntention）
-        let ia_edges = graph_repo.get_intention_edges(&root_intention.id, None)?;
+        let mut ia_edges = graph_repo.get_intention_edges(&root_intention.id, None)?;
+
+        // v0.20.1: 动词回退——当精确意图无边时（如 LLM 返回 "inspect character"
+        // 但图中只注册了 "inspect quality"），查找同动词的所有意图边。
+        // 这实现了 SING 论文"semantically similar intentions are merged"。
+        if ia_edges.is_empty() {
+            let verb_prefix = format!("{}_", root_intention.verb);
+            let all_intentions = graph_repo.list_intentions(None)?;
+            let sibling_ids: Vec<String> = all_intentions
+                .iter()
+                .filter(|i| i.id.starts_with(&verb_prefix) && i.id != root_intention.id)
+                .map(|i| i.id.clone())
+                .collect();
+
+            log::debug!(
+                "[LayeredDiscovery] 精确意图 '{}' 无边，回退到同动词意图: {:?}",
+                root_intention.id, sibling_ids
+            );
+
+            for sid in &sibling_ids {
+                let sibling_edges = graph_repo.get_intention_edges(sid, None)?;
+                ia_edges.extend(sibling_edges);
+            }
+        }
+
         for e in &ia_edges {
             let weight = e.weight.max(0.01);
             edges

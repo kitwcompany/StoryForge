@@ -88,19 +88,36 @@ impl IntentSynthesisPipeline {
             Some(0.1),
         ).await?;
 
-        // 解析 LLM 返回的 JSON
-        let parsed: serde_json::Value = serde_json::from_str(response.content.trim())
+        // v0.20.1: 剥离 markdown 代码块包裹（LLM 常返回 ```json ... ```）
+        let raw = response.content.trim();
+        let json_str = if raw.starts_with("```") {
+            let inner = raw
+                .trim_start_matches("```json")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim();
+            inner
+        } else {
+            raw
+        };
+
+        let parsed: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| AppError::internal(format!("LLM JSON parse failed: {}", e)))?;
 
-        let verb = parsed.get("verb")
+        let verb_raw = parsed.get("verb")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::internal("Missing verb in LLM response"))?;
-        let object = parsed.get("object")
+        let object_raw = parsed.get("object")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::internal("Missing object in LLM response"))?;
         let confidence = parsed.get("confidence")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.7);
+
+        // v0.20.1: 意图归一化——将 LLM 返回的动词映射到 AssetSync 注册的标准动词，
+        // 确保不同表达方式归一化到同一意图节点（修复审计报告 P2-3）
+        let verb = Self::normalize_verb(verb_raw);
+        let object = Self::normalize_object(object_raw);
 
         Ok(SynthesizedQuery {
             raw_input: user_input.to_string(),
@@ -109,6 +126,42 @@ impl IntentSynthesisPipeline {
             detected_keywords: vec![verb.to_string(), object.to_string()],
             context_hints: vec![],
         })
+    }
+
+    /// v0.20.1: 将 LLM 返回的动词归一化到 AssetSync 注册的标准动词
+    ///
+    /// LLM 可能返回 "write"/"create"/"generate" 等同义词，
+    /// 统一映射到 "generate"，确保 discover 时能匹配到已注册的意图节点。
+    pub fn normalize_verb(verb: &str) -> String {
+        match verb.to_lowercase().as_str() {
+            "write" | "create" | "generate" => "generate",
+            "inspect" | "check" | "audit" => "inspect",
+            "revise" | "edit" | "rewrite" => "revise",
+            "enhance" | "polish" => "enhance",
+            "plan" | "outline" | "structure" => "plan",
+            "manage" | "update" => "manage",
+            "search" => "search",
+            "fetch" | "query" => "fetch",
+            "analyze" => "analyze",
+            _ => verb, // 未知动词保持原样，避免过度归一化
+        }
+        .to_string()
+    }
+
+    /// v0.20.1: 将 LLM 返回的宾语归一化到 AssetSync 注册的标准宾语
+    pub fn normalize_object(object: &str) -> String {
+        match object.to_lowercase().as_str() {
+            "prose" | "content" | "story" | "novel" | "text" => "prose",
+            "chapter" | "scene" => "prose", // 章节/场景生成本质是 prose 生成
+            "quality" | "continuity" | "consistency" => "quality",
+            "style" | "dna" => "style",
+            "character" | "person" => "character",
+            "world" | "setting" | "worldview" => "world building",
+            "outline" | "plot" | "structure" => "structure",
+            "data" | "information" | "knowledge" => "data",
+            _ => object, // 未知宾语保持原样
+        }
+        .to_string()
     }
 
     /// 规则匹配的 Query Synthesis（回退路径）
