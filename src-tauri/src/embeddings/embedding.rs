@@ -131,6 +131,14 @@ pub struct CacheStats {
     pub hit_rate: f32,
 }
 
+/// 检查嵌入模型是否已初始化
+///
+/// v0.20.1: 供 AssetSyncEngine 在调用 embed_text 前检查，
+/// 避免未初始化时 EMBEDDING_CACHE.get().unwrap() panic。
+pub fn is_embedding_initialized() -> bool {
+    EMBEDDING_CACHE.get().is_some()
+}
+
 /// 初始化嵌入模型
 pub fn init_embedding_model() -> Result<(), Box<dyn std::error::Error>> {
     EMBEDDING_INIT.call_once(|| {

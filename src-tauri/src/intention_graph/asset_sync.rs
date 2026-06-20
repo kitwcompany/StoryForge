@@ -94,6 +94,16 @@ impl AssetSyncEngine {
         ];
 
         for (source, target, edge_type, weight) in workflow_edges {
+            // 容错：跳过尚未注册的资产（避免 FK 约束失败）
+            // 部分技能资产仅在 SkillManager 加载后才存在
+            if self.repo.get_asset(source)?.is_none() {
+                log::debug!("[AssetSyncEngine] Skip edge: source '{}' not registered", source);
+                continue;
+            }
+            if self.repo.get_asset(target)?.is_none() {
+                log::debug!("[AssetSyncEngine] Skip edge: target '{}' not registered", target);
+                continue;
+            }
             let edge = AssetAssetEdge {
                 id: None,
                 source_asset_id: source.to_string(),
@@ -432,16 +442,31 @@ fn extract_intentions_from_description(description: &str) -> Vec<String> {
 /// 导致 discover_tool_level 的描述匹配退化为 Jaccard 词重叠。
 ///
 /// 优先使用全局嵌入 provider（Ollama/OpenAI），失败时 graceful fallback
-/// 到本地 FNV-1a 哈希（embed_text 内部已处理）。
+/// 到 None（discover_tool_level 会回退到文本 Jaccard 匹配）。
+///
+/// 注意：embed_text 内部访问全局 OnceLock，未初始化时会 panic（unwrap on None）。
+/// 先检查 OnceLock 是否已初始化，避免 panic；再用 catch_unwind 兜底。
 fn generate_embedding(text: &str) -> Option<Vec<f32>> {
-    match crate::embeddings::embed_text(text) {
-        Ok(emb) => Some(emb),
-        Err(e) => {
+    // 快速检查：若 EMBEDDING_CACHE 全局状态未初始化，直接返回 None
+    // 避免 embed_text 内部的 .unwrap() panic
+    if !crate::embeddings::is_embedding_initialized() {
+        return None;
+    }
+
+    let result = std::panic::catch_unwind(|| crate::embeddings::embed_text(text));
+    match result {
+        Ok(Ok(emb)) => Some(emb),
+        Ok(Err(e)) => {
             log::debug!(
                 "[AssetSyncEngine] 嵌入生成失败（降级为 None，描述匹配将回退到文本相似度）: {}",
                 e
             );
             None
         }
+        Err(_) => {
+            log::debug!("[AssetSyncEngine] 嵌入生成 panic（全局状态未初始化），降级为 None");
+            None
+        }
     }
 }
+
