@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Settings2,
   BookOpen,
@@ -95,7 +95,49 @@ export function GeneralSettings() {
   const maxFeedbackLoops = settings?.max_feedback_loops ?? 2;
   const writingStrategy = settings?.writing_strategy ?? DEFAULT_WRITING_STRATEGY;
 
-  const debouncedUpdateSettings = useDebounceCallback(updateSettings, 300);
+  // 滑块、下拉选择、文本域仍使用防抖保存
+  const debouncedUpdateSettings = useDebounceCallback(updateSettings, 800);
+
+  // 超时设置本地状态（避免输入过程中频繁保存）
+  const [timeoutValues, setTimeoutValues] = useState({
+    llm_connect_timeout_secs: settings?.llm_connect_timeout_secs ?? 30,
+    llm_first_chunk_timeout_secs: settings?.llm_first_chunk_timeout_secs ?? 60,
+    executor_step_timeout_secs: settings?.executor_step_timeout_secs ?? 90,
+    smart_execute_total_timeout_secs: settings?.smart_execute_total_timeout_secs ?? 180,
+    frontend_timeout_secs: settings?.frontend_timeout_secs ?? 200,
+  });
+
+  // 当 settings 从服务端更新时，同步本地状态
+  useEffect(() => {
+    if (settings) {
+      setTimeoutValues({
+        llm_connect_timeout_secs: settings.llm_connect_timeout_secs ?? 30,
+        llm_first_chunk_timeout_secs: settings.llm_first_chunk_timeout_secs ?? 60,
+        executor_step_timeout_secs: settings.executor_step_timeout_secs ?? 90,
+        smart_execute_total_timeout_secs: settings.smart_execute_total_timeout_secs ?? 180,
+        frontend_timeout_secs: settings.frontend_timeout_secs ?? 200,
+      });
+    }
+  }, [
+    settings?.llm_connect_timeout_secs,
+    settings?.llm_first_chunk_timeout_secs,
+    settings?.executor_step_timeout_secs,
+    settings?.smart_execute_total_timeout_secs,
+    settings?.frontend_timeout_secs,
+  ]);
+
+  const handleTimeoutChange = (field: keyof typeof timeoutValues, value: number) => {
+    setTimeoutValues(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleTimeoutBlur = (field: keyof typeof timeoutValues) => {
+    const value = timeoutValues[field];
+    const originalValue = settings?.[field];
+    // 只有值真正改变时才保存
+    if (value !== originalValue) {
+      updateSettings({ [field]: value });
+    }
+  };
 
   const handleConcurrencyChange = (value: number) => {
     debouncedUpdateSettings({ book_deconstruction_concurrency: value });
@@ -681,10 +723,11 @@ export function GeneralSettings() {
                 type="number"
                 min={5}
                 max={120}
-                value={settings?.llm_connect_timeout_secs ?? 30}
+                value={timeoutValues.llm_connect_timeout_secs}
                 onChange={e =>
-                  debouncedUpdateSettings({ llm_connect_timeout_secs: Number(e.target.value) })
+                  handleTimeoutChange('llm_connect_timeout_secs', Number(e.target.value))
                 }
+                onBlur={() => handleTimeoutBlur('llm_connect_timeout_secs')}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -703,10 +746,11 @@ export function GeneralSettings() {
                 type="number"
                 min={10}
                 max={300}
-                value={settings?.llm_first_chunk_timeout_secs ?? 60}
+                value={timeoutValues.llm_first_chunk_timeout_secs}
                 onChange={e =>
-                  debouncedUpdateSettings({ llm_first_chunk_timeout_secs: Number(e.target.value) })
+                  handleTimeoutChange('llm_first_chunk_timeout_secs', Number(e.target.value))
                 }
+                onBlur={() => handleTimeoutBlur('llm_first_chunk_timeout_secs')}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -725,10 +769,11 @@ export function GeneralSettings() {
                 type="number"
                 min={10}
                 max={300}
-                value={settings?.executor_step_timeout_secs ?? 90}
+                value={timeoutValues.executor_step_timeout_secs}
                 onChange={e =>
-                  debouncedUpdateSettings({ executor_step_timeout_secs: Number(e.target.value) })
+                  handleTimeoutChange('executor_step_timeout_secs', Number(e.target.value))
                 }
+                onBlur={() => handleTimeoutBlur('executor_step_timeout_secs')}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
               />
               <p className="text-xs text-gray-500 mt-1">单步超时应小于总超时，默认 90 秒</p>
@@ -743,12 +788,11 @@ export function GeneralSettings() {
                 type="number"
                 min={30}
                 max={600}
-                value={settings?.smart_execute_total_timeout_secs ?? 180}
+                value={timeoutValues.smart_execute_total_timeout_secs}
                 onChange={e =>
-                  debouncedUpdateSettings({
-                    smart_execute_total_timeout_secs: Number(e.target.value),
-                  })
+                  handleTimeoutChange('smart_execute_total_timeout_secs', Number(e.target.value))
                 }
+                onBlur={() => handleTimeoutBlur('smart_execute_total_timeout_secs')}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -767,10 +811,9 @@ export function GeneralSettings() {
                 type="number"
                 min={30}
                 max={900}
-                value={settings?.frontend_timeout_secs ?? 200}
-                onChange={e =>
-                  debouncedUpdateSettings({ frontend_timeout_secs: Number(e.target.value) })
-                }
+                value={timeoutValues.frontend_timeout_secs}
+                onChange={e => handleTimeoutChange('frontend_timeout_secs', Number(e.target.value))}
+                onBlur={() => handleTimeoutBlur('frontend_timeout_secs')}
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
               />
               <p className="text-xs text-gray-500 mt-1">

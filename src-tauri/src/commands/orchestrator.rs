@@ -1,6 +1,6 @@
 //! Orchestrator commands
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::{
     db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
@@ -36,10 +36,12 @@ pub async fn smart_execute(
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
     // v0.15.5: 从 AppConfig 读取硬超时，默认 180s
-    let smart_execute_timeout = crate::get_pool()
-        .and_then(|_| {
-            crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default()).ok()
-        })
+    // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()，确保读取到用户实际配置
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+    let smart_execute_timeout = crate::config::AppConfig::load(&app_dir)
         .map(|c| c.smart_execute_total_timeout_secs)
         .unwrap_or(180u64);
     let pool_inner = pool.inner().clone();

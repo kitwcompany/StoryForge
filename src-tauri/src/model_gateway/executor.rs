@@ -180,7 +180,13 @@ impl GatewayExecutor {
                 });
             from_registry
                 .or_else(|| {
-                    crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default())
+                    // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()
+                    let app_dir = self
+                        .app_handle
+                        .path()
+                        .app_data_dir()
+                        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+                    crate::config::AppConfig::load(&app_dir)
                         .ok()
                         .and_then(|cfg| {
                             if cfg.probe_prompt_override.is_empty() {

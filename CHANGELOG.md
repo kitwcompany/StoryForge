@@ -2,6 +2,17 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.18.1] - 设置超时修复：数字输入体验 + 配置读取路径（2026-06-20）
+
+### 修复
+
+- **前端数字输入过快保存**：后台设置「超时设置」数字输入框从 `onChange` + 300ms 防抖改为 **本地 state + `onBlur` 保存**。用户输入多位数字（如 300→600）时，不再在输入中途弹出「设置已保存」。
+- **后端超时配置不生效**：修复 3 处 `AppConfig::load` 错误使用 `std::env::current_dir()` 而非 `app_handle.path().app_data_dir()` 的问题：
+  - `commands/orchestrator.rs` `smart_execute` 总超时读取
+  - `planner/executor.rs` 单步超时读取
+  - `model_gateway/executor.rs` 探测提示词覆盖读取
+  - **根因**：配置存储在应用数据目录（`~/Library/Application Support/com.storyforge.app/`），但代码从当前工作目录读取，导致总是读到默认值（180 秒），用户在前端设置的 600 秒总超时永不生效。
+
 ## [v0.18.0] - 后台资产深度审计 × 智能创作流程全面优化（2026-06-20）
 
 ### 审计背景

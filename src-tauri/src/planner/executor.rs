@@ -292,7 +292,15 @@ impl PlanExecutor {
                     // v0.14.0: 单步超时 90 秒，防止某个 capability 卡死拖垮整个计划。
                     // 超时记为 step failed 但不中断后续批次（保持容错语义）。
                     // v0.15.5: 从 AppConfig 读取，默认 90s
-                    let step_timeout_secs = crate::config::AppConfig::load(&std::env::current_dir().unwrap_or_default()).ok().map(|c| c.executor_step_timeout_secs).unwrap_or(90u64);
+                    // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()
+                    let app_dir = self
+                        .app_handle
+                        .path()
+                        .app_data_dir()
+                        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+                    let step_timeout_secs = crate::config::AppConfig::load(&app_dir)
+                        .map(|c| c.executor_step_timeout_secs)
+                        .unwrap_or(90u64);
                     let result = match tokio::time::timeout(
                         std::time::Duration::from_secs(step_timeout_secs),
                         self.execute_step(&step, &resolved_params, plan_context),
