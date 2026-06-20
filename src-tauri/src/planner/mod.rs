@@ -311,7 +311,28 @@ impl PlanGenerator {
 
         self.emit_progress("planning", "正在生成执行计划...");
 
-        let prompt = format!(
+        // v0.21.0: 检查 PromptRegistry 是否有 planner_generator 覆盖
+        // 有覆盖时用覆盖内容（支持 {{user_input}} {{capabilities}} 等变量），
+        // 无覆盖时用原有动态拼接逻辑
+        let prompt = if let Some(pool) = crate::get_pool() {
+            crate::prompts::registry::resolve_prompt(&pool, "planner_generator").ok()
+        } else {
+            crate::prompts::registry::resolve_prompt_default("planner_generator")
+        };
+
+        let prompt = if let Some(template) = prompt {
+            // 用户覆盖了 PlanGenerator prompt，渲染模板变量
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("user_input".to_string(), context.user_input.clone());
+            vars.insert("capabilities".to_string(), registry_clean.clone());
+            vars.insert("story_context".to_string(), format!(
+                "Has story: {}\nChapter count: {}\nTotal word count: {}",
+                context.has_story, context.chapter_count, context.total_word_count
+            ));
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&template, &vars)
+        } else {
+            // 默认动态拼接逻辑（原代码）
+            format!(
             r#"You are an intelligent orchestrator for a creative writing application.
 
 Current system state:
@@ -409,7 +430,8 @@ Rules:
             preview_clean,
             user_input_clean,
             registry_clean
-        );
+        )
+        }; // 结束 else（默认动态拼接）
 
         // 计划生成JSON通常只需要几百tokens，1024足够，减少等待时间
         let response = self

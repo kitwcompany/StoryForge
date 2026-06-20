@@ -431,7 +431,16 @@ impl IngestPipeline {
             }
         }
 
-        let base_prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        let base_prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "memory_content_analysis").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("memory_content_analysis"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("content".to_string(), content.text.clone());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
 
 【内容】
@@ -511,7 +520,7 @@ impl IngestPipeline {
 5. 确保输出是合法的JSON，不要添加markdown代码块标记
 6. 如果文本中没有足够信息，返回空数组即可，不要编造"#,
             content.text, content.source
-        );
+        )};
 
         let mut last_error: Option<String> = None;
         for attempt in 0..3 {

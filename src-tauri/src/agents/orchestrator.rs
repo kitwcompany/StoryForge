@@ -693,12 +693,23 @@ impl AgentOrchestrator {
         } else {
             task.input.clone()
         };
-        let prompt = format!(
-            "你是一名专业的小说作者。请根据以下设定写一段正文（800-1500字）。\n\n\
-             {bundle_prompt}\n\n\
-             【创作指令】\n{user_instruction}\n\n\
-             请直接输出正文，不要写说明、标题或分章标记。"
-        );
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "orchestrator_timesliced_writer").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("orchestrator_timesliced_writer"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("context".to_string(), bundle_prompt.clone());
+            vars.insert("instruction".to_string(), user_instruction.clone());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
+                "你是一名专业的小说作者。请根据以下设定写一段正文（800-1500字）。\n\n\
+                 {bundle_prompt}\n\n\
+                 【创作指令】\n{user_instruction}\n\n\
+                 请直接输出正文，不要写说明、标题或分章标记。"
+            )
+        };
 
         self.emit_generation_status(
             &task.id,

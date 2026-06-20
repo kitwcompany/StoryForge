@@ -320,7 +320,16 @@ impl BookAnalyzer {
         &self,
         sample_text: &str,
     ) -> Result<ExtractedMetadata, AnalysisError> {
-        let prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "deconstruction_metadata").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("deconstruction_metadata"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("text".to_string(), sample_text.to_string());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"请分析以下小说开头，提取基本信息。只输出 JSON，不要有任何其他文字。
 
 要求：
@@ -336,7 +345,7 @@ impl BookAnalyzer {
 JSON格式：
 {{"title":"...","author":"...","genre":"...","genre_tags":["..."],"estimated_word_count":12345}}"#,
             sample_text
-        );
+        )};
 
         let response = self
             .call_llm(
@@ -391,7 +400,16 @@ JSON格式：
         self.emit_progress(book_id, "analyzing", 18, "正在调用LLM分析世界观...")
             .await;
 
-        let prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "deconstruction_world_building").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("deconstruction_world_building"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("text".to_string(), sample.to_string());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"请基于以下小说文本片段，提取世界观设定。用中文简洁描述，不超过500字。
 
 需要包含：
@@ -405,7 +423,7 @@ JSON格式：
 
 请直接输出世界观描述文本，不要输出 JSON。"#,
             sample
-        );
+        )};
 
         let response = self
             .call_llm(
@@ -441,7 +459,16 @@ JSON格式：
                 }
             }
 
-            let prompt = format!(
+            // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "deconstruction_characters").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("deconstruction_characters"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("text".to_string(), chunk.content.clone());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
                 r#"请分析以下小说章节，提取所有出现的人物角色。只输出 JSON，不要有任何其他文字。
 
 要求：
@@ -459,7 +486,7 @@ JSON格式：
 JSON格式：
 {{"characters":[{{"name":"...","role_type":"...","personality":"...","appearance":"...","relationships":[]}}]}}"#,
                 extract_sample(&chunk.content, 4000)
-            );
+            )};
 
             let response = self
                 .call_llm_with_semaphore(
@@ -568,7 +595,16 @@ JSON格式：
                 }
             }
 
-            let prompt = format!(
+            // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "deconstruction_chapter_summary").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("deconstruction_chapter_summary"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("text".to_string(), chunk.content.clone());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
                 r#"请总结以下小说章节的内容。只输出 JSON，不要有任何其他文字。
 
 要求：
@@ -584,7 +620,7 @@ JSON格式：
 JSON格式：
 {{"summary":"...","characters_present":["..."],"key_events":["..."],"conflict_type":"...","emotional_tone":"..."}}"#,
                 extract_sample(&chunk.content, 5000)
-            );
+            )};
 
             self.emit_progress(
                 book_id,

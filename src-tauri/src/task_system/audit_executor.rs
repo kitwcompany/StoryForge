@@ -200,6 +200,21 @@ fn build_inspector_prompt(payload: &AuditPayload) -> String {
     let title = payload.story_title.as_deref().unwrap_or("未命名作品");
     let genre = payload.genre.as_deref().unwrap_or("未知");
 
+    // v0.21.0: 优先从 PromptRegistry 读取覆盖
+    if let Some(tpl) = crate::get_pool()
+        .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "audit_quality_inspector").ok())
+        .or_else(|| crate::prompts::registry::resolve_prompt_default("audit_quality_inspector"))
+    {
+        let content = payload
+            .content
+            .chars()
+            .take(8000)
+            .collect::<String>();
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("content".to_string(), content);
+        return crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+    }
+
     format!(
         r#"你是一名严苛的专业小说编辑。请对以下正文片段进行 11 维度质量审计。
 这是异步审计，结果将以 inline 标注形式呈现给作者，请聚焦"可操作的问题"，避免泛泛而谈。

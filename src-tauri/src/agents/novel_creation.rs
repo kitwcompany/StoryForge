@@ -90,7 +90,17 @@ impl NovelCreationAgent {
         user_input: &str,
         options: &GenerationOptions,
     ) -> Result<Vec<WorldBuildingOption>, Box<dyn std::error::Error>> {
-        let prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "novel_creation_world_options").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("novel_creation_world_options"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("count".to_string(), options.count.to_string());
+            vars.insert("input".to_string(), user_input.to_string());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"作为一位资深世界观设计师，请基于以下用户输入，创建{}个独特的世界观概念。
 
 用户输入：{}
@@ -124,7 +134,7 @@ impl NovelCreationAgent {
 - importance 范围 1-10
 - 确保JSON格式正确"#,
             options.count, user_input
-        );
+        )};
 
         let response = self
             .llm_service
@@ -166,7 +176,17 @@ impl NovelCreationAgent {
                 .join("\n")
         );
 
-        let prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "novel_creation_character_roster").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("novel_creation_character_roster"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("count".to_string(), options.count.to_string());
+            vars.insert("input".to_string(), world_info.to_string());
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"作为一位角色设计专家，请基于以下世界观，创建{}组不同的角色配置。
 
 {}
@@ -201,7 +221,7 @@ impl NovelCreationAgent {
 - 每组角色之间应有内在联系和冲突
 - 确保JSON格式正确"#,
             options.count, world_info
-        );
+        )};
 
         let response = self
             .llm_service
@@ -238,7 +258,17 @@ impl NovelCreationAgent {
         world_building: &WorldBuildingOption,
         options: &GenerationOptions,
     ) -> Result<Vec<WritingStyleOption>, Box<dyn std::error::Error>> {
-        let prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "novel_creation_writing_style").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("novel_creation_writing_style"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("count".to_string(), options.count.to_string());
+            vars.insert("input".to_string(), format!("{} {}", genre, world_building.concept));
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"作为一位资深文学编辑，请基于以下小说类型和世界观，创建{}种不同的文字风格。
 
 小说类型：{}
@@ -271,7 +301,7 @@ impl NovelCreationAgent {
 - 示例文本应该能体现该风格特点
 - 确保JSON格式正确"#,
             options.count, genre, world_building.concept
-        );
+        )};
 
         let response = self
             .llm_service
@@ -308,7 +338,16 @@ impl NovelCreationAgent {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let prompt = format!(
+        // v0.21.0: 优先从 PromptRegistry 读取
+        let prompt = if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "novel_creation_opening_scene").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("novel_creation_opening_scene"))
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("input".to_string(), format!("{} {} {}", world_building.concept, char_info, writing_style.name));
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
+        } else {
+            format!(
             r#"作为一位场景设计专家，请基于以下设定，设计一个开场场景。
 
 世界观：{}
@@ -340,7 +379,7 @@ impl NovelCreationAgent {
 - 场景应该能吸引读者继续阅读
 - 确保JSON格式正确"#,
             world_building.concept, char_info, writing_style.name
-        );
+        )};
 
         let response = self
             .llm_service

@@ -177,6 +177,14 @@ impl Methodology for SceneStructureMethodology {
     }
 
     fn system_prompt_extension(&self) -> String {
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "methodology_scene_structure").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("methodology_scene_structure"))
+        {
+            return tpl;
+        }
+
         let mut prompt = r#"你必须遵循场景结构规范进行写作：
 
 每个场景必须是以下两种类型之一：

@@ -151,6 +151,26 @@ fn build_selection_prompt(
     assets: &[SelectableAsset],
     current_strategy: &SelectedStrategy,
 ) -> String {
+    // v0.21.0: 优先从 PromptRegistry 读取覆盖
+    if let Some(tpl) = crate::get_pool()
+        .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "strategy_selector").ok())
+        .or_else(|| crate::prompts::registry::resolve_prompt_default("strategy_selector"))
+    {
+        let context_str = format!(
+            "user_input: {}\nstory_progress: {}\nhas_story: {}",
+            context.user_input, context.story_progress, context.has_story
+        );
+        let assets_str = assets
+            .iter()
+            .map(|a| format!("- {}: {}", a.id, a.name))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("context".to_string(), context_str);
+        vars.insert("available_assets".to_string(), assets_str);
+        return crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+    }
+
     let mut sections: Vec<String> = vec![
         "You are a creative strategy selector for a Chinese web-novel writing assistant."
             .to_string(),

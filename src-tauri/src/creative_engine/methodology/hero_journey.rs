@@ -228,6 +228,14 @@ impl Methodology for HeroJourneyMethodology {
     }
 
     fn system_prompt_extension(&self) -> String {
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "methodology_hero_journey").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("methodology_hero_journey"))
+        {
+            return tpl;
+        }
+
         let stage = self.stage;
         format!(
             r#"你正在使用英雄之旅结构进行创作。

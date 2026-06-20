@@ -157,6 +157,14 @@ impl Methodology for CharacterDepthModel {
     }
 
     fn system_prompt_extension(&self) -> String {
+        // v0.21.0: 优先从 PromptRegistry 读取覆盖
+        if let Some(tpl) = crate::get_pool()
+            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "methodology_character_depth").ok())
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("methodology_character_depth"))
+        {
+            return tpl;
+        }
+
         let mut prompt = r#"你必须遵循人物深度模型塑造角色：
 
 每个主要角色必须有以下六个维度：
