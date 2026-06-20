@@ -2,6 +2,48 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.20.0] - SING 意图图集成：动态 ReAct + 分层发现（2026-06-21）
+
+### 核心功能
+
+- **SING 意图图架构**：全面集成 arXiv:2606.16591v2 论文的意图-工具异构图理论，实现从"关键词匹配"到"意图驱动"的智能创作调度范式升级。
+- **意图合成流水线**：三阶段合成（Query Synthesis → Chain Expansion → Atomic Intention Extraction），将用户自然语言输入转化为原子化动词-宾语意图节点。
+- **分层发现机制**：Server-level PPR 图传播 + Tool-level 描述/意图/图信号融合评分，动态发现最匹配的 Agent/Skill/MCP 工具。
+- **动态 ReAct 执行**：Actions ∈ {Discover, Invoke, Respond}，工具集在运行时动态累积，支持意图漂移自适应。
+- **模型网关意图感知**：`classify_by_intention()` 将 SING 意图动词映射到 TaskClass（LightTool/BalancedWork/HeavyCreation），实现意图感知的模型路由。
+
+### 后端架构
+
+- **新模块 `intention_graph/`**（11 个文件）：
+  - `models.rs`：意图节点/资产节点/边类型/执行图等核心数据结构
+  - `graph.rs`：SQLite + 内存缓存混合存储，`IntentionGraphRepository` 提供完整 CRUD
+  - `builder.rs`：`IntentSynthesisPipeline` 离线意图合成
+  - `discovery.rs`：`LayeredDiscovery` 分层发现 + `GraphScorer` PPR 评分
+  - `reactor.rs`：`DynamicReactor` 动态 ReAct 执行循环
+  - `planner.rs`：`IntentionGraphPlanner`  wrapping PlanGenerator，提供 `generate_plan()` / `execute_with_react()`
+  - `commands.rs`：2 个 IPC 诊断命令（`get_intention_graph_diagnostics` / `get_execution_graph_detail`）
+  - `mod.rs` / `tests.rs`：模块组织 + 16 个单元测试
+- **Migration 95**：6 张新表（`intention_nodes` / `asset_nodes` / `intention_asset_edges` / `asset_asset_edges` / `execution_graphs` / `execution_nodes`）
+- **PlanExecutor 集成**：`execute_with_context()` 新增 IntentionGraphPlanner 路径，模板匹配 → 意图图 → PlanGenerator → 直接 Writer 四级回退
+- **模型网关集成**：`model_gateway/dispatcher.rs` 新增 `classify_by_intention()` + `classify_by_object()`，3 个单元测试
+
+### 前端诊断面板
+
+- **意图图诊断页面**：`IntentionGraphDiagnostics.tsx` —— 统计卡片（意图/资产/边数量）、最近执行记录列表、执行图详情钻取（JSON 计划/结果可视化）
+- **侧边栏入口**：新增「意图图」导航项（BrainCircuit 图标），`ViewType` 扩展 `'intention-graph'`
+
+### 设计决策
+
+- **零回归风险**：IntentionGraphPlanner 作为 PlanGenerator 的增强包装器，所有现有路径保持不变，仅在高置信度时启用意图图路径
+- **混合存储**：热数据走内存缓存，冷数据持久化到 SQLite，启动时 `warm_up_cache()` 自动加载
+- **离线合成**：意图合成不依赖 LLM 实时调用，通过规则 + 模板在本地完成
+
+### 编译状态
+
+- `cargo check` ✅ 零错误
+- `cargo test --lib intention_graph` ✅ 16/16 通过
+- `npx tsc --noEmit` ✅ 零错误
+
 ## [v0.19.0] - 提示词全面可配置化（2026-06-18）
 
 ### 核心功能

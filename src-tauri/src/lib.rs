@@ -19,6 +19,7 @@ pub(crate) mod embeddings;
 mod error;
 mod events;
 mod export;
+mod intention_graph;
 mod intent;
 mod knowledge_base;
 mod llm;

@@ -287,4 +287,7 @@ tauri::generate_handler![
     commands::narrative::get_narrative_events,
     commands::narrative::get_narrative_threads,
     commands::narrative::get_narrative_chunks,
+    // SING 意图图诊断命令
+    intention_graph::commands::get_intention_graph_diagnostics,
+    intention_graph::commands::get_execution_graph_detail,
 ]

@@ -293,6 +293,7 @@ export type ViewType =
   | 'story-system'
   | 'usage-stats'
   | 'writing-stats'
+  | 'intention-graph'
   | 'settings';
 
 // ===== Intent Engine Types =====

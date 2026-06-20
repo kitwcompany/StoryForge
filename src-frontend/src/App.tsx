@@ -20,6 +20,7 @@ import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
 import { StorySystem } from '@/pages/StorySystem';
 import { UsageStats } from '@/pages/UsageStats';
 import { WritingStats } from '@/pages/WritingStats';
+import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -264,6 +265,8 @@ function App() {
         return <UsageStats />;
       case 'writing-stats':
         return <WritingStats />;
+      case 'intention-graph':
+        return <IntentionGraphDiagnostics />;
       default:
         return <Dashboard />;
     }

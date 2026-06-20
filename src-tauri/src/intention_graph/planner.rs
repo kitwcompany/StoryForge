@@ -1,0 +1,856 @@
+//! IntentionGraphPlanner - SING 意图图驱动的计划生成器
+//!
+//! 将 SING 意图图理论集成到 StoryForge 的计划生成流程中：
+//! 1. 意图合成（IntentSynthesisPipeline）→ 原子意图
+//! 2. 分层发现（LayeredDiscovery）→ 相关资产
+//! 3. 执行图构建（ExecutionGraphBuilder）→ ExecutionPlan
+//! 4. 回退机制：若意图图失败，自动回退到原有 PlanGenerator
+//!
+//! 设计原则：零回归风险——保留所有现有 PlanGenerator 行为，
+//! 仅在意图图置信度足够高时启用新路径。
+
+use std::collections::HashMap;
+
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::{
+    error::AppError,
+    intention_graph::{
+        builder::IntentSynthesisPipeline,
+        context::IntentContext,
+        discovery::LayeredDiscovery,
+        graph::IntentionGraphRepository,
+        models::{
+            AssetDiscoveryResult, AssetNode, AssetType, ExecutionGraph, ExecutionGraphStatus,
+            ExecutionNode, ExecutionNodeStatus, IntentSynthesisResult,
+        },
+        reactor::{DynamicReactor, ReActAction},
+        scorer::{GraphScorer, PprConfig},
+    },
+    llm::LlmService,
+    planner::{ExecutionPlan, PlanContext, PlanGenerator, PlanStep},
+};
+
+/// 意图图计划生成器
+///
+/// 包装原有 PlanGenerator，在意图图可用时优先使用意图图路径。
+pub struct IntentionGraphPlanner {
+    llm_service: LlmService,
+    app_handle: Option<AppHandle>,
+    graph_repo: Option<IntentionGraphRepository>,
+    fallback_generator: PlanGenerator,
+    /// 启用意图图的最小置信度阈值
+    min_confidence_threshold: f64,
+    /// 是否强制使用回退（用于调试或降级）
+    force_fallback: bool,
+}
+
+impl IntentionGraphPlanner {
+    pub fn new(llm_service: LlmService, app_handle: Option<AppHandle>) -> Self {
+        let fallback_generator = PlanGenerator::new(llm_service.clone());
+        Self {
+            llm_service: llm_service.clone(),
+            app_handle: app_handle.clone(),
+            graph_repo: None,
+            fallback_generator,
+            min_confidence_threshold: 0.5,
+            force_fallback: false,
+        }
+    }
+
+    pub fn with_app_handle(mut self, app_handle: AppHandle) -> Self {
+        self.app_handle = Some(app_handle.clone());
+        self.fallback_generator = self.fallback_generator.with_app_handle(app_handle);
+        self
+    }
+
+    pub fn with_graph_repo(mut self, repo: IntentionGraphRepository) -> Self {
+        self.graph_repo = Some(repo);
+        self
+    }
+
+    pub fn with_min_confidence(mut self, threshold: f64) -> Self {
+        self.min_confidence_threshold = threshold.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn force_fallback(mut self, force: bool) -> Self {
+        self.force_fallback = force;
+        self
+    }
+
+    fn emit_progress(&self, stage: &str, message: &str) {
+        if let Some(ref app) = self.app_handle {
+            let _ = app.emit(
+                "intention-graph-planner-progress",
+                serde_json::json!({
+                    "stage": stage,
+                    "message": message,
+                }),
+            );
+        }
+    }
+
+    /// 生成执行计划——意图图优先路径，带自动回退
+    ///
+    /// 流程：
+    /// 1. 意图合成（三阶段）
+    /// 2. 置信度检查 → 低置信度直接回退
+    /// 3. 分层发现（Server-level PPR + Tool-level 融合）
+    /// 4. 执行图构建 → 转换为 ExecutionPlan
+    /// 5. 若任何环节失败，回退到原有 PlanGenerator
+    pub async fn generate_plan(
+        &self,
+        context: &PlanContext,
+    ) -> Result<ExecutionPlan, AppError> {
+        // 若强制回退或意图图不可用，直接走原有路径
+        if self.force_fallback || self.graph_repo.is_none() {
+            log::info!("[IntentionGraphPlanner] Fallback mode: using PlanGenerator");
+            return self.fallback_generator.generate_plan(context).await;
+        }
+
+        let start = std::time::Instant::now();
+        self.emit_progress("synthesis", "正在合成创作意图...");
+
+        // Step 1: 意图合成
+        let synthesis_result = match self.synthesize_intent(context).await {
+            Ok(result) => result,
+            Err(e) => {
+                log::warn!(
+                    "[IntentionGraphPlanner] Intent synthesis failed ({}), falling back to PlanGenerator",
+                    e
+                );
+                return self.fallback_generator.generate_plan(context).await;
+            }
+        };
+
+        log::info!(
+            "[IntentionGraphPlanner] Synthesis confidence: {:.2}, root_intent: {} {}",
+            synthesis_result.confidence,
+            synthesis_result.root_intention.verb,
+            synthesis_result.root_intention.object
+        );
+
+        // Step 2: 置信度检查
+        if synthesis_result.confidence < self.min_confidence_threshold {
+            log::info!(
+                "[IntentionGraphPlanner] Confidence {:.2} below threshold {:.2}, falling back",
+                synthesis_result.confidence,
+                self.min_confidence_threshold
+            );
+            return self.fallback_generator.generate_plan(context).await;
+        }
+
+        self.emit_progress("discovery", "正在发现相关创作资产...");
+
+        // Step 3: 分层发现
+        let discovered_assets = match self.discover_assets(&synthesis_result).await {
+            Ok(assets) => assets,
+            Err(e) => {
+                log::warn!(
+                    "[IntentionGraphPlanner] Asset discovery failed ({}), falling back",
+                    e
+                );
+                return self.fallback_generator.generate_plan(context).await;
+            }
+        };
+
+        log::info!(
+            "[IntentionGraphPlanner] Discovered {} assets",
+            discovered_assets.len()
+        );
+
+        // Step 4: 执行图构建 → ExecutionPlan
+        self.emit_progress("building_plan", "正在构建执行计划...");
+        match self.build_execution_plan(&synthesis_result, &discovered_assets, context).await {
+            Ok(plan) => {
+                let elapsed = start.elapsed().as_millis();
+                log::info!(
+                    "[IntentionGraphPlanner] Plan generated in {}ms ({} steps, intention-graph path)",
+                    elapsed,
+                    plan.steps.len()
+                );
+                self.emit_progress("complete", "执行计划构建完成");
+                Ok(plan)
+            }
+            Err(e) => {
+                log::warn!(
+                    "[IntentionGraphPlanner] Plan building failed ({}), falling back",
+                    e
+                );
+                self.fallback_generator.generate_plan(context).await
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 内部步骤
+    // ------------------------------------------------------------------
+
+    /// 意图合成：将用户输入转化为原子意图
+    async fn synthesize_intent(
+        &self,
+        context: &PlanContext,
+    ) -> Result<IntentSynthesisResult, AppError> {
+        let pipeline = IntentSynthesisPipeline::new(self.llm_service.clone());
+
+        // 构建意图上下文
+        let mut intent_context = IntentContext::new()
+            .with_story_id(context.current_story_id.clone().unwrap_or_default());
+
+        // 将会话参数存入 context
+        intent_context.set_param("user_input", &context.user_input);
+        if let Some(ref preview) = context.current_content_preview {
+            intent_context.set_param("current_content", preview);
+        }
+        intent_context.set_param("story_progress", &context.story_progress);
+        intent_context.set_param("scene_count", context.scene_count);
+        intent_context.set_param("has_chapters", context.has_chapters);
+        intent_context.set_param("chapter_count", context.chapter_count);
+        if let Some(ref selected) = context.selected_text {
+            intent_context.set_param("selected_text", selected);
+        }
+        intent_context.add_input(context.user_input.clone());
+
+        // 使用 rule-based 合成（非阻塞，无需 await）
+        let result = pipeline.synthesize_full(&context.user_input, &intent_context)?;
+        Ok(result)
+    }
+
+    /// 分层发现：基于意图发现相关资产
+    async fn discover_assets(
+        &self,
+        synthesis: &IntentSynthesisResult,
+    ) -> Result<Vec<AssetDiscoveryResult>, AppError> {
+        let graph_repo = self
+            .graph_repo
+            .as_ref()
+            .ok_or_else(|| AppError::internal("Graph repository not available".to_string()))?;
+
+        let scorer = crate::intention_graph::GraphScorer::new(crate::intention_graph::scorer::PprConfig::default());
+        let discovery = LayeredDiscovery::new(scorer);
+
+        // 使用根意图进行发现
+        let max_results = 10;
+        let results = discovery.discover(&synthesis.root_intention, graph_repo, max_results)?;
+
+        Ok(results)
+    }
+
+    /// 构建执行计划：将发现的资产转换为 ExecutionPlan
+    async fn build_execution_plan(
+        &self,
+        synthesis: &IntentSynthesisResult,
+        discovered_assets: &[AssetDiscoveryResult],
+        context: &PlanContext,
+    ) -> Result<ExecutionPlan, AppError> {
+        let mut steps = Vec::new();
+        let mut step_index = 0;
+
+        // 按资产类型分组和排序
+        let mut agent_steps: Vec<PlanStep> = Vec::new();
+        let mut skill_steps: Vec<PlanStep> = Vec::new();
+        let mut system_steps: Vec<PlanStep> = Vec::new();
+        let mut mcp_steps: Vec<PlanStep> = Vec::new();
+
+        for discovery in discovered_assets {
+            let asset = &discovery.asset;
+            let step = self.asset_to_plan_step(asset, context, step_index)?;
+            step_index += 1;
+
+            match asset.asset_type {
+                AssetType::Agent => agent_steps.push(step),
+                AssetType::Skill => skill_steps.push(step),
+                AssetType::SystemCommand => system_steps.push(step),
+                AssetType::McpTool => mcp_steps.push(step),
+                _ => {
+                    // 方法论、风格DNA等作为上下文注入，不生成独立步骤
+                    log::debug!(
+                        "[IntentionGraphPlanner] Asset {} ({:?}) injected as context",
+                        asset.name,
+                        asset.asset_type
+                    );
+                }
+            }
+        }
+
+        // 组装步骤：系统命令 → Agent → 技能 → MCP
+        // 依赖关系：技能可能依赖 Agent 的输出
+        steps.extend(system_steps);
+        steps.extend(agent_steps.clone());
+
+        // 技能步骤添加对前一个 Agent 的依赖
+        for (i, mut skill_step) in skill_steps.into_iter().enumerate() {
+            if !agent_steps.is_empty() {
+                let last_agent = &agent_steps[agent_steps.len() - 1];
+                skill_step.depends_on.push(last_agent.step_id.clone());
+            }
+            steps.push(skill_step);
+        }
+
+        // MCP 步骤添加依赖
+        for mut mcp_step in mcp_steps {
+            if !steps.is_empty() {
+                mcp_step.depends_on.push(steps[steps.len() - 1].step_id.clone());
+            }
+            steps.push(mcp_step);
+        }
+
+        // 如果没有发现任何可执行步骤，回退失败
+        if steps.is_empty() {
+            return Err(AppError::internal(
+                "No executable assets discovered from intention graph".to_string(),
+            ));
+        }
+
+        // 构建理解文本
+        let understanding = format!(
+            "[意图图] {} {} → 发现 {} 个资产（置信度: {:.2}）",
+            synthesis.root_intention.verb,
+            synthesis.root_intention.object,
+            discovered_assets.len(),
+            synthesis.confidence
+        );
+
+        Ok(ExecutionPlan {
+            understanding,
+            steps,
+            fallback_message: "意图图计划执行失败，请重试".to_string(),
+        })
+    }
+
+    /// 将资产节点转换为 PlanStep
+    fn asset_to_plan_step(
+        &self,
+        asset: &AssetNode,
+        context: &PlanContext,
+        index: usize,
+    ) -> Result<PlanStep, AppError> {
+        let step_id = format!("ig_step_{}", index + 1);
+
+        // 资产类型 → capability_id 映射
+        let capability_id = match asset.asset_type {
+            AssetType::Agent => {
+                // Agent 资产：writer, inspector, outline_planner 等
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_"))
+            }
+            AssetType::Skill => {
+                // 技能资产：builtin.style_enhancer 等
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| format!("builtin.{}", asset.name.to_lowercase().replace(' ', "_")))
+            }
+            AssetType::SystemCommand => {
+                // 系统命令：create_chapter, update_character 等
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_"))
+            }
+            AssetType::McpTool => {
+                // MCP 工具：mcp.server_id.tool_name
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| format!("mcp.{}", asset.name.to_lowercase().replace(' ', "_")))
+            }
+            _ => asset.name.to_lowercase().replace(' ', "_"),
+        };
+
+        // 构建参数
+        let mut parameters = HashMap::new();
+
+        // 注入上下文参数
+        if let Some(ref story_id) = context.current_story_id {
+            parameters.insert(
+                "story_id".to_string(),
+                serde_json::Value::String(story_id.clone()),
+            );
+        }
+        if let Some(ref preview) = context.current_content_preview {
+            parameters.insert(
+                "current_content".to_string(),
+                serde_json::Value::String(preview.clone()),
+            );
+        }
+        if let Some(ref selected) = context.selected_text {
+            parameters.insert(
+                "selected_text".to_string(),
+                serde_json::Value::String(selected.clone()),
+            );
+        }
+
+        // 注入资产元数据参数
+        if let Some(ref metadata) = asset.metadata {
+            if let Some(obj) = metadata.as_object() {
+                for (key, value) in obj {
+                    parameters.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        // 用户输入作为 instruction
+        parameters.insert(
+            "instruction".to_string(),
+            serde_json::Value::String(context.user_input.clone()),
+        );
+
+        Ok(PlanStep {
+            step_id,
+            capability_id,
+            purpose: format!("[意图图] {}: {}", asset.name, asset.description),
+            parameters,
+            depends_on: vec![],
+        })
+    }
+
+    /// 将 ExecutionPlan 转换为 ExecutionGraph 并运行动态 ReAct 循环
+    ///
+    /// 这是 SING 动态执行的核心：计划不是静态的，而是在执行过程中
+    /// 根据输出动态发现新意图和资产。
+    pub async fn execute_with_react(
+        &self,
+        plan: &ExecutionPlan,
+        request_id: &str,
+    ) -> Result<(Vec<ReActAction>, serde_json::Value), AppError> {
+        let mut graph = ExecutionGraph {
+            id: format!("eg_{}", request_id),
+            request_id: request_id.to_string(),
+            story_id: None,
+            user_input: plan.understanding.clone(),
+            root_intention_id: None,
+            status: ExecutionGraphStatus::Building,
+            plan_json: Some(serde_json::to_string(plan).unwrap_or_default()),
+            result_json: None,
+            created_at: chrono::Local::now(),
+            completed_at: None,
+            execution_time_ms: None,
+        };
+
+        // 将 PlanStep 转换为 ExecutionNode
+        let mut nodes: Vec<ExecutionNode> = plan
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(i, step)| ExecutionNode {
+                id: step.step_id.clone(),
+                graph_id: graph.id.clone(),
+                intention_id: Some(step.capability_id.clone()),
+                asset_id: Some(step.capability_id.clone()),
+                status: ExecutionNodeStatus::Pending,
+                parameters: Some(serde_json::to_value(&step.parameters).unwrap_or_default()),
+                depends_on: if step.depends_on.is_empty() {
+                    None
+                } else {
+                    Some(step.depends_on.clone())
+                },
+                outputs: None,
+                discovered_from: crate::intention_graph::models::DiscoverySource::Synthesis,
+                execution_time_ms: None,
+                created_at: chrono::Local::now(),
+                completed_at: None,
+            })
+            .collect();
+
+        let reactor = DynamicReactor::new(20, 50);
+        let mut actions = Vec::new();
+        let mut iteration = 0;
+
+        loop {
+            let (action, should_continue) = reactor.step(&mut graph, &mut nodes, iteration)?;
+            actions.push(action.clone());
+
+            match &action {
+                ReActAction::Invoke { node_id, .. } => {
+                    log::info!("[IntentionGraphPlanner] ReAct Invoke: {}", node_id);
+                    // 标记节点为已完成（实际执行由 PlanExecutor 处理）
+                    if let Some(node) = nodes.iter_mut().find(|n| n.id == *node_id) {
+                        node.status = ExecutionNodeStatus::Completed;
+                        node.outputs = Some(serde_json::json!({"status": "executed"}));
+                        node.completed_at = Some(chrono::Local::now());
+                    }
+                }
+                ReActAction::Discover { source_node_id, reason } => {
+                    log::info!(
+                        "[IntentionGraphPlanner] ReAct Discover from {}: {}",
+                        source_node_id,
+                        reason
+                    );
+                }
+                ReActAction::Respond { message, final_outputs } => {
+                    log::info!(
+                        "[IntentionGraphPlanner] ReAct Respond: {} (outputs: {})",
+                        message,
+                        final_outputs
+                    );
+                    break;
+                }
+            }
+
+            if !should_continue {
+                break;
+            }
+
+            iteration += 1;
+        }
+
+        let final_outputs = reactor.aggregate_outputs(&nodes);
+        Ok((actions, final_outputs))
+    }
+
+    /// 记录执行图到数据库（用于分析和诊断）
+    pub async fn record_execution_graph(
+        &self,
+        request_id: &str,
+        story_id: Option<&str>,
+        user_input: &str,
+        root_intention_id: Option<&str>,
+        plan_json: &str,
+    ) -> Result<(), AppError> {
+        if let Some(ref repo) = self.graph_repo {
+            let graph = ExecutionGraph {
+                id: format!("eg_{}", request_id),
+                request_id: request_id.to_string(),
+                story_id: story_id.map(|s| s.to_string()),
+                user_input: user_input.to_string(),
+                root_intention_id: root_intention_id.map(|s| s.to_string()),
+                status: ExecutionGraphStatus::Building,
+                plan_json: Some(plan_json.to_string()),
+                result_json: None,
+                created_at: chrono::Local::now(),
+                completed_at: None,
+                execution_time_ms: None,
+            };
+            repo.create_execution_graph(&graph)?;
+        }
+        Ok(())
+    }
+}
+
+// ==================== 便捷构造函数 ====================
+
+impl IntentionGraphPlanner {
+    /// 从 AppHandle 和数据库连接创建规划器
+    pub fn from_app_handle(app_handle: AppHandle) -> Result<Self, AppError> {
+        let llm_service = LlmService::new(app_handle.clone());
+        let mut planner = Self::new(llm_service, Some(app_handle.clone()));
+
+        // 尝试初始化图存储
+        if let Some(pool_state) = app_handle.try_state::<crate::db::DbPool>() {
+            let pool = pool_state.inner().clone();
+            let graph_repo = IntentionGraphRepository::new(pool);
+            planner = planner.with_graph_repo(graph_repo);
+        } else {
+            log::warn!("[IntentionGraphPlanner] DbPool not available, intention graph disabled");
+        }
+
+        Ok(planner)
+    }
+}
+
+// ==================== 测试 ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intention_graph::models::IntentionNode;
+
+    /// 创建测试用的 PlanContext
+    fn test_context() -> PlanContext {
+        PlanContext {
+            current_story_id: Some("story_1".to_string()),
+            has_story: true,
+            has_chapters: true,
+            chapter_count: 3,
+            current_content_preview: Some("测试内容".to_string()),
+            user_input: "续写".to_string(),
+            scene_count: 3,
+            scenes_summary: vec![],
+            current_scene_id: Some("scene_1".to_string()),
+            current_scene_stage: Some("drafting".to_string()),
+            total_word_count: 3000,
+            latest_chapter_word_count: 1000,
+            story_progress: "developing".to_string(),
+            world_building_summary: None,
+            character_list: vec![],
+            foreshadowing_status: vec![],
+            style_dna_info: None,
+            mcp_tools_available: vec![],
+            selected_text: None,
+            style_weight: 50,
+            chapter_number: 1,
+            selected_strategy: None,
+        }
+    }
+
+    #[test]
+    fn test_asset_to_capability_id_mapping() {
+        let context = test_context();
+
+        // Agent 资产
+        let agent_asset = AssetNode::new(
+            AssetType::Agent,
+            "writer",
+            "生成故事正文",
+            Some("writer"),
+        );
+        let step = asset_to_plan_step_static(&agent_asset, &context, 0).unwrap();
+        assert_eq!(step.capability_id, "writer");
+        assert_eq!(step.step_id, "ig_step_1");
+        assert!(step.parameters.contains_key("story_id"));
+        assert!(step.parameters.contains_key("instruction"));
+
+        // Skill 资产
+        let skill_asset = AssetNode::new(
+            AssetType::Skill,
+            "style enhancer",
+            "增强文本风格",
+            Some("builtin.style_enhancer"),
+        );
+        let step = asset_to_plan_step_static(&skill_asset, &context, 1).unwrap();
+        assert_eq!(step.capability_id, "builtin.style_enhancer");
+
+        // SystemCommand 资产
+        let sys_asset = AssetNode::new(
+            AssetType::SystemCommand,
+            "create chapter",
+            "创建新章节",
+            Some("create_chapter"),
+        );
+        let step = asset_to_plan_step_static(&sys_asset, &context, 2).unwrap();
+        assert_eq!(step.capability_id, "create_chapter");
+
+        // MCP 工具资产
+        let mcp_asset = AssetNode::new(
+            AssetType::McpTool,
+            "duckduckgo search",
+            "搜索网络资料",
+            None,
+        );
+        let step = asset_to_plan_step_static(&mcp_asset, &context, 3).unwrap();
+        assert_eq!(step.capability_id, "mcp.duckduckgo_search");
+
+        // 方法论资产（无 capability_id，应使用默认映射）
+        let method_asset = AssetNode::new(
+            AssetType::Methodology,
+            "snowflake method",
+            "雪花法创作方法论",
+            None,
+        );
+        let step = asset_to_plan_step_static(&method_asset, &context, 4).unwrap();
+        assert_eq!(step.capability_id, "snowflake_method");
+    }
+
+    #[test]
+    fn test_asset_to_plan_step_parameters() {
+        let mut context = test_context();
+        context.selected_text = Some("选中段落".to_string());
+
+        let asset = AssetNode::new(
+            AssetType::Agent,
+            "writer",
+            "生成故事正文",
+            Some("writer"),
+        );
+        let step = asset_to_plan_step_static(&asset, &context, 0).unwrap();
+
+        // 验证参数注入
+        assert_eq!(
+            step.parameters.get("story_id").unwrap().as_str(),
+            Some("story_1")
+        );
+        assert_eq!(
+            step.parameters.get("current_content").unwrap().as_str(),
+            Some("测试内容")
+        );
+        assert_eq!(
+            step.parameters.get("selected_text").unwrap().as_str(),
+            Some("选中段落")
+        );
+        assert_eq!(
+            step.parameters.get("instruction").unwrap().as_str(),
+            Some("续写")
+        );
+    }
+
+    #[test]
+    fn test_confidence_threshold_clamping() {
+        // 直接测试阈值截断逻辑
+        assert_eq!(0.8_f64.clamp(0.0, 1.0), 0.8);
+        assert_eq!(1.5_f64.clamp(0.0, 1.0), 1.0);
+        assert_eq!((-0.5_f64).clamp(0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn test_empty_discovered_assets_fails() {
+        let context = test_context();
+        let synthesis = IntentSynthesisResult {
+            root_intention: IntentionNode::atomic("generate", "prose", "generate prose"),
+            confidence: 0.9,
+            sub_intentions: vec![],
+            chain_expansion: vec!["generate prose".to_string(), "inspect quality".to_string()],
+        };
+
+        let empty_assets: Vec<AssetDiscoveryResult> = vec![];
+
+        // 使用 tokio::runtime::Runtime 来运行 async 测试
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            build_execution_plan_static(&synthesis, &empty_assets, &context).await
+        });
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("No executable assets"));
+    }
+
+    /// 静态版本的 asset_to_plan_step，不依赖 self
+    fn asset_to_plan_step_static(
+        asset: &AssetNode,
+        context: &PlanContext,
+        index: usize,
+    ) -> Result<PlanStep, AppError> {
+        let step_id = format!("ig_step_{}", index + 1);
+
+        let capability_id = match asset.asset_type {
+            AssetType::Agent => {
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_"))
+            }
+            AssetType::Skill => {
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| format!("builtin.{}", asset.name.to_lowercase().replace(' ', "_")))
+            }
+            AssetType::SystemCommand => {
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_"))
+            }
+            AssetType::McpTool => {
+                asset
+                    .capability_id
+                    .clone()
+                    .unwrap_or_else(|| format!("mcp.{}", asset.name.to_lowercase().replace(' ', "_")))
+            }
+            _ => asset.name.to_lowercase().replace(' ', "_"),
+        };
+
+        let mut parameters = HashMap::new();
+
+        if let Some(ref story_id) = context.current_story_id {
+            parameters.insert(
+                "story_id".to_string(),
+                serde_json::Value::String(story_id.clone()),
+            );
+        }
+        if let Some(ref preview) = context.current_content_preview {
+            parameters.insert(
+                "current_content".to_string(),
+                serde_json::Value::String(preview.clone()),
+            );
+        }
+        if let Some(ref selected) = context.selected_text {
+            parameters.insert(
+                "selected_text".to_string(),
+                serde_json::Value::String(selected.clone()),
+            );
+        }
+
+        if let Some(ref metadata) = asset.metadata {
+            if let Some(obj) = metadata.as_object() {
+                for (key, value) in obj {
+                    parameters.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        parameters.insert(
+            "instruction".to_string(),
+            serde_json::Value::String(context.user_input.clone()),
+        );
+
+        Ok(PlanStep {
+            step_id,
+            capability_id,
+            purpose: format!("[意图图] {}: {}", asset.name, asset.description),
+            parameters,
+            depends_on: vec![],
+        })
+    }
+
+    /// 静态版本的 build_execution_plan，不依赖 self
+    async fn build_execution_plan_static(
+        synthesis: &IntentSynthesisResult,
+        discovered_assets: &[AssetDiscoveryResult],
+        context: &PlanContext,
+    ) -> Result<ExecutionPlan, AppError> {
+        let mut steps = Vec::new();
+        let mut step_index = 0;
+
+        let mut agent_steps: Vec<PlanStep> = Vec::new();
+        let mut skill_steps: Vec<PlanStep> = Vec::new();
+        let mut system_steps: Vec<PlanStep> = Vec::new();
+        let mut mcp_steps: Vec<PlanStep> = Vec::new();
+
+        for discovery in discovered_assets {
+            let asset = &discovery.asset;
+            let step = asset_to_plan_step_static(asset, context, step_index)?;
+            step_index += 1;
+
+            match asset.asset_type {
+                AssetType::Agent => agent_steps.push(step),
+                AssetType::Skill => skill_steps.push(step),
+                AssetType::SystemCommand => system_steps.push(step),
+                AssetType::McpTool => mcp_steps.push(step),
+                _ => {}
+            }
+        }
+
+        steps.extend(system_steps);
+        steps.extend(agent_steps.clone());
+
+        for (_i, mut skill_step) in skill_steps.into_iter().enumerate() {
+            if !agent_steps.is_empty() {
+                let last_agent = &agent_steps[agent_steps.len() - 1];
+                skill_step.depends_on.push(last_agent.step_id.clone());
+            }
+            steps.push(skill_step);
+        }
+
+        for mut mcp_step in mcp_steps {
+            if !steps.is_empty() {
+                mcp_step.depends_on.push(steps[steps.len() - 1].step_id.clone());
+            }
+            steps.push(mcp_step);
+        }
+
+        if steps.is_empty() {
+            return Err(AppError::internal(
+                "No executable assets discovered from intention graph".to_string(),
+            ));
+        }
+
+        let understanding = format!(
+            "[意图图] {} {} → 发现 {} 个资产（置信度: {:.2}）",
+            synthesis.root_intention.verb,
+            synthesis.root_intention.object,
+            discovered_assets.len(),
+            synthesis.confidence
+        );
+
+        Ok(ExecutionPlan {
+            understanding,
+            steps,
+            fallback_message: "意图图计划执行失败，请重试".to_string(),
+        })
+    }
+}

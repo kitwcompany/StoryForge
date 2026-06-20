@@ -15,6 +15,7 @@ use super::{ExecutionPlan, PlanContext, PlanExecutorProgress, PlanGenerator, Pla
 use crate::{
     capabilities::{CapabilityEvolutionEngine, ExecutionRecord},
     error::AppError,
+    intention_graph::IntentionGraphPlanner,
     planner::PlanTemplateLibrary,
     router::TaskType,
 };
@@ -34,6 +35,7 @@ pub struct PlanExecutor {
     app_handle: AppHandle,
     template_library: Mutex<PlanTemplateLibrary>,
     evolution_engine: CapabilityEvolutionEngine,
+    intention_graph_planner: Option<IntentionGraphPlanner>,
 }
 
 impl PlanExecutor {
@@ -41,10 +43,22 @@ impl PlanExecutor {
         let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
         let llm_service = crate::llm::LlmService::new(app_handle.clone());
         let evolution_engine = CapabilityEvolutionEngine::new(llm_service, &app_handle);
+
+        // 尝试初始化意图图规划器（SING 集成）
+        let intention_graph_planner =
+            IntentionGraphPlanner::from_app_handle(app_handle.clone()).ok();
+
+        if intention_graph_planner.is_some() {
+            log::info!("[PlanExecutor] IntentionGraphPlanner initialized (SING integration active)");
+        } else {
+            log::warn!("[PlanExecutor] IntentionGraphPlanner not available, using legacy PlanGenerator only");
+        }
+
         Self {
             app_handle,
             template_library: Mutex::new(PlanTemplateLibrary::new(pool)),
             evolution_engine,
+            intention_graph_planner,
         }
     }
 
@@ -85,6 +99,77 @@ impl PlanExecutor {
                 context.user_input
             );
             self.adapt_template_plan(template_plan, context)
+        } else if let Some(ref ig_planner) = self.intention_graph_planner {
+            // SING 意图图路径：优先尝试 IntentionGraphPlanner
+            log::info!("[PlanExecutor] Trying IntentionGraphPlanner (SING)...");
+            let t_plan = std::time::Instant::now();
+            match ig_planner.generate_plan(context).await {
+                Ok(plan) => {
+                    log::info!(
+                        "[PlanExecutor] IntentionGraphPlanner succeeded in {:?} ({} steps, understanding: {})",
+                        t_plan.elapsed(),
+                        plan.steps.len(),
+                        plan.understanding
+                    );
+                    plan
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[PlanExecutor] IntentionGraphPlanner failed ({}), falling back to PlanGenerator",
+                        e
+                    );
+                    // 回退到原有 PlanGenerator
+                    let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
+                    let generator =
+                        PlanGenerator::new(llm_service).with_app_handle(self.app_handle.clone());
+                    let t_plan = std::time::Instant::now();
+                    match generator.generate_plan(context).await {
+                        Ok(plan) => {
+                            log::info!(
+                                "[PlanExecutor] PlanGenerator fallback succeeded in {:?} ({} steps)",
+                                t_plan.elapsed(),
+                                plan.steps.len()
+                            );
+                            plan
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[PlanExecutor] PlanGenerator also failed ({}), falling back to direct writer",
+                                e
+                            );
+                            // Fallback: direct writer execution with user input as instruction
+                            ExecutionPlan {
+                                understanding: format!(
+                                    "Direct execution fallback for: {}",
+                                    context.user_input
+                                ),
+                                steps: vec![PlanStep {
+                                    step_id: "fallback_writer".to_string(),
+                                    capability_id: "writer".to_string(),
+                                    purpose: "Fallback: execute user request directly via writer agent"
+                                        .to_string(),
+                                    parameters: {
+                                        let mut p = HashMap::new();
+                                        p.insert(
+                                            "story_id".to_string(),
+                                            serde_json::Value::String(
+                                                context.current_story_id.clone().unwrap_or_default(),
+                                            ),
+                                        );
+                                        p.insert(
+                                            "instruction".to_string(),
+                                            serde_json::Value::String(context.user_input.clone()),
+                                        );
+                                        p
+                                    },
+                                    depends_on: vec![],
+                                }],
+                                fallback_message: "计划生成失败，已回退到直接写作模式".to_string(),
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             log::info!("[PlanExecutor] No template found, calling PlanGenerator::generate_plan...");
             let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
