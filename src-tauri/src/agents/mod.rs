@@ -18,9 +18,9 @@ use crate::memory::orchestrator::MemoryPack;
 pub mod commands;
 pub mod commentator;
 pub mod context_optimizer;
-pub mod distiller;
+// v0.21.0: 已删除死代码 Agent（inspector/distiller/memory_compressor/outline_planner/style_mimic）
+// 这些 Agent 的功能已由 agents/service.rs 统一实现
 pub mod executor;
-pub mod memory_compressor;
 pub mod novel_creation;
 pub mod orchestrator;
 pub mod service;
