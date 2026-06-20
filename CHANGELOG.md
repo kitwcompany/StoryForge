@@ -2,6 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.21.0] - 提示词全量可配置化：所有硬编码提示词提取到前端可编辑（2026-06-21）
+
+### 核心升级
+- **所有 LLM 提示词均可在前端后台设置页面中显式查看、修改和保存**，用户修改后由应用调用。此前仅 14 个提示词真正可覆盖，其余 40+ 个硬编码提示词完全旁路 registry，用户无法修改。
+
+### 关键变更
+- **Phase 1: registry 扩展**：新增 6 个 PromptCategory（Pipeline/Audit/Intent/Deconstruction/Creation/Strategy），注册 ~50 个新提示词条目覆盖所有旁路硬编码，新增 `resolve_prompt_with_vars` 便捷函数
+- **Phase 2: 假接入修复**：雪花法 10 个 + Agent 助手 5 个 key 从 `resolve_prompt_default`（旁路 DB 覆盖）改为 `resolve_prompt`（含 DB 覆盖），用户覆盖真正生效
+- **Phase 3: 旁路提示词接线**：narrative/prompts.rs(14) + pipeline/*(4) + intention_graph(1) + planner/*(4) + agents/*(6) + memory(1) + audit(1) + strategy(1) + deconstruction(4) + methodology(3) = 39 个提示词接入 registry
+- **Phase 5: 前端 PromptsPanel 升级**：textarea → Monaco 编辑器（语法高亮/行号/Ctrl+S），新增 6 个分类标签，新增批量导入/导出功能（JSON 格式）
+
+### 提示词覆盖统计
+| 类别 | 修复前 | 修复后 |
+|------|--------|--------|
+| 真正可覆盖（走 resolve_prompt） | 14 | 53+ |
+| 假接入（走 resolve_prompt_default） | 15 | 0 |
+| 完全旁路（硬编码） | 40+ | 0 |
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib intention_graph` ✅ 18/18 通过
+- `npx tsc --noEmit` ✅ 零错误
+- 真实模型测试 ✅ Gemma4-e2b 全流程通过
+
 ## [v0.20.1] - SING 意图图断环修复：让集成真正生效（2026-06-21）
 
 ### 审计背景

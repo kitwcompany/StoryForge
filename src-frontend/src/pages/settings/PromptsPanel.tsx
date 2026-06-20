@@ -8,12 +8,16 @@ import {
   Search,
   X,
   AlertTriangle,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
+// v0.21.0: Monaco 编辑器替代原生 textarea
+import MonacoEditor from '@monaco-editor/react';
 
 const VAR_TAG_OPEN = '{' + '{';
 const VAR_TAG_CLOSE = '}' + '}';
@@ -33,6 +37,12 @@ type PromptCategory =
   | 'World'
   | 'Character'
   | 'Narrative'
+  | 'Pipeline'
+  | 'Audit'
+  | 'Intent'
+  | 'Deconstruction'
+  | 'Creation'
+  | 'Strategy'
   | 'Other';
 
 interface PromptEntry {
@@ -61,6 +71,12 @@ const CATEGORY_LABELS: Record<PromptCategory, string> = {
   World: '世界观与场景',
   Character: '角色',
   Narrative: '叙事结构',
+  Pipeline: '流水线（审稿/修稿）',
+  Audit: '质量审计',
+  Intent: '意图解析',
+  Deconstruction: '拆书分析',
+  Creation: '创世流程',
+  Strategy: '策略选择',
   Other: '其他',
 };
 
@@ -75,6 +91,12 @@ const CATEGORY_ORDER: PromptCategory[] = [
   'Narrative',
   'Methodology',
   'Skill',
+  'Pipeline',
+  'Audit',
+  'Intent',
+  'Deconstruction',
+  'Creation',
+  'Strategy',
   'Memory',
   'Knowledge',
   'Probe',
@@ -97,6 +119,12 @@ const CATEGORY_COLORS: Record<PromptCategory, string> = {
   World: 'bg-emerald-500/20 text-emerald-400',
   Character: 'bg-violet-500/20 text-violet-400',
   Narrative: 'bg-sky-500/20 text-sky-400',
+  Pipeline: 'bg-red-500/20 text-red-400',
+  Audit: 'bg-yellow-500/20 text-yellow-400',
+  Intent: 'bg-lime-500/20 text-lime-400',
+  Deconstruction: 'bg-fuchsia-500/20 text-fuchsia-400',
+  Creation: 'bg-cyan-600/20 text-cyan-300',
+  Strategy: 'bg-orange-600/20 text-orange-300',
   Other: 'bg-slate-500/20 text-slate-400',
 };
 
@@ -216,9 +244,67 @@ export function PromptsPanel() {
     }
   };
 
+  // v0.21.0: 批量导出所有覆盖为 JSON
+  const handleExportAll = () => {
+    const overridden = entries.filter((e) => e.is_overridden);
+    if (overridden.length === 0) {
+      toast('没有已覆盖的提示词可导出', { icon: 'ℹ️' });
+      return;
+    }
+    const exportData = overridden.map((e) => ({
+      prompt_id: e.id,
+      content: e.current_content,
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `storyforge-prompts-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`已导出 ${overridden.length} 条提示词覆盖`);
+  };
+
+  // v0.21.0: 批量导入覆盖
+  const handleImportAll = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as Array<{
+        prompt_id: string;
+        content: string;
+      }>;
+      if (!Array.isArray(data)) {
+        toast.error('JSON 格式错误：应为数组');
+        return;
+      }
+      let success = 0;
+      for (const item of data) {
+        try {
+          await loggedInvoke('save_prompt_override', {
+            promptId: item.prompt_id,
+            content: item.content,
+          });
+          success++;
+        } catch {
+          // 跳过不存在的 prompt_id
+        }
+      }
+      toast.success(`已导入 ${success}/${data.length} 条提示词覆盖`);
+      fetchEntries();
+    } catch (err) {
+      toast.error('导入失败: ' + String(err));
+    }
+    e.target.value = '';
+  };
+
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
   }, []);
+
 
   const overriddenCount = entries.filter((e) => e.is_overridden).length;
 
@@ -378,15 +464,30 @@ export function PromptsPanel() {
                             </div>
                           )}
 
-                          <textarea
-                            value={draft}
-                            onChange={(e) =>
-                              setEdited((prev) => ({ ...prev, [entry.id]: e.target.value }))
-                            }
-                            rows={Math.min(20, Math.max(8, draft.split('\n').length))}
-                            className="w-full px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white font-mono"
-                            spellCheck={false}
-                          />
+                          {/* v0.21.0: Monaco 编辑器替代原生 textarea */}
+                          <div className="border border-cinema-700 rounded overflow-hidden" style={{ height: '360px' }}>
+                            <MonacoEditor
+                              value={draft}
+                              language="plaintext"
+                              theme="vs-dark"
+                              onChange={(value) =>
+                                setEdited((prev) => ({
+                                  ...prev,
+                                  [entry.id]: value ?? '',
+                                }))
+                              }
+                              options={{
+                                minimap: { enabled: false },
+                                fontSize: 13,
+                                wordWrap: 'on',
+                                lineNumbers: 'on',
+                                scrollBeyondLastLine: false,
+                                automaticLayout: true,
+                                tabSize: 2,
+                                renderWhitespace: 'selection',
+                              }}
+                            />
+                          </div>
 
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-gray-500">
@@ -448,6 +549,33 @@ export function PromptsPanel() {
               <Button variant="ghost" onClick={() => setShowResetAllConfirm(false)}>
                 取消
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleExportAll}
+                title="导出全部提示词覆盖为 JSON 文件"
+              >
+                <Download className="w-4 h-4 mr-1" />
+                导出
+              </Button>
+              <label className="cursor-pointer">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => document.getElementById('prompt-import-input')?.click()}
+                  title="从 JSON 文件导入提示词覆盖"
+                >
+                  <Upload className="w-4 h-4 mr-1" />
+                  导入
+                </Button>
+                <input
+                  id="prompt-import-input"
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportAll}
+                />
+              </label>
               <Button variant="danger" onClick={handleResetAll}>
                 <RotateCcw className="w-3.5 h-3.5 mr-1" />
                 确认重置全部
