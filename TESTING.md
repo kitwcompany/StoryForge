@@ -1,4 +1,4 @@
-# 🧪 StoryForge 自动化测试环境 (v5.2.1)
+# 🧪 StoryForge 自动化测试环境 (v0.19.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
@@ -6,8 +6,8 @@
 
 | 类型 | 数量 | 状态 |
 |------|------|------|
-| Rust 单元测试 | 318 | ✅ 全部通过 (`cargo test --lib`) |
-| 前端单元测试 | 124 | ✅ 全部通过 (`vitest run`) |
+| Rust 单元测试 | 392 | ✅ 全部通过 (`cargo test --lib`) |
+| 前端单元测试 | 126 | ✅ 全部通过 (`vitest run`) |
 | 前端构建测试 | — | ✅ `npm run build` 通过 |
 | Tauri 构建测试 | — | ✅ `cargo tauri build` 通过 |
 | Playwright E2E | 36 (32+4) | ✅ 行为驱动测试 |
@@ -28,6 +28,8 @@
 - `canonical_state/tests.rs`：8 例
 - `task_system/tests.rs`：15 例
 - `task_system/integration_tests.rs`：5 例
+- `prompts/registry.rs`：提示词注册表测试（内置 prompt 解析、覆盖读取、分类枚举）
+- `creative_engine/anti_ai/`：AntiAiRewriter 4 例、OpeningClarityGate 5 例、LivingAuthorGuard 6 例
 - `utils/validation_tests.rs`：16 例
 - `utils/style_align.rs`：3 例
 - `utils/text.rs`：7 例
@@ -271,4 +273,4 @@ timeout: 60000, // 60秒
 
 ---
 
-**测试环境已就绪！** 🎉
+*最后更新: 2026-06-18 - v0.19.0 提示词全面可配置化*

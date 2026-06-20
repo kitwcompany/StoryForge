@@ -608,9 +608,10 @@ pub fn run() {
                 app.manage(llm_service);
             }
 
-            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(Some(
-                crate::llm::LlmService::new(app.handle().clone()),
-            ))));
+            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(
+                Some(crate::llm::LlmService::new(app.handle().clone())),
+                get_pool(),
+            )));
 
             // 设置能力进化描述持久化路径
             let evolved_desc_path = app_dir.join("evolved_descriptions.json");

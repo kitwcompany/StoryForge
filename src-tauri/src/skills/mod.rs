@@ -216,13 +216,19 @@ impl Clone for SkillManager {
 }
 
 impl SkillManager {
-    pub fn new(llm_service: Option<crate::llm::LlmService>) -> Self {
+    pub fn new(
+        llm_service: Option<crate::llm::LlmService>,
+        db_pool: Option<crate::db::DbPool>,
+    ) -> Self {
         let skills_dir = Self::get_default_skills_dir();
         fs::create_dir_all(&skills_dir).ok();
 
         let registry = Arc::new(Mutex::new(SkillRegistry::new()));
         let loader = SkillLoader::new(skills_dir.clone());
-        let executor = SkillExecutor::new(registry.clone(), llm_service);
+        let executor = match db_pool {
+            Some(pool) => SkillExecutor::new(registry.clone(), llm_service).with_db_pool(pool),
+            None => SkillExecutor::new(registry.clone(), llm_service),
+        };
 
         let mut manager = Self {
             registry,
@@ -379,6 +385,6 @@ impl SkillManager {
 
 impl Default for SkillManager {
     fn default() -> Self {
-        Self::new(None)
+        Self::new(None, None)
     }
 }

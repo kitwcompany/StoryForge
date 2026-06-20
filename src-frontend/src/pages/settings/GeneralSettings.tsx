@@ -27,6 +27,7 @@ import {
 import { cn } from '@/utils/cn';
 import { normalizeFloat, formatDisplayFloat } from '@/utils/numberFormat';
 import type { WritingStrategy } from '@/types/llm';
+import { loggedInvoke } from '@/services/api/core';
 
 const DEFAULT_WRITING_STRATEGY: WritingStrategy = {
   run_mode: 'fast',
@@ -142,6 +143,14 @@ export function GeneralSettings() {
   const handleConcurrencyChange = (value: number) => {
     debouncedUpdateSettings({ book_deconstruction_concurrency: value });
   };
+
+  // v0.19.0: 提示词注册表数量
+  const [promptCount, setPromptCount] = useState(0);
+  useEffect(() => {
+    loggedInvoke<any[]>('list_prompt_entries')
+      .then(data => setPromptCount(data.length))
+      .catch(() => setPromptCount(0));
+  }, []);
 
   const handleRewriteThresholdChange = (value: number) => {
     const normalized = normalizeFloat(value, 2);
@@ -824,49 +833,35 @@ export function GeneralSettings() {
         </CardContent>
       </Card>
 
-      {/* v0.16.0 提示词覆盖 */}
+      {/* v0.19.0 提示词注册表入口 */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
-              <FileText className="w-5 h-5 text-cinema-gold" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-cinema-gold" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-white">提示词注册表</h3>
+                <p className="text-sm text-gray-500">
+                  查看和编辑所有 {promptCount} 条内置 LLM 提示词。支持按分类筛选、搜索、批量重置。
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-medium text-white">提示词覆盖</h3>
-              <p className="text-sm text-gray-500">
-                覆盖内置的 AI 提示词模板。留空则使用默认提示词，填入内容后生效
-              </p>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">
-                Writer 系统提示词{' '}
-                <span className="text-gray-600">— AI 写作助手的基础角色设定与行为准则</span>
-              </label>
-              <textarea
-                rows={4}
-                value={settings?.writer_system_prompt_override ?? ''}
-                onChange={e =>
-                  debouncedUpdateSettings({ writer_system_prompt_override: e.target.value })
-                }
-                placeholder="默认：你是一位专业的小说创作助手，擅长中文写作..."
-                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm resize-y font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">
-                模型探测提示词{' '}
-                <span className="text-gray-600">— 检测模型是否正常运行的测试用语</span>
-              </label>
-              <textarea
-                rows={2}
-                value={settings?.probe_prompt_override ?? ''}
-                onChange={e => debouncedUpdateSettings({ probe_prompt_override: e.target.value })}
-                placeholder="默认：Respond with exactly the word OK."
-                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm resize-y font-mono"
-              />
-            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                // 导航到提示词注册表标签页
+                const event = new CustomEvent('switch-settings-tab', {
+                  detail: { tab: 'prompts' }
+                });
+                window.dispatchEvent(event);
+              }}
+            >
+              <FileText className="w-4 h-4 mr-1" />
+              打开注册表
+            </Button>
           </div>
         </CardContent>
       </Card>

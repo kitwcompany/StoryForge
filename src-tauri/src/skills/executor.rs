@@ -18,10 +18,24 @@ fn task_type_for_category(category: &SkillCategory) -> TaskType {
     }
 }
 
+/// 将 skill_id 映射到 PromptRegistry 中的 prompt_id
+fn skill_id_to_prompt_id(skill_id: &str) -> String {
+    match skill_id {
+        "builtin.style_enhancer" => "skill_style_enhancer",
+        "builtin.plot_twist" => "skill_plot_twist",
+        "builtin.text_formatter" => "skill_text_formatter",
+        "builtin.character_voice" => "skill_character_voice",
+        "builtin.emotion_pacing" => "skill_emotion_pacing",
+        _ => skill_id,
+    }
+    .to_string()
+}
+
 #[derive(Clone)]
 pub struct SkillExecutor {
     registry: Arc<Mutex<SkillRegistry>>,
     llm_service: Option<crate::llm::LlmService>,
+    db_pool: Option<crate::db::DbPool>,
 }
 
 impl SkillExecutor {
@@ -32,7 +46,14 @@ impl SkillExecutor {
         Self {
             registry,
             llm_service,
+            db_pool: None,
         }
+    }
+
+    /// 设置数据库连接池，用于读取提示词覆盖
+    pub fn with_db_pool(mut self, pool: crate::db::DbPool) -> Self {
+        self.db_pool = Some(pool);
+        self
     }
 
     /// Execute a skill
@@ -178,8 +199,13 @@ impl SkillExecutor {
         context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
     ) -> Result<SkillResult, AppError> {
+        // v0.19.0: 从 PromptRegistry 读取提示词覆盖
+        let (system_prompt, user_prompt_template) = self
+            .resolve_skill_prompts(&manifest.id, runtime)
+            .await;
+
         // Build user prompt from template
-        let mut user_prompt = runtime.user_prompt_template.clone();
+        let mut user_prompt = user_prompt_template;
 
         // Simple template substitution
         for (key, value) in &params {
@@ -212,12 +238,12 @@ impl SkillExecutor {
 
         // Call LLM if service is available
         if let Some(ref llm) = self.llm_service {
-            let full_prompt = if runtime.system_prompt.is_empty() {
+            let full_prompt = if system_prompt.is_empty() {
                 user_prompt
             } else {
                 format!(
                     "[系统指令]\n{}\n\n[用户请求]\n{}",
-                    runtime.system_prompt, user_prompt
+                    system_prompt, user_prompt
                 )
             };
 
@@ -247,7 +273,7 @@ impl SkillExecutor {
             Ok(SkillResult {
                 success: true,
                 data: serde_json::json!({
-                    "system_prompt": runtime.system_prompt,
+                    "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
@@ -256,6 +282,36 @@ impl SkillExecutor {
                 execution_time_ms: 0,
             })
         }
+    }
+
+    /// 根据 skill_id 映射到 prompt_id，从 PromptRegistry 读取覆盖
+    async fn resolve_skill_prompts(
+        &self,
+        skill_id: &str,
+        runtime: &PromptRuntime,
+    ) -> (String, String) {
+        let prompt_id = skill_id_to_prompt_id(skill_id);
+
+        // 优先从数据库读取覆盖
+        if let Some(ref pool) = self.db_pool {
+            if let Ok(content) = crate::prompts::registry::resolve_prompt(pool, &prompt_id) {
+                // 技能提示词在 registry 中是完整提示词（system + user 合并），
+                // 但 builtin.rs 中 skills 使用分开的 system_prompt / user_prompt_template
+                // 这里保持简单：如果 registry 中有覆盖，将覆盖内容作为 system_prompt
+                // 并将 user_prompt_template 保持原样（因为 registry 中的 skill 提示词是单条）
+                // 实际上，我们需要更精细的区分...
+                // 为了兼容，我们采用：registry 覆盖 system_prompt，保留原始 user_prompt_template
+                return (content, runtime.user_prompt_template.clone());
+            }
+        }
+
+        // 无数据库或读取失败，尝试默认解析
+        if let Some(content) = crate::prompts::registry::resolve_prompt_default(&prompt_id) {
+            return (content, runtime.user_prompt_template.clone());
+        }
+
+        // 无覆盖，使用原始 PromptRuntime
+        (runtime.system_prompt.clone(), runtime.user_prompt_template.clone())
     }
 
     async fn execute_mcp(

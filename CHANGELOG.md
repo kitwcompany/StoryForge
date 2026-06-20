@@ -2,6 +2,33 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.19.0] - 提示词全面可配置化（2026-06-18）
+
+### 核心功能
+
+- **提示词注册表**：所有 35+ 内置 LLM 提示词集中注册到 `prompts/registry.rs`，支持 15 个分类（写作核心/质检/评点/规划/分析/世界观/角色/叙事/方法论/技能/记忆/知识/探测/系统/其他）。
+- **前端提示词管理面板**：`PromptsPanel` 全面重构——支持分类筛选、关键词搜索、批量重置、内置默认值预览、模板变量高亮显示。
+- **运行时覆盖生效**：所有 LLM 调用统一经 `resolve_prompt()` 读取，优先使用用户自定义覆盖，无缝回退到内置默认。
+
+### 后端迁移
+
+- **Agent 服务**：`build_writer_prompt` / `execute_commentator` / `execute_style_mimic` / `execute_plot_analyzer` / `execute_memory_compressor` / `execute_knowledge_distiller` 全部改用 `resolve_prompt()`。
+- **技能系统**：`SkillExecutor` 新增 `with_db_pool()` 支持，执行时根据 `skill_id` 映射到 `prompt_id`，从 PromptRegistry 读取覆盖的 system_prompt。
+- **记忆系统**：`IngestPipeline::extract_narrative_events` 改用 `resolve_prompt("narrative_event_extraction")`，带 fallback 提示词。
+- **方法论**：`SnowflakeStep::prompt_instruction()` 优先从 PromptRegistry 读取 10 步雪花法提示词，保留硬编码 fallback。
+- **多助手系统**：`memory/multi_agent.rs` 5 个 Agent 系统提示词改用 `resolve_prompt_default()`。
+
+### 前端改进
+
+- **GeneralSettings 提示词入口**：替换旧版 2 个 textarea 覆盖为「提示词注册表」卡片，一键跳转到完整管理面板。
+- **PromptsPanel 搜索与筛选**：实时搜索（ID/名称/描述/内容）、15 分类下拉筛选、搜索结果计数。
+- **批量重置**：支持一键重置所有自定义覆盖，带确认对话框。
+- **默认值预览**：已覆盖的提示词展开时显示内置默认值（只读），方便对比修改。
+
+### API 新增
+
+- `reset_all_prompt_overrides` IPC 命令：批量删除所有 `prompt_overrides` 表记录。
+
 ## [v0.18.1] - 设置超时修复：数字输入体验 + 配置读取路径（2026-06-20）
 
 ### 修复

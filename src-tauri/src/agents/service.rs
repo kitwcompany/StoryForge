@@ -1497,7 +1497,17 @@ impl AgentService {
             0.1,
         );
 
-        let prompt = self.build_style_prompt(&task);
+        // v0.19.0: 通过 PromptRegistry 读取模板
+        let tpl = self.resolve_prompt("style_mimic");
+        let prompt = tpl
+            .replace(
+                "{{style_sample}}",
+                task.parameters
+                    .get("style_sample")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("无样例"),
+            )
+            .replace("{{content}}", &task.input);
 
         self.emit_event(
             &task.id,
@@ -1532,7 +1542,9 @@ impl AgentService {
             0.1,
         );
 
-        let prompt = self.build_plot_prompt(&task);
+        // v0.19.0: 通过 PromptRegistry 读取模板
+        let tpl = self.resolve_prompt("plot_analysis");
+        let prompt = tpl.replace("{{content}}", &task.input);
 
         self.emit_event(
             &task.id,
@@ -1569,8 +1581,7 @@ impl AgentService {
             0.1,
         );
 
-        // P2-2: 改用 PromptRegistry 模板（commentator_system），
-        // 让前端"提示词覆盖"功能对评点家生效（审计报告发现 4.2.2）。
+        // v0.19.0: 通过 PromptRegistry 读取模板
         let ctx = &task.context;
         let commentator_tpl = self.resolve_prompt("commentator_system");
         let prompt = commentator_tpl
@@ -1615,32 +1626,15 @@ impl AgentService {
             .unwrap_or(0.25);
         let ratio_pct = (target_ratio * 100.0) as i32;
 
-        let prompt = format!(
-            r#"你是一位专业的文学记忆压缩师。请将以下小说相关内容压缩为简洁的高层摘要。
-
-【作品信息】
-标题: {}
-题材: {}
-文风: {}
-节奏: {}
-
-【待压缩内容】
-{}
-
-【压缩要求】
-1. 保留核心情节、人物关系、关键伏笔
-2. 删除细节描写、重复叙述、过渡段落
-3. 输出长度控制在原文的 {}%
-4. 使用第三人称客观叙述
-
-请直接输出压缩后的摘要，不要添加解释。"#,
-            ctx.story.story_title,
-            ctx.story.genre,
-            ctx.story.tone,
-            ctx.story.pacing,
-            ratio_pct,
-            task.input
-        );
+        // v0.19.0: 通过 PromptRegistry 读取模板
+        let tpl = self.resolve_prompt("memory_compressor");
+        let prompt = tpl
+            .replace("{{story_title}}", &ctx.story.story_title)
+            .replace("{{genre}}", &ctx.story.genre)
+            .replace("{{tone}}", &ctx.story.tone)
+            .replace("{{pacing}}", &ctx.story.pacing)
+            .replace("{{content}}", &task.input)
+            .replace("{{ratio}}", &ratio_pct.to_string());
 
         self.emit_event(
             &task.id,
@@ -1684,29 +1678,15 @@ impl AgentService {
             0.1,
         );
 
+        // v0.19.0: 通过 PromptRegistry 读取模板
         let ctx = &task.context;
-        let prompt = format!(
-            r#"你是一位专业的文学知识蒸馏师。请根据以下小说知识图谱，提炼出高层摘要。
-
-【作品信息】
-标题: {}
-题材: {}
-文风: {}
-节奏: {}
-
-【知识图谱】
-{}
-
-【蒸馏要求】
-1. 世界观概述：提炼故事的宏观设定、核心规则、时代背景
-2. 主要势力：总结故事中的重要组织、阵营、群体及其关系
-3. 人物关系网：梳理核心角色之间的关系、立场、冲突
-4. 核心情节线：提炼当前已展开的主要悬念、伏笔、目标
-5. 输出条理清晰，使用Markdown格式，总长度控制在800字以内
-
-请直接输出蒸馏后的摘要。"#,
-            ctx.story.story_title, ctx.story.genre, ctx.story.tone, ctx.story.pacing, task.input
-        );
+        let tpl = self.resolve_prompt("knowledge_distiller");
+        let prompt = tpl
+            .replace("{{story_title}}", &ctx.story.story_title)
+            .replace("{{genre}}", &ctx.story.genre)
+            .replace("{{tone}}", &ctx.story.tone)
+            .replace("{{pacing}}", &ctx.story.pacing)
+            .replace("{{content}}", &task.input);
 
         self.emit_event(
             &task.id,

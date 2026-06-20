@@ -65,6 +65,18 @@ export function Settings() {
     }
   }, [activeTab]);
 
+  // v0.19.0: 监听从 GeneralSettings 发来的标签页切换事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.tab && detail.tab === 'prompts') {
+        setActiveTab('prompts');
+      }
+    };
+    window.addEventListener('switch-settings-tab', handler);
+    return () => window.removeEventListener('switch-settings-tab', handler);
+  }, []);
+
   // 处理设置导入
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

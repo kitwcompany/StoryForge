@@ -1,41 +1,41 @@
-//! v0.17.1 提示词注册表 IPC 命令
+//! PromptRegistry IPC 命令
 
-use tauri::{command, AppHandle, Manager, State};
+use tauri::State;
 
-use crate::{db::DbPool, error::AppError, prompts::registry};
+use crate::{db::DbPool, error::AppError};
 
-/// 列出所有内置 prompt（含 override 状态）
-#[command(rename_all = "snake_case")]
-pub fn list_prompt_entries(
-    pool: State<'_, DbPool>,
-) -> Result<Vec<registry::PromptEntry>, AppError> {
-    registry::list_prompts(pool.inner())
+use super::registry;
+
+/// 列出所有提示词条目
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_prompt_entries(pool: State<'_, DbPool>) -> Result<Vec<registry::PromptEntry>, AppError> {
+    registry::list_prompt_entries(&pool)
 }
 
-/// 保存用户对某个 prompt 的覆盖
-#[command(rename_all = "snake_case")]
+/// 保存提示词覆盖
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_prompt_override(
+    pool: State<'_, DbPool>,
     prompt_id: String,
     content: String,
-    pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
-    registry::save_override(pool.inner(), &prompt_id, &content)
+    registry::save_override(&pool, &prompt_id, &content)
 }
 
-/// 重置某个 prompt 到内置默认（删除 override）
-#[command(rename_all = "snake_case")]
-pub fn reset_prompt_override(prompt_id: String, pool: State<'_, DbPool>) -> Result<(), AppError> {
-    registry::reset_override(pool.inner(), &prompt_id)
+/// 重置提示词为默认
+#[tauri::command(rename_all = "snake_case")]
+pub fn reset_prompt_override(pool: State<'_, DbPool>, prompt_id: String) -> Result<(), AppError> {
+    registry::reset_override(&pool, &prompt_id)
 }
 
-/// 获取单个 prompt 的当前生效内容（含 override 解析）
-#[command(rename_all = "snake_case")]
-pub fn resolve_prompt_content(
-    prompt_id: String,
-    app_handle: AppHandle,
-) -> Result<String, AppError> {
-    let pool = app_handle
-        .try_state::<DbPool>()
-        .ok_or_else(|| AppError::internal("DbPool not available".to_string()))?;
-    registry::resolve_prompt(pool.inner(), &prompt_id)
+/// 批量重置所有提示词覆盖
+#[tauri::command(rename_all = "snake_case")]
+pub fn reset_all_prompt_overrides(pool: State<'_, DbPool>) -> Result<usize, AppError> {
+    registry::reset_all_overrides(&pool)
+}
+
+/// 解析提示词内容（用于调试/预览）
+#[tauri::command(rename_all = "snake_case")]
+pub fn resolve_prompt_content(pool: State<'_, DbPool>, prompt_id: String) -> Result<String, AppError> {
+    registry::resolve_prompt(&pool, &prompt_id)
 }

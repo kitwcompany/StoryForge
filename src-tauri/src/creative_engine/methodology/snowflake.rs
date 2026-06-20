@@ -45,7 +45,30 @@ impl SnowflakeStep {
         }
     }
 
-    pub fn prompt_instruction(&self) -> &'static str {
+    pub fn prompt_instruction(&self) -> String {
+        let prompt_id = match self {
+            SnowflakeStep::OneSentence => "methodology_snowflake_step1",
+            SnowflakeStep::OneParagraph => "methodology_snowflake_step2",
+            SnowflakeStep::CharacterSummaries => "methodology_snowflake_step3",
+            SnowflakeStep::ParagraphExpansion => "methodology_snowflake_step4",
+            SnowflakeStep::CharacterCharts => "methodology_snowflake_step5",
+            SnowflakeStep::PlotSummary => "methodology_snowflake_step6",
+            SnowflakeStep::SceneList => "methodology_snowflake_step7",
+            SnowflakeStep::SceneExpansion => "methodology_snowflake_step8",
+            SnowflakeStep::FirstDraft => "methodology_snowflake_step9",
+            SnowflakeStep::Revision => "methodology_snowflake_step10",
+        };
+
+        // v0.19.0: 优先从 PromptRegistry 读取
+        if let Some(content) = crate::prompts::registry::resolve_prompt_default(prompt_id) {
+            return content;
+        }
+
+        // fallback 到硬编码
+        self.fallback_prompt_instruction().to_string()
+    }
+
+    fn fallback_prompt_instruction(&self) -> &'static str {
         match self {
             SnowflakeStep::OneSentence => {
                 r#"雪花写作法 - 第1步：一句话故事
@@ -203,7 +226,7 @@ impl SnowflakeMethodology {
         context.push_str("4. 在细节填充前先建立骨架\n\n");
 
         context.push_str("当前步骤要求：\n");
-        context.push_str(self.step.prompt_instruction());
+        context.push_str(&self.step.prompt_instruction());
         context.push('\n');
 
         context

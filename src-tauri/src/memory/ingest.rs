@@ -737,12 +737,20 @@ impl IngestPipeline {
             .map(|e| e.name.clone())
             .collect();
 
-        let prompt = crate::llm::prompt::PromptLibrary::narrative_event_extraction();
-        let rendered = prompt.render(&[
-            ("characters".to_string(), characters.join(", ")),
-            ("prior_events".to_string(), "无".to_string()),
-            ("content".to_string(), content.text.clone()),
-        ]);
+        // v0.19.0: 从 PromptRegistry 读取提示词模板
+        let prompt_text = if let Some(ref pool) = self.pool {
+            if let Ok(tpl) = crate::prompts::registry::resolve_prompt(pool, "narrative_event_extraction") {
+                let mut result = tpl;
+                result = result.replace("{{characters}}", &characters.join(", "));
+                result = result.replace("{{prior_events}}", "无");
+                result = result.replace("{{content}}", &content.text);
+                result
+            } else {
+                Self::fallback_narrative_event_extraction_prompt(&characters, &content.text)
+            }
+        } else {
+            Self::fallback_narrative_event_extraction_prompt(&characters, &content.text)
+        };
 
         let mut last_error: Option<String> = None;
         for _attempt in 0..3 {
@@ -752,9 +760,9 @@ impl IngestPipeline {
                 }
             }
 
-            let mut prompt_text = rendered.clone();
+            let mut current_prompt = prompt_text.clone();
             if let Some(ref err) = last_error {
-                prompt_text.push_str(&format!(
+                current_prompt.push_str(&format!(
                     "\n\n【修正要求】之前输出存在问题: {}。请务必修正后，仅输出合法的JSON数组，不要添加任何markdown代码块标记。",
                     err
                 ));
@@ -764,7 +772,7 @@ impl IngestPipeline {
                 .llm_service
                 .generate_for_task(
                     TaskType::Analysis,
-                    prompt_text,
+                    current_prompt,
                     None,
                     None,
                     Some("记忆-叙事事件提取"),
@@ -795,6 +803,36 @@ impl IngestPipeline {
             last_error.unwrap_or_default()
         )
         .into())
+    }
+
+    /// v0.19.0: 叙事事件提取的 fallback 提示词（当 PromptRegistry 不可用时）
+    fn fallback_narrative_event_extraction_prompt(
+        characters: &[String],
+        content: &str,
+    ) -> String {
+        format!(
+            "你是一个专业的叙事分析专家。你的任务是从小说文本中提取推动情节发展的关键事件。\n\n\
+            分析标准：\n\
+            1. 「有效事件」= 真正推动情节发展的关键节点，不是过渡性描述\n\
+            2. 事件强度（0.0-1.0）反映对后续情节的影响程度\n\
+            3. 如果角色发生内在改变（信念、态度、关系本质），标记为角色弧光\n\
+            4. 伏笔埋设和回收是独立事件，即使在同一场景中\n\
+            5. 保持与已有事件链的因果一致性\n\n\
+            输出 JSON 格式的事件数组。\n\n\
+            【角色列表】\n{}\n\n\
+            【已有事件链（前序）】\n无\n\n\
+            【当前文本】\n{}\n\n\
+            请输出 JSON 格式的事件数组，每个事件包含：\n\
+            - event_type: 事件类型（introduction/turning_point/climax/resolution/revelation/conflict_eruption/character_arc/foreshadow_setup/foreshadow_payoff/transition）\n\
+            - intensity: 事件强度（0.0-1.0）\n\
+            - sentiment: 情感极性（-1.0 到 +1.0）\n\
+            - description: 事件描述（20-50字）\n\
+            - involved_character_ids: 涉及的角色 ID 数组\n\
+            - conflict_types: 涉及的冲突类型数组\n\n\
+            只输出 JSON，不要其他文字。",
+            characters.join(", "),
+            content
+        )
     }
 
     /// 将 LLM 提取结果转换为 NarrativeEvent

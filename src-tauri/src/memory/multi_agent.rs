@@ -228,6 +228,22 @@ impl MultiAgentSessionManager {
 
     /// 获取系统提示词
     fn get_system_prompt(&self, agent_type: &AgentBotType) -> String {
+        // v0.19.0: 通过 PromptRegistry 读取，支持用户覆盖
+        let prompt_id = match agent_type {
+            AgentBotType::WorldBuilding => "agent_world_building",
+            AgentBotType::Character => "agent_character",
+            AgentBotType::WritingStyle => "agent_writing_style",
+            AgentBotType::Scene => "agent_scene",
+            AgentBotType::Plot => "agent_plot",
+            _ => return "你是一个专业的写作助手。".to_string(),
+        };
+
+        // 尝试从 PromptRegistry 读取
+        if let Some(content) = crate::prompts::registry::resolve_prompt_default(prompt_id) {
+            return content;
+        }
+
+        // 回退到硬编码（不应该走到这里，除非 registry 未初始化）
         match agent_type {
             AgentBotType::WorldBuilding => r#"你是世界观助手，专门帮助构建和完善小说的世界观设定。
 

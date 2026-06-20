@@ -108,9 +108,22 @@
 - [x] Pending vector SQLite 持久化
 - [x] Task 执行 300s 超时
 
+### Phase 11: 提示词全面可配置化 ✅ (v0.19.0)
+**状态**: 全部完成
+
+- [x] 35+ 内置提示词注册表（`prompts/registry.rs`）
+- [x] 15 个 `PromptCategory` 分类体系
+- [x] 雪花法 10 步提示词注入注册表
+- [x] 5 个内置技能提示词映射（`skill_id_to_prompt_id`）
+- [x] Memory / Knowledge / MultiAgent 模块接入注册表
+- [x] 前端 PromptsPanel 重写（分类 + 搜索 + 批量重置 + 默认值预览）
+- [x] GeneralSettings 精简为「提示词注册表」链接卡片
+- [x] `reset_all_prompt_overrides` 批量重置 IPC
+- [x] 运行时覆盖生效（`resolve_prompt()` 优先查 DB）
+
 ---
 
-## 📊 v5.6.4 项目状态
+## 📊 v0.19.0 项目状态
 
 | 模块 | 完成度 | 说明 |
 |------|--------|------|
@@ -125,9 +138,10 @@
 | 幕前幕后自动关联 | 100% | Chapter↔Scene 双向映射、state_sync、实时同步、Cache 对称失效完整、writingStyle/storySelected 缓存精确化 |
 | 后台自动化 | 100% | Workflow 持久化、能力进化反馈环、向量索引闭环（Chapter + Scene）、Workflow 幂等性 |
 | 本地模型配置 | 100% | 三模型集成 |
+| 提示词可配置化 | 100% | 35+ 提示词注册表、15 分类、前端完整管理面板、运行时覆盖生效 |
 | Tauri 构建 | 100% | MSI + NSIS 安装包 |
 | 设计-实现对齐 | 100% | v5.6.4 Tauri IPC rename_all 修复 |
-| **整体 v5.6.4** | **100%** | 核心功能全部完成 |
+| **整体 v0.19.0** | **100%** | 核心功能全部完成 |
 
 ---
 
