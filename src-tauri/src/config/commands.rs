@@ -248,6 +248,8 @@ pub struct AppSettingsData {
     #[serde(default)]
     pub generation_mode: Option<String>,
     #[serde(default)]
+    pub auto_rewrite_severity_threshold: Option<String>,
+    #[serde(default)]
     pub llm_connect_timeout_secs: Option<u64>,
     #[serde(default)]
     pub smart_execute_total_timeout_secs: Option<u64>,
@@ -446,6 +448,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         llm_first_chunk_timeout_secs: Some(config.llm_first_chunk_timeout_secs),
         writer_system_prompt_override: Some(config.writer_system_prompt_override.clone()),
         probe_prompt_override: Some(config.probe_prompt_override.clone()),
+        auto_rewrite_severity_threshold: Some(config.auto_rewrite_severity_threshold.clone()),
     })
 }
 
@@ -519,6 +522,12 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
             "auto" | "time_sliced" | "fast" | "full" | "tri_shot"
         ) {
             config.generation_mode = v;
+        }
+    }
+    if let Some(v) = settings.auto_rewrite_severity_threshold {
+        // 仅接受白名单值（与 generation_mode 策略一致）
+        if matches!(v.as_str(), "high" | "medium" | "low") {
+            config.auto_rewrite_severity_threshold = v;
         }
     }
     if let Some(v) = settings.llm_connect_timeout_secs {

@@ -311,6 +311,9 @@ export interface AppSettings {
   // - 'tri_shot': v0.23 三击模式（弹性 2~3 次 LLM：合成→精修→生成，质检改写下沉后台）
   generation_mode?: 'auto' | 'time_sliced' | 'fast' | 'full' | 'tri_shot';
 
+  // v0.23 TriShot BGP-2：后台自动改写的严重度阈值（high/medium/low）
+  auto_rewrite_severity_threshold?: 'high' | 'medium' | 'low';
+
   // v0.15.5: 超时配置
   llm_connect_timeout_secs?: number;
   smart_execute_total_timeout_secs?: number;
