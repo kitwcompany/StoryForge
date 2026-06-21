@@ -24,11 +24,7 @@ impl PromptMode {
 /// v0.21.0: 从 PromptRegistry 读取模板并渲染变量
 ///
 /// 若 registry 不可用或 key 不存在，回退到提供的默认模板。
-fn resolve_and_render(
-    prompt_id: &str,
-    default_template: &str,
-    vars: &[(&str, &str)],
-) -> String {
+fn resolve_and_render(prompt_id: &str, default_template: &str, vars: &[(&str, &str)]) -> String {
     let template = if let Some(pool) = crate::get_pool() {
         crate::prompts::registry::resolve_prompt(&pool, prompt_id)
             .unwrap_or_else(|_| default_template.to_string())
@@ -164,11 +160,7 @@ pub fn world_building_prompt(
 1. 基于文本内容推断，不要虚构
 2. 规则从文本中的描写归纳总结
 3. 只输出 JSON"#,
-            &[
-                ("title", story_title),
-                ("genre", genre),
-                ("text", context),
-            ],
+            &[("title", story_title), ("genre", genre), ("text", context)],
         ),
     }
 }
@@ -259,11 +251,7 @@ pub fn character_prompt(
 2. 仅被提及但未出场，role_type 标记为"提及"
 3. importance_score 根据重要性打分（1-10）
 4. 只输出 JSON"#,
-            &[
-                ("title", story_title),
-                ("genre", genre),
-                ("text", context),
-            ],
+            &[("title", story_title), ("genre", genre), ("text", context)],
         ),
     }
 }
@@ -350,11 +338,7 @@ pub fn scene_prompt(
 2. 提取每个场景的核心冲突和情感基调
 3. 列出场景中出场的所有人物
 4. 只输出 JSON"#,
-            &[
-                ("title", story_title),
-                ("genre", genre),
-                ("text", context),
-            ],
+            &[("title", story_title), ("genre", genre), ("text", context)],
         ),
     }
 }
@@ -424,11 +408,7 @@ pub fn outline_prompt(mode: PromptMode, story_title: &str, genre: &str, context:
 1. 基于文本内容推断故事结构
 2. 如果文本不完整，只推断已读部分的结构
 3. 只输出 JSON"#,
-            &[
-                ("title", story_title),
-                ("genre", genre),
-                ("text", context),
-            ],
+            &[("title", story_title), ("genre", genre), ("text", context)],
         ),
     }
 }
@@ -505,11 +485,7 @@ pub fn foreshadowing_prompt(
 2. 区分已明确回收的伏笔和尚未回收的伏笔
 3. importance 根据伏笔对整体故事的重要性打分
 4. 只输出 JSON"#,
-            &[
-                ("title", story_title),
-                ("genre", genre),
-                ("text", context),
-            ],
+            &[("title", story_title), ("genre", genre), ("text", context)],
         ),
     }
 }
@@ -538,10 +514,7 @@ pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> S
 2. 支线要与主线有机联系
 3. 高潮点要分布在不同幕次
 4. 只输出 JSON"#,
-            &[
-                ("story_title", story_title),
-                ("outline_summary", context),
-            ],
+            &[("story_title", story_title), ("outline_summary", context)],
         ),
         PromptMode::Extract => resolve_and_render(
             "narrative_story_arc_extract",
@@ -564,10 +537,7 @@ pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> S
 1. 基于章节概要推断故事结构
 2. 如果文本不完整，标注待补充
 3. 只输出 JSON"#,
-            &[
-                ("title", story_title),
-                ("text", context),
-            ],
+            &[("title", story_title), ("text", context)],
         ),
     }
 }

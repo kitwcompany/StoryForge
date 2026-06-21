@@ -4,17 +4,15 @@
 //! Tool-level: 描述匹配 + 意图匹配 + 图信号 融合评分
 //!
 //! v0.20.1: 修复审计报告 P1-1/P1-2——
-//! - `discover_server_level` 真正调用 `GraphScorer::ppr_propagate`（此前从未调用）
+//! - `discover_server_level` 真正调用
+//!   `GraphScorer::ppr_propagate`（此前从未调用）
 //! - `discover_tool_level` 使用 PPR 传播分数替代 `0.5` 占位
 //! - 评分权重对齐论文 λ=1 等权（此前为 0.3/0.4/0.2/0.1）
 
 use std::collections::HashMap;
 
+use super::{graph::IntentionGraphRepository, models::*, scorer::GraphScorer};
 use crate::error::AppError;
-
-use super::graph::IntentionGraphRepository;
-use super::models::*;
-use super::scorer::GraphScorer;
 
 /// 分层发现引擎
 pub struct LayeredDiscovery {
@@ -39,8 +37,8 @@ impl LayeredDiscovery {
         graph_repo: &IntentionGraphRepository,
         max_results: usize,
     ) -> Result<ServerLevelResult, AppError> {
-        // 1. 构建异构图邻接表用于 PPR 传播
-        //    节点 ID 命名空间：intention 节点原样使用 ID，asset 节点原样使用 ID
+        // 1. 构建异构图邻接表用于 PPR 传播 节点 ID 命名空间：intention 节点原样使用
+        //    ID，asset 节点原样使用 ID
         let mut edges: HashMap<String, Vec<(String, f64)>> = HashMap::new();
 
         // 1a. intention → asset 边（TriggeredBy / HasIntention）
@@ -60,7 +58,8 @@ impl LayeredDiscovery {
 
             log::debug!(
                 "[LayeredDiscovery] 精确意图 '{}' 无边，回退到同动词意图: {:?}",
-                root_intention.id, sibling_ids
+                root_intention.id,
+                sibling_ids
             );
 
             for sid in &sibling_ids {
@@ -83,7 +82,8 @@ impl LayeredDiscovery {
         }
 
         // 1b. 收集所有已涉及的 asset ID，补全 asset → asset 边
-        let mut involved_assets: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut involved_assets: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         for e in &ia_edges {
             involved_assets.insert(e.asset_id.clone());
         }
@@ -152,9 +152,10 @@ impl LayeredDiscovery {
 
     /// Tool-level 发现：多信号融合评分
     ///
-    /// v0.20.1: 对齐论文公式 score_tool = λ_desc·sim + λ_int·max_sim + λ_graph·ĝ
-    /// 论文设定所有 λ = 1（等权）。此前实现为 0.3/0.4/0.2/0.1 且 ppr 硬编码 0.5。
-    /// 现改为等权 + 从 server_level 结果传入真实 PPR 分数。
+    /// v0.20.1: 对齐论文公式 score_tool = λ_desc·sim + λ_int·max_sim +
+    /// λ_graph·ĝ 论文设定所有 λ = 1（等权）。此前实现为 0.3/0.4/0.2/0.1 且
+    /// ppr 硬编码 0.5。 现改为等权 + 从 server_level 结果传入真实 PPR
+    /// 分数。
     pub fn discover_tool_level(
         &self,
         intention: &IntentionNode,
@@ -164,7 +165,11 @@ impl LayeredDiscovery {
         let mut results = Vec::new();
 
         // 归一化 PPR 分数到 [0, 1]
-        let max_ppr = ppr_scores.values().cloned().fold(0.0_f64, f64::max).max(1e-10);
+        let max_ppr = ppr_scores
+            .values()
+            .cloned()
+            .fold(0.0_f64, f64::max)
+            .max(1e-10);
 
         for candidate in candidates {
             // 1. 描述匹配（语义相似度，嵌入缺失时回退到文本 Jaccard）
@@ -180,11 +185,7 @@ impl LayeredDiscovery {
             let intent_score = Self::intent_match_score(intention, candidate);
 
             // 3. PPR 图分数（从 server-level 传播结果获取，归一化到 [0,1]）
-            let ppr_score = ppr_scores
-                .get(&candidate.id)
-                .copied()
-                .unwrap_or(0.0)
-                / max_ppr;
+            let ppr_score = ppr_scores.get(&candidate.id).copied().unwrap_or(0.0) / max_ppr;
 
             // 4. 协同过滤分数（基于历史频率，作为额外信号）
             let collab_score = (candidate.frequency as f64).min(10.0) / 10.0;
@@ -208,7 +209,11 @@ impl LayeredDiscovery {
         }
 
         // 按总分排序
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results
     }
 
@@ -220,7 +225,8 @@ impl LayeredDiscovery {
         max_results: usize,
     ) -> Result<Vec<AssetDiscoveryResult>, AppError> {
         // Server-level: PPR 传播发现候选资产
-        let server_result = self.discover_server_level(root_intention, graph_repo, max_results * 3)?;
+        let server_result =
+            self.discover_server_level(root_intention, graph_repo, max_results * 3)?;
 
         // 构建 PPR 分数映射（从 server-level 结果）
         let ppr_scores: HashMap<String, f64> = server_result

@@ -159,8 +159,12 @@ impl Methodology for CharacterDepthModel {
     fn system_prompt_extension(&self) -> String {
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
         if let Some(tpl) = crate::get_pool()
-            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "methodology_character_depth").ok())
-            .or_else(|| crate::prompts::registry::resolve_prompt_default("methodology_character_depth"))
+            .and_then(|p| {
+                crate::prompts::registry::resolve_prompt(&p, "methodology_character_depth").ok()
+            })
+            .or_else(|| {
+                crate::prompts::registry::resolve_prompt_default("methodology_character_depth")
+            })
         {
             return tpl;
         }

@@ -433,7 +433,9 @@ impl IngestPipeline {
 
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
         let base_prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "memory_content_analysis").ok())
+            .and_then(|p| {
+                crate::prompts::registry::resolve_prompt(&p, "memory_content_analysis").ok()
+            })
             .or_else(|| crate::prompts::registry::resolve_prompt_default("memory_content_analysis"))
         {
             let mut vars = std::collections::HashMap::new();
@@ -441,7 +443,7 @@ impl IngestPipeline {
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
         } else {
             format!(
-            r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
+                r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
 
 【内容】
 {}
@@ -519,8 +521,9 @@ impl IngestPipeline {
 4. 事件重要性评估: 1(轻微提及) 到 10(核心转折)
 5. 确保输出是合法的JSON，不要添加markdown代码块标记
 6. 如果文本中没有足够信息，返回空数组即可，不要编造"#,
-            content.text, content.source
-        )};
+                content.text, content.source
+            )
+        };
 
         let mut last_error: Option<String> = None;
         for attempt in 0..3 {
@@ -748,7 +751,9 @@ impl IngestPipeline {
 
         // v0.19.0: 从 PromptRegistry 读取提示词模板
         let prompt_text = if let Some(ref pool) = self.pool {
-            if let Ok(tpl) = crate::prompts::registry::resolve_prompt(pool, "narrative_event_extraction") {
+            if let Ok(tpl) =
+                crate::prompts::registry::resolve_prompt(pool, "narrative_event_extraction")
+            {
                 let mut result = tpl;
                 result = result.replace("{{characters}}", &characters.join(", "));
                 result = result.replace("{{prior_events}}", "无");
@@ -815,10 +820,7 @@ impl IngestPipeline {
     }
 
     /// v0.19.0: 叙事事件提取的 fallback 提示词（当 PromptRegistry 不可用时）
-    fn fallback_narrative_event_extraction_prompt(
-        characters: &[String],
-        content: &str,
-    ) -> String {
+    fn fallback_narrative_event_extraction_prompt(characters: &[String], content: &str) -> String {
         format!(
             "你是一个专业的叙事分析专家。你的任务是从小说文本中提取推动情节发展的关键事件。\n\n\
             分析标准：\n\

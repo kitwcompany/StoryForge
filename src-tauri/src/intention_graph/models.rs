@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IntentType {
-    Atomic,     // 原子意图：单一动词-宾语，如 "generate prose"
-    Compound,   // 复合意图：多步组合，如 "write chapter → inspect → revise"
-    Synthetic,  // 合成意图：运行时动态发现，如 "enhance style based on user feedback"
+    Atomic,    // 原子意图：单一动词-宾语，如 "generate prose"
+    Compound,  // 复合意图：多步组合，如 "write chapter → inspect → revise"
+    Synthetic, // 合成意图：运行时动态发现，如 "enhance style based on user feedback"
 }
 
 impl std::fmt::Display for IntentType {
@@ -44,12 +44,12 @@ impl std::str::FromStr for IntentType {
 pub struct IntentionNode {
     pub id: String,
     pub intent_type: IntentType,
-    pub verb: String,           // 动作动词
-    pub object: String,         // 宾语对象
-    pub description: String,    // 自然语言描述
+    pub verb: String,        // 动作动词
+    pub object: String,      // 宾语对象
+    pub description: String, // 自然语言描述
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>, // 语义嵌入向量
-    pub frequency: i32,         // 出现频率（PPR 权重）
+    pub frequency: i32,      // 出现频率（PPR 权重）
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }
@@ -73,7 +73,12 @@ impl IntentionNode {
 
     /// 从 LLM 输出解析合成意图
     pub fn synthetic_from_llm(verb: &str, object: &str, description: &str) -> Self {
-        let id = format!("syn_{}_{}_{}", verb.to_lowercase(), object.to_lowercase(), uuid::Uuid::new_v4().to_string().split('-').next().unwrap());
+        let id = format!(
+            "syn_{}_{}_{}",
+            verb.to_lowercase(),
+            object.to_lowercase(),
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+        );
         Self {
             id,
             intent_type: IntentType::Synthetic,
@@ -105,15 +110,15 @@ impl IntentionNode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetType {
-    Skill,          // 内置技能（style_enhancer, character_voice 等）
-    Methodology,    // 创作方法论（雪花法、英雄之旅等）
-    StyleDna,       // 风格 DNA
-    GenreProfile,   // 体裁画像
-    McpTool,        // MCP 外部工具
-    Agent,          // Agent（writer, inspector 等）
-    SystemCommand,  // 系统命令（create_chapter, update_character 等）
-    BeatCard,       // 节拍卡
-    StoryEngine,    // 故事引擎
+    Skill,            // 内置技能（style_enhancer, character_voice 等）
+    Methodology,      // 创作方法论（雪花法、英雄之旅等）
+    StyleDna,         // 风格 DNA
+    GenreProfile,     // 体裁画像
+    McpTool,          // MCP 外部工具
+    Agent,            // Agent（writer, inspector 等）
+    SystemCommand,    // 系统命令（create_chapter, update_character 等）
+    BeatCard,         // 节拍卡
+    StoryEngine,      // 故事引擎
     PressureRelation, // 压力关系
 }
 
@@ -173,7 +178,12 @@ pub struct AssetNode {
 }
 
 impl AssetNode {
-    pub fn new(asset_type: AssetType, name: &str, description: &str, capability_id: Option<&str>) -> Self {
+    pub fn new(
+        asset_type: AssetType,
+        name: &str,
+        description: &str,
+        capability_id: Option<&str>,
+    ) -> Self {
         let id = format!("{}_{}", asset_type, name.to_lowercase().replace(' ', "_"));
         Self {
             id,
@@ -201,9 +211,9 @@ impl AssetNode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IntentionAssetEdgeType {
-    HasIntention,    // 资产拥有此意图（asset → intention）
-    TriggeredBy,     // 意图触发此资产（intention → asset）
-    Recommended,     // 推荐关联（基于协同过滤或历史）
+    HasIntention, // 资产拥有此意图（asset → intention）
+    TriggeredBy,  // 意图触发此资产（intention → asset）
+    Recommended,  // 推荐关联（基于协同过滤或历史）
 }
 
 impl std::fmt::Display for IntentionAssetEdgeType {
@@ -233,10 +243,10 @@ impl std::str::FromStr for IntentionAssetEdgeType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetAssetEdgeType {
-    ToolNext,        // 工具链：执行 A 后通常执行 B
-    ToolCooccur,     // 工具共现：A 和 B 经常一起使用
-    DependsOn,       // 依赖：B 依赖 A 的输出
-    Complements,     // 互补：A 和 B 功能互补
+    ToolNext,    // 工具链：执行 A 后通常执行 B
+    ToolCooccur, // 工具共现：A 和 B 经常一起使用
+    DependsOn,   // 依赖：B 依赖 A 的输出
+    Complements, // 互补：A 和 B 功能互补
 }
 
 impl std::fmt::Display for AssetAssetEdgeType {
@@ -298,11 +308,11 @@ pub struct AssetAssetEdge {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionGraphStatus {
-    Building,    // 正在构建图
-    Executing,   // 正在执行
-    Completed,   // 完成
-    Failed,      // 失败
-    Cancelled,   // 取消
+    Building,  // 正在构建图
+    Executing, // 正在执行
+    Completed, // 完成
+    Failed,    // 失败
+    Cancelled, // 取消
 }
 
 impl std::fmt::Display for ExecutionGraphStatus {
@@ -358,12 +368,12 @@ pub struct ExecutionGraph {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionNodeStatus {
-    Discovered,   // 已发现，待执行
-    Pending,      // 等待依赖
-    Running,      // 执行中
-    Completed,    // 完成
-    Failed,       // 失败
-    Skipped,      // 跳过
+    Discovered, // 已发现，待执行
+    Pending,    // 等待依赖
+    Running,    // 执行中
+    Completed,  // 完成
+    Failed,     // 失败
+    Skipped,    // 跳过
 }
 
 impl std::fmt::Display for ExecutionNodeStatus {
@@ -463,12 +473,12 @@ pub struct ExecutionNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetDiscoveryResult {
     pub asset: AssetNode,
-    pub score: f64,              // 综合评分（0-1）
-    pub semantic_score: f64,     // 语义相似度
-    pub intent_score: f64,       // 意图匹配度
-    pub ppr_score: f64,          // 图传播分数
-    pub collab_score: f64,       // 协同过滤分数
-    pub reason: String,          // 为什么推荐此资产
+    pub score: f64,          // 综合评分（0-1）
+    pub semantic_score: f64, // 语义相似度
+    pub intent_score: f64,   // 意图匹配度
+    pub ppr_score: f64,      // 图传播分数
+    pub collab_score: f64,   // 协同过滤分数
+    pub reason: String,      // 为什么推荐此资产
 }
 
 /// 意图合成结果
@@ -476,7 +486,7 @@ pub struct AssetDiscoveryResult {
 pub struct IntentSynthesisResult {
     pub root_intention: IntentionNode,
     pub sub_intentions: Vec<IntentionNode>,
-    pub confidence: f64,         // 合成置信度
+    pub confidence: f64,              // 合成置信度
     pub chain_expansion: Vec<String>, // 链式扩展的中间意图
 }
 
@@ -512,7 +522,11 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     if a.is_empty() || b.is_empty() || a.len() != b.len() {
         return 0.0;
     }
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| (*x as f64) * (*y as f64)).sum();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (*x as f64) * (*y as f64))
+        .sum();
     let norm_a: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
     let norm_b: f64 = b.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
     if norm_a == 0.0 || norm_b == 0.0 {

@@ -964,7 +964,10 @@ fn build_selected_strategy(
                 if let Some(ref rec) = profile.recommended_style_dna_ids {
                     if let Ok(ids) = serde_json::from_str::<Vec<String>>(rec) {
                         strategy.style_dna_ids = ids;
-                        rationale_parts.push(format!("风格 DNA（题材推荐）：{:?}", strategy.style_dna_ids));
+                        rationale_parts.push(format!(
+                            "风格 DNA（题材推荐）：{:?}",
+                            strategy.style_dna_ids
+                        ));
                     }
                 }
             }

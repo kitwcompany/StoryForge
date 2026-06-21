@@ -205,11 +205,7 @@ fn build_inspector_prompt(payload: &AuditPayload) -> String {
         .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "audit_quality_inspector").ok())
         .or_else(|| crate::prompts::registry::resolve_prompt_default("audit_quality_inspector"))
     {
-        let content = payload
-            .content
-            .chars()
-            .take(8000)
-            .collect::<String>();
+        let content = payload.content.chars().take(8000).collect::<String>();
         let mut vars = std::collections::HashMap::new();
         vars.insert("content".to_string(), content);
         return crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);

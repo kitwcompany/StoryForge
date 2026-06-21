@@ -62,7 +62,8 @@ pub struct WriteTimeBundle {
     pub style_dna_extension: Option<String>,
     /// 方法论约束（当前步骤的完整规则）
     pub methodology_extension: Option<String>,
-    /// 题材画像策略（core_tone + pacing_strategy + reference_tables + typical_structure）
+    /// 题材画像策略（core_tone + pacing_strategy + reference_tables +
+    /// typical_structure）
     pub genre_profile_strategy: Option<String>,
     /// 写作策略约束
     pub writing_strategy_constraints: Option<String>,
@@ -262,10 +263,9 @@ impl WriteTimeBundle {
                 let dna_repo = StyleDnaRepository::new(pool.clone());
                 match dna_repo.get_by_id(dna_id) {
                     Ok(Some(dna)) => {
-                        match serde_json::from_str::<
-                            crate::creative_engine::style::dna::StyleDNA,
-                        >(&dna.dna_json)
-                        {
+                        match serde_json::from_str::<crate::creative_engine::style::dna::StyleDNA>(
+                            &dna.dna_json,
+                        ) {
                             Ok(dna_obj) => Some(dna_obj.to_prompt_extension()),
                             Err(e) => {
                                 log::warn!("[WriteTimeBundle] StyleDNA 解析失败: {}", e);
@@ -285,11 +285,26 @@ impl WriteTimeBundle {
                 let step = story.methodology_step.unwrap_or(1);
                 // v0.22.1: 按 methodology_id 动态选择 prompt ID
                 let (prompt_id, label) = match mid {
-                    "snowflake" => (format!("methodology_snowflake_step{}", step), format!("雪花法 第{}步", step)),
-                    "hero_journey" => ("methodology_hero_journey".to_string(), "英雄之旅".to_string()),
-                    "scene_structure" => ("methodology_scene_structure".to_string(), "场景结构".to_string()),
-                    "character_depth" => ("methodology_character_depth".to_string(), "人物深度".to_string()),
-                    "high_density_world_building" => ("methodology_hdwb_seed".to_string(), "高密度世界构建".to_string()),
+                    "snowflake" => (
+                        format!("methodology_snowflake_step{}", step),
+                        format!("雪花法 第{}步", step),
+                    ),
+                    "hero_journey" => (
+                        "methodology_hero_journey".to_string(),
+                        "英雄之旅".to_string(),
+                    ),
+                    "scene_structure" => (
+                        "methodology_scene_structure".to_string(),
+                        "场景结构".to_string(),
+                    ),
+                    "character_depth" => (
+                        "methodology_character_depth".to_string(),
+                        "人物深度".to_string(),
+                    ),
+                    "high_density_world_building" => (
+                        "methodology_hdwb_seed".to_string(),
+                        "高密度世界构建".to_string(),
+                    ),
                     _ => (String::new(), String::new()),
                 };
                 if prompt_id.is_empty() {

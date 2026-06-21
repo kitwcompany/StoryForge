@@ -2,13 +2,14 @@
 
 use tauri::State;
 
-use crate::{db::DbPool, error::AppError};
-
 use super::registry;
+use crate::{db::DbPool, error::AppError};
 
 /// 列出所有提示词条目
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_prompt_entries(pool: State<'_, DbPool>) -> Result<Vec<registry::PromptEntry>, AppError> {
+pub fn list_prompt_entries(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<registry::PromptEntry>, AppError> {
     registry::list_prompt_entries(&pool)
 }
 
@@ -36,6 +37,9 @@ pub fn reset_all_prompt_overrides(pool: State<'_, DbPool>) -> Result<usize, AppE
 
 /// 解析提示词内容（用于调试/预览）
 #[tauri::command(rename_all = "snake_case")]
-pub fn resolve_prompt_content(pool: State<'_, DbPool>, prompt_id: String) -> Result<String, AppError> {
+pub fn resolve_prompt_content(
+    pool: State<'_, DbPool>,
+    prompt_id: String,
+) -> Result<String, AppError> {
     registry::resolve_prompt(&pool, &prompt_id)
 }

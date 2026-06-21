@@ -172,7 +172,9 @@ fn build_refine_prompt(
     let mut vars = std::collections::HashMap::new();
     vars.insert(
         "review_feedback".to_string(),
-        user_prompt.unwrap_or("请保持原有风格，只做必要的润色和优化。").to_string(),
+        user_prompt
+            .unwrap_or("请保持原有风格，只做必要的润色和优化。")
+            .to_string(),
     );
     vars.insert("draft_content".to_string(), draft_content.to_string());
 

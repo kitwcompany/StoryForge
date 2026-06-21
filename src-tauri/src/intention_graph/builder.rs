@@ -10,11 +10,8 @@
 //!   回退到预设规则
 //! - Phase 3 (Atomic Extraction): LLM 提取原子动词-宾语，回退到 splitn 切分
 
-use crate::error::AppError;
-use crate::intention_graph::IntentContext;
-use crate::llm::LlmService;
-
 use super::models::*;
+use crate::{error::AppError, intention_graph::IntentContext, llm::LlmService};
 
 /// 意图合成流水线
 pub struct IntentSynthesisPipeline {
@@ -65,10 +62,7 @@ impl IntentSynthesisPipeline {
                 query
             }
             Err(e) => {
-                log::debug!(
-                    "[IntentSynthesis] LLM 合成失败，回退到关键词匹配: {}",
-                    e
-                );
+                log::debug!("[IntentSynthesis] LLM 合成失败，回退到关键词匹配: {}", e);
                 self.synthesize_query_rule_based(user_input, context)
             }
         }
@@ -82,26 +76,23 @@ impl IntentSynthesisPipeline {
     ) -> Result<SynthesizedQuery, AppError> {
         // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖），回退到内置默认
         let system_prompt = if let Some(pool) = crate::get_pool() {
-            crate::prompts::registry::resolve_prompt(&pool, "intent_analyzer")
-                .unwrap_or_else(|_| {
+            crate::prompts::registry::resolve_prompt(&pool, "intent_analyzer").unwrap_or_else(
+                |_| {
                     crate::prompts::registry::resolve_prompt_default("intent_analyzer")
                         .unwrap_or_else(|| Self::default_intent_prompt().to_string())
-                })
+                },
+            )
         } else {
             crate::prompts::registry::resolve_prompt_default("intent_analyzer")
                 .unwrap_or_else(|| Self::default_intent_prompt().to_string())
         };
 
-        let user_prompt = format!(
-            "{}\n\n用户指令：{}",
-            system_prompt, user_input
-        );
+        let user_prompt = format!("{}\n\n用户指令：{}", system_prompt, user_input);
 
-        let response = self.llm_service.generate(
-            user_prompt,
-            Some(100),
-            Some(0.1),
-        ).await?;
+        let response = self
+            .llm_service
+            .generate(user_prompt, Some(100), Some(0.1))
+            .await?;
 
         // v0.20.1: 剥离 markdown 代码块包裹（LLM 常返回 ```json ... ```）
         let raw = response.content.trim();
@@ -119,13 +110,16 @@ impl IntentSynthesisPipeline {
         let parsed: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| AppError::internal(format!("LLM JSON parse failed: {}", e)))?;
 
-        let verb_raw = parsed.get("verb")
+        let verb_raw = parsed
+            .get("verb")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::internal("Missing verb in LLM response"))?;
-        let object_raw = parsed.get("object")
+        let object_raw = parsed
+            .get("object")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::internal("Missing object in LLM response"))?;
-        let confidence = parsed.get("confidence")
+        let confidence = parsed
+            .get("confidence")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.7);
 
@@ -189,38 +183,72 @@ impl IntentSynthesisPipeline {
 
         // 检测明确的创作意图
         let is_prose_request = [
-            "写", "write", "创作", "开始写", "写小说", "写故事",
-            "写一章", "写开篇", "写正文", "start writing",
-            "write a novel", "write a story", "write chapter", "begin writing",
-            "续写", "继续",
+            "写",
+            "write",
+            "创作",
+            "开始写",
+            "写小说",
+            "写故事",
+            "写一章",
+            "写开篇",
+            "写正文",
+            "start writing",
+            "write a novel",
+            "write a story",
+            "write chapter",
+            "begin writing",
+            "续写",
+            "继续",
         ]
         .iter()
         .any(|kw| normalized.contains(kw));
 
         let is_style_request = [
-            "风格", "style", "文风", "润色", "polish", "enhance style",
-            "改风格", "调整风格",
+            "风格",
+            "style",
+            "文风",
+            "润色",
+            "polish",
+            "enhance style",
+            "改风格",
+            "调整风格",
         ]
         .iter()
         .any(|kw| normalized.contains(kw));
 
         let is_character_request = [
-            "角色", "character", "人物", "person",
-            "创建角色", "create character", "修改角色", "update character",
+            "角色",
+            "character",
+            "人物",
+            "person",
+            "创建角色",
+            "create character",
+            "修改角色",
+            "update character",
         ]
         .iter()
         .any(|kw| normalized.contains(kw));
 
         let is_world_request = [
-            "世界观", "world", "设定", "setting",
-            "修改世界观", "update world", "世界规则",
+            "世界观",
+            "world",
+            "设定",
+            "setting",
+            "修改世界观",
+            "update world",
+            "世界规则",
         ]
         .iter()
         .any(|kw| normalized.contains(kw));
 
         let is_outline_request = [
-            "大纲", "outline", "规划", "plan",
-            "生成大纲", "create outline", "故事结构",
+            "大纲",
+            "outline",
+            "规划",
+            "plan",
+            "生成大纲",
+            "create outline",
+            "故事结构",
         ]
         .iter()
         .any(|kw| normalized.contains(kw));
@@ -276,10 +304,7 @@ impl IntentSynthesisPipeline {
                 "manage world building".to_string(),
                 "update knowledge graph".to_string(),
             ],
-            "plan structure" => vec![
-                "plan structure".to_string(),
-                "generate outline".to_string(),
-            ],
+            "plan structure" => vec!["plan structure".to_string(), "generate outline".to_string()],
             _ => vec![query.primary_intent.clone()],
         }
     }

@@ -132,42 +132,102 @@ mod tests {
     #[test]
     fn test_classify_by_intention_verbs() {
         // 轻量分析类
-        assert_eq!(TaskClassifier::classify_by_intention("analyze", "quality"), TaskClass::LightTool);
-        assert_eq!(TaskClassifier::classify_by_intention("detect", "issue"), TaskClass::LightTool);
-        assert_eq!(TaskClassifier::classify_by_intention("inspect", "prose"), TaskClass::LightTool);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("analyze", "quality"),
+            TaskClass::LightTool
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("detect", "issue"),
+            TaskClass::LightTool
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("inspect", "prose"),
+            TaskClass::LightTool
+        );
 
         // 重型创作类
-        assert_eq!(TaskClassifier::classify_by_intention("generate", "prose"), TaskClass::HeavyCreation);
-        assert_eq!(TaskClassifier::classify_by_intention("write", "chapter"), TaskClass::HeavyCreation);
-        assert_eq!(TaskClassifier::classify_by_intention("create", "story"), TaskClass::HeavyCreation);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("generate", "prose"),
+            TaskClass::HeavyCreation
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("write", "chapter"),
+            TaskClass::HeavyCreation
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("create", "story"),
+            TaskClass::HeavyCreation
+        );
 
         // 中型增强类
-        assert_eq!(TaskClassifier::classify_by_intention("enhance", "style"), TaskClass::BalancedWork);
-        assert_eq!(TaskClassifier::classify_by_intention("polish", "prose"), TaskClass::BalancedWork);
-        assert_eq!(TaskClassifier::classify_by_intention("revise", "content"), TaskClass::BalancedWork);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("enhance", "style"),
+            TaskClass::BalancedWork
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("polish", "prose"),
+            TaskClass::BalancedWork
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("revise", "content"),
+            TaskClass::BalancedWork
+        );
 
         // 管理/查询类
-        assert_eq!(TaskClassifier::classify_by_intention("manage", "character"), TaskClass::LightTool);
-        assert_eq!(TaskClassifier::classify_by_intention("query", "world"), TaskClass::LightTool);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("manage", "character"),
+            TaskClass::LightTool
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("query", "world"),
+            TaskClass::LightTool
+        );
 
         // 规划类
-        assert_eq!(TaskClassifier::classify_by_intention("plan", "outline"), TaskClass::BalancedWork);
-        assert_eq!(TaskClassifier::classify_by_intention("structure", "scene"), TaskClass::BalancedWork);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("plan", "outline"),
+            TaskClass::BalancedWork
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("structure", "scene"),
+            TaskClass::BalancedWork
+        );
     }
 
     #[test]
     fn test_classify_by_intention_fallback_to_object() {
         // 未知动词，根据宾语判断
-        assert_eq!(TaskClassifier::classify_by_intention("unknown", "prose"), TaskClass::HeavyCreation);
-        assert_eq!(TaskClassifier::classify_by_intention("unknown", "style"), TaskClass::BalancedWork);
-        assert_eq!(TaskClassifier::classify_by_intention("unknown", "quality"), TaskClass::LightTool);
-        assert_eq!(TaskClassifier::classify_by_intention("unknown", "unknown"), TaskClass::BalancedWork);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("unknown", "prose"),
+            TaskClass::HeavyCreation
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("unknown", "style"),
+            TaskClass::BalancedWork
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("unknown", "quality"),
+            TaskClass::LightTool
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("unknown", "unknown"),
+            TaskClass::BalancedWork
+        );
     }
 
     #[test]
     fn test_classify_by_intention_case_insensitive() {
-        assert_eq!(TaskClassifier::classify_by_intention("GENERATE", "PROSE"), TaskClass::HeavyCreation);
-        assert_eq!(TaskClassifier::classify_by_intention("Analyze", "Quality"), TaskClass::LightTool);
-        assert_eq!(TaskClassifier::classify_by_intention("Enhance", "Style"), TaskClass::BalancedWork);
+        assert_eq!(
+            TaskClassifier::classify_by_intention("GENERATE", "PROSE"),
+            TaskClass::HeavyCreation
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("Analyze", "Quality"),
+            TaskClass::LightTool
+        );
+        assert_eq!(
+            TaskClassifier::classify_by_intention("Enhance", "Style"),
+            TaskClass::BalancedWork
+        );
     }
 }

@@ -24,23 +24,23 @@ pub enum PromptCategory {
     Inspector,   // 质检与审校
     Commentator, // 古典评点
     // 规划与分析
-    Planner,     // 大纲规划
-    Analyzer,    // 情节/结构分析
+    Planner,  // 大纲规划
+    Analyzer, // 情节/结构分析
     // 系统与探测
-    Probe,       // 模型探测/基准
-    System,      // 系统级提示词
+    Probe,  // 模型探测/基准
+    System, // 系统级提示词
     // 记忆与知识
-    Memory,      // 记忆压缩/蒸馏
-    Knowledge,   // 知识图谱相关
+    Memory,    // 记忆压缩/蒸馏
+    Knowledge, // 知识图谱相关
     // 技能与工具
-    Skill,       // 内置技能提示词
+    Skill, // 内置技能提示词
     // 创作方法论
     Methodology, // 雪花法/英雄之旅等
     // 世界与角色
-    World,       // 世界观/场景
-    Character,   // 角色相关
+    World,     // 世界观/场景
+    Character, // 角色相关
     // 叙事与结构
-    Narrative,   // 叙事结构/事件提取
+    Narrative, // 叙事结构/事件提取
     // v0.21.0: 新增分类——覆盖此前旁路 registry 的硬编码提示词
     Pipeline,       // 审稿/修稿/后处理流水线
     Audit,          // 质量审计
@@ -197,7 +197,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 输出要求：
 - 只输出小说正文，不要添加解释、总结或元评论
 - 不要输出"以下是续写内容"等过渡语
-- 保持与已有文本的自然衔接"#.to_string(),
+- 保持与已有文本的自然衔接"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -262,7 +263,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 【指令】
 {{instruction}}
 
-请根据以上上下文续写小说内容。保持与已有文本的风格和节奏一致，自然衔接。"#.to_string(),
+请根据以上上下文续写小说内容。保持与已有文本的风格和节奏一致，自然衔接。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -314,7 +316,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 【指令】
 {{instruction}}
 
-请根据指令改写上述【选中内容】，保持与上下文的风格一致。只输出改写后的内容，不要输出未选中的部分。"#.to_string(),
+请根据指令改写上述【选中内容】，保持与上下文的风格一致。只输出改写后的内容，不要输出未选中的部分。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -343,7 +346,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "Inspector 系统提示词".to_string(),
             description: "质检员的角色设定与检查准则".to_string(),
             category: PromptCategory::Inspector,
-            default_content: r#"你是一位资深小说编辑和文学质检专家。你的任务是对小说内容进行全面的质量检查。
+            default_content:
+                r#"你是一位资深小说编辑和文学质检专家。你的任务是对小说内容进行全面的质量检查。
 
 检查维度：
 1. 连续性：时间线、事件顺序、因果关系是否一致
@@ -371,7 +375,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 【作品信息】
 标题: {{story_title}}
 题材: {{genre}}
-角色: {{characters}}"#.to_string(),
+角色: {{characters}}"#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -458,13 +463,11 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 使用 Markdown 格式
 - 结构清晰，层次分明
 - 情节点之间要有明确的因果关系
-- 考虑节奏变化：紧张与松弛交替"#.to_string(),
+- 考虑节奏变化：紧张与松弛交替"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
-            variables: vec![
-                "premise".to_string(),
-                "characters".to_string(),
-            ],
+            variables: vec!["premise".to_string(), "characters".to_string()],
         },
     );
 
@@ -488,7 +491,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 3. 潜在的逻辑漏洞
 4. 伏笔和回收情况
 5. 高潮设置是否合理
-6. 改进建议"#.to_string(),
+6. 改进建议"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["content".to_string()],
@@ -516,7 +520,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 2. 注意与已建立角色形象的矛盾
 3. 建议动态特质更新（置信度 0.0-1.0）
 
-以 JSON 格式输出特质数组。"#.to_string(),
+以 JSON 格式输出特质数组。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -567,7 +572,9 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "长任务基准提示词".to_string(),
             description: "流式基准测试长任务（高 token）".to_string(),
             category: PromptCategory::Probe,
-            default_content: "请详细描述一个未来城市的一天，包括交通、工作、娱乐、社交等方面，不少于 500 字。".to_string(),
+            default_content:
+                "请详细描述一个未来城市的一天，包括交通、工作、娱乐、社交等方面，不少于 500 字。"
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -585,7 +592,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "记忆压缩提示词".to_string(),
             description: "将小说内容压缩为高层摘要".to_string(),
             category: PromptCategory::Memory,
-            default_content: r#"你是一位专业的文学记忆压缩师。请将以下小说相关内容压缩为简洁的高层摘要。
+            default_content:
+                r#"你是一位专业的文学记忆压缩师。请将以下小说相关内容压缩为简洁的高层摘要。
 
 【作品信息】
 标题: {{story_title}}
@@ -602,7 +610,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 3. 输出长度控制在原文的 {{ratio}}%
 4. 使用第三人称客观叙述
 
-请直接输出压缩后的摘要，不要添加解释。"#.to_string(),
+请直接输出压缩后的摘要，不要添加解释。"#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -627,7 +636,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "知识蒸馏提示词".to_string(),
             description: "从知识图谱提炼高层摘要".to_string(),
             category: PromptCategory::Knowledge,
-            default_content: r#"你是一位专业的文学知识蒸馏师。请根据以下小说知识图谱，提炼出高层摘要。
+            default_content:
+                r#"你是一位专业的文学知识蒸馏师。请根据以下小说知识图谱，提炼出高层摘要。
 
 【作品信息】
 标题: {{story_title}}
@@ -645,7 +655,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 4. 核心情节线：提炼当前已展开的主要悬念、伏笔、目标
 5. 输出条理清晰，使用Markdown格式，总长度控制在800字以内
 
-请直接输出蒸馏后的摘要。"#.to_string(),
+请直接输出蒸馏后的摘要。"#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -669,7 +680,9 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "文风增强器提示词".to_string(),
             description: "增强文本的文学性和表现力".to_string(),
             category: PromptCategory::Skill,
-            default_content: "你是一个专业的文学编辑。请增强以下文本的文学性和表现力：\n\n{{content}}".to_string(),
+            default_content:
+                "你是一个专业的文学编辑。请增强以下文本的文学性和表现力：\n\n{{content}}"
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["content".to_string()],
@@ -697,7 +710,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "文本排版器提示词".to_string(),
             description: "对小说正文进行智能排版".to_string(),
             category: PromptCategory::Skill,
-            default_content: r#"你是一位专业的中文小说排版编辑。请对输入的小说正文进行智能排版优化：
+            default_content:
+                r#"你是一位专业的中文小说排版编辑。请对输入的小说正文进行智能排版优化：
 1. 合理分段：根据语义和场景转换进行分段
 2. 对话格式：确保对话单独成段，使用正确的引号和标点
 3. 场景转换：场景或视角转换时添加空行分隔
@@ -707,7 +721,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 
 请对以下小说正文进行智能排版优化，只返回排版后的正文内容：
 
-{{content}}"#.to_string(),
+{{content}}"#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["content".to_string()],
@@ -734,7 +749,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 【对话内容】
 {{content}}
 
-请输出修正后的对话，确保角色声音统一且鲜明。只返回文本，不要解释。"#.to_string(),
+请输出修正后的对话，确保角色声音统一且鲜明。只返回文本，不要解释。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![
@@ -752,13 +768,15 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "情感节奏优化提示词".to_string(),
             description: "分析并优化文本的情感曲线和叙事节奏".to_string(),
             category: PromptCategory::Skill,
-            default_content: r#"你是一位专业的叙事节奏和情感分析师。请以「{{mode}}」模式处理以下文本：
+            default_content:
+                r#"你是一位专业的叙事节奏和情感分析师。请以「{{mode}}」模式处理以下文本：
 
 如果是 analyze 模式，给出情感节奏分析和改进建议（不超过200字）。
 如果是 rewrite 模式，直接输出优化后的文本，增强情感张力和叙事节奏。
 
 【文本】
-{{content}}"#.to_string(),
+{{content}}"#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["mode".to_string(), "content".to_string()],
@@ -787,7 +805,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 回答时请：
 - 引用相关的Wiki页面
 - 保持与已有设定的一致性
-- 提供具体可行的建议"#.to_string(),
+- 提供具体可行的建议"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -812,7 +831,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 回答时请：
 - 引用角色相关的Wiki页面
 - 考虑角色的成长弧线
-- 提供具体的对话或行为示例"#.to_string(),
+- 提供具体的对话或行为示例"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -837,7 +857,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 回答时请：
 - 引用文风相关的Wiki页面
 - 给出修改前后的对比
-- 解释修改的原因"#.to_string(),
+- 解释修改的原因"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -862,7 +883,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 回答时请：
 - 引用场景相关的Wiki页面
 - 关注戏剧目标、外部压迫、冲突类型
-- 提供具体的场景设计建议"#.to_string(),
+- 提供具体的场景设计建议"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -887,7 +909,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 回答时请：
 - 引用情节相关的Wiki页面
 - 考虑前后文的连贯性
-- 提供多种可能的发展方向"#.to_string(),
+- 提供多种可能的发展方向"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -988,7 +1011,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 阻碍主角的对抗力量
 - 一句话必须有戏剧性张力
 
-示例：一位被诬陷入狱的银行家，在肖申克监狱中用二十年时间秘密挖掘隧道，最终越狱并获得自由与财富。"#.to_string(),
+示例：一位被诬陷入狱的银行家，在肖申克监狱中用二十年时间秘密挖掘隧道，最终越狱并获得自由与财富。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1010,7 +1034,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 4. 第三个灾难：看似胜利实则引向最终危机的事件
 5. 结局：主角最终如何（成功/失败/ bittersweet）
 
-每句话必须推动情节发展，包含因果逻辑。"#.to_string(),
+每句话必须推动情节发展，包含因果逻辑。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1033,7 +1058,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 顿悟：在故事结尾，角色学到了什么？
 - 一句话总结：这个角色在故事中的弧线
 
-每个角色的目标必须与其他角色产生冲突。"#.to_string(),
+每个角色的目标必须与其他角色产生冲突。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1052,7 +1078,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 每个段落包含：背景细节 + 事件展开 + 情感反应
 - 段落之间必须有清晰的因果关系
 - 总长度控制在 400-600 字
-- 保留五句话的核心结构，但添加丰富细节"#.to_string(),
+- 保留五句话的核心结构，但添加丰富细节"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1074,7 +1101,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 恐惧与渴望：最深的恐惧是什么？最渴望什么？
 - 人际关系：与其他角色的关系历史
 - 转变时刻：故事前后角色的关键变化
-- 对话特征：说话方式、口头禅、潜台词习惯"#.to_string(),
+- 对话特征：说话方式、口头禅、潜台词习惯"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1094,7 +1122,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 明确标注：铺垫、升级、转折、高潮、结局
 - 确保三幕式结构清晰
 - 人物动机在每处转折都有合理依据
-- 埋下至少3个伏笔并注明回收位置"#.to_string(),
+- 埋下至少3个伏笔并注明回收位置"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1118,7 +1147,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 场景类型：目标场景(Goal) 或 反应场景(Reaction)
 
 目标场景公式：目标 → 冲突 → 灾难
-反应场景公式：反应 → 困境 → 决定"#.to_string(),
+反应场景公式：反应 → 困境 → 决定"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1138,7 +1168,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 中间：对话+动作+内心活动，推动冲突升级
 - 结尾：挫折/转折，留下钩子
 - 每个场景约 200-400 字描述
-- 标注情感基调变化"#.to_string(),
+- 标注情感基调变化"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1158,7 +1189,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 - 保持角色声音一致性
 - 每章结尾留钩子
 - 对话推动情节，避免无意义闲聊
-- 展示而非讲述（Show, don't tell）"#.to_string(),
+- 展示而非讲述（Show, don't tell）"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1180,7 +1212,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 4. 对话：每句对话是否推动情节或揭示性格？
 5. 伏笔：所有伏笔是否都已回收或明确放弃？
 6. 世界观：设定是否前后一致？
-7. 语言：删除冗余描写，强化关键意象"#.to_string(),
+7. 语言：删除冗余描写，强化关键意象"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec![],
@@ -1204,7 +1237,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
 【需要改写的文本】
 {{content}}
 
-请模仿参考文风的语言特点（词汇选择、句式结构、修辞手法等），改写上述文本，保持原意但改变表达方式。"#.to_string(),
+请模仿参考文风的语言特点（词汇选择、句式结构、修辞手法等），改写上述文本，保持原意但改变表达方式。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["style_sample".to_string(), "content".to_string()],
@@ -1279,7 +1313,11 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
   "power_system": "力量/科技体系（如适用）"
 }
 只输出 JSON。"#,
-        vec!["story_title".to_string(), "genre".to_string(), "story_description".to_string()]
+        vec![
+            "story_title".to_string(),
+            "genre".to_string(),
+            "story_description".to_string()
+        ]
     );
 
     reg_creation!(
@@ -1305,7 +1343,11 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
   ]
 }
 只输出 JSON。"#,
-        vec!["story_title".to_string(), "genre".to_string(), "world_summary".to_string()]
+        vec![
+            "story_title".to_string(),
+            "genre".to_string(),
+            "world_summary".to_string()
+        ]
     );
 
     reg_creation!(
@@ -1333,7 +1375,11 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
   ]
 }
 只输出 JSON。"#,
-        vec!["story_title".to_string(), "genre".to_string(), "outline_summary".to_string()]
+        vec![
+            "story_title".to_string(),
+            "genre".to_string(),
+            "outline_summary".to_string()
+        ]
     );
 
     reg_creation!(
@@ -1361,7 +1407,12 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
   ]
 }
 只输出 JSON。"#,
-        vec!["story_title".to_string(), "genre".to_string(), "characters".to_string(), "outline_summary".to_string()]
+        vec![
+            "story_title".to_string(),
+            "genre".to_string(),
+            "characters".to_string(),
+            "outline_summary".to_string()
+        ]
     );
 
     reg_creation!(
@@ -1387,7 +1438,12 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
   ]
 }
 只输出 JSON。"#,
-        vec!["story_title".to_string(), "genre".to_string(), "outline_summary".to_string(), "scenes".to_string()]
+        vec![
+            "story_title".to_string(),
+            "genre".to_string(),
+            "outline_summary".to_string(),
+            "scenes".to_string()
+        ]
     );
 
     reg_creation!(
@@ -1716,7 +1772,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
   "critical_issues": ["严重问题1"],
   "suggestions": ["改进建议1"]
 }
-只输出 JSON。"#.to_string(),
+只输出 JSON。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["content".to_string()],
@@ -1734,7 +1791,8 @@ fn init_builtin_prompts() -> HashMap<String, PromptEntry> {
             name: "创作策略选择器".to_string(),
             description: "StrategySelector：根据故事上下文选择最优创作策略和资产组合".to_string(),
             category: PromptCategory::Strategy,
-            default_content: r#"You are a creative strategy selector for a Chinese web-novel writing assistant.
+            default_content:
+                r#"You are a creative strategy selector for a Chinese web-novel writing assistant.
 
 Based on the story context, select the optimal creative strategy.
 
@@ -1754,7 +1812,8 @@ Please respond in JSON:
     "max_tokens": 2500
   }
 }
-Output JSON only."#.to_string(),
+Output JSON only."#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["context".to_string(), "available_assets".to_string()],
@@ -1947,10 +2006,15 @@ Output JSON only."#.to_string(),
 当前属性：{{current_attributes}}
 用户要求：{{user_request}}
 
-请用 JSON 格式回复更新后的角色属性。只输出 JSON。"#.to_string(),
+请用 JSON 格式回复更新后的角色属性。只输出 JSON。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
-            variables: vec!["character_name".to_string(), "current_attributes".to_string(), "user_request".to_string()],
+            variables: vec![
+                "character_name".to_string(),
+                "current_attributes".to_string(),
+                "user_request".to_string(),
+            ],
         },
     );
 
@@ -1966,7 +2030,8 @@ Output JSON only."#.to_string(),
 当前世界观：{{current_world}}
 用户要求：{{user_request}}
 
-请用 JSON 格式回复更新后的世界观设定。只输出 JSON。"#.to_string(),
+请用 JSON 格式回复更新后的世界观设定。只输出 JSON。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["current_world".to_string(), "user_request".to_string()],
@@ -1985,7 +2050,8 @@ Output JSON only."#.to_string(),
 当前场景：{{current_scene}}
 用户要求：{{user_request}}
 
-请用 JSON 格式回复更新后的场景属性。只输出 JSON。"#.to_string(),
+请用 JSON 格式回复更新后的场景属性。只输出 JSON。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["current_scene".to_string(), "user_request".to_string()],
@@ -2003,7 +2069,8 @@ Output JSON only."#.to_string(),
             name: "段落评点（金圣叹式）".to_string(),
             description: "agents/commentator.rs：对单个小说段落进行金圣叹风格评点".to_string(),
             category: PromptCategory::Commentator,
-            default_content: r#"你是一位中国古典小说评点家，风格类似金圣叹。请对以下小说段落进行简短点评。
+            default_content:
+                r#"你是一位中国古典小说评点家，风格类似金圣叹。请对以下小说段落进行简短点评。
 
 段落内容：
 {{paragraph}}
@@ -2014,7 +2081,8 @@ Output JSON only."#.to_string(),
 3. 用古典文风，但不要晦涩
 4. 以「※」开头
 
-请直接输出评点内容。"#.to_string(),
+请直接输出评点内容。"#
+                    .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["paragraph".to_string()],
@@ -2026,7 +2094,8 @@ Output JSON only."#.to_string(),
         PromptEntry {
             id: "orchestrator_timesliced_writer".to_string(),
             name: "TimeSliced Writer 正文生成".to_string(),
-            description: "AgentOrchestrator：时分模式下单次 Writer 正文生成（800-1500字）".to_string(),
+            description: "AgentOrchestrator：时分模式下单次 Writer 正文生成（800-1500字）"
+                .to_string(),
             category: PromptCategory::Writer,
             default_content: r#"你是一名专业的小说作者。请根据以下设定写一段正文（800-1500字）。
 
@@ -2039,7 +2108,8 @@ Output JSON only."#.to_string(),
 要求：
 1. 只输出小说正文
 2. 保持与已有内容的自然衔接
-3. 符合角色性格和世界观设定"#.to_string(),
+3. 符合角色性格和世界观设定"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["context".to_string(), "instruction".to_string()],
@@ -2131,7 +2201,8 @@ Output JSON only."#.to_string(),
   "events": [{"description": "事件描述", "participants": ["参与者"]}],
   "summary": "内容摘要"
 }
-只输出 JSON。"#.to_string(),
+只输出 JSON。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["content".to_string()],
@@ -2155,7 +2226,8 @@ Output JSON only."#.to_string(),
   "entities": [{"id": "实体ID", "name": "名称", "type": "类型", "properties": {}}],
   "relations": [{"source": "实体ID", "target": "实体ID", "type": "关系类型", "weight": 1.0}]
 }
-只输出 JSON。"#.to_string(),
+只输出 JSON。"#
+                .to_string(),
             current_content: String::new(),
             is_overridden: false,
             variables: vec!["content".to_string()],
@@ -2323,9 +2395,9 @@ Output JSON only."#.to_string(),
     // ═══════════════════════════════════════════════════════
     // v0.21.0: 删除 4 个死注册 key
     // ═══════════════════════════════════════════════════════
-    // character_analysis / benchmark_short / benchmark_long / narrative_structure_analysis
-    // 这些 key 从未被 resolve_prompt 调用，保留只会误导用户以为可覆盖
-    // → 直接从注册表中移除（下方 m.remove）
+    // character_analysis / benchmark_short / benchmark_long /
+    // narrative_structure_analysis 这些 key 从未被 resolve_prompt
+    // 调用，保留只会误导用户以为可覆盖 → 直接从注册表中移除（下方 m.remove）
 
     m.remove("character_analysis");
     m.remove("benchmark_short");
@@ -2416,17 +2488,11 @@ pub fn resolve_prompt_default_with_vars(
     vars: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
     let template = resolve_prompt_default(prompt_id)?;
-    Some(crate::prompts::engine::TemplateEngine::render_with_conditions(
-        &template, vars,
-    ))
+    Some(crate::prompts::engine::TemplateEngine::render_with_conditions(&template, vars))
 }
 
 /// 保存提示词覆盖
-pub fn save_override(
-    pool: &DbPool,
-    prompt_id: &str,
-    content: &str,
-) -> Result<(), AppError> {
+pub fn save_override(pool: &DbPool, prompt_id: &str, content: &str) -> Result<(), AppError> {
     // 验证 prompt_id 是否有效
     let builtins = get_builtin_prompts();
     if !builtins.contains_key(prompt_id) {
@@ -2501,9 +2567,7 @@ fn load_overrides(pool: &DbPool) -> Result<HashMap<String, String>, AppError> {
     })?;
 
     let mut stmt = conn
-        .prepare(
-            "SELECT prompt_id, overridden_content FROM prompt_overrides",
-        )
+        .prepare("SELECT prompt_id, overridden_content FROM prompt_overrides")
         .map_err(|e| AppError::Internal {
             message: format!("查询提示词覆盖失败: {}", e),
         })?;
@@ -2561,14 +2625,9 @@ mod tests {
     #[test]
     fn test_prompt_categories() {
         let prompts = get_builtin_prompts();
-        let categories: std::collections::HashSet<_> = prompts
-            .values()
-            .map(|e| e.category.clone())
-            .collect();
-        assert!(
-            categories.len() >= 10,
-            "应包含至少 10 个不同分类"
-        );
+        let categories: std::collections::HashSet<_> =
+            prompts.values().map(|e| e.category.clone()).collect();
+        assert!(categories.len() >= 10, "应包含至少 10 个不同分类");
     }
 
     #[test]
@@ -2626,9 +2685,18 @@ mod tests {
         let prompts = get_builtin_prompts();
 
         // 验证 4 个死注册 key 已删除
-        assert!(!prompts.contains_key("character_analysis"), "character_analysis 应已删除");
-        assert!(!prompts.contains_key("benchmark_short"), "benchmark_short 应已删除");
-        assert!(!prompts.contains_key("benchmark_long"), "benchmark_long 应已删除");
+        assert!(
+            !prompts.contains_key("character_analysis"),
+            "character_analysis 应已删除"
+        );
+        assert!(
+            !prompts.contains_key("benchmark_short"),
+            "benchmark_short 应已删除"
+        );
+        assert!(
+            !prompts.contains_key("benchmark_long"),
+            "benchmark_long 应已删除"
+        );
         assert!(
             !prompts.contains_key("narrative_structure_analysis"),
             "narrative_structure_analysis 应已删除"
@@ -2642,15 +2710,30 @@ mod tests {
             prompts.values().map(|e| e.category.clone()).collect();
 
         // 验证 6 个新分类存在
-        assert!(categories.contains(&PromptCategory::Pipeline), "Pipeline 分类缺失");
-        assert!(categories.contains(&PromptCategory::Audit), "Audit 分类缺失");
-        assert!(categories.contains(&PromptCategory::Intent), "Intent 分类缺失");
+        assert!(
+            categories.contains(&PromptCategory::Pipeline),
+            "Pipeline 分类缺失"
+        );
+        assert!(
+            categories.contains(&PromptCategory::Audit),
+            "Audit 分类缺失"
+        );
+        assert!(
+            categories.contains(&PromptCategory::Intent),
+            "Intent 分类缺失"
+        );
         assert!(
             categories.contains(&PromptCategory::Deconstruction),
             "Deconstruction 分类缺失"
         );
-        assert!(categories.contains(&PromptCategory::Creation), "Creation 分类缺失");
-        assert!(categories.contains(&PromptCategory::Strategy), "Strategy 分类缺失");
+        assert!(
+            categories.contains(&PromptCategory::Creation),
+            "Creation 分类缺失"
+        );
+        assert!(
+            categories.contains(&PromptCategory::Strategy),
+            "Strategy 分类缺失"
+        );
     }
 
     #[test]
@@ -2660,8 +2743,12 @@ mod tests {
         // 验证新提示词有默认内容且含模板变量
         let pipeline_review = prompts.get("pipeline_review").unwrap();
         assert!(!pipeline_review.default_content.is_empty());
-        assert!(pipeline_review.default_content.contains("{{review_dimensions}}"));
-        assert!(pipeline_review.default_content.contains("{{draft_content}}"));
+        assert!(pipeline_review
+            .default_content
+            .contains("{{review_dimensions}}"));
+        assert!(pipeline_review
+            .default_content
+            .contains("{{draft_content}}"));
 
         // 验证 resolve_prompt_default_with_vars 正确渲染
         let mut vars = std::collections::HashMap::new();

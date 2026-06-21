@@ -22,9 +22,7 @@ impl AssetParamMapper {
     pub fn style_dna_to_temperature(base: f32, dna: &StyleDNA) -> f32 {
         let mut adjusted = base;
 
-        if dna.syntax.avg_sentence_length < 12
-            && dna.rhetoric.metaphor_density < 0.5
-        {
+        if dna.syntax.avg_sentence_length < 12 && dna.rhetoric.metaphor_density < 0.5 {
             adjusted -= 0.15;
         }
         if dna.rhetoric.metaphor_density > 2.0 {
@@ -80,7 +78,6 @@ mod tests {
     }
 
     #[test]
-
     #[test]
     fn test_snowflake_max_tokens_boost() {
         assert!((AssetParamMapper::methodology_max_tokens_boost("snowflake") - 1.3).abs() < 0.01);

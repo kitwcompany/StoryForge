@@ -5,12 +5,12 @@
 
 use std::collections::HashMap;
 
-use crate::capabilities::{Capability, CapabilityRegistry, CapabilitySource};
-use crate::error::AppError;
-use crate::strategy::SelectableAsset;
-
-use super::graph::IntentionGraphRepository;
-use super::models::*;
+use super::{graph::IntentionGraphRepository, models::*};
+use crate::{
+    capabilities::{Capability, CapabilityRegistry, CapabilitySource},
+    error::AppError,
+    strategy::SelectableAsset,
+};
 
 /// 资产同步引擎
 /// 负责将系统现有资产一次性/增量同步到意图图数据库
@@ -86,22 +86,53 @@ impl AssetSyncEngine {
 
         // 预设的创作流程边：writer -> inspector -> style_checker -> rewriter
         let workflow_edges = vec![
-            ("agent_writer", "agent_inspector", AssetAssetEdgeType::ToolNext, 0.9),
-            ("agent_inspector", "skill_style_enhancer", AssetAssetEdgeType::ToolNext, 0.7),
-            ("skill_style_enhancer", "agent_rewriter", AssetAssetEdgeType::ToolNext, 0.6),
-            ("agent_writer", "skill_character_voice", AssetAssetEdgeType::ToolCooccur, 0.5),
-            ("agent_writer", "skill_emotion_pacing", AssetAssetEdgeType::ToolCooccur, 0.5),
+            (
+                "agent_writer",
+                "agent_inspector",
+                AssetAssetEdgeType::ToolNext,
+                0.9,
+            ),
+            (
+                "agent_inspector",
+                "skill_style_enhancer",
+                AssetAssetEdgeType::ToolNext,
+                0.7,
+            ),
+            (
+                "skill_style_enhancer",
+                "agent_rewriter",
+                AssetAssetEdgeType::ToolNext,
+                0.6,
+            ),
+            (
+                "agent_writer",
+                "skill_character_voice",
+                AssetAssetEdgeType::ToolCooccur,
+                0.5,
+            ),
+            (
+                "agent_writer",
+                "skill_emotion_pacing",
+                AssetAssetEdgeType::ToolCooccur,
+                0.5,
+            ),
         ];
 
         for (source, target, edge_type, weight) in workflow_edges {
             // 容错：跳过尚未注册的资产（避免 FK 约束失败）
             // 部分技能资产仅在 SkillManager 加载后才存在
             if self.repo.get_asset(source)?.is_none() {
-                log::debug!("[AssetSyncEngine] Skip edge: source '{}' not registered", source);
+                log::debug!(
+                    "[AssetSyncEngine] Skip edge: source '{}' not registered",
+                    source
+                );
                 continue;
             }
             if self.repo.get_asset(target)?.is_none() {
-                log::debug!("[AssetSyncEngine] Skip edge: target '{}' not registered", target);
+                log::debug!(
+                    "[AssetSyncEngine] Skip edge: target '{}' not registered",
+                    target
+                );
                 continue;
             }
             let edge = AssetAssetEdge {
@@ -136,7 +167,10 @@ impl AssetSyncEngine {
         stats.system_commands = self.sync_system_commands()?;
         stats.asset_edges = self.build_default_asset_edges()?;
 
-        log::info!("[AssetSyncEngine] Full initialization complete: {:?}", stats);
+        log::info!(
+            "[AssetSyncEngine] Full initialization complete: {:?}",
+            stats
+        );
         Ok(stats)
     }
 
@@ -220,17 +254,30 @@ impl AssetSyncEngine {
     fn create_agent_intention_edges(&self, agent: &AssetNode) -> Result<(), AppError> {
         // Agent 特定的意图映射
         let agent_intents: HashMap<&str, Vec<&str>> = HashMap::from([
-            ("agent_writer", vec!["generate prose", "write content", "create chapter"]),
-            ("agent_inspector", vec!["inspect quality", "check continuity", "audit content"]),
-            ("agent_rewriter", vec!["revise content", "rewrite text", "polish prose"]),
-            ("agent_style_checker", vec!["check style", "enhance style", "apply style dna"]),
+            (
+                "agent_writer",
+                vec!["generate prose", "write content", "create chapter"],
+            ),
+            (
+                "agent_inspector",
+                vec!["inspect quality", "check continuity", "audit content"],
+            ),
+            (
+                "agent_rewriter",
+                vec!["revise content", "rewrite text", "polish prose"],
+            ),
+            (
+                "agent_style_checker",
+                vec!["check style", "enhance style", "apply style dna"],
+            ),
         ]);
 
         if let Some(intents) = agent_intents.get(agent.id.as_str()) {
             for intent_text in intents {
                 let parts: Vec<&str> = intent_text.splitn(2, ' ').collect();
                 if parts.len() == 2 {
-                    let mut intention = IntentionNode::atomic(parts[0], parts[1], &agent.description);
+                    let mut intention =
+                        IntentionNode::atomic(parts[0], parts[1], &agent.description);
                     // v0.20.1: 为意图节点生成嵌入
                     intention.embedding = generate_embedding(&intention.description);
                     let _ = self.repo.create_intention(&intention);
@@ -444,8 +491,8 @@ fn extract_intentions_from_description(description: &str) -> Vec<String> {
 /// 优先使用全局嵌入 provider（Ollama/OpenAI），失败时 graceful fallback
 /// 到 None（discover_tool_level 会回退到文本 Jaccard 匹配）。
 ///
-/// 注意：embed_text 内部访问全局 OnceLock，未初始化时会 panic（unwrap on None）。
-/// 先检查 OnceLock 是否已初始化，避免 panic；再用 catch_unwind 兜底。
+/// 注意：embed_text 内部访问全局 OnceLock，未初始化时会 panic（unwrap on
+/// None）。 先检查 OnceLock 是否已初始化，避免 panic；再用 catch_unwind 兜底。
 fn generate_embedding(text: &str) -> Option<Vec<f32>> {
     // 快速检查：若 EMBEDDING_CACHE 全局状态未初始化，直接返回 None
     // 避免 embed_text 内部的 .unwrap() panic
@@ -469,4 +516,3 @@ fn generate_embedding(text: &str) -> Option<Vec<f32>> {
         }
     }
 }
-

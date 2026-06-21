@@ -19,8 +19,8 @@ pub(crate) mod embeddings;
 mod error;
 mod events;
 mod export;
-mod intention_graph;
 mod intent;
+mod intention_graph;
 mod knowledge_base;
 mod llm;
 mod logging;
@@ -305,12 +305,42 @@ fn seed_builtin_data(pool: &DbPool, app_dir: &std::path::Path) {
 /// v0.22.2: 更新内置题材画像的推荐资产字段（Phase F 种子数据）
 fn seed_genre_recommendations(pool: &DbPool) {
     let mappings: &[(&str, &str, &str, &str)] = &[
-        ("末世流", r#"["余华","海明威","鲁迅"]"#, "hero_journey", r#"["emotion_pacing","character_voice"]"#),
-        ("科幻", r#"["海明威","余华","王小波"]"#, "hero_journey", r#"["style_enhancer","emotion_pacing"]"#),
-        ("修仙", r#"["金庸","曹雪芹"]"#, "snowflake", r#"["style_enhancer","character_voice"]"#),
-        ("都市", r#"["张爱玲","老舍","余华"]"#, "scene_structure", r#"["character_voice","emotion_pacing"]"#),
-        ("悬疑", r#"["鲁迅","海明威"]"#, "scene_structure", r#"["emotion_pacing"]"#),
-        ("历史", r#"["金庸","曹雪芹"]"#, "snowflake", r#"["style_enhancer"]"#),
+        (
+            "末世流",
+            r#"["余华","海明威","鲁迅"]"#,
+            "hero_journey",
+            r#"["emotion_pacing","character_voice"]"#,
+        ),
+        (
+            "科幻",
+            r#"["海明威","余华","王小波"]"#,
+            "hero_journey",
+            r#"["style_enhancer","emotion_pacing"]"#,
+        ),
+        (
+            "修仙",
+            r#"["金庸","曹雪芹"]"#,
+            "snowflake",
+            r#"["style_enhancer","character_voice"]"#,
+        ),
+        (
+            "都市",
+            r#"["张爱玲","老舍","余华"]"#,
+            "scene_structure",
+            r#"["character_voice","emotion_pacing"]"#,
+        ),
+        (
+            "悬疑",
+            r#"["鲁迅","海明威"]"#,
+            "scene_structure",
+            r#"["emotion_pacing"]"#,
+        ),
+        (
+            "历史",
+            r#"["金庸","曹雪芹"]"#,
+            "snowflake",
+            r#"["style_enhancer"]"#,
+        ),
     ];
     let conn = match pool.get() {
         Ok(c) => c,
@@ -327,7 +357,10 @@ fn seed_genre_recommendations(pool: &DbPool) {
             log::warn!("[GenreProfile] Failed to seed {}: {}", genre_name, e);
         }
     }
-    log::info!("[GenreProfile] Seeded recommendations for {} genres", mappings.len());
+    log::info!(
+        "[GenreProfile] Seeded recommendations for {} genres",
+        mappings.len()
+    );
 }
 
 /// 初始化任务系统和自动化服务

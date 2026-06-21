@@ -284,12 +284,16 @@ async fn run_character_cards(
         let tpl = if let Some(pool) = crate::get_pool() {
             crate::prompts::registry::resolve_prompt(&pool, "pipeline_post_process_character_state")
                 .unwrap_or_else(|_| {
-                    crate::prompts::registry::resolve_prompt_default("pipeline_post_process_character_state")
-                        .unwrap_or_else(|| default_character_state_prompt().to_string())
+                    crate::prompts::registry::resolve_prompt_default(
+                        "pipeline_post_process_character_state",
+                    )
+                    .unwrap_or_else(|| default_character_state_prompt().to_string())
                 })
         } else {
-            crate::prompts::registry::resolve_prompt_default("pipeline_post_process_character_state")
-                .unwrap_or_else(|| default_character_state_prompt().to_string())
+            crate::prompts::registry::resolve_prompt_default(
+                "pipeline_post_process_character_state",
+            )
+            .unwrap_or_else(|| default_character_state_prompt().to_string())
         };
         let mut vars = std::collections::HashMap::new();
         vars.insert("content".to_string(), content_preview.to_string());

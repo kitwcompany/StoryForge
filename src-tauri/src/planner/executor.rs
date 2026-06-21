@@ -49,7 +49,9 @@ impl PlanExecutor {
             IntentionGraphPlanner::from_app_handle(app_handle.clone()).ok();
 
         if intention_graph_planner.is_some() {
-            log::info!("[PlanExecutor] IntentionGraphPlanner initialized (SING integration active)");
+            log::info!(
+                "[PlanExecutor] IntentionGraphPlanner initialized (SING integration active)"
+            );
         } else {
             log::warn!("[PlanExecutor] IntentionGraphPlanner not available, using legacy PlanGenerator only");
         }
@@ -116,13 +118,16 @@ impl PlanExecutor {
                     // 修复审计报告 P0-3：此前 record_execution_graph 从未被调用，
                     // 导致诊断面板"最近执行"永远为空。
                     let request_id = Uuid::new_v4().to_string();
-                    if let Err(e) = ig_planner.record_execution_graph(
-                        &request_id,
-                        context.current_story_id.as_deref(),
-                        &context.user_input,
-                        None,
-                        &serde_json::to_string(&plan).unwrap_or_default(),
-                    ).await {
+                    if let Err(e) = ig_planner
+                        .record_execution_graph(
+                            &request_id,
+                            context.current_story_id.as_deref(),
+                            &context.user_input,
+                            None,
+                            &serde_json::to_string(&plan).unwrap_or_default(),
+                        )
+                        .await
+                    {
                         log::warn!("[PlanExecutor] Failed to record execution graph: {}", e);
                     }
 
@@ -161,14 +166,18 @@ impl PlanExecutor {
                                 steps: vec![PlanStep {
                                     step_id: "fallback_writer".to_string(),
                                     capability_id: "writer".to_string(),
-                                    purpose: "Fallback: execute user request directly via writer agent"
-                                        .to_string(),
+                                    purpose:
+                                        "Fallback: execute user request directly via writer agent"
+                                            .to_string(),
                                     parameters: {
                                         let mut p = HashMap::new();
                                         p.insert(
                                             "story_id".to_string(),
                                             serde_json::Value::String(
-                                                context.current_story_id.clone().unwrap_or_default(),
+                                                context
+                                                    .current_story_id
+                                                    .clone()
+                                                    .unwrap_or_default(),
                                             ),
                                         );
                                         p.insert(
@@ -1202,13 +1211,16 @@ impl PlanExecutor {
         let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
         // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖）
         let prompt = {
-            let default_tpl = || r#"你是一位角色编辑助手。请根据用户的修改要求，为角色生成新的属性值。
+            let default_tpl = || {
+                r#"你是一位角色编辑助手。请根据用户的修改要求，为角色生成新的属性值。
 
 角色名：{{character_name}}
 当前属性：{{current_attributes}}
 用户要求：{{user_request}}
 
-请用 JSON 格式回复更新后的角色属性。只输出 JSON。"#.to_string();
+请用 JSON 格式回复更新后的角色属性。只输出 JSON。"#
+                    .to_string()
+            };
             let tpl = if let Some(pool) = crate::get_pool() {
                 crate::prompts::registry::resolve_prompt(&pool, "planner_edit_character")
                     .unwrap_or_else(|_| {
@@ -1221,13 +1233,16 @@ impl PlanExecutor {
             };
             let mut vars = std::collections::HashMap::new();
             vars.insert("character_name".to_string(), character.name.clone());
-            vars.insert("current_attributes".to_string(), format!(
-                "姓名：{}\n背景：{}\n性格：{}\n目标：{}",
-                character.name,
-                character.background.as_deref().unwrap_or("未设定"),
-                character.personality.as_deref().unwrap_or("未设定"),
-                character.goals.as_deref().unwrap_or("未设定"),
-            ));
+            vars.insert(
+                "current_attributes".to_string(),
+                format!(
+                    "姓名：{}\n背景：{}\n性格：{}\n目标：{}",
+                    character.name,
+                    character.background.as_deref().unwrap_or("未设定"),
+                    character.personality.as_deref().unwrap_or("未设定"),
+                    character.goals.as_deref().unwrap_or("未设定"),
+                ),
+            );
             vars.insert("user_request".to_string(), changes.replace('"', "'"));
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
         };
@@ -1319,9 +1334,16 @@ impl PlanExecutor {
                 let mut vars = std::collections::HashMap::new();
                 vars.insert("current_world".to_string(), wb.concept.as_str().to_string());
                 vars.insert("user_request".to_string(), changes.replace('"', "'"));
-                let prompt = crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+                let prompt =
+                    crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
                 let response = llm_service
-                    .generate_for_task(TaskType::Editing, prompt, Some(1024), Some(0.3), Some("update_world_building"))
+                    .generate_for_task(
+                        TaskType::Editing,
+                        prompt,
+                        Some(1024),
+                        Some(0.3),
+                        Some("update_world_building"),
+                    )
                     .await?;
                 return Ok(serde_json::from_str(&response.content)?);
             }
@@ -1479,11 +1501,21 @@ impl PlanExecutor {
         if let Some(pool) = crate::get_pool() {
             if let Ok(tpl) = crate::prompts::registry::resolve_prompt(&pool, "planner_edit_scene") {
                 let mut vars = std::collections::HashMap::new();
-                vars.insert("current_scene".to_string(), scene.title.as_deref().unwrap_or("未设定").to_string());
+                vars.insert(
+                    "current_scene".to_string(),
+                    scene.title.as_deref().unwrap_or("未设定").to_string(),
+                );
                 vars.insert("user_request".to_string(), changes.replace('"', "'"));
-                let prompt = crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+                let prompt =
+                    crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
                 let response = llm_service
-                    .generate_for_task(TaskType::Editing, prompt, Some(1024), Some(0.3), Some("update_scene"))
+                    .generate_for_task(
+                        TaskType::Editing,
+                        prompt,
+                        Some(1024),
+                        Some(0.3),
+                        Some("update_scene"),
+                    )
                     .await?;
                 return Ok(serde_json::from_str(&response.content)?);
             }

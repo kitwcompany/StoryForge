@@ -3,9 +3,8 @@
 //! Actions ∈ {Discover, Invoke, Respond}
 //! 工具集在执行过程中动态累积，支持从输出中启发式发现新意图。
 
-use crate::error::AppError;
-
 use super::models::*;
+use crate::error::AppError;
 
 /// ReAct 动作类型
 #[derive(Debug, Clone, PartialEq, Eq)]

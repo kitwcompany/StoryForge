@@ -6,7 +6,8 @@
 //! - 动态 ReAct（Discover → Invoke → Respond）
 //! - 图传播评分（Personalized PageRank + 协同过滤）
 //!
-//! 核心目标：将用户自然语言意图准确映射到 StoryForge 的技能、方法论、风格等资产。
+//! 核心目标：将用户自然语言意图准确映射到 StoryForge
+//! 的技能、方法论、风格等资产。
 
 pub mod asset_sync;
 pub mod builder;
@@ -28,9 +29,9 @@ pub use builder::{IntentSynthesisPipeline, SynthesizedQuery};
 pub use commands::{get_execution_graph_detail, get_intention_graph_diagnostics};
 pub use context::IntentContext;
 pub use models::{
-    AssetNode, AssetType, cosine_similarity, deserialize_embedding, ExecutionGraph,
-    ExecutionGraphStatus, ExecutionNode, ExecutionNodeStatus, IntentionAssetEdgeType,
-    IntentionNode, IntentSynthesisResult, IntentType, serialize_embedding,
+    cosine_similarity, deserialize_embedding, serialize_embedding, AssetNode, AssetType,
+    ExecutionGraph, ExecutionGraphStatus, ExecutionNode, ExecutionNodeStatus,
+    IntentSynthesisResult, IntentType, IntentionAssetEdgeType, IntentionNode,
 };
 pub use planner::IntentionGraphPlanner;
 #[allow(unused_imports)]

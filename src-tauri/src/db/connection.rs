@@ -3368,7 +3368,9 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     if current_version < 96 {
         // 检查表是否存在（迁移 52 可能因版本跳跃未执行）
         let table_exists: bool = conn
-            .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='genre_profiles'")?
+            .prepare(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='genre_profiles'",
+            )?
             .query_row([], |row| row.get::<_, i32>(0))
             .map(|count| count > 0)
             .unwrap_or(false);

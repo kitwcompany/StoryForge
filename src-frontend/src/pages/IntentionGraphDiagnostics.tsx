@@ -44,7 +44,9 @@ export function IntentionGraphDiagnostics() {
   const fetchDiagnostics = async () => {
     try {
       setLoading(true);
-      const result = await loggedInvoke<IntentionGraphDiagnosticsData>('get_intention_graph_diagnostics');
+      const result = await loggedInvoke<IntentionGraphDiagnosticsData>(
+        'get_intention_graph_diagnostics'
+      );
       setData(result);
     } catch (error) {
       logger.error('Failed to fetch intention graph diagnostics', { error });
@@ -215,9 +217,7 @@ export function IntentionGraphDiagnostics() {
           </div>
           <CardContent className="p-0">
             {data.recent_executions.length === 0 ? (
-              <div className="p-6 text-center text-gray-400">
-                暂无执行记录
-              </div>
+              <div className="p-6 text-center text-gray-400">暂无执行记录</div>
             ) : (
               <div className="divide-y divide-cinema-800">
                 {data.recent_executions.map(exec => (
@@ -238,7 +238,9 @@ export function IntentionGraphDiagnostics() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(exec.status)}`}>
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(exec.status)}`}
+                        >
                           {getStatusLabel(exec.status)}
                         </span>
                         <ArrowRight className="w-4 h-4 text-gray-600 group-hover:text-cinema-gold transition-colors" />
@@ -271,7 +273,9 @@ export function IntentionGraphDiagnostics() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-gray-500">状态</span>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(selectedGraph.status)}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(selectedGraph.status)}`}
+                    >
                       {getStatusLabel(selectedGraph.status)}
                     </span>
                   </div>
@@ -285,9 +289,7 @@ export function IntentionGraphDiagnostics() {
                   </div>
                   <div>
                     <span className="text-gray-500">创建时间</span>
-                    <span className="ml-2 text-white">
-                      {formatDate(selectedGraph.created_at)}
-                    </span>
+                    <span className="ml-2 text-white">{formatDate(selectedGraph.created_at)}</span>
                   </div>
                   <div>
                     <span className="text-gray-500">完成时间</span>
@@ -362,12 +364,8 @@ export function IntentionGraphDiagnostics() {
               意图图持续学习用户的创作习惯，通过执行反馈优化意图-资产关联，实现"越写越懂"的自适应进化。
             </p>
             <div className="flex gap-4 mt-4 text-xs">
-              <span className="text-gray-500">
-                论文: arXiv:2606.16591v2
-              </span>
-              <span className="text-gray-500">
-                集成版本: v0.17.0
-              </span>
+              <span className="text-gray-500">论文: arXiv:2606.16591v2</span>
+              <span className="text-gray-500">集成版本: v0.17.0</span>
             </div>
           </div>
         </CardContent>

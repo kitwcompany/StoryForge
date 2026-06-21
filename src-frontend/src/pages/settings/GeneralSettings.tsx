@@ -854,7 +854,7 @@ export function GeneralSettings() {
               onClick={() => {
                 // 导航到提示词注册表标签页
                 const event = new CustomEvent('switch-settings-tab', {
-                  detail: { tab: 'prompts' }
+                  detail: { tab: 'prompts' },
                 });
                 window.dispatchEvent(event);
               }}

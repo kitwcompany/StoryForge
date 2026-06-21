@@ -325,15 +325,18 @@ impl PlanGenerator {
             let mut vars = std::collections::HashMap::new();
             vars.insert("user_input".to_string(), context.user_input.clone());
             vars.insert("capabilities".to_string(), registry_clean.clone());
-            vars.insert("story_context".to_string(), format!(
-                "Has story: {}\nChapter count: {}\nTotal word count: {}",
-                context.has_story, context.chapter_count, context.total_word_count
-            ));
+            vars.insert(
+                "story_context".to_string(),
+                format!(
+                    "Has story: {}\nChapter count: {}\nTotal word count: {}",
+                    context.has_story, context.chapter_count, context.total_word_count
+                ),
+            );
             crate::prompts::engine::TemplateEngine::render_with_conditions(&template, &vars)
         } else {
             // 默认动态拼接逻辑（原代码）
             format!(
-            r#"You are an intelligent orchestrator for a creative writing application.
+                r#"You are an intelligent orchestrator for a creative writing application.
 
 Current system state:
 - Has story: {}
@@ -411,26 +414,26 @@ Rules:
 19. CRITICAL — HIGHEST PRIORITY: When the user explicitly asks to 'write a novel', 'write a story', 'start writing', '写小说', '写故事', '开始写', '写一部', or any clear prose-generation request, ALWAYS use 'writer' to generate actual prose content. Do NOT use 'outline_planner' or return conversational greetings. This rule OVERRIDES Rule 10 — even if story progress is 'just_started', a direct writing request means the user wants to see story text immediately, not planning advice.
 20. If a style blend configuration is active (multiple style DNAs with weights), the writer must follow the blend rules: dominant style sets the overall tone, secondary styles permeate specific scenes (dialogue/rhythm/psychological depth/atmosphere). Do NOT ignore the blend weights.
 21. DEFINITIVE PROSE CHECK: If the user input contains '写' / 'write' / '创作' followed by ANY story-related subject (novel/story/chapter/scene/正文/开篇/章节/网文), this is UNAMBIGUOUSLY a prose-generation request. Use 'writer'. Never use 'outline_planner' for these inputs."#,
-            context.has_story,
-            context.current_story_id.as_deref().unwrap_or("none"),
-            context.has_chapters,
-            context.chapter_count,
-            context.total_word_count,
-            context.latest_chapter_word_count,
-            context.story_progress,
-            context.scene_count,
-            current_scene_info,
-            scenes_summary,
-            world_building_text,
-            characters_text,
-            foreshadowing_text,
-            style_dna_text,
-            strategy_text,
-            mcp_tools_text,
-            preview_clean,
-            user_input_clean,
-            registry_clean
-        )
+                context.has_story,
+                context.current_story_id.as_deref().unwrap_or("none"),
+                context.has_chapters,
+                context.chapter_count,
+                context.total_word_count,
+                context.latest_chapter_word_count,
+                context.story_progress,
+                context.scene_count,
+                current_scene_info,
+                scenes_summary,
+                world_building_text,
+                characters_text,
+                foreshadowing_text,
+                style_dna_text,
+                strategy_text,
+                mcp_tools_text,
+                preview_clean,
+                user_input_clean,
+                registry_clean
+            )
         }; // 结束 else（默认动态拼接）
 
         // 计划生成JSON通常只需要几百tokens，1024足够，减少等待时间

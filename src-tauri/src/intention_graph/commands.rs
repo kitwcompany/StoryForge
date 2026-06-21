@@ -4,12 +4,8 @@
 
 use tauri::{AppHandle, Manager};
 
+use super::{graph::IntentionGraphRepository, models::ExecutionGraph};
 use crate::error::AppError;
-
-use super::{
-    graph::IntentionGraphRepository,
-    models::ExecutionGraph,
-};
 
 /// 查询意图图诊断信息
 ///
@@ -27,13 +23,16 @@ pub async fn get_intention_graph_diagnostics(
         intention_count: stats.intention_count,
         asset_count: stats.asset_count,
         edge_count: stats.intention_asset_edge_count + stats.asset_asset_edge_count,
-        recent_executions: recent_graphs.into_iter().map(|g| ExecutionSummary {
-            id: g.id,
-            request_id: g.request_id,
-            user_input: g.user_input,
-            status: format!("{:?}", g.status),
-            created_at: g.created_at.to_rfc3339(),
-        }).collect(),
+        recent_executions: recent_graphs
+            .into_iter()
+            .map(|g| ExecutionSummary {
+                id: g.id,
+                request_id: g.request_id,
+                user_input: g.user_input,
+                status: format!("{:?}", g.status),
+                created_at: g.created_at.to_rfc3339(),
+            })
+            .collect(),
     })
 }
 

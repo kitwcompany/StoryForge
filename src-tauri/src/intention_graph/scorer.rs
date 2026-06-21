@@ -164,7 +164,10 @@ impl GraphScorer {
         target_asset_id: &str,
         cooccurrence_counts: &HashMap<String, i32>, // asset_id -> count
     ) -> f64 {
-        let count = cooccurrence_counts.get(target_asset_id).copied().unwrap_or(0);
+        let count = cooccurrence_counts
+            .get(target_asset_id)
+            .copied()
+            .unwrap_or(0);
         let max_count = cooccurrence_counts.values().copied().max().unwrap_or(1);
 
         if max_count == 0 {

@@ -23,7 +23,12 @@ mod tests {
 
     #[test]
     fn test_asset_node_new() {
-        let node = AssetNode::new(AssetType::Agent, "writer", "generate prose content", Some("writer"));
+        let node = AssetNode::new(
+            AssetType::Agent,
+            "writer",
+            "generate prose content",
+            Some("writer"),
+        );
         assert_eq!(node.asset_type, AssetType::Agent);
         assert_eq!(node.name, "writer");
         assert_eq!(node.capability_id, Some("writer".to_string()));
@@ -42,8 +47,14 @@ mod tests {
     #[test]
     fn test_intent_type_from_str() {
         assert_eq!("atomic".parse::<IntentType>().unwrap(), IntentType::Atomic);
-        assert_eq!("compound".parse::<IntentType>().unwrap(), IntentType::Compound);
-        assert_eq!("synthetic".parse::<IntentType>().unwrap(), IntentType::Synthetic);
+        assert_eq!(
+            "compound".parse::<IntentType>().unwrap(),
+            IntentType::Compound
+        );
+        assert_eq!(
+            "synthetic".parse::<IntentType>().unwrap(),
+            IntentType::Synthetic
+        );
         assert!("unknown".parse::<IntentType>().is_err());
     }
 
@@ -108,10 +119,10 @@ mod tests {
 
         // 简单图：A -> B (weight 0.5), A -> C (weight 0.5), B -> D (weight 1.0)
         let mut edges = std::collections::HashMap::new();
-        edges.insert("A".to_string(), vec![
-            ("B".to_string(), 0.5),
-            ("C".to_string(), 0.5),
-        ]);
+        edges.insert(
+            "A".to_string(),
+            vec![("B".to_string(), 0.5), ("C".to_string(), 0.5)],
+        );
         edges.insert("B".to_string(), vec![("D".to_string(), 1.0)]);
         edges.insert("C".to_string(), vec![]);
         edges.insert("D".to_string(), vec![]);
@@ -195,9 +206,9 @@ mod tests {
         );
 
         // 6. 验证 writer 资产被高排名发现
-        let has_writer = results.iter().any(|r| {
-            r.asset.name.contains("writer") || r.asset.id.contains("writer")
-        });
+        let has_writer = results
+            .iter()
+            .any(|r| r.asset.name.contains("writer") || r.asset.id.contains("writer"));
         assert!(
             has_writer,
             "Writer agent should be discovered for 'generate prose' intention"
@@ -211,20 +222,20 @@ mod tests {
             "Intent match score should be positive for matching verb/object"
         );
 
-        eprintln!(
-            "[E2E] 用户输入: '写一部异星球末世生存题材的小说'");
-        eprintln!(
-            "[E2E] 意图合成: generate prose (confidence via rule-based)");
-        eprintln!(
-            "[E2E] PPR 分层发现 {} 个资产:", results.len());
+        eprintln!("[E2E] 用户输入: '写一部异星球末世生存题材的小说'");
+        eprintln!("[E2E] 意图合成: generate prose (confidence via rule-based)");
+        eprintln!("[E2E] PPR 分层发现 {} 个资产:", results.len());
         for (i, r) in results.iter().enumerate().take(5) {
             eprintln!(
                 "  #{} {:?} {} (score={:.3}, {})",
-                i + 1, r.asset.asset_type, r.asset.name, r.score, r.reason
+                i + 1,
+                r.asset.asset_type,
+                r.asset.name,
+                r.score,
+                r.reason
             );
         }
-        eprintln!(
-            "[E2E] ✓ 全流程通过: AssetSync填充 → PPR发现 → writer资产排名靠前");
+        eprintln!("[E2E] ✓ 全流程通过: AssetSync填充 → PPR发现 → writer资产排名靠前");
     }
 
     #[test]
@@ -249,7 +260,8 @@ mod tests {
             execution_time_ms: Some(1500),
         };
 
-        repo.create_execution_graph(&graph).expect("Create graph failed");
+        repo.create_execution_graph(&graph)
+            .expect("Create graph failed");
 
         // 验证能查询回来
         let retrieved = repo
@@ -266,7 +278,10 @@ mod tests {
 
         // 验证统计信息
         let stats = repo.get_statistics().expect("Get stats failed");
-        assert!(stats.execution_graph_count > 0, "Should count execution graphs");
+        assert!(
+            stats.execution_graph_count > 0,
+            "Should count execution graphs"
+        );
     }
 
     // ==================== 真实模型集成测试（需模型端点可达）====================
@@ -309,7 +324,8 @@ mod tests {
             .await
             .ok()?;
 
-        let content = resp.get("choices")?
+        let content = resp
+            .get("choices")?
             .get(0)?
             .get("message")?
             .get("content")?
@@ -330,7 +346,10 @@ mod tests {
         Some((
             parsed.get("verb")?.as_str()?.to_string(),
             parsed.get("object")?.as_str()?.to_string(),
-            parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.7),
+            parsed
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.7),
         ))
     }
 
@@ -347,24 +366,38 @@ mod tests {
             .await
             .expect("LLM 调用失败——请确认模型端点可达");
 
-        eprintln!("[Real] LLM 原始输出: verb={}, object={}, confidence={}", verb_raw, object_raw, confidence);
+        eprintln!(
+            "[Real] LLM 原始输出: verb={}, object={}, confidence={}",
+            verb_raw, object_raw, confidence
+        );
 
         // Step 2: 归一化（模拟 builder.rs 的 normalize_verb/normalize_object）
         let verb = IntentSynthesisPipeline::normalize_verb(&verb_raw);
         let object = IntentSynthesisPipeline::normalize_object(&object_raw);
         let primary_intent = format!("{} {}", verb, object);
 
-        eprintln!("[Real] 归一化后: {} → {}", format!("{} {}", verb_raw, object_raw), primary_intent);
+        eprintln!(
+            "[Real] 归一化后: {} → {}",
+            format!("{} {}", verb_raw, object_raw),
+            primary_intent
+        );
 
         // 验证归一化后是 AssetSync 注册的标准意图
         let standard_intents = [
-            "generate prose", "inspect quality", "revise content",
-            "enhance style", "plan structure", "manage character",
-            "manage world building", "external search", "fetch data",
+            "generate prose",
+            "inspect quality",
+            "revise content",
+            "enhance style",
+            "plan structure",
+            "manage character",
+            "manage world building",
+            "external search",
+            "fetch data",
         ];
         assert!(
             standard_intents.contains(&primary_intent.as_str()),
-            "归一化后 '{}' 应是标准意图之一", primary_intent
+            "归一化后 '{}' 应是标准意图之一",
+            primary_intent
         );
 
         // Step 3: AssetSync 填充 + PPR 发现
@@ -386,18 +419,26 @@ mod tests {
         assert!(!results.is_empty(), "发现结果不应为空");
 
         // Step 5: 验证 writer 被发现
-        let has_writer = results.iter().any(|r| {
-            r.asset.name.contains("writer") || r.asset.id.contains("writer")
-        });
+        let has_writer = results
+            .iter()
+            .any(|r| r.asset.name.contains("writer") || r.asset.id.contains("writer"));
         assert!(has_writer, "writer 应被发现（意图: {}）", primary_intent);
 
         eprintln!("[Real] ✓ 全流程通过:");
         eprintln!("  输入: '{}'", user_input);
-        eprintln!("  LLM: {} {} (conf={:.2}) → 归一化: {}", verb_raw, object_raw, confidence, primary_intent);
+        eprintln!(
+            "  LLM: {} {} (conf={:.2}) → 归一化: {}",
+            verb_raw, object_raw, confidence, primary_intent
+        );
         eprintln!("  发现 {} 个资产:", results.len());
         for (i, r) in results.iter().enumerate().take(5) {
-            eprintln!("    #{} {:?} {} (score={:.3})",
-                i + 1, r.asset.asset_type, r.asset.name, r.score);
+            eprintln!(
+                "    #{} {:?} {} (score={:.3})",
+                i + 1,
+                r.asset.asset_type,
+                r.asset.name,
+                r.score
+            );
         }
     }
 
@@ -467,7 +508,11 @@ mod tests {
             }
         }
 
-        eprintln!("[Real] 意图合成稳定性: {}/{} 通过", passed, test_cases.len());
+        eprintln!(
+            "[Real] 意图合成稳定性: {}/{} 通过",
+            passed,
+            test_cases.len()
+        );
         assert!(passed >= 4, "至少 4/6 场景应发现资产，实际 {}/6", passed);
     }
 }

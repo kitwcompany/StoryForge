@@ -1342,7 +1342,8 @@ pub struct GenreProfile {
     /// v0.22.1: 推荐方法论 ID
     #[serde(default)]
     pub recommended_methodology_id: Option<String>,
-    /// v0.22.1: 推荐技能 ID（JSON 数组，如 ["style_enhancer","emotion_pacing"]）
+    /// v0.22.1: 推荐技能 ID（JSON 数组，如
+    /// ["style_enhancer","emotion_pacing"]）
     #[serde(default)]
     pub recommended_skill_ids: Option<String>,
     /// v0.22.1: 最低质量等级（low/medium/high/critical）

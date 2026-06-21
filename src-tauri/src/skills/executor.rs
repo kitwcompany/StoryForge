@@ -200,9 +200,8 @@ impl SkillExecutor {
         params: HashMap<String, serde_json::Value>,
     ) -> Result<SkillResult, AppError> {
         // v0.19.0: 从 PromptRegistry 读取提示词覆盖
-        let (system_prompt, user_prompt_template) = self
-            .resolve_skill_prompts(&manifest.id, runtime)
-            .await;
+        let (system_prompt, user_prompt_template) =
+            self.resolve_skill_prompts(&manifest.id, runtime).await;
 
         // Build user prompt from template
         let mut user_prompt = user_prompt_template;
@@ -300,7 +299,8 @@ impl SkillExecutor {
                 // 这里保持简单：如果 registry 中有覆盖，将覆盖内容作为 system_prompt
                 // 并将 user_prompt_template 保持原样（因为 registry 中的 skill 提示词是单条）
                 // 实际上，我们需要更精细的区分...
-                // 为了兼容，我们采用：registry 覆盖 system_prompt，保留原始 user_prompt_template
+                // 为了兼容，我们采用：registry 覆盖 system_prompt，保留原始
+                // user_prompt_template
                 return (content, runtime.user_prompt_template.clone());
             }
         }
@@ -311,7 +311,10 @@ impl SkillExecutor {
         }
 
         // 无覆盖，使用原始 PromptRuntime
-        (runtime.system_prompt.clone(), runtime.user_prompt_template.clone())
+        (
+            runtime.system_prompt.clone(),
+            runtime.user_prompt_template.clone(),
+        )
     }
 
     async fn execute_mcp(

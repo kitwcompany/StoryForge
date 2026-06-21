@@ -99,10 +99,7 @@ impl IntentionGraphPlanner {
     /// 3. 分层发现（Server-level PPR + Tool-level 融合）
     /// 4. 执行图构建 → 转换为 ExecutionPlan
     /// 5. 若任何环节失败，回退到原有 PlanGenerator
-    pub async fn generate_plan(
-        &self,
-        context: &PlanContext,
-    ) -> Result<ExecutionPlan, AppError> {
+    pub async fn generate_plan(&self, context: &PlanContext) -> Result<ExecutionPlan, AppError> {
         // 若强制回退或意图图不可用，直接走原有路径
         if self.force_fallback || self.graph_repo.is_none() {
             log::info!("[IntentionGraphPlanner] Fallback mode: using PlanGenerator");
@@ -162,7 +159,10 @@ impl IntentionGraphPlanner {
 
         // Step 4: 执行图构建 → ExecutionPlan
         self.emit_progress("building_plan", "正在构建执行计划...");
-        match self.build_execution_plan(&synthesis_result, &discovered_assets, context).await {
+        match self
+            .build_execution_plan(&synthesis_result, &discovered_assets, context)
+            .await
+        {
             Ok(plan) => {
                 let elapsed = start.elapsed().as_millis();
                 log::info!(
@@ -213,7 +213,9 @@ impl IntentionGraphPlanner {
         intent_context.add_input(context.user_input.clone());
 
         // v0.20.1: LLM 增强合成（失败时内部回退到规则匹配）
-        let result = pipeline.synthesize_full(&context.user_input, &intent_context).await?;
+        let result = pipeline
+            .synthesize_full(&context.user_input, &intent_context)
+            .await?;
         Ok(result)
     }
 
@@ -227,7 +229,9 @@ impl IntentionGraphPlanner {
             .as_ref()
             .ok_or_else(|| AppError::internal("Graph repository not available".to_string()))?;
 
-        let scorer = crate::intention_graph::GraphScorer::new(crate::intention_graph::scorer::PprConfig::default());
+        let scorer = crate::intention_graph::GraphScorer::new(
+            crate::intention_graph::scorer::PprConfig::default(),
+        );
         let discovery = LayeredDiscovery::new(scorer);
 
         // 使用根意图进行发现
@@ -291,7 +295,9 @@ impl IntentionGraphPlanner {
         // MCP 步骤添加依赖
         for mut mcp_step in mcp_steps {
             if !steps.is_empty() {
-                mcp_step.depends_on.push(steps[steps.len() - 1].step_id.clone());
+                mcp_step
+                    .depends_on
+                    .push(steps[steps.len() - 1].step_id.clone());
             }
             steps.push(mcp_step);
         }
@@ -339,10 +345,9 @@ impl IntentionGraphPlanner {
             }
             AssetType::Skill => {
                 // 技能资产：builtin.style_enhancer 等
-                asset
-                    .capability_id
-                    .clone()
-                    .unwrap_or_else(|| format!("builtin.{}", asset.name.to_lowercase().replace(' ', "_")))
+                asset.capability_id.clone().unwrap_or_else(|| {
+                    format!("builtin.{}", asset.name.to_lowercase().replace(' ', "_"))
+                })
             }
             AssetType::SystemCommand => {
                 // 系统命令：create_chapter, update_character 等
@@ -353,10 +358,9 @@ impl IntentionGraphPlanner {
             }
             AssetType::McpTool => {
                 // MCP 工具：mcp.server_id.tool_name
-                asset
-                    .capability_id
-                    .clone()
-                    .unwrap_or_else(|| format!("mcp.{}", asset.name.to_lowercase().replace(' ', "_")))
+                asset.capability_id.clone().unwrap_or_else(|| {
+                    format!("mcp.{}", asset.name.to_lowercase().replace(' ', "_"))
+                })
             }
             _ => asset.name.to_lowercase().replace(' ', "_"),
         };
@@ -478,7 +482,10 @@ impl IntentionGraphPlanner {
             actions.push(action.clone());
 
             match &action {
-                ReActAction::Invoke { node_id, parameters } => {
+                ReActAction::Invoke {
+                    node_id,
+                    parameters,
+                } => {
                     log::info!("[IntentionGraphPlanner] ReAct Invoke: {}", node_id);
                     let node_start = std::time::Instant::now();
 
@@ -508,14 +515,20 @@ impl IntentionGraphPlanner {
                         }
                     }
                 }
-                ReActAction::Discover { source_node_id, reason } => {
+                ReActAction::Discover {
+                    source_node_id,
+                    reason,
+                } => {
                     log::info!(
                         "[IntentionGraphPlanner] ReAct Discover from {}: {}",
                         source_node_id,
                         reason
                     );
                 }
-                ReActAction::Respond { message, final_outputs } => {
+                ReActAction::Respond {
+                    message,
+                    final_outputs,
+                } => {
                     log::info!(
                         "[IntentionGraphPlanner] ReAct Respond: {} (outputs: {})",
                         message,
@@ -542,12 +555,19 @@ impl IntentionGraphPlanner {
 
         if let Some(ref repo) = self.graph_repo {
             if let Err(e) = repo.create_execution_graph(&graph) {
-                log::warn!("[IntentionGraphPlanner] Failed to persist execution graph: {}", e);
+                log::warn!(
+                    "[IntentionGraphPlanner] Failed to persist execution graph: {}",
+                    e
+                );
             }
             // 持久化执行节点
             for node in &nodes {
                 if let Err(e) = repo.create_execution_node(node) {
-                    log::warn!("[IntentionGraphPlanner] Failed to persist node {}: {}", node.id, e);
+                    log::warn!(
+                        "[IntentionGraphPlanner] Failed to persist node {}: {}",
+                        node.id,
+                        e
+                    );
                 }
             }
         }
@@ -589,7 +609,8 @@ impl IntentionGraphPlanner {
 impl IntentionGraphPlanner {
     /// 从 AppHandle 和数据库连接创建规划器
     ///
-    /// 优先复用 lib.rs setup 阶段注册的 IntentionGraphRepository（共享预热缓存），
+    /// 优先复用 lib.rs setup 阶段注册的
+    /// IntentionGraphRepository（共享预热缓存），
     /// 若不可用则降级为新建（空缓存，查询将回查 SQLite）。
     pub fn from_app_handle(app_handle: AppHandle) -> Result<Self, AppError> {
         let llm_service = LlmService::new(app_handle.clone());
@@ -652,12 +673,8 @@ mod tests {
         let context = test_context();
 
         // Agent 资产
-        let agent_asset = AssetNode::new(
-            AssetType::Agent,
-            "writer",
-            "生成故事正文",
-            Some("writer"),
-        );
+        let agent_asset =
+            AssetNode::new(AssetType::Agent, "writer", "生成故事正文", Some("writer"));
         let step = asset_to_plan_step_static(&agent_asset, &context, 0).unwrap();
         assert_eq!(step.capability_id, "writer");
         assert_eq!(step.step_id, "ig_step_1");
@@ -710,12 +727,7 @@ mod tests {
         let mut context = test_context();
         context.selected_text = Some("选中段落".to_string());
 
-        let asset = AssetNode::new(
-            AssetType::Agent,
-            "writer",
-            "生成故事正文",
-            Some("writer"),
-        );
+        let asset = AssetNode::new(AssetType::Agent, "writer", "生成故事正文", Some("writer"));
         let step = asset_to_plan_step_static(&asset, &context, 0).unwrap();
 
         // 验证参数注入
@@ -777,30 +789,21 @@ mod tests {
         let step_id = format!("ig_step_{}", index + 1);
 
         let capability_id = match asset.asset_type {
-            AssetType::Agent => {
-                asset
-                    .capability_id
-                    .clone()
-                    .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_"))
-            }
-            AssetType::Skill => {
-                asset
-                    .capability_id
-                    .clone()
-                    .unwrap_or_else(|| format!("builtin.{}", asset.name.to_lowercase().replace(' ', "_")))
-            }
-            AssetType::SystemCommand => {
-                asset
-                    .capability_id
-                    .clone()
-                    .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_"))
-            }
-            AssetType::McpTool => {
-                asset
-                    .capability_id
-                    .clone()
-                    .unwrap_or_else(|| format!("mcp.{}", asset.name.to_lowercase().replace(' ', "_")))
-            }
+            AssetType::Agent => asset
+                .capability_id
+                .clone()
+                .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_")),
+            AssetType::Skill => asset.capability_id.clone().unwrap_or_else(|| {
+                format!("builtin.{}", asset.name.to_lowercase().replace(' ', "_"))
+            }),
+            AssetType::SystemCommand => asset
+                .capability_id
+                .clone()
+                .unwrap_or_else(|| asset.name.to_lowercase().replace(' ', "_")),
+            AssetType::McpTool => asset
+                .capability_id
+                .clone()
+                .unwrap_or_else(|| format!("mcp.{}", asset.name.to_lowercase().replace(' ', "_"))),
             _ => asset.name.to_lowercase().replace(' ', "_"),
         };
 
@@ -888,7 +891,9 @@ mod tests {
 
         for mut mcp_step in mcp_steps {
             if !steps.is_empty() {
-                mcp_step.depends_on.push(steps[steps.len() - 1].step_id.clone());
+                mcp_step
+                    .depends_on
+                    .push(steps[steps.len() - 1].step_id.clone());
             }
             steps.push(mcp_step);
         }

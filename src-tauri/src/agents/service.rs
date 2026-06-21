@@ -802,8 +802,8 @@ impl AgentService {
                         request_id.clone(),
                         timeout_seconds_override,
                         max_retries_override,
-                    intent_verb,
-                    intent_object,
+                        intent_verb,
+                        intent_object,
                     )
                     .await;
                 (rid, result?)
@@ -837,8 +837,8 @@ impl AgentService {
                     request_id.clone(),
                     timeout_seconds_override,
                     max_retries_override,
-                intent_verb,
-                intent_object,
+                    intent_verb,
+                    intent_object,
                 )
                 .await;
             (rid, result?)
@@ -2378,27 +2378,62 @@ impl AgentService {
                     let genre_repo = crate::db::GenreProfileRepository::new(pool.clone());
                     if let Ok(Some(profile)) = genre_repo.get_by_id(gpid) {
                         let mut parts = vec![];
-                        if let Some(ref tone) = profile.core_tone { parts.push(format!("基调：{}", tone)); }
-                        if let Some(ref pacing) = profile.pacing_strategy { parts.push(format!("节奏：{}", pacing)); }
+                        if let Some(ref tone) = profile.core_tone {
+                            parts.push(format!("基调：{}", tone));
+                        }
+                        if let Some(ref pacing) = profile.pacing_strategy {
+                            parts.push(format!("节奏：{}", pacing));
+                        }
                         if !parts.is_empty() {
-                            context_sections.push(format!("【体裁画像（检查题材套路合规）】\n{}", parts.join("\n")));
+                            context_sections.push(format!(
+                                "【体裁画像（检查题材套路合规）】\n{}",
+                                parts.join("\n")
+                            ));
                         }
                     }
                 }
             }
             // 角色状态 + 活跃冲突
             let snap = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
-                &pool, &ctx.story.story_id, ctx.style.style_dna_id.as_deref());
+                &pool,
+                &ctx.story.story_id,
+                ctx.style.style_dna_id.as_deref(),
+            );
             if let Some(ref canonical) = snap.canonical {
                 if !canonical.character_states.is_empty() {
-                    let states: Vec<String> = canonical.character_states.iter().take(5)
-                        .map(|cs| format!("- {}: 位置={}, 情绪={}", cs.name, cs.current_location.as_deref().unwrap_or("未知"), cs.current_emotion.as_deref().unwrap_or("未知"))).collect();
-                    context_sections.push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
+                    let states: Vec<String> = canonical
+                        .character_states
+                        .iter()
+                        .take(5)
+                        .map(|cs| {
+                            format!(
+                                "- {}: 位置={}, 情绪={}",
+                                cs.name,
+                                cs.current_location.as_deref().unwrap_or("未知"),
+                                cs.current_emotion.as_deref().unwrap_or("未知")
+                            )
+                        })
+                        .collect();
+                    context_sections
+                        .push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
                 }
                 if !canonical.story_context.active_conflicts.is_empty() {
-                    let cf: Vec<String> = canonical.story_context.active_conflicts.iter().take(3)
-                        .map(|c| format!("  - {} ({}: {})", c.conflict_type, c.parties.join(", "), c.stakes)).collect();
-                    context_sections.push(format!("【活跃冲突（检查是否推进）】\n{}", cf.join("\n")));
+                    let cf: Vec<String> = canonical
+                        .story_context
+                        .active_conflicts
+                        .iter()
+                        .take(3)
+                        .map(|c| {
+                            format!(
+                                "  - {} ({}: {})",
+                                c.conflict_type,
+                                c.parties.join(", "),
+                                c.stakes
+                            )
+                        })
+                        .collect();
+                    context_sections
+                        .push(format!("【活跃冲突（检查是否推进）】\n{}", cf.join("\n")));
                 }
             }
         }
@@ -2406,7 +2441,8 @@ impl AgentService {
         if let Some(ref mid) = ctx.world.methodology_id {
             if !mid.is_empty() {
                 let step = ctx.world.methodology_step.as_deref().unwrap_or("1");
-                // v0.22.1: 按 methodology_id 动态选择 prompt ID（支持雪花法/英雄之旅/场景结构/人物深度）
+                // v0.22.1: 按 methodology_id 动态选择 prompt
+                // ID（支持雪花法/英雄之旅/场景结构/人物深度）
                 let prompt_id = match mid.as_str() {
                     "snowflake" => Some(format!("methodology_snowflake_step{}", step)),
                     "hero_journey" => Some("methodology_hero_journey".to_string()),
@@ -2425,14 +2461,21 @@ impl AgentService {
                             "high_density_world_building" => "高密度世界构建".to_string(),
                             _ => mid.clone(),
                         };
-                        context_sections.push(format!("【方法论节拍（{}，检查结构完整性）】\n{}", label, content));
+                        context_sections.push(format!(
+                            "【方法论节拍（{}，检查结构完整性）】\n{}",
+                            label, content
+                        ));
                     }
                 }
             }
         }
         // 叙事四元组
         if let Some(ref quartet) = task.parameters.get("narrative_quartet") {
-            if let Some(q_str) = quartet.as_str() { if !q_str.is_empty() { context_sections.push(format!("【叙事四元组】\n{}", q_str)); } }
+            if let Some(q_str) = quartet.as_str() {
+                if !q_str.is_empty() {
+                    context_sections.push(format!("【叙事四元组】\n{}", q_str));
+                }
+            }
         }
 
         // v0.22.0: Inspector 全资产注入（Phase B）
@@ -2442,8 +2485,7 @@ impl AgentService {
         if let Some(pool) = crate::get_pool() {
             if let Some(ref gpid) = ctx.story.genre_profile_id {
                 if !gpid.is_empty() {
-                    let genre_repo =
-                        crate::db::GenreProfileRepository::new(pool.clone());
+                    let genre_repo = crate::db::GenreProfileRepository::new(pool.clone());
                     if let Ok(Some(profile)) = genre_repo.get_by_id(gpid) {
                         let mut parts = vec![];
                         if let Some(ref tone) = profile.core_tone {
@@ -2456,9 +2498,7 @@ impl AgentService {
                             let s = profile.anti_patterns_json.as_deref().unwrap_or("");
                             if s.trim().is_empty() {
                                 vec![]
-                            } else if let Ok(arr) =
-                                serde_json::from_str::<Vec<String>>(s)
-                            {
+                            } else if let Ok(arr) = serde_json::from_str::<Vec<String>>(s) {
                                 arr
                             } else {
                                 s.lines()
@@ -2486,8 +2526,7 @@ impl AgentService {
             if !mid.is_empty() {
                 let step = ctx.world.methodology_step.as_deref().unwrap_or("1");
                 let prompt_id = format!("methodology_snowflake_step{}", step);
-                if let Some(content) =
-                    crate::prompts::registry::resolve_prompt_default(&prompt_id)
+                if let Some(content) = crate::prompts::registry::resolve_prompt_default(&prompt_id)
                 {
                     context_sections.push(format!(
                         "【方法论节拍（雪花法 第{}步，检查结构完整性）】\n{}",
@@ -2520,10 +2559,8 @@ impl AgentService {
                             )
                         })
                         .collect();
-                    context_sections.push(format!(
-                        "【角色状态（检查一致性）】\n{}",
-                        states.join("\n")
-                    ));
+                    context_sections
+                        .push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
                 }
                 // 活跃冲突
                 if !canonical.story_context.active_conflicts.is_empty() {
@@ -2532,7 +2569,14 @@ impl AgentService {
                         .active_conflicts
                         .iter()
                         .take(3)
-                        .map(|c| format!("  - {} (涉及: {}; 利害: {})", c.conflict_type, c.parties.join(", "), c.stakes))
+                        .map(|c| {
+                            format!(
+                                "  - {} (涉及: {}; 利害: {})",
+                                c.conflict_type,
+                                c.parties.join(", "),
+                                c.stakes
+                            )
+                        })
                         .collect();
                     context_sections.push(format!(
                         "【活跃冲突（检查是否推进或解决）】\n{}",
@@ -2546,10 +2590,7 @@ impl AgentService {
         if let Some(ref quartet) = task.parameters.get("narrative_quartet") {
             if let Some(q_str) = quartet.as_str() {
                 if !q_str.is_empty() {
-                    context_sections.push(format!(
-                        "【叙事四元组（检查目标达成）】\n{}",
-                        q_str
-                    ));
+                    context_sections.push(format!("【叙事四元组（检查目标达成）】\n{}", q_str));
                 }
             }
         }

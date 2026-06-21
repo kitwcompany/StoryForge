@@ -3,16 +3,16 @@
 //! 提供 SQLite 持久化 + 内存缓存的混合存储方案。
 //! 图查询先走内存缓存（热数据），缓存未命中时回查 SQLite。
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use chrono::{DateTime, Local};
 use rusqlite::{params, OptionalExtension};
 
-use crate::db::connection::DbPool;
-use crate::error::AppError;
-
 use super::models::*;
+use crate::{db::connection::DbPool, error::AppError};
 
 // ==================== 内存缓存 ====================
 
@@ -21,8 +21,8 @@ pub struct InMemoryGraphCache {
     intentions: RwLock<HashMap<String, IntentionNode>>,
     assets: RwLock<HashMap<String, AssetNode>>,
     intention_asset_edges: RwLock<HashMap<String, Vec<IntentionAssetEdge>>>, // key = intention_id
-    asset_asset_edges: RwLock<HashMap<String, Vec<AssetAssetEdge>>>,       // key = source_asset_id
-    embedding_cache: RwLock<HashMap<String, Vec<f32>>>,                    // key = node_id
+    asset_asset_edges: RwLock<HashMap<String, Vec<AssetAssetEdge>>>, // key = source_asset_id
+    embedding_cache: RwLock<HashMap<String, Vec<f32>>>,              // key = node_id
 }
 
 impl InMemoryGraphCache {
@@ -175,9 +175,10 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn create_intention(&self, node: &IntentionNode) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let embedding_json = node
             .embedding
@@ -223,9 +224,10 @@ impl IntentionGraphRepository {
         }
 
         // 2. Fallback to SQLite
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -245,7 +247,10 @@ impl IntentionGraphRepository {
 
                 Ok(IntentionNode {
                     id: row.get(0)?,
-                    intent_type: row.get::<_, String>(1)?.parse().unwrap_or(IntentType::Atomic),
+                    intent_type: row
+                        .get::<_, String>(1)?
+                        .parse()
+                        .unwrap_or(IntentType::Atomic),
                     verb: row.get(2)?,
                     object: row.get(3)?,
                     description: row.get(4)?,
@@ -269,10 +274,14 @@ impl IntentionGraphRepository {
         Ok(node)
     }
 
-    pub fn list_intentions(&self, intent_type: Option<IntentType>) -> Result<Vec<IntentionNode>, AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+    pub fn list_intentions(
+        &self,
+        intent_type: Option<IntentType>,
+    ) -> Result<Vec<IntentionNode>, AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = if intent_type.is_some() {
             "SELECT id, intent_type, verb, object, description, embedding, frequency, created_at, updated_at
@@ -313,7 +322,10 @@ impl IntentionGraphRepository {
 
         Ok(IntentionNode {
             id: row.get(0)?,
-            intent_type: row.get::<_, String>(1)?.parse().unwrap_or(IntentType::Atomic),
+            intent_type: row
+                .get::<_, String>(1)?
+                .parse()
+                .unwrap_or(IntentType::Atomic),
             verb: row.get(2)?,
             object: row.get(3)?,
             description: row.get(4)?,
@@ -333,9 +345,10 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn create_asset(&self, node: &AssetNode) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let embedding_json = node
             .embedding
@@ -386,9 +399,10 @@ impl IntentionGraphRepository {
             return Ok(Some(node));
         }
 
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -410,9 +424,10 @@ impl IntentionGraphRepository {
     }
 
     pub fn list_assets(&self, asset_type: Option<AssetType>) -> Result<Vec<AssetNode>, AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = if asset_type.is_some() {
             "SELECT id, asset_type, name, description, embedding, capability_id, metadata, frequency, created_at, updated_at
@@ -464,7 +479,11 @@ impl IntentionGraphRepository {
             name: row.get(2)?,
             description: row.get(3)?,
             embedding,
-            capability_id: if cap_id.is_empty() { None } else { Some(cap_id) },
+            capability_id: if cap_id.is_empty() {
+                None
+            } else {
+                Some(cap_id)
+            },
             metadata,
             frequency: row.get(7)?,
             created_at: DateTime::from_timestamp(row.get(8)?, 0)
@@ -480,13 +499,11 @@ impl IntentionGraphRepository {
     // Intention-Asset Edge CRUD
     // ------------------------------------------------------------------
 
-    pub fn create_intention_asset_edge(
-        &self,
-        edge: &IntentionAssetEdge,
-    ) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+    pub fn create_intention_asset_edge(&self, edge: &IntentionAssetEdge) -> Result<(), AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let created_at = edge.created_at.timestamp();
         let updated_at = edge.updated_at.timestamp();
@@ -530,9 +547,10 @@ impl IntentionGraphRepository {
             }
         }
 
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = if edge_type.is_some() {
             "SELECT id, intention_id, asset_id, edge_type, weight, reason, cooccurrence_count, created_at, updated_at
@@ -542,10 +560,15 @@ impl IntentionGraphRepository {
              FROM intention_asset_edges WHERE intention_id = ?1"
         };
 
-        let mut stmt = conn.prepare(sql).map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
 
         let rows = if let Some(et) = edge_type {
-            stmt.query_map(params![intention_id, et.to_string()], Self::map_intention_asset_edge_row)?
+            stmt.query_map(
+                params![intention_id, et.to_string()],
+                Self::map_intention_asset_edge_row,
+            )?
         } else {
             stmt.query_map(params![intention_id], Self::map_intention_asset_edge_row)?
         };
@@ -567,9 +590,16 @@ impl IntentionGraphRepository {
             id: row.get(0)?,
             intention_id: row.get(1)?,
             asset_id: row.get(2)?,
-            edge_type: row.get::<_, String>(3)?.parse().unwrap_or(IntentionAssetEdgeType::TriggeredBy),
+            edge_type: row
+                .get::<_, String>(3)?
+                .parse()
+                .unwrap_or(IntentionAssetEdgeType::TriggeredBy),
             weight: row.get(4)?,
-            reason: if reason.is_empty() { None } else { Some(reason) },
+            reason: if reason.is_empty() {
+                None
+            } else {
+                Some(reason)
+            },
             cooccurrence_count: row.get(6)?,
             created_at: DateTime::from_timestamp(row.get(7)?, 0)
                 .map(|dt| dt.with_timezone(&Local))
@@ -585,9 +615,10 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn create_asset_asset_edge(&self, edge: &AssetAssetEdge) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let created_at = edge.created_at.timestamp();
         let updated_at = edge.updated_at.timestamp();
@@ -627,9 +658,10 @@ impl IntentionGraphRepository {
             }
         }
 
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = if edge_type.is_some() {
             "SELECT id, source_asset_id, target_asset_id, edge_type, weight, cooccurrence_count, created_at, updated_at
@@ -639,10 +671,15 @@ impl IntentionGraphRepository {
              FROM asset_asset_edges WHERE source_asset_id = ?1"
         };
 
-        let mut stmt = conn.prepare(sql).map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
 
         let rows = if let Some(et) = edge_type {
-            stmt.query_map(params![asset_id, et.to_string()], Self::map_asset_asset_edge_row)?
+            stmt.query_map(
+                params![asset_id, et.to_string()],
+                Self::map_asset_asset_edge_row,
+            )?
         } else {
             stmt.query_map(params![asset_id], Self::map_asset_asset_edge_row)?
         };
@@ -663,7 +700,10 @@ impl IntentionGraphRepository {
             id: row.get(0)?,
             source_asset_id: row.get(1)?,
             target_asset_id: row.get(2)?,
-            edge_type: row.get::<_, String>(3)?.parse().unwrap_or(AssetAssetEdgeType::ToolCooccur),
+            edge_type: row
+                .get::<_, String>(3)?
+                .parse()
+                .unwrap_or(AssetAssetEdgeType::ToolCooccur),
             weight: row.get(4)?,
             cooccurrence_count: row.get(5)?,
             created_at: DateTime::from_timestamp(row.get(6)?, 0)
@@ -680,9 +720,10 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn create_execution_graph(&self, graph: &ExecutionGraph) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let created_at = graph.created_at.timestamp();
         let completed_at = graph.completed_at.map(|dt| dt.timestamp());
@@ -721,9 +762,10 @@ impl IntentionGraphRepository {
     }
 
     pub fn get_execution_graph(&self, id: &str) -> Result<Option<ExecutionGraph>, AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -744,16 +786,39 @@ impl IntentionGraphRepository {
                 Ok(ExecutionGraph {
                     id: row.get(0)?,
                     request_id: row.get(1)?,
-                    story_id: if story_id.is_empty() { None } else { Some(story_id) },
+                    story_id: if story_id.is_empty() {
+                        None
+                    } else {
+                        Some(story_id)
+                    },
                     user_input: row.get(3)?,
-                    root_intention_id: if root_id.is_empty() { None } else { Some(root_id) },
-                    status: row.get::<_, String>(5)?.parse().unwrap_or(ExecutionGraphStatus::Building),
-                    plan_json: if plan_json.is_empty() { None } else { Some(plan_json) },
-                    result_json: if result_json.is_empty() { None } else { Some(result_json) },
+                    root_intention_id: if root_id.is_empty() {
+                        None
+                    } else {
+                        Some(root_id)
+                    },
+                    status: row
+                        .get::<_, String>(5)?
+                        .parse()
+                        .unwrap_or(ExecutionGraphStatus::Building),
+                    plan_json: if plan_json.is_empty() {
+                        None
+                    } else {
+                        Some(plan_json)
+                    },
+                    result_json: if result_json.is_empty() {
+                        None
+                    } else {
+                        Some(result_json)
+                    },
                     created_at: DateTime::from_timestamp(row.get(8)?, 0)
                         .map(|dt| dt.with_timezone(&Local))
                         .unwrap_or_else(Local::now),
-                    completed_at: completed_at.map(|ts| DateTime::from_timestamp(ts, 0).map(|dt| dt.with_timezone(&Local)).unwrap_or_else(Local::now)),
+                    completed_at: completed_at.map(|ts| {
+                        DateTime::from_timestamp(ts, 0)
+                            .map(|dt| dt.with_timezone(&Local))
+                            .unwrap_or_else(Local::now)
+                    }),
                     execution_time_ms: exec_ms,
                 })
             })
@@ -768,17 +833,30 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn create_execution_node(&self, node: &ExecutionNode) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let created_at = node.created_at.timestamp();
         let completed_at = node.completed_at.map(|dt| dt.timestamp());
         let intention_id = node.intention_id.as_deref().unwrap_or("");
         let asset_id = node.asset_id.as_deref().unwrap_or("");
-        let parameters = node.parameters.as_ref().map(|p| p.to_string()).unwrap_or_default();
-        let depends_on = node.depends_on.as_ref().map(|d| serde_json::to_string(d).unwrap_or_default()).unwrap_or_default();
-        let outputs = node.outputs.as_ref().map(|o| o.to_string()).unwrap_or_default();
+        let parameters = node
+            .parameters
+            .as_ref()
+            .map(|p| p.to_string())
+            .unwrap_or_default();
+        let depends_on = node
+            .depends_on
+            .as_ref()
+            .map(|d| serde_json::to_string(d).unwrap_or_default())
+            .unwrap_or_default();
+        let outputs = node
+            .outputs
+            .as_ref()
+            .map(|o| o.to_string())
+            .unwrap_or_default();
         let exec_ms = node.execution_time_ms;
 
         conn.execute(
@@ -811,10 +889,14 @@ impl IntentionGraphRepository {
         Ok(())
     }
 
-    pub fn get_execution_nodes_by_graph(&self, graph_id: &str) -> Result<Vec<ExecutionNode>, AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+    pub fn get_execution_nodes_by_graph(
+        &self,
+        graph_id: &str,
+    ) -> Result<Vec<ExecutionNode>, AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -847,25 +929,56 @@ impl IntentionGraphRepository {
         Ok(ExecutionNode {
             id: row.get(0)?,
             graph_id: row.get(1)?,
-            intention_id: if intention_id.is_empty() { None } else { Some(intention_id) },
-            asset_id: if asset_id.is_empty() { None } else { Some(asset_id) },
-            status: row.get::<_, String>(4)?.parse().unwrap_or(ExecutionNodeStatus::Pending),
-            parameters: if parameters_json.is_empty() { None } else { serde_json::from_str(&parameters_json).ok() },
-            depends_on: if depends_on_json.is_empty() { None } else { serde_json::from_str(&depends_on_json).ok() },
-            outputs: if outputs_json.is_empty() { None } else { serde_json::from_str(&outputs_json).ok() },
-            discovered_from: row.get::<_, String>(8)?.parse().unwrap_or(DiscoverySource::Synthesis),
+            intention_id: if intention_id.is_empty() {
+                None
+            } else {
+                Some(intention_id)
+            },
+            asset_id: if asset_id.is_empty() {
+                None
+            } else {
+                Some(asset_id)
+            },
+            status: row
+                .get::<_, String>(4)?
+                .parse()
+                .unwrap_or(ExecutionNodeStatus::Pending),
+            parameters: if parameters_json.is_empty() {
+                None
+            } else {
+                serde_json::from_str(&parameters_json).ok()
+            },
+            depends_on: if depends_on_json.is_empty() {
+                None
+            } else {
+                serde_json::from_str(&depends_on_json).ok()
+            },
+            outputs: if outputs_json.is_empty() {
+                None
+            } else {
+                serde_json::from_str(&outputs_json).ok()
+            },
+            discovered_from: row
+                .get::<_, String>(8)?
+                .parse()
+                .unwrap_or(DiscoverySource::Synthesis),
             execution_time_ms: exec_ms,
             created_at: DateTime::from_timestamp(row.get(10)?, 0)
                 .map(|dt| dt.with_timezone(&Local))
                 .unwrap_or_else(Local::now),
-            completed_at: completed_at.map(|ts| DateTime::from_timestamp(ts, 0).map(|dt| dt.with_timezone(&Local)).unwrap_or_else(Local::now)),
+            completed_at: completed_at.map(|ts| {
+                DateTime::from_timestamp(ts, 0)
+                    .map(|dt| dt.with_timezone(&Local))
+                    .unwrap_or_else(Local::now)
+            }),
         })
     }
 
     pub fn get_recent_executions(&self, limit: i64) -> Result<Vec<ExecutionGraph>, AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -874,30 +987,55 @@ impl IntentionGraphRepository {
             )
             .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
 
-        let rows = stmt.query_map(params![limit], |row| {
-            let story_id: String = row.get(2).unwrap_or_default();
-            let root_id: String = row.get(4).unwrap_or_default();
-            let plan_json: String = row.get(6).unwrap_or_default();
-            let result_json: String = row.get(7).unwrap_or_default();
-            let completed_at: Option<i64> = row.get(9)?;
-            let exec_ms: Option<i64> = row.get(10)?;
+        let rows = stmt
+            .query_map(params![limit], |row| {
+                let story_id: String = row.get(2).unwrap_or_default();
+                let root_id: String = row.get(4).unwrap_or_default();
+                let plan_json: String = row.get(6).unwrap_or_default();
+                let result_json: String = row.get(7).unwrap_or_default();
+                let completed_at: Option<i64> = row.get(9)?;
+                let exec_ms: Option<i64> = row.get(10)?;
 
-            Ok(ExecutionGraph {
-                id: row.get(0)?,
-                request_id: row.get(1)?,
-                story_id: if story_id.is_empty() { None } else { Some(story_id) },
-                user_input: row.get(3)?,
-                root_intention_id: if root_id.is_empty() { None } else { Some(root_id) },
-                status: row.get::<_, String>(5)?.parse().unwrap_or(ExecutionGraphStatus::Building),
-                plan_json: if plan_json.is_empty() { None } else { Some(plan_json) },
-                result_json: if result_json.is_empty() { None } else { Some(result_json) },
-                created_at: DateTime::from_timestamp(row.get(8)?, 0)
-                    .map(|dt| dt.with_timezone(&Local))
-                    .unwrap_or_else(Local::now),
-                completed_at: completed_at.map(|ts| DateTime::from_timestamp(ts, 0).map(|dt| dt.with_timezone(&Local)).unwrap_or_else(Local::now)),
-                execution_time_ms: exec_ms,
+                Ok(ExecutionGraph {
+                    id: row.get(0)?,
+                    request_id: row.get(1)?,
+                    story_id: if story_id.is_empty() {
+                        None
+                    } else {
+                        Some(story_id)
+                    },
+                    user_input: row.get(3)?,
+                    root_intention_id: if root_id.is_empty() {
+                        None
+                    } else {
+                        Some(root_id)
+                    },
+                    status: row
+                        .get::<_, String>(5)?
+                        .parse()
+                        .unwrap_or(ExecutionGraphStatus::Building),
+                    plan_json: if plan_json.is_empty() {
+                        None
+                    } else {
+                        Some(plan_json)
+                    },
+                    result_json: if result_json.is_empty() {
+                        None
+                    } else {
+                        Some(result_json)
+                    },
+                    created_at: DateTime::from_timestamp(row.get(8)?, 0)
+                        .map(|dt| dt.with_timezone(&Local))
+                        .unwrap_or_else(Local::now),
+                    completed_at: completed_at.map(|ts| {
+                        DateTime::from_timestamp(ts, 0)
+                            .map(|dt| dt.with_timezone(&Local))
+                            .unwrap_or_else(Local::now)
+                    }),
+                    execution_time_ms: exec_ms,
+                })
             })
-        }).map_err(|e| AppError::internal(format!("Query failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Query failed: {}", e)))?;
 
         let mut graphs = Vec::new();
         for row in rows {
@@ -914,9 +1052,10 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn get_statistics(&self) -> Result<GraphStatistics, AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         let intention_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM intention_nodes", [], |row| row.get(0))
@@ -925,13 +1064,19 @@ impl IntentionGraphRepository {
             .query_row("SELECT COUNT(*) FROM asset_nodes", [], |row| row.get(0))
             .unwrap_or(0);
         let ia_edge_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM intention_asset_edges", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM intention_asset_edges", [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
         let aa_edge_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM asset_asset_edges", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM asset_asset_edges", [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
         let exec_graph_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM execution_graphs", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM execution_graphs", [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
         let exec_node_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM execution_nodes", [], |row| row.get(0))
@@ -941,11 +1086,13 @@ impl IntentionGraphRepository {
         let mut stmt = conn
             .prepare("SELECT id, frequency FROM intention_nodes ORDER BY frequency DESC LIMIT 10")
             .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
-        let rows = stmt.query_map([], |row| {
-            let id: String = row.get(0)?;
-            let freq: i32 = row.get(1)?;
-            Ok((id, freq))
-        }).map_err(|e| AppError::internal(format!("Query failed: {}", e)))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let freq: i32 = row.get(1)?;
+                Ok((id, freq))
+            })
+            .map_err(|e| AppError::internal(format!("Query failed: {}", e)))?;
         for row in rows {
             if let Ok((id, freq)) = row {
                 top_intentions.push((id, freq));
@@ -956,11 +1103,13 @@ impl IntentionGraphRepository {
         let mut stmt = conn
             .prepare("SELECT id, frequency FROM asset_nodes ORDER BY frequency DESC LIMIT 10")
             .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
-        let rows = stmt.query_map([], |row| {
-            let id: String = row.get(0)?;
-            let freq: i32 = row.get(1)?;
-            Ok((id, freq))
-        }).map_err(|e| AppError::internal(format!("Query failed: {}", e)))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let freq: i32 = row.get(1)?;
+                Ok((id, freq))
+            })
+            .map_err(|e| AppError::internal(format!("Query failed: {}", e)))?;
         for row in rows {
             if let Ok((id, freq)) = row {
                 top_assets.push((id, freq));
@@ -1000,9 +1149,10 @@ impl IntentionGraphRepository {
 
         // Load top 1000 intention-asset edges (hot edges)
         {
-            let conn = self.pool.get().map_err(|e| {
-                AppError::internal(format!("Failed to get connection: {}", e))
-            })?;
+            let conn = self
+                .pool
+                .get()
+                .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
             let mut stmt = conn
                 .prepare("SELECT id, intention_id, asset_id, edge_type, weight, reason, cooccurrence_count, created_at, updated_at FROM intention_asset_edges ORDER BY weight DESC LIMIT 1000")
                 .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
@@ -1016,9 +1166,10 @@ impl IntentionGraphRepository {
 
         // Load top 1000 asset-asset edges
         {
-            let conn = self.pool.get().map_err(|e| {
-                AppError::internal(format!("Failed to get connection: {}", e))
-            })?;
+            let conn = self
+                .pool
+                .get()
+                .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
             let mut stmt = conn
                 .prepare("SELECT id, source_asset_id, target_asset_id, edge_type, weight, cooccurrence_count, created_at, updated_at FROM asset_asset_edges ORDER BY weight DESC LIMIT 1000")
                 .map_err(|e| AppError::internal(format!("Prepare failed: {}", e)))?;
@@ -1047,11 +1198,14 @@ impl IntentionGraphRepository {
     // ------------------------------------------------------------------
 
     pub fn batch_create_intentions(&self, nodes: &[IntentionNode]) -> Result<(), AppError> {
-        let mut conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
-        let tx = conn.transaction().map_err(|e| AppError::internal(format!("Transaction failed: {}", e)))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::internal(format!("Transaction failed: {}", e)))?;
 
         for node in nodes {
             let embedding_json = node
@@ -1090,16 +1244,20 @@ impl IntentionGraphRepository {
             self.cache.insert_intention(node.clone());
         }
 
-        tx.commit().map_err(|e| AppError::internal(format!("Commit failed: {}", e)))?;
+        tx.commit()
+            .map_err(|e| AppError::internal(format!("Commit failed: {}", e)))?;
         Ok(())
     }
 
     pub fn batch_create_assets(&self, nodes: &[AssetNode]) -> Result<(), AppError> {
-        let mut conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
-        let tx = conn.transaction().map_err(|e| AppError::internal(format!("Transaction failed: {}", e)))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::internal(format!("Transaction failed: {}", e)))?;
 
         for node in nodes {
             let embedding_json = node
@@ -1145,14 +1303,16 @@ impl IntentionGraphRepository {
             self.cache.insert_asset(node.clone());
         }
 
-        tx.commit().map_err(|e| AppError::internal(format!("Commit failed: {}", e)))?;
+        tx.commit()
+            .map_err(|e| AppError::internal(format!("Commit failed: {}", e)))?;
         Ok(())
     }
 
     pub fn increment_intention_frequency(&self, id: &str) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         conn.execute(
             "UPDATE intention_nodes SET frequency = frequency + 1, updated_at = ?1 WHERE id = ?2",
@@ -1170,9 +1330,10 @@ impl IntentionGraphRepository {
     }
 
     pub fn increment_asset_frequency(&self, id: &str) -> Result<(), AppError> {
-        let conn = self.pool.get().map_err(|e| {
-            AppError::internal(format!("Failed to get connection: {}", e))
-        })?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::internal(format!("Failed to get connection: {}", e)))?;
 
         conn.execute(
             "UPDATE asset_nodes SET frequency = frequency + 1, updated_at = ?1 WHERE id = ?2",

@@ -695,9 +695,12 @@ impl AgentOrchestrator {
         };
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
         let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "orchestrator_timesliced_writer").ok())
-            .or_else(|| crate::prompts::registry::resolve_prompt_default("orchestrator_timesliced_writer"))
-        {
+            .and_then(|p| {
+                crate::prompts::registry::resolve_prompt(&p, "orchestrator_timesliced_writer").ok()
+            })
+            .or_else(|| {
+                crate::prompts::registry::resolve_prompt_default("orchestrator_timesliced_writer")
+            }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("context".to_string(), bundle_prompt.clone());
             vars.insert("instruction".to_string(), user_instruction.clone());
@@ -757,7 +760,9 @@ impl AgentOrchestrator {
             for line in dna_ext.lines() {
                 if line.contains("平均句长") {
                     if let Some(target_str) = line.split(':').nth(1) {
-                        if let Ok(target_len) = target_str.trim().chars()
+                        if let Ok(target_len) = target_str
+                            .trim()
+                            .chars()
                             .take_while(|c| c.is_ascii_digit())
                             .collect::<String>()
                             .parse::<u32>()
@@ -768,15 +773,20 @@ impl AgentOrchestrator {
                                 .filter(|s| !s.trim().is_empty())
                                 .collect();
                             if !sents.is_empty() {
-                                let actual_len = sents.iter()
-                                    .map(|s| s.chars().count())
-                                    .sum::<usize>() as u32 / sents.len() as u32;
+                                let actual_len =
+                                    sents.iter().map(|s| s.chars().count()).sum::<usize>() as u32
+                                        / sents.len() as u32;
                                 let deviation = if target_len > 0 {
-                                    (actual_len as f32 - target_len as f32).abs() / target_len as f32
-                                } else { 0.0 };
+                                    (actual_len as f32 - target_len as f32).abs()
+                                        / target_len as f32
+                                } else {
+                                    0.0
+                                };
                                 log::debug!(
                                     "[TimeSliced] 句长检测: 目标{}字, 实际{}字, 偏差{:.0}%",
-                                    target_len, actual_len, deviation * 100.0
+                                    target_len,
+                                    actual_len,
+                                    deviation * 100.0
                                 );
                                 if deviation > 0.3 {
                                     style_suggestions.push(format!(

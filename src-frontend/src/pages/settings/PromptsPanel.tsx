@@ -164,13 +164,13 @@ export function PromptsPanel() {
     let result = entries;
 
     if (activeCategory !== 'all') {
-      result = result.filter((e) => e.category === activeCategory);
+      result = result.filter(e => e.category === activeCategory);
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
-        (e) =>
+        e =>
           e.id.toLowerCase().includes(q) ||
           e.name.toLowerCase().includes(q) ||
           e.description.toLowerCase().includes(q) ||
@@ -246,12 +246,12 @@ export function PromptsPanel() {
 
   // v0.21.0: 批量导出所有覆盖为 JSON
   const handleExportAll = () => {
-    const overridden = entries.filter((e) => e.is_overridden);
+    const overridden = entries.filter(e => e.is_overridden);
     if (overridden.length === 0) {
       toast('没有已覆盖的提示词可导出', { icon: 'ℹ️' });
       return;
     }
-    const exportData = overridden.map((e) => ({
+    const exportData = overridden.map(e => ({
       prompt_id: e.id,
       content: e.current_content,
     }));
@@ -305,8 +305,7 @@ export function PromptsPanel() {
     setSearchQuery('');
   }, []);
 
-
-  const overriddenCount = entries.filter((e) => e.is_overridden).length;
+  const overriddenCount = entries.filter(e => e.is_overridden).length;
 
   if (loading) {
     return (
@@ -327,7 +326,8 @@ export function PromptsPanel() {
             提示词注册表
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            所有内置 LLM 提示词都可以在此查看、编辑、保存覆盖。已覆盖的提示词在运行时自动取代内置默认。
+            所有内置 LLM
+            提示词都可以在此查看、编辑、保存覆盖。已覆盖的提示词在运行时自动取代内置默认。
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -356,7 +356,7 @@ export function PromptsPanel() {
             type="text"
             placeholder="搜索提示词 ID、名称、描述或内容..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-9 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500"
           />
           {searchQuery && (
@@ -370,11 +370,11 @@ export function PromptsPanel() {
         </div>
         <select
           value={activeCategory}
-          onChange={(e) => setActiveCategory(e.target.value as PromptCategory | 'all')}
+          onChange={e => setActiveCategory(e.target.value as PromptCategory | 'all')}
           className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white"
         >
           <option value="all">全部分类</option>
-          {CATEGORY_ORDER.map((cat) => (
+          {CATEGORY_ORDER.map(cat => (
             <option key={cat} value={cat}>
               {CATEGORY_LABELS[cat]}
             </option>
@@ -402,7 +402,7 @@ export function PromptsPanel() {
                 <span className="text-sm text-gray-400">{list.length} 条</span>
               </div>
               <div className="divide-y divide-cinema-700">
-                {list.map((entry) => {
+                {list.map(entry => {
                   const isExpanded = expandedId === entry.id;
                   const draft = edited[entry.id] ?? entry.current_content;
                   const isDirty = draft !== entry.current_content;
@@ -443,7 +443,7 @@ export function PromptsPanel() {
                           {entry.variables.length > 0 && (
                             <div className="text-xs text-gray-400 flex flex-wrap gap-1">
                               <span>支持的模板变量：</span>
-                              {entry.variables.map((v) => (
+                              {entry.variables.map(v => (
                                 <code
                                   key={v}
                                   className="px-1.5 py-0.5 rounded bg-cinema-800 text-cinema-gold text-xs font-mono"
@@ -457,7 +457,9 @@ export function PromptsPanel() {
                           {/* Default content preview */}
                           {entry.is_overridden && (
                             <div className="space-y-1">
-                              <div className="text-xs text-gray-500 font-medium">内置默认值（只读）：</div>
+                              <div className="text-xs text-gray-500 font-medium">
+                                内置默认值（只读）：
+                              </div>
                               <div className="w-full px-3 py-2 bg-cinema-950 border border-cinema-800 rounded text-sm text-gray-400 font-mono max-h-32 overflow-y-auto">
                                 {entry.default_content}
                               </div>
@@ -465,13 +467,16 @@ export function PromptsPanel() {
                           )}
 
                           {/* v0.21.0: Monaco 编辑器替代原生 textarea */}
-                          <div className="border border-cinema-700 rounded overflow-hidden" style={{ height: '360px' }}>
+                          <div
+                            className="border border-cinema-700 rounded overflow-hidden"
+                            style={{ height: '360px' }}
+                          >
                             <MonacoEditor
                               value={draft}
                               language="plaintext"
                               theme="vs-dark"
-                              onChange={(value) =>
-                                setEdited((prev) => ({
+                              onChange={value =>
+                                setEdited(prev => ({
                                   ...prev,
                                   [entry.id]: value ?? '',
                                 }))
