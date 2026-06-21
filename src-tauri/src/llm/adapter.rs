@@ -87,6 +87,28 @@ pub async fn read_body_with_generation_timeout(
     Ok(chunks.into_iter().flatten().collect())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseFormat {
+    JsonObject,
+}
+
+impl ResponseFormat {
+    /// OpenAI / OpenAI-compatible API 要求的对象格式：`{"type":"json_object"}`
+    pub fn openai_value(&self) -> serde_json::Value {
+        match self {
+            Self::JsonObject => serde_json::json!({"type": "json_object"}),
+        }
+    }
+
+    /// Ollama `format` 字段接受的字符串：`"json"`
+    pub fn ollama_value(&self) -> &'static str {
+        match self {
+            Self::JsonObject => "json",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub prompt: String,
@@ -98,6 +120,10 @@ pub struct GenerateRequest {
     pub frequency_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
+    /// 结构化输出格式。OpenAI/Ollama 适配器会映射为对应 API 字段；Anthropic 暂不支持，
+    /// 仍靠 prompt 约束输出 JSON。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

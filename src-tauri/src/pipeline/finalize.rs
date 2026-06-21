@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tauri::{AppHandle, Manager};
 
 use super::types::*;
@@ -7,6 +9,7 @@ use crate::{
         PostProcessStatus, StepStatus,
     },
     llm::LlmService,
+    ports::VectorStore,
 };
 
 /// 执行定稿
@@ -22,6 +25,7 @@ pub async fn finalize_draft(
     pool: &DbPool,
     app_handle: &AppHandle,
     callbacks: &dyn PipelineCallbacks,
+    vector_store: &dyn VectorStore,
 ) -> Result<String, PipelineError> {
     callbacks.progress("finalize", 0.05);
 
@@ -141,6 +145,7 @@ pub async fn finalize_draft(
                 step_def,
                 pool,
                 &llm_service,
+                vector_store,
             )
             .await;
 

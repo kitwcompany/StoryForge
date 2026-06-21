@@ -3,6 +3,9 @@
 // 中性领域类型模块，必须在业务模块之前声明，供各层依赖。
 mod domain;
 
+// 基础设施 ports（trait 契约），必须在具体实现模块之前声明。
+mod ports;
+
 mod agents;
 mod analytics;
 mod anti_ai;
@@ -61,11 +64,11 @@ mod tests;
 #[macro_use]
 mod commands;
 
-use std::{collections::HashMap, sync::Mutex, time::Instant};
+use std::collections::HashMap;
 
 use config::AppConfig;
 use db::{init_db, DbPool};
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;
 use tauri::Manager;
@@ -73,62 +76,45 @@ use tauri::Manager;
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
 
-// GLOBAL: DB_POOL — 数据库连接池全局访问点。
-// SAFETY: 仅在 setup() 中初始化一次，之后只读访问。使用 std::sync::OnceLock
-// 避免每次 get_pool() 都加全局 Mutex，初始化后可直接 clone。
-// NOTE: 理想情况下应通过 Tauri State 注入，但当前大量模块直接调用
-// get_pool()，保留为过渡期全局。
-static DB_POOL: std::sync::OnceLock<DbPool> = std::sync::OnceLock::new();
-
-// GLOBAL: APP_CONFIG — 应用配置全局访问点。
-// SAFETY: 在 setup() 中加载后极少变更。reload_config() 会写，但频率极低。
-// NOTE: 应逐步迁移到按模块配置注入。
-static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
-
-// GLOBAL: SKILL_MANAGER — 技能管理器全局单例。
-// SAFETY: OnceCell 保证仅初始化一次。SkillManager 内部使用 Mutex 保护状态。
-pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
-
-// GLOBAL: Chapter commit debounce 状态。
-// W4-B9: 防止频繁保存导致重复 commit。
-// SAFETY: 纯内存状态，丢失无数据损坏风险。每次启动重置。
-pub(crate) static CHAPTER_COMMIT_DEBOUNCE: Lazy<Mutex<HashMap<String, Instant>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-pub(crate) const CHAPTER_COMMIT_DEBOUNCE_SECONDS: u64 = 30; // 30 秒 debounce
-
 /// 记录 AI 操作历史
-pub(crate) fn record_ai_operation(req: db::CreateAiOperationRequest) {
-    if let Some(pool) = get_pool() {
-        let repo = db::AiOperationRepository::new(pool);
-        if let Err(e) = repo.create(req) {
-            log::warn!("[AiOperation] Failed to record operation: {}", e);
-        }
+pub(crate) fn record_ai_operation(pool: &DbPool, req: db::CreateAiOperationRequest) {
+    let repo = db::AiOperationRepository::new(pool.clone());
+    if let Err(e) = repo.create(req) {
+        log::warn!("[AiOperation] Failed to record operation: {}", e);
     }
 }
 
-pub(crate) fn get_pool() -> Option<DbPool> {
-    DB_POOL.get().cloned()
-}
 /// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
 fn graceful_shutdown(app_handle: &tauri::AppHandle) {
     log::info!("[Shutdown] Starting graceful shutdown...");
 
     // 1. SQLite WAL checkpoint — 确保所有数据已写入主数据库
-    if let Some(pool) = get_pool() {
-        if let Ok(conn) = pool.get() {
-            match conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE)") {
-                Ok(_) => log::info!("[Shutdown] WAL checkpoint completed"),
-                Err(e) => log::warn!("[Shutdown] WAL checkpoint failed: {}", e),
+    let pool_result: Result<DbPool, _> = app_handle
+        .try_state::<DbPool>()
+        .map(|s| s.inner().clone())
+        .ok_or_else(|| "No DB pool managed in Tauri state".to_string());
+    match &pool_result {
+        Ok(pool) => {
+            if let Ok(conn) = pool.get() {
+                match conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE)") {
+                    Ok(_) => log::info!("[Shutdown] WAL checkpoint completed"),
+                    Err(e) => log::warn!("[Shutdown] WAL checkpoint failed: {}", e),
+                }
+            } else {
+                log::warn!("[Shutdown] Failed to get DB connection for checkpoint");
             }
-        } else {
-            log::warn!("[Shutdown] Failed to get DB connection for checkpoint");
         }
-    } else {
-        log::warn!("[Shutdown] No DB pool available for checkpoint");
+        Err(e) => {
+            log::warn!("[Shutdown] No DB pool available for checkpoint: {}", e);
+        }
     }
 
     // 2. 保存待处理的向量索引
-    save_pending_vector_indexes();
+    if let Ok(pool) = &pool_result {
+        if let Some(queue) = PendingVectorIndexQueue::from_app_handle(app_handle) {
+            queue.save_to_db(pool);
+        }
+    }
     log::info!("[Shutdown] Pending vector indexes saved");
 
     // 3. 停止自动化服务
@@ -374,11 +360,16 @@ fn init_task_system_and_automation(
 ) {
     let task_service = task_system::service::TaskService::new(pool.clone(), app_handle.clone());
     let llm_service = llm::LlmService::new(app_handle.clone());
+    let vector_store = app_handle
+        .state::<std::sync::Arc<dyn ports::VectorStore>>()
+        .inner()
+        .clone();
     let executor = std::sync::Arc::new(
         book_deconstruction::executor::BookDeconstructionExecutor::new(
             pool.clone(),
             llm_service,
             app_handle.clone(),
+            vector_store.clone(),
         ),
     );
     task_service.register_executor(executor);
@@ -397,6 +388,7 @@ fn init_task_system_and_automation(
     let pipeline_executor = std::sync::Arc::new(pipeline::executor::PipelineReviewExecutor::new(
         pool.clone(),
         app_handle.clone(),
+        vector_store.clone(),
     ));
     task_service.register_executor(pipeline_executor);
     if let Err(e) = task_service.bootstrap() {
@@ -421,88 +413,77 @@ fn init_task_system_and_automation(
 }
 
 /// 异步初始化 LanceDB 向量存储并处理积压索引
-async fn init_vector_store_async(vector_db_path: String) {
-    let mut vector_store = LanceVectorStore::new(vector_db_path);
+async fn init_vector_store_async(
+    _vector_db_path: String,
+    vector_store: std::sync::Arc<dyn ports::VectorStore>,
+    pool: DbPool,
+    pending_queue: PendingVectorIndexQueue,
+) {
     if let Err(e) = vector_store.init().await {
         log::error!("Failed to initialize vector store: {}", e);
         return;
     }
-    let _ = VECTOR_STORE.set(vector_store);
     log::info!("Vector store initialized successfully");
 
     // 处理启动期间积压的章节索引请求
-    let pending_ids: Vec<String> = {
-        if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
-            std::mem::take(&mut *pending)
-        } else {
-            Vec::new()
-        }
-    };
+    let pending_ids = pending_queue.take();
     if !pending_ids.is_empty() {
         log::info!(
             "[PENDING_VECTOR] Processing {} queued chapter indexes",
             pending_ids.len()
         );
         for chapter_id in pending_ids {
-            if let Some(pool) = get_pool() {
-                let repo = db::ChapterRepository::new(pool);
-                if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
-                    let story_id = chapter.story_id.clone();
-                    let content_text = chapter.content.clone().unwrap_or_default();
-                    if content_text.len() >= 20 {
-                        match embeddings::embed_text_async(content_text.clone()).await {
-                            Ok(embedding) => {
-                                let record = vector::VectorRecord {
-                                    id: format!("chapter:{}", chapter_id),
-                                    story_id: story_id.clone(),
-                                    chapter_id: chapter_id.clone(),
-                                    chapter_number: chapter.chapter_number,
-                                    text: content_text.clone(),
-                                    record_type: "chapter".to_string(),
-                                    metadata: None,
-                                    embedding,
-                                };
-                                if let Some(store) = VECTOR_STORE.get() {
-                                    match store.add_record(record).await {
-                                        Ok(_) => log::info!(
-                                            "[PENDING_VECTOR] Indexed queued chapter {}",
-                                            chapter_id
-                                        ),
-                                        Err(e) => log::warn!(
-                                            "[PENDING_VECTOR] Failed to index queued chapter {}: {}",
-                                            chapter_id,
-                                            e
-                                        ),
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "[PENDING_VECTOR] Failed to generate embedding for queued chapter {}: {}",
+            let repo = db::ChapterRepository::new(pool.clone());
+            if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
+                let story_id = chapter.story_id.clone();
+                let content_text = chapter.content.clone().unwrap_or_default();
+                if content_text.len() >= 20 {
+                    match embeddings::embed_text_async(content_text.clone()).await {
+                        Ok(embedding) => {
+                            let record = vector::VectorRecord {
+                                id: format!("chapter:{}", chapter_id),
+                                story_id: story_id.clone(),
+                                chapter_id: chapter_id.clone(),
+                                chapter_number: chapter.chapter_number,
+                                text: content_text.clone(),
+                                record_type: "chapter".to_string(),
+                                metadata: None,
+                                embedding,
+                            };
+                            match vector_store.upsert(record).await {
+                                Ok(_) => log::info!(
+                                    "[PENDING_VECTOR] Indexed queued chapter {}",
+                                    chapter_id
+                                ),
+                                Err(e) => log::warn!(
+                                    "[PENDING_VECTOR] Failed to index queued chapter {}: {}",
                                     chapter_id,
                                     e
-                                );
+                                ),
                             }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[PENDING_VECTOR] Failed to generate embedding for queued chapter {}: {}",
+                                chapter_id,
+                                e
+                            );
                         }
                     }
                 }
             }
         }
     }
-    if let Some(pool) = get_pool() {
-        if let Ok(conn) = pool.get() {
-            let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
-        }
+    if let Ok(conn) = pool.get() {
+        let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
     }
-    if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
-        let _ = std::fs::remove_file(path);
-    }
+    pending_queue.remove_path_file();
 }
 
 /// 初始化工作流引擎、调度器和 DSL 加载器
-fn init_workflow_engine(app: &mut tauri::App, app_handle: tauri::AppHandle) {
-    let (engine, restored_instance_ids) = if let Some(pool) = get_pool() {
-        workflow::WorkflowEngine::with_pool(pool)
+fn init_workflow_engine(app: &mut tauri::App, app_handle: tauri::AppHandle, pool: Option<&DbPool>) {
+    let (engine, restored_instance_ids) = if let Some(pool) = pool {
+        workflow::WorkflowEngine::with_pool(pool.clone())
     } else {
         (workflow::WorkflowEngine::new(), vec![])
     };
@@ -641,59 +622,61 @@ pub fn run() {
                 eprintln!("APPLICATION PANIC: {} at {}", payload, location);
             }));
 
-            // P2-19 修复: 设置 pending vector indexes 持久化路径，并加载上次未处理的队列
-            let pending_path = app_dir.join("pending_vector_indexes.json");
-            let _ = PENDING_VECTOR_INDEXES_PATH.set(pending_path.clone());
-            let loaded_pending = load_pending_vector_indexes();
-            if !loaded_pending.is_empty() {
-                log::info!(
-                    "Loaded {} pending vector indexes from previous session",
-                    loaded_pending.len()
-                );
-                if let Ok(mut pending) = PENDING_VECTOR_INDEXES.lock() {
-                    *pending = loaded_pending;
-                }
-            }
-
-            match init_db(&app_dir) {
+            // 初始化数据库（必须在加载 pending vector indexes 之前）
+            let pool = match init_db(&app_dir) {
                 Ok(pool) => {
                     log::info!("Database initialized successfully");
                     app.manage(pool.clone());
-                    if DB_POOL.set(pool).is_err() {
-                        log::warn!("[Setup] DB_POOL already initialized");
-                    }
+                    Some(pool)
                 }
                 Err(e) => {
                     log::error!("Failed to initialize database: {}", e);
+                    None
+                }
+            };
+
+            // P2-19 修复: 初始化 pending vector indexes 队列，加载上次未处理的项并注入 State
+            let pending_queue = PendingVectorIndexQueue::new(app_dir.join("pending_vector_indexes.json"));
+            if let Some(ref pool) = pool {
+                pending_queue.load_from_pool(pool);
+                let loaded_count = pending_queue.queue.lock().map(|q| q.len()).unwrap_or(0);
+                if loaded_count > 0 {
+                    log::info!(
+                        "Loaded {} pending vector indexes from previous session",
+                        loaded_count
+                    );
                 }
             }
+            app.manage(pending_queue.clone());
 
-            // 初始化全局 LLM 服务，确保后续所有 LlmService::new 复用同一连接池与缓存。
-            crate::llm::service::init_llm_service(app.handle().clone());
-            if let Some(llm_service) = crate::llm::service::get_llm_service() {
-                app.manage(llm_service);
-            }
+            // 初始化共享 LLM 服务并通过 Tauri State 注入，确保后续所有
+            // LlmService::new(app_handle) 复用同一连接池与缓存。
+            let llm_service = crate::llm::LlmService::new(app.handle().clone());
+            app.manage(llm_service);
 
-            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(
+            // 初始化共享 SkillManager 并通过 Tauri State 注入。
+            let skill_manager = SkillManager::new(
                 Some(crate::llm::LlmService::new(app.handle().clone())),
-                get_pool(),
-            )));
+                pool.clone(),
+            );
+            app.manage(skill_manager.clone());
+
+            // 初始化共享 ChapterCommitDebouncer 并通过 Tauri State 注入。
+            let debouncer = crate::story_system::ChapterCommitDebouncer::new();
+            app.manage(debouncer);
 
             // 设置能力进化描述持久化路径
             let evolved_desc_path = app_dir.join("evolved_descriptions.json");
             crate::capabilities::set_evolved_descriptions_path(evolved_desc_path);
 
-            if let Some(pool) = get_pool() {
-                seed_builtin_data(&pool, &app_dir);
+            if let Some(ref pool) = pool {
+                seed_builtin_data(pool, &app_dir);
 
                 // 注册可发现创作资产到全局 CapabilityRegistry
                 let genre_repo = db::GenreProfileRepository::new(pool.clone());
                 // v0.22.2: 种子题材推荐资产映射（Phase F）
                 seed_genre_recommendations(&pool);
-                let skills = SKILL_MANAGER
-                    .get()
-                    .map(|m| m.lock().unwrap().get_all_skills())
-                    .unwrap_or_default();
+                let skills = skill_manager.get_all_skills();
                 match strategy::load_all_assets(&genre_repo, &skills) {
                     Ok(assets) => {
                         let mut registry = capabilities::get_capability_registry();
@@ -737,7 +720,7 @@ pub fn run() {
             // SelectableAsset 同步到意图-资产异构图。
             // 修复审计报告 P0-1：此前 AssetSyncEngine 从未被调用，导致 6 张意图图表
             // 永远为空，discover_server_level 返回空，generate_plan 静默回退。
-            if let Some(pool) = get_pool() {
+            if let Some(ref pool) = pool {
                 let ig_repo = intention_graph::graph::IntentionGraphRepository::new(
                     pool.clone(),
                 );
@@ -746,10 +729,7 @@ pub fn run() {
 
                 // 收集已注册的 SelectableAsset（与上面 CapabilityRegistry 同源）
                 let genre_repo = db::GenreProfileRepository::new(pool.clone());
-                let skills = SKILL_MANAGER
-                    .get()
-                    .map(|m| m.lock().unwrap().get_all_skills())
-                    .unwrap_or_default();
+                let skills = skill_manager.get_all_skills();
                 let selectable_assets =
                     strategy::load_all_assets(&genre_repo, &skills).unwrap_or_default();
 
@@ -784,20 +764,20 @@ pub fn run() {
 
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
-            match config::AppConfig::load(&app_dir) {
+            let app_config = match config::AppConfig::load(&app_dir) {
                 Ok(config) => {
                     embeddings::provider::init_global_provider(&config);
-                    *APP_CONFIG.lock().unwrap() = Some(config);
+                    config
                 }
                 Err(e) => {
                     log::warn!("[Setup] 加载配置失败，使用默认嵌入: {}", e);
                     embeddings::provider::init_global_provider(&config::AppConfig::default());
+                    config::AppConfig::default()
                 }
-            }
+            };
 
             // v0.14.0: 初始化模型网关执行器与健康探测调度器
             {
-                let app_config = APP_CONFIG.lock().unwrap().clone().unwrap_or_default();
                 let llm_service = app
                     .state::<crate::llm::service::LlmService>()
                     .inner()
@@ -818,15 +798,38 @@ pub fn run() {
                 log::info!("[ModelGateway] 网关执行器与健康探测调度器已初始化");
             }
 
-            if let Some(pool) = get_pool() {
+            if let Some(ref pool) = pool {
                 let app_handle = app.handle().clone();
-                init_task_system_and_automation(app, &pool, &app_handle);
+                init_task_system_and_automation(app, pool, &app_handle);
             }
 
             // Initialize LanceDB vector store (async background task)
             let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
             std::fs::create_dir_all(&vector_db_path).ok();
-            tauri::async_runtime::spawn(init_vector_store_async(vector_db_path));
+            let vector_store: std::sync::Arc<dyn ports::VectorStore> =
+                std::sync::Arc::new(vector::LanceVectorStore::new(vector_db_path.clone()));
+            app.manage(vector_store.clone());
+            if let Some(ref pool) = pool {
+                let pool_clone = pool.clone();
+                tauri::async_runtime::spawn(init_vector_store_async(
+                    vector_db_path,
+                    vector_store,
+                    pool_clone,
+                    pending_queue.clone(),
+                ));
+            } else {
+                log::warn!("[Setup] No DB pool available, skipping vector store init");
+            }
+
+            // Initialize the neutral creative-engine port used by agents.
+            if let Some(ref pool) = pool {
+                let creative_engine: std::sync::Arc<dyn crate::domain::creative_engine::CreativeEnginePort> =
+                    std::sync::Arc::new(crate::creative_engine::adapter::CreativeEngineAdapter::new(
+                        pool.clone(),
+                    ));
+                app.manage(creative_engine);
+                log::info!("[Setup] CreativeEnginePort 已注册为 Tauri managed state");
+            }
 
             // NOTE: WebSocket server for collaborative editing is reserved for future use
             // (Phase 4) See docs/plans/ for collaboration feature roadmap.
@@ -848,14 +851,14 @@ pub fn run() {
             //     });
             // }
 
-            init_workflow_engine(app, app.handle().clone());
+            init_workflow_engine(app, app.handle().clone(), pool.as_ref());
 
             init_windows(app);
             spawn_background_tasks(app.handle().clone());
 
             // v0.8.0: 启动记忆健康守护进程
-            if let Some(pool) = get_pool() {
-                crate::memory::health_daemon::spawn_daemon(pool, app.handle().clone());
+            if let Some(ref pool) = pool {
+                crate::memory::health_daemon::spawn_daemon(pool.clone(), app.handle().clone());
             }
 
             Ok(())
@@ -892,51 +895,33 @@ pub(crate) static BUILTIN_MCP_SERVER: Lazy<TokioMutex<mcp::McpServer>> = Lazy::n
     TokioMutex::new(mcp::McpServer::new(config))
 });
 
-// Vector Search Commands (LanceDB)
-use vector::LanceVectorStore;
-
-// GLOBAL: LanceDB 向量存储单例。
-// SAFETY: OnceCell 保证仅初始化一次。在异步任务中完成 init() 后设置。
-// NOTE: 向量存储有持久化文件，重启后数据不丢失，但句柄需要重新打开。
-pub(crate) static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
-
-// GLOBAL: 向量存储初始化前积压的章节索引请求（P0-7 修复）。
-// SAFETY: 纯内存队列，启动时从 SQLite/JSON 恢复，初始化完成后消费并清空。
-// 丢失仅导致章节未建立向量索引，无数据损坏。
-static PENDING_VECTOR_INDEXES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-
-// GLOBAL: pending queue 持久化文件路径（P2-19 修复）。
-// SAFETY: OnceCell 在 setup() 中设置一次。仅用于优雅关闭时的后备保存。
-static PENDING_VECTOR_INDEXES_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
-
-fn save_pending_vector_indexes() {
-    if let Ok(pending) = PENDING_VECTOR_INDEXES.lock() {
-        if let Some(pool) = get_pool() {
-            let conn = pool.get();
-            if let Ok(conn) = conn {
-                // 清空后重新插入
-                let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
-                for chapter_id in pending.iter() {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
-                    let _ = conn.execute(
-                        "INSERT OR IGNORE INTO pending_vector_indexes (chapter_id, created_at) \
-                         VALUES (?1, ?2)",
-                        rusqlite::params![chapter_id, now],
-                    );
-                }
-            }
-        }
-    }
+/// 向量存储初始化前积压的章节索引队列（P0-7 / P2-19）。
+///
+/// 启动时从 SQLite/JSON 恢复，初始化完成后消费并清空。
+/// 丢失仅导致章节未建立向量索引，无数据损坏。
+#[derive(Clone)]
+struct PendingVectorIndexQueue {
+    queue: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    path: std::path::PathBuf,
 }
 
-fn load_pending_vector_indexes() -> Vec<String> {
-    let mut result = Vec::new();
+impl PendingVectorIndexQueue {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self {
+            queue: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            path,
+        }
+    }
 
-    // 优先从 SQLite 加载
-    if let Some(pool) = get_pool() {
+    /// 优先从 Tauri State 获取共享实例；不存在则返回 None。
+    fn from_app_handle(app_handle: &tauri::AppHandle) -> Option<Self> {
+        app_handle.try_state::<Self>().map(|s| s.inner().clone())
+    }
+
+    /// 从 SQLite（优先）和旧 JSON 文件（迁移回退）加载积压项到队列。
+    fn load_from_pool(&self, pool: &DbPool) {
+        let mut result = Vec::new();
+
         if let Ok(conn) = pool.get() {
             if let Ok(mut stmt) =
                 conn.prepare("SELECT chapter_id FROM pending_vector_indexes ORDER BY created_at")
@@ -953,20 +938,55 @@ fn load_pending_vector_indexes() -> Vec<String> {
                 }
             }
         }
-    }
 
-    // Fallback: 从旧 JSON 文件加载（迁移用）
-    if result.is_empty() {
-        if let Some(path) = PENDING_VECTOR_INDEXES_PATH.get() {
-            if let Ok(content) = std::fs::read_to_string(path) {
+        if result.is_empty() {
+            if let Ok(content) = std::fs::read_to_string(&self.path) {
                 if let Ok(loaded) = serde_json::from_str::<Vec<String>>(&content) {
                     result = loaded;
                 }
             }
         }
+
+        if let Ok(mut q) = self.queue.lock() {
+            *q = result;
+        }
     }
 
-    result
+    /// 取出并清空当前队列中的所有积压项。
+    fn take(&self) -> Vec<String> {
+        if let Ok(mut q) = self.queue.lock() {
+            std::mem::take(&mut *q)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// 将当前队列持久化到 SQLite，并删除旧 JSON 文件。
+    fn save_to_db(&self, pool: &DbPool) {
+        if let Ok(pending) = self.queue.lock() {
+            let conn = pool.get();
+            if let Ok(conn) = conn {
+                let _ = conn.execute("DELETE FROM pending_vector_indexes", []);
+                for chapter_id in pending.iter() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO pending_vector_indexes (chapter_id, created_at) \
+                         VALUES (?1, ?2)",
+                        rusqlite::params![chapter_id, now],
+                    );
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&self.path);
+    }
+
+    /// 删除旧 JSON 持久化文件（向量索引消费完成后调用）。
+    fn remove_path_file(&self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 /// 检测用户输入是否包含"创建新小说"的意图

@@ -55,8 +55,8 @@ pub struct SearchResult {
 /// LanceDB 向量存储
 pub struct LanceVectorStore {
     db_path: String,
-    db: Option<Connection>,
-    table: Option<Table>,
+    db: tokio::sync::RwLock<Option<Connection>>,
+    table: tokio::sync::RwLock<Option<Table>>,
 }
 
 /// Escape special LIKE pattern characters so user input is treated as literal
@@ -72,8 +72,8 @@ impl LanceVectorStore {
     pub fn new(db_path: String) -> Self {
         Self {
             db_path,
-            db: None,
-            table: None,
+            db: tokio::sync::RwLock::new(None),
+            table: tokio::sync::RwLock::new(None),
         }
     }
 
@@ -157,7 +157,7 @@ impl LanceVectorStore {
         Ok(batch)
     }
 
-    pub async fn init(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn init(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let db = connect(&self.db_path).execute().await?;
 
         let table = match db.open_table(TABLE_NAME).execute().await {
@@ -196,19 +196,27 @@ impl LanceVectorStore {
             }
         }
 
-        self.db = Some(db);
-        self.table = Some(table);
+        *self.db.write().await = Some(db);
+        *self.table.write().await = Some(table);
         log::info!("LanceDB vector store initialized at {}", self.db_path);
         Ok(())
     }
 
-    fn table(&self) -> Result<&Table, Box<dyn std::error::Error + Send + Sync>> {
-        self.table.as_ref().ok_or_else(|| {
-            Box::new(std::io::Error::new(
+    async fn table(
+        &self,
+    ) -> Result<
+        tokio::sync::RwLockReadGuard<'_, Option<Table>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let guard = self.table.read().await;
+        if guard.is_some() {
+            Ok(guard)
+        } else {
+            Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Table not initialized",
-            )) as Box<dyn std::error::Error + Send + Sync>
-        })
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }
     }
 
     /// Upsert a record (update if exists, insert if not)
@@ -216,7 +224,8 @@ impl LanceVectorStore {
         &self,
         record: VectorRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let table = self.table()?;
+        let table_guard = self.table().await?;
+        let table = table_guard.as_ref().unwrap();
         let batch = Self::records_to_batch(&[record])?;
         let reader = Box::new(RecordBatchIterator::new(vec![Ok(batch)], Self::schema()));
 
@@ -241,7 +250,8 @@ impl LanceVectorStore {
         query_embedding: Vec<f32>,
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
-        let table = self.table()?;
+        let table_guard = self.table().await?;
+        let table = table_guard.as_ref().unwrap();
 
         let filter = col("story_id").eq(lit(story_id));
         let batches: Vec<RecordBatch> = table
@@ -319,7 +329,8 @@ impl LanceVectorStore {
         query: &str,
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
-        let table = self.table()?;
+        let table_guard = self.table().await?;
+        let table = table_guard.as_ref().unwrap();
         // Use a parameterized story_id filter and a prefix LIKE on text to avoid
         // full table scans and SQL injection risks. Wildcard characters in the
         // user query are escaped so they are treated as literal text.
@@ -434,7 +445,8 @@ impl LanceVectorStore {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let table = self.table()?;
+        let table_guard = self.table().await?;
+        let table = table_guard.as_ref().unwrap();
         let safe_id = id.replace("'", "''");
         table.delete(&format!("id = '{}'", safe_id)).await?;
         Ok(())
@@ -444,7 +456,8 @@ impl LanceVectorStore {
         &self,
         chapter_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let table = self.table()?;
+        let table_guard = self.table().await?;
+        let table = table_guard.as_ref().unwrap();
         let safe_chapter_id = chapter_id.replace("'", "''");
         table
             .delete(&format!("chapter_id = '{}'", safe_chapter_id))
@@ -453,7 +466,8 @@ impl LanceVectorStore {
     }
 
     pub async fn count(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        let table = self.table()?;
+        let table_guard = self.table().await?;
+        let table = table_guard.as_ref().unwrap();
         Ok(table.count_rows(None).await?)
     }
 
@@ -482,6 +496,71 @@ impl LanceVectorStore {
             source_type: crate::memory::query::SourceType::Scene,
             metadata,
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::VectorStore for LanceVectorStore {
+    async fn init(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.init().await
+    }
+
+    async fn upsert(
+        &self,
+        record: VectorRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.upsert(record).await
+    }
+
+    async fn upsert_batch(
+        &self,
+        records: &[VectorRecord],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.upsert_batch(records).await
+    }
+
+    async fn search(
+        &self,
+        story_id: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+        self.search(story_id, query_embedding, top_k).await
+    }
+
+    async fn text_search(
+        &self,
+        story_id: &str,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+        self.text_search(story_id, query, top_k).await
+    }
+
+    async fn hybrid_search(
+        &self,
+        story_id: &str,
+        query: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+        self.hybrid_search(story_id, query, query_embedding, top_k)
+            .await
+    }
+
+    async fn delete(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.delete(id).await
+    }
+
+    async fn delete_chapter(
+        &self,
+        chapter_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.delete_chapter(chapter_id).await
+    }
+
+    async fn count(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        self.count().await
     }
 }
 
@@ -551,7 +630,7 @@ mod tests {
 
         // Phase 1: Create store, add records
         {
-            let mut store = LanceVectorStore::new(db_uri.clone());
+            let store = LanceVectorStore::new(db_uri.clone());
             store.init().await.unwrap();
 
             let record = create_test_record("r1", "story_1", "chap_1");
@@ -577,7 +656,7 @@ mod tests {
         // Phase 2: Re-open with same URI (memory DB is fresh each time, so this just
         // tests struct)
         {
-            let mut store = LanceVectorStore::new(db_uri.clone());
+            let store = LanceVectorStore::new(db_uri.clone());
             store.init().await.unwrap();
             // Memory DB is not actually persisted across instances, so count is 0
             // This test mainly verifies init() doesn't panic
@@ -588,7 +667,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_and_delete() {
         let db_uri = format!("memory://test_{}", uuid::Uuid::new_v4());
-        let mut store = LanceVectorStore::new(db_uri);
+        let store = LanceVectorStore::new(db_uri);
         store.init().await.unwrap();
 
         let r1 = create_test_record("r1", "s1", "c1");

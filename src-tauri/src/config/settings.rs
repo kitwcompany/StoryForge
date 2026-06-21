@@ -3,12 +3,10 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::RwLock,
-    time::{Duration, Instant},
 };
 
 // W4-B3: SQLite-backed config storage
-use once_cell::sync::Lazy;
+use crate::error::AppError;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
@@ -187,6 +185,12 @@ impl Default for WritingStrategy {
     }
 }
 
+/// 用户级运行时配置。
+///
+/// 持久化策略（W4-B3）：
+/// - 主源：SQLite `app_settings` 表的 `app_config` 行（`save_to_db` / `load_from_db`）。
+/// - 兼容：`load` 会回退读取旧版 `config.json` 并自动迁移到 SQLite；`save` 只写入 SQLite。
+/// - `config.json` 仅保留启动级字段（`BootstrapConfig`：db_path / log_level），不再存放用户级设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub llm: LlmConfig,
@@ -991,20 +995,6 @@ impl Default for AppConfig {
     }
 }
 
-/// AppConfig 内存缓存项，避免每次 `AppConfig::load` 都新建 SQLite pool。
-struct AppConfigCacheEntry {
-    config_dir: PathBuf,
-    config: AppConfig,
-    loaded_at: Instant,
-}
-
-/// 全局 AppConfig 缓存。`save()` 会主动刷新；`load()` 在 TTL 内直接返回克隆。
-static APP_CONFIG_CACHE: Lazy<RwLock<Option<AppConfigCacheEntry>>> =
-    Lazy::new(|| RwLock::new(None));
-
-/// 缓存有效期。配置变更不频繁，30 秒可抵消绝大多数重复 load。
-const APP_CONFIG_CACHE_TTL: Duration = Duration::from_secs(30);
-
 impl AppConfig {
     /// 打开配置数据库（内部 helper）
     fn open_config_db(
@@ -1080,20 +1070,6 @@ impl AppConfig {
     }
 
     pub fn load(config_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        // 0. 优先使用内存缓存，避免每次 load 都新建 max_size=1 的 SQLite pool
-        {
-            if let Ok(cache) = APP_CONFIG_CACHE.read() {
-                if let Some(entry) = cache.as_ref() {
-                    if entry.config_dir == config_dir
-                        && entry.loaded_at.elapsed() < APP_CONFIG_CACHE_TTL
-                    {
-                        log::debug!("[AppConfig] Returning cached config");
-                        return Ok(entry.config.clone());
-                    }
-                }
-            }
-        }
-
         // W4-B3: 优先从 SQLite 加载；如不存在则从 config.json 回退并自动迁移
         let mut config = match Self::load_from_db(config_dir)? {
             Some(cfg) => cfg,
@@ -1219,15 +1195,6 @@ impl AppConfig {
             let _ = config.save(config_dir);
         }
 
-        // 写入缓存，后续命令直接读取克隆，避免反复访问 SQLite
-        if let Ok(mut cache) = APP_CONFIG_CACHE.write() {
-            *cache = Some(AppConfigCacheEntry {
-                config_dir: config_dir.to_path_buf(),
-                config: config.clone(),
-                loaded_at: Instant::now(),
-            });
-        }
-
         Ok(config)
     }
 
@@ -1238,15 +1205,6 @@ impl AppConfig {
         // 2. W4-B3: config.json 只保留启动级配置
         let bootstrap = BootstrapConfig::default();
         bootstrap.save(config_dir)?;
-
-        // 3. 刷新内存缓存，避免 save 后立即 load 仍需等 TTL 过期
-        if let Ok(mut cache) = APP_CONFIG_CACHE.write() {
-            *cache = Some(AppConfigCacheEntry {
-                config_dir: config_dir.to_path_buf(),
-                config: self.clone(),
-                loaded_at: Instant::now(),
-            });
-        }
 
         Ok(())
     }
@@ -1278,27 +1236,33 @@ impl AppConfig {
     }
 
     /// 设置活跃的LLM配置
-    pub fn set_active_llm_profile(&mut self, profile_id: &str) -> Result<(), String> {
+    pub fn set_active_llm_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
         if self.llm_profiles.contains_key(profile_id) {
             self.active_llm_profile = Some(profile_id.to_string());
             Ok(())
         } else {
-            Err(format!("Profile '{}' not found", profile_id))
+            Err(AppError::NotFound {
+                resource: "llm_profile".to_string(),
+                id: profile_id.to_string(),
+            })
         }
     }
 
     /// 设置活跃的嵌入模型配置
-    pub fn set_active_embedding_profile(&mut self, profile_id: &str) -> Result<(), String> {
+    pub fn set_active_embedding_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
         if self.embedding_profiles.contains_key(profile_id) {
             self.active_embedding_profile = Some(profile_id.to_string());
             Ok(())
         } else {
-            Err(format!("Profile '{}' not found", profile_id))
+            Err(AppError::NotFound {
+                resource: "embedding_profile".to_string(),
+                id: profile_id.to_string(),
+            })
         }
     }
 
     /// 添加LLM配置
-    pub fn add_llm_profile(&mut self, mut profile: LlmProfile) -> Result<(), String> {
+    pub fn add_llm_profile(&mut self, mut profile: LlmProfile) -> Result<(), AppError> {
         if profile.id.is_empty() {
             profile.id = format!("llm-{}", uuid::Uuid::new_v4());
         }
@@ -1315,7 +1279,7 @@ impl AppConfig {
     }
 
     /// 添加嵌入模型配置
-    pub fn add_embedding_profile(&mut self, mut profile: EmbeddingProfile) -> Result<(), String> {
+    pub fn add_embedding_profile(&mut self, mut profile: EmbeddingProfile) -> Result<(), AppError> {
         if profile.id.is_empty() {
             profile.id = format!("emb-{}", uuid::Uuid::new_v4());
         }
@@ -1332,10 +1296,13 @@ impl AppConfig {
     }
 
     /// 删除LLM配置
-    pub fn remove_llm_profile(&mut self, profile_id: &str) -> Result<(), String> {
+    pub fn remove_llm_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
         if let Some(profile) = self.llm_profiles.get(profile_id) {
             if profile.is_default && self.llm_profiles.len() > 1 {
-                return Err("Cannot delete the default profile".to_string());
+                return Err(AppError::ValidationFailed {
+                    message: "Cannot delete the default profile".to_string(),
+                    field: Some("profile_id".to_string()),
+                });
             }
             self.llm_profiles.remove(profile_id);
 
@@ -1349,15 +1316,21 @@ impl AppConfig {
             }
             Ok(())
         } else {
-            Err(format!("Profile '{}' not found", profile_id))
+            Err(AppError::NotFound {
+                resource: "llm_profile".to_string(),
+                id: profile_id.to_string(),
+            })
         }
     }
 
     /// 删除嵌入模型配置
-    pub fn remove_embedding_profile(&mut self, profile_id: &str) -> Result<(), String> {
+    pub fn remove_embedding_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
         if let Some(profile) = self.embedding_profiles.get(profile_id) {
             if profile.is_default && self.embedding_profiles.len() > 1 {
-                return Err("Cannot delete the default profile".to_string());
+                return Err(AppError::ValidationFailed {
+                    message: "Cannot delete the default profile".to_string(),
+                    field: Some("profile_id".to_string()),
+                });
             }
             self.embedding_profiles.remove(profile_id);
 
@@ -1370,7 +1343,10 @@ impl AppConfig {
             }
             Ok(())
         } else {
-            Err(format!("Profile '{}' not found", profile_id))
+            Err(AppError::NotFound {
+                resource: "embedding_profile".to_string(),
+                id: profile_id.to_string(),
+            })
         }
     }
 

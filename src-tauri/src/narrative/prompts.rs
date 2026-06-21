@@ -5,6 +5,8 @@
 //! 提取模式用于拆书（从文本分析）。 两种模式共享相同的输出结构（JSON
 //! Schema），确保结果可以直接写入统一的数据模型。
 
+use crate::db::DbPool;
+
 /// Prompt 模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptMode {
@@ -24,9 +26,14 @@ impl PromptMode {
 /// v0.21.0: 从 PromptRegistry 读取模板并渲染变量
 ///
 /// 若 registry 不可用或 key 不存在，回退到提供的默认模板。
-fn resolve_and_render(prompt_id: &str, default_template: &str, vars: &[(&str, &str)]) -> String {
-    let template = if let Some(pool) = crate::get_pool() {
-        crate::prompts::registry::resolve_prompt(&pool, prompt_id)
+fn resolve_and_render(
+    prompt_id: &str,
+    default_template: &str,
+    vars: &[(&str, &str)],
+    pool: Option<&DbPool>,
+) -> String {
+    let template = if let Some(pool) = pool {
+        crate::prompts::registry::resolve_prompt(pool, prompt_id)
             .unwrap_or_else(|_| default_template.to_string())
     } else {
         crate::prompts::registry::resolve_prompt_default(prompt_id)
@@ -46,6 +53,7 @@ pub fn story_concept_prompt(
     mode: PromptMode,
     context: &str,
     available_profiles: Option<&[crate::db::GenreProfile]>,
+    pool: Option<&DbPool>,
 ) -> String {
     match mode {
         PromptMode::Generate => {
@@ -101,6 +109,7 @@ pub fn story_concept_prompt(
                     ("user_input", &context.replace('"', "'")),
                     ("genre_profiles", &profiles_json),
                 ],
+                pool,
             )
         }
         PromptMode::Extract => resolve_and_render(
@@ -126,6 +135,7 @@ pub fn story_concept_prompt(
 2. 如某信息文本中未体现，标记为null
 3. 只输出 JSON，不要其他内容"#,
             &[("text", context)],
+            pool,
         ),
     }
 }
@@ -139,6 +149,7 @@ pub fn world_building_prompt(
     context: &str,
     strategy_context: Option<&str>,
     narrative_quartet: Option<&str>,
+    pool: Option<&DbPool>,
 ) -> String {
     match mode {
         PromptMode::Generate => {
@@ -184,6 +195,7 @@ pub fn world_building_prompt(
                     ("strategy_section", &strategy_section),
                     ("quartet_section", &quartet_section),
                 ],
+                pool,
             )
         }
         PromptMode::Extract => resolve_and_render(
@@ -212,6 +224,7 @@ pub fn world_building_prompt(
 2. 规则从文本中的描写归纳总结
 3. 只输出 JSON"#,
             &[("title", story_title), ("genre", genre), ("text", context)],
+            pool,
         ),
     }
 }
@@ -226,6 +239,7 @@ pub fn character_prompt(
     context: &str,
     strategy_context: Option<&str>,
     narrative_quartet: Option<&str>,
+    pool: Option<&DbPool>,
 ) -> String {
     match mode {
         PromptMode::Generate => {
@@ -283,6 +297,7 @@ pub fn character_prompt(
                     ("strategy_section", &strategy_section),
                     ("quartet_section", &quartet_section),
                 ],
+                pool,
             )
         }
         PromptMode::Extract => resolve_and_render(
@@ -320,6 +335,7 @@ pub fn character_prompt(
 3. importance_score 根据重要性打分（1-10）
 4. 只输出 JSON"#,
             &[("title", story_title), ("genre", genre), ("text", context)],
+            pool,
         ),
     }
 }
@@ -334,6 +350,7 @@ pub fn scene_prompt(
     context: &str,
     strategy_context: Option<&str>,
     narrative_quartet: Option<&str>,
+    pool: Option<&DbPool>,
 ) -> String {
     match mode {
         PromptMode::Generate => {
@@ -387,6 +404,7 @@ pub fn scene_prompt(
                     ("strategy_section", &strategy_section),
                     ("quartet_section", &quartet_section),
                 ],
+                pool,
             )
         }
         PromptMode::Extract => resolve_and_render(
@@ -424,6 +442,7 @@ pub fn scene_prompt(
 3. 列出场景中出场的所有人物
 4. 只输出 JSON"#,
             &[("title", story_title), ("genre", genre), ("text", context)],
+            pool,
         ),
     }
 }
@@ -437,6 +456,7 @@ pub fn outline_prompt(
     context: &str,
     strategy_context: Option<&str>,
     narrative_quartet: Option<&str>,
+    pool: Option<&DbPool>,
 ) -> String {
     match mode {
         PromptMode::Generate => {
@@ -486,6 +506,7 @@ pub fn outline_prompt(
                     ("strategy_section", &strategy_section),
                     ("quartet_section", &quartet_section),
                 ],
+                pool,
             )
         }
         PromptMode::Extract => resolve_and_render(
@@ -517,6 +538,7 @@ pub fn outline_prompt(
 2. 如果文本不完整，只推断已读部分的结构
 3. 只输出 JSON"#,
             &[("title", story_title), ("genre", genre), ("text", context)],
+            pool,
         ),
     }
 }
@@ -531,6 +553,7 @@ pub fn foreshadowing_prompt(
     context: &str,
     strategy_context: Option<&str>,
     narrative_quartet: Option<&str>,
+    pool: Option<&DbPool>,
 ) -> String {
     match mode {
         PromptMode::Generate => {
@@ -580,6 +603,7 @@ pub fn foreshadowing_prompt(
                     ("strategy_section", &strategy_section),
                     ("quartet_section", &quartet_section),
                 ],
+                pool,
             )
         }
         PromptMode::Extract => resolve_and_render(
@@ -611,13 +635,19 @@ pub fn foreshadowing_prompt(
 3. importance 根据伏笔对整体故事的重要性打分
 4. 只输出 JSON"#,
             &[("title", story_title), ("genre", genre), ("text", context)],
+            pool,
         ),
     }
 }
 
 // ==================== 故事线/弧光 Prompt ====================
 
-pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> String {
+pub fn story_arc_prompt(
+    mode: PromptMode,
+    story_title: &str,
+    context: &str,
+    pool: Option<&DbPool>,
+) -> String {
     match mode {
         PromptMode::Generate => resolve_and_render(
             "narrative_story_arc_generate",
@@ -640,6 +670,7 @@ pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> S
 3. 高潮点要分布在不同幕次
 4. 只输出 JSON"#,
             &[("story_title", story_title), ("outline_summary", context)],
+            pool,
         ),
         PromptMode::Extract => resolve_and_render(
             "narrative_story_arc_extract",
@@ -663,6 +694,7 @@ pub fn story_arc_prompt(mode: PromptMode, story_title: &str, context: &str) -> S
 2. 如果文本不完整，标注待补充
 3. 只输出 JSON"#,
             &[("title", story_title), ("text", context)],
+            pool,
         ),
     }
 }

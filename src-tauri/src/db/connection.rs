@@ -11,6 +11,11 @@ use crate::db::migrations::MigrationRunner;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
+/// 最高 inline migration 版本号。新增 SQL 文件 migration
+/// 时，版本号必须大于此值， 否则会被 `MigrationRunner::run_with_legacy`
+/// 提前应用，导致低版本 inline migrations 被跳过。
+const MAX_INLINE_MIGRATION_VERSION: i32 = 98;
+
 #[cfg(test)]
 pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     let manager = SqliteConnectionManager::memory().with_init(|c| {
@@ -30,7 +35,11 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     )?;
 
     create_tables(&mut conn)?;
-    MigrationRunner::default_runner().run_with_legacy(&mut conn, run_migrations)?;
+    MigrationRunner::default_runner().run_with_legacy(
+        &mut conn,
+        run_migrations,
+        MAX_INLINE_MIGRATION_VERSION,
+    )?;
 
     // 测试环境：创建 scene_versions 表（被 change_tracks/comment_threads 外键引用）
     conn.execute(
@@ -93,7 +102,11 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     )?;
 
     create_tables(&mut conn)?;
-    MigrationRunner::default_runner().run_with_legacy(&mut conn, run_migrations)?;
+    MigrationRunner::default_runner().run_with_legacy(
+        &mut conn,
+        run_migrations,
+        MAX_INLINE_MIGRATION_VERSION,
+    )?;
 
     Ok(pool)
 }
@@ -415,6 +428,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                     importance_score REAL,
                     source TEXT NOT NULL DEFAULT 'user_created',
                     source_ref_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
@@ -446,8 +460,16 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                     setting_location TEXT,
                     setting_time TEXT,
                     content TEXT,
+                    key_events TEXT,
+                    emotional_tone TEXT,
+                    narrative_intensity REAL DEFAULT 0.0,
+                    narrative_sentiment REAL DEFAULT 0.0,
+                    narrative_event_types TEXT DEFAULT '[]',
+                    act_number INTEGER DEFAULT 1,
+                    position_in_act REAL DEFAULT 0.0,
                     source TEXT NOT NULL DEFAULT 'user_created',
                     source_ref_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
@@ -476,6 +498,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
                     power_system TEXT,
                     source TEXT NOT NULL DEFAULT 'user_created',
                     source_ref_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
@@ -3427,6 +3450,34 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             conn.execute("ALTER TABLE stories ADD COLUMN reference_book_id TEXT", [])?;
         }
         record_migration(conn, 97)?;
+    }
+
+    // Migration 98: 为 narrative_* 表补 status 列（与 repository/query.rs 对齐）
+    if current_version < 98 {
+        for table in [
+            "narrative_characters",
+            "narrative_scenes",
+            "narrative_world_buildings",
+        ] {
+            let cols: Vec<String> = conn
+                .prepare(&format!("PRAGMA table_info({})", table))?
+                .query_map([], |row| {
+                    let name: String = row.get(1)?;
+                    Ok(name)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            if !cols.contains(&"status".to_string()) {
+                conn.execute(
+                    &format!(
+                        "ALTER TABLE {} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+                        table
+                    ),
+                    [],
+                )?;
+            }
+        }
+        record_migration(conn, 98)?;
     }
 
     Ok(())

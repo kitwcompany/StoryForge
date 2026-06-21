@@ -1,14 +1,10 @@
 #![allow(dead_code)]
+use std::sync::Arc;
+
 use tauri::command;
 
 use super::{KbImportResult, KbSearchResult, KbStats};
-use crate::{error::AppError, VECTOR_STORE};
-
-fn get_store() -> Result<&'static crate::vector::LanceVectorStore, AppError> {
-    VECTOR_STORE
-        .get()
-        .ok_or_else(|| AppError::internal("向量存储尚未初始化"))
-}
+use crate::{error::AppError, ports::VectorStore};
 
 /// 导入文本到知识库（定稿后调用）
 #[command(rename_all = "snake_case")]
@@ -17,11 +13,17 @@ pub async fn kb_import_text(
     chapter_number: i32,
     content: String,
     source_label: String,
+    store: tauri::State<'_, Arc<dyn VectorStore>>,
 ) -> Result<KbImportResult, AppError> {
-    let store = get_store()?;
-    super::import_text(store, &story_id, chapter_number, &content, &source_label)
-        .await
-        .map_err(AppError::from)
+    super::import_text(
+        store.inner().as_ref(),
+        &story_id,
+        chapter_number,
+        &content,
+        &source_label,
+    )
+    .await
+    .map_err(AppError::from)
 }
 
 /// 语义检索
@@ -32,21 +34,31 @@ pub async fn kb_search(
     top_k: Option<usize>,
     chapter_range: Option<(i32, i32)>,
     search_mode: Option<String>,
+    store: tauri::State<'_, Arc<dyn VectorStore>>,
 ) -> Result<Vec<KbSearchResult>, AppError> {
-    let store = get_store()?;
     let top_k = top_k.unwrap_or(5);
     let mode = search_mode.as_deref().unwrap_or("hybrid");
 
-    super::kb_search(store, &story_id, &query, top_k, chapter_range, mode)
-        .await
-        .map_err(AppError::from)
+    super::kb_search(
+        store.inner().as_ref(),
+        &story_id,
+        &query,
+        top_k,
+        chapter_range,
+        mode,
+    )
+    .await
+    .map_err(AppError::from)
 }
 
 /// 删除某章的向量记录
 #[command(rename_all = "snake_case")]
-pub async fn kb_delete_chapter(story_id: String, chapter_number: i32) -> Result<usize, AppError> {
-    let store = get_store()?;
-    super::delete_chapter_vectors(store, &story_id, chapter_number)
+pub async fn kb_delete_chapter(
+    story_id: String,
+    chapter_number: i32,
+    store: tauri::State<'_, Arc<dyn VectorStore>>,
+) -> Result<usize, AppError> {
+    super::delete_chapter_vectors(store.inner().as_ref(), &story_id, chapter_number)
         .await
         .map_err(AppError::from)
 }

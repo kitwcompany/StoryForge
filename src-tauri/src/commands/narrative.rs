@@ -6,14 +6,14 @@
 //! - get_narrative_threads → foreshadowing_tracker + character_states
 //! - get_narrative_chunks → narrative_chunks（物化缓存）
 
-use crate::db::DbPool;
+use crate::{db::DbPool, error::AppError};
 
 /// 获取故事的叙事结构分析（从 story_outlines.analyzed_structure_json）
 #[tauri::command]
 pub async fn analyze_narrative_structure(
     story_id: String,
     state: tauri::State<'_, DbPool>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     use crate::db::repositories::StoryOutlineRepository;
 
     let repo = StoryOutlineRepository::new(state.inner().clone());
@@ -33,7 +33,7 @@ pub async fn analyze_narrative_structure(
             "success": true,
             "structure": serde_json::json!([]),
         })),
-        Err(e) => Err(format!("获取叙事结构失败: {}", e)),
+        Err(e) => Err(AppError::internal(format!("获取叙事结构失败: {}", e))),
     }
 }
 
@@ -42,7 +42,7 @@ pub async fn analyze_narrative_structure(
 pub async fn get_narrative_events(
     story_id: String,
     state: tauri::State<'_, DbPool>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     use crate::db::repositories::SceneRepository;
 
     let repo = SceneRepository::new(state.inner().clone());
@@ -70,7 +70,7 @@ pub async fn get_narrative_events(
                 "events": events,
             }))
         }
-        Err(e) => Err(format!("获取叙事事件失败: {}", e)),
+        Err(e) => Err(AppError::internal(format!("获取叙事事件失败: {}", e))),
     }
 }
 
@@ -79,7 +79,7 @@ pub async fn get_narrative_events(
 pub async fn get_narrative_threads(
     story_id: String,
     state: tauri::State<'_, DbPool>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     use crate::creative_engine::foreshadowing::ForeshadowingTracker;
 
     let tracker = ForeshadowingTracker::new(state.inner().clone());
@@ -109,7 +109,7 @@ pub async fn get_narrative_threads(
 pub async fn get_narrative_chunks(
     story_id: String,
     state: tauri::State<'_, DbPool>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AppError> {
     use crate::db::repositories_narrative_events::NarrativeChunkRepository;
 
     let repo = NarrativeChunkRepository::new(state.inner().clone());
@@ -119,6 +119,6 @@ pub async fn get_narrative_chunks(
             "count": chunks.len(),
             "chunks": chunks,
         })),
-        Err(e) => Err(format!("获取叙事块失败: {}", e)),
+        Err(e) => Err(AppError::internal(format!("获取叙事块失败: {}", e))),
     }
 }

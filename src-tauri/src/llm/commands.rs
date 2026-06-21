@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, State};
 
-use super::service::{init_llm_service, LlmService};
+use super::service::LlmService;
 use crate::error::AppError;
 
 /// 生成请求
@@ -113,10 +113,13 @@ pub async fn llm_cancel_all_generations(app_handle: AppHandle) -> Result<(), App
 }
 
 /// 初始化LLM服务（在应用启动时调用）
+///
+/// 自 v0.23.0 起，LLM 服务在 app setup() 中通过 Tauri State 统一注入。
+/// 该命令保留为前端兼容入口，实际触发共享实例的复用。
 #[command]
 pub fn init_llm(app_handle: AppHandle) -> Result<(), AppError> {
-    init_llm_service(app_handle);
-    log::info!("[LLM] Service initialized");
+    let _service = LlmService::new(app_handle);
+    log::info!("[LLM] Shared service ready via Tauri State");
     Ok(())
 }
 

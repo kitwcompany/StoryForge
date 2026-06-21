@@ -31,6 +31,7 @@ impl StateSync {
             SyncEvent::ChapterCreated { .. } => "chapter-created",
             SyncEvent::ChapterUpdated { .. } => "chapter-updated",
             SyncEvent::ChapterDeleted { .. } => "chapter-deleted",
+            SyncEvent::ChapterCommitted { .. } => "chapter-committed",
             SyncEvent::WorldBuildingUpdated { .. } => "world-building-updated",
             SyncEvent::WorldBuildingCreated { .. } => "world-building-created",
             SyncEvent::WorldBuildingDeleted { .. } => "world-building-deleted",
@@ -263,6 +264,25 @@ impl StateSync {
             SyncEvent::ChapterDeleted {
                 story_id: story_id.to_string(),
                 chapter_id: chapter_id.to_string(),
+            },
+        );
+    }
+
+    /// v0.23.1: 发射章节 commit 完成事件（含 projections 状态）。
+    pub fn emit_chapter_committed<R: Runtime>(
+        app: &AppHandle<R>,
+        story_id: &str,
+        chapter_id: &str,
+        chapter_number: i32,
+        projection_status: std::collections::HashMap<String, String>,
+    ) {
+        Self::emit_event(
+            app,
+            SyncEvent::ChapterCommitted {
+                story_id: story_id.to_string(),
+                chapter_id: chapter_id.to_string(),
+                chapter_number,
+                projection_status,
             },
         );
     }

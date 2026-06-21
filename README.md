@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.0-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.4-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.0 TriShot 三击生成管线。新增三击模式（与 Fast/TimeSliced/Full 并存），Call 1 用最快模型选资产+合成提示词 → Call 2(可选) 精修 → Call 3 Writer 生成，关键路径最多 3 次 LLM。质检/改写/入库/洞察全部后台静默执行。`prompt_synthesis` 模块、`AssetManifest` 紧凑清单、`select_fastest_profile` 最快模型选取、BGP-2 智能改写器（HIGH 自动改/LOW 建议）。
+**最新动态**：v0.23.4 智能层闭环落地。Review/Refine Pipeline 启用 LLM JSON mode（OpenAI/Ollama 原生结构化输出），修稿结果携带 `refinement_notes`；MemoryPack 预算参数强类型化；拆书存储统一，删除 `reference_characters` / `reference_scenes`，数据全部汇入 `narrative_*` 表。延续 v0.23.0 TriShot 三击管线与后台静默质检/改写/洞察能力。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

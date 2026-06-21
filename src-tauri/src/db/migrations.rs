@@ -137,11 +137,17 @@ impl MigrationRunner {
     /// Run all pending migrations against the given connection.
     pub fn run(&self, conn: &mut Connection) -> Result<(), MigrationError> {
         let migrations = self.load_migrations()?;
+        Self::apply_pending(conn, migrations)
+    }
+
+    /// Apply a list of migrations that are newer than the current schema
+    /// version.
+    fn apply_pending(
+        conn: &mut Connection,
+        migrations: Vec<Migration>,
+    ) -> Result<(), MigrationError> {
         if migrations.is_empty() {
-            log::info!(
-                "[migrations] No migration files found in {}",
-                self.migrations_dir
-            );
+            log::info!("[migrations] No pending migrations to apply.");
             return Ok(());
         }
 
@@ -189,24 +195,49 @@ impl MigrationRunner {
         Ok(())
     }
 
-    /// Run SQL file migrations, then run a legacy inline migration function.
-    /// This allows gradual migration from hand-rolled Rust migrations to `.sql`
-    /// files.
+    /// Run SQL file migrations interleaved with a legacy inline migration
+    /// function. SQL files with version <= `max_inline_version` run before the
+    /// inline function; SQL files with version > `max_inline_version` run
+    /// after.
+    ///
+    /// This prevents a high-version SQL file from advancing `schema_migrations`
+    /// past inline migrations that still need to run.
     pub fn run_with_legacy<F>(
         &self,
         conn: &mut Connection,
         legacy_fn: F,
+        max_inline_version: i32,
     ) -> Result<(), MigrationError>
     where
         F: FnOnce(&mut Connection) -> Result<(), rusqlite::Error>,
     {
-        // 1. Run SQL file migrations first
-        self.run(conn)?;
+        let migrations = self.load_migrations()?;
+        if migrations.is_empty() {
+            log::info!(
+                "[migrations] No migration files found in {}",
+                self.migrations_dir
+            );
+        }
 
-        // 2. Run legacy inline migrations
+        // 1. SQL file migrations that should run before inline migrations.
+        let pre_inline: Vec<_> = migrations
+            .iter()
+            .filter(|m| m.version <= max_inline_version)
+            .cloned()
+            .collect();
+        Self::apply_pending(conn, pre_inline)?;
+
+        // 2. Run legacy inline migrations.
         log::info!("[migrations] Running legacy inline migrations...");
         legacy_fn(conn).map_err(MigrationError::from)?;
         log::info!("[migrations] Legacy inline migrations completed.");
+
+        // 3. SQL file migrations that should run after inline migrations.
+        let post_inline: Vec<_> = migrations
+            .into_iter()
+            .filter(|m| m.version > max_inline_version)
+            .collect();
+        Self::apply_pending(conn, post_inline)?;
 
         Ok(())
     }

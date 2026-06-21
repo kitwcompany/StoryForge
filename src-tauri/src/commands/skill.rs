@@ -6,7 +6,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::{
     commands::EmitSync, db::DbPool, error::AppError, router::TaskType, skills::SkillInfo,
-    SKILL_MANAGER,
+    skills::SkillManager,
 };
 
 fn task_type_for_category(category: &crate::skills::SkillCategory) -> TaskType {
@@ -26,23 +26,14 @@ fn task_type_for_category(category: &crate::skills::SkillCategory) -> TaskType {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_skills() -> Result<Vec<SkillInfo>, AppError> {
-    let skills = SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .get_all_skills();
+pub fn get_skills(app_handle: AppHandle) -> Result<Vec<SkillInfo>, AppError> {
+    let skills = SkillManager::from_app_handle(&app_handle).get_all_skills();
     Ok(skills.into_iter().map(SkillInfo::from).collect())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError> {
-    SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
+    SkillManager::from_app_handle(&app)
         .import_skill(std::path::Path::new(&path))
         .map_err(AppError::from)
         .map(SkillInfo::from)
@@ -51,11 +42,7 @@ pub fn import_skill(path: String, app: AppHandle) -> Result<SkillInfo, AppError>
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
+    SkillManager::from_app_handle(&app)
         .enable_skill(&skill_id)
         .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
@@ -63,11 +50,7 @@ pub fn enable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
+    SkillManager::from_app_handle(&app)
         .disable_skill(&skill_id)
         .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
@@ -75,24 +58,15 @@ pub fn disable_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn uninstall_skill(skill_id: String, app: AppHandle) -> Result<(), AppError> {
-    SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
+    SkillManager::from_app_handle(&app)
         .uninstall_skill(&skill_id)
         .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_skill(skill_id: String) -> Result<SkillInfo, AppError> {
-    let skill = SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
-        .get_skill(&skill_id);
+pub fn get_skill(skill_id: String, app_handle: AppHandle) -> Result<SkillInfo, AppError> {
+    let skill = SkillManager::from_app_handle(&app_handle).get_skill(&skill_id);
     skill
         .map(SkillInfo::from)
         .ok_or_else(|| AppError::not_found("Skill", &skill_id))
@@ -104,11 +78,7 @@ pub fn update_skill(
     manifest: crate::skills::SkillManifest,
     app: AppHandle,
 ) -> Result<(), AppError> {
-    SKILL_MANAGER
-        .get()
-        .ok_or(AppError::internal("Skills not initialized"))?
-        .lock()
-        .map_err(|e| crate::error::AppError::from(e).to_string())?
+    SkillManager::from_app_handle(&app)
         .update_skill(&skill_id, manifest)
         .map_err(AppError::from)
         .emit_sync(&app, None, "skills")
@@ -152,14 +122,7 @@ pub async fn execute_skill(
     };
 
     // Execute skill
-    let manager = {
-        let guard = SKILL_MANAGER
-            .get()
-            .ok_or(AppError::internal("Skills not initialized"))?
-            .lock()
-            .map_err(|e| crate::error::AppError::from(e).to_string())?;
-        guard.clone()
-    };
+    let manager = SkillManager::from_app_handle(&app_handle);
 
     let skill_category = manager.get_skill(&skill_id).map(|s| s.manifest.category);
 

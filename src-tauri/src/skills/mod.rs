@@ -7,6 +7,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
 
 use crate::{domain::agent_context::AgentContext, error::AppError};
 
@@ -241,6 +242,21 @@ impl SkillManager {
         manager
     }
 
+    /// 优先从 Tauri State 获取共享 SkillManager；若不存在（测试/降级场景），
+    /// 则基于当前 app_handle 的 State 创建独立实例。
+    pub fn from_app_handle(app_handle: &AppHandle) -> Self {
+        app_handle
+            .try_state::<Self>()
+            .map(|state| state.inner().clone())
+            .unwrap_or_else(|| {
+                let llm = crate::llm::LlmService::new(app_handle.clone());
+                let pool = app_handle
+                    .try_state::<crate::db::DbPool>()
+                    .map(|state| state.inner().clone());
+                Self::new(Some(llm), pool)
+            })
+    }
+
     fn get_default_skills_dir() -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -248,14 +264,14 @@ impl SkillManager {
             .join("skills")
     }
 
-    fn load_builtin_skills(&mut self) {
+    fn load_builtin_skills(&self) {
         let builtins = builtin::get_builtin_skills();
         for skill in builtins {
             self.registry.lock().unwrap().register(skill);
         }
     }
 
-    pub fn import_skill(&mut self, skill_path: &Path) -> Result<Skill, AppError> {
+    pub fn import_skill(&self, skill_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_directory(skill_path)?;
         let dest_dir = self.skills_dir.join(&skill.manifest.id);
         if dest_dir.exists() {
@@ -266,7 +282,7 @@ impl SkillManager {
         Ok(skill)
     }
 
-    pub fn import_skill_file(&mut self, file_path: &Path) -> Result<Skill, AppError> {
+    pub fn import_skill_file(&self, file_path: &Path) -> Result<Skill, AppError> {
         let skill = self.loader.load_from_file(file_path)?;
         self.registry.lock().unwrap().register(skill.clone());
         Ok(skill)

@@ -110,31 +110,27 @@ pub async fn update_world_building(
         let _ = crate::state_sync::StateSync::emit_world_building_updated(&app_handle, story_id);
     }
     if let Some(story_id) = story_id_for_sync.clone() {
-        if let Some(manager) = crate::SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let world_building_id = id.clone();
-                let skill_manager = skill_manager.clone();
-                let story_id_for_hook = story_id.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = crate::domain::agent_context::AgentContext::minimal(
-                        story_id_for_hook,
-                        String::new(),
-                    );
-                    let data = serde_json::json!({ "world_building_id": world_building_id });
-                    let _ = skill_manager
-                        .execute_hooks(
-                            crate::skills::HookEvent::OnWorldBuildingUpdate,
-                            &context,
-                            data,
-                        )
-                        .await;
-                    log::info!(
-                        "Hook executed: {:?}",
-                        crate::skills::HookEvent::OnWorldBuildingUpdate
-                    );
-                });
-            }
-        }
+        let skill_manager = crate::skills::SkillManager::from_app_handle(&app_handle);
+        let world_building_id = id.clone();
+        let story_id_for_hook = story_id.clone();
+        tauri::async_runtime::spawn(async move {
+            let context = crate::domain::agent_context::AgentContext::minimal(
+                story_id_for_hook,
+                String::new(),
+            );
+            let data = serde_json::json!({ "world_building_id": world_building_id });
+            let _ = skill_manager
+                .execute_hooks(
+                    crate::skills::HookEvent::OnWorldBuildingUpdate,
+                    &context,
+                    data,
+                )
+                .await;
+            log::info!(
+                "Hook executed: {:?}",
+                crate::skills::HookEvent::OnWorldBuildingUpdate
+            );
+        });
 
         // D1 Phase 4: 世界观敏感字段变更触发级联改写
         if let Some(ref old) = old_wb {

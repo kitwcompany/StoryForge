@@ -26,7 +26,7 @@ mod tests {
         let mut config = AppConfig::default();
         let result = config.set_active_llm_profile("non-existent");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert!(result.unwrap_err().message().contains("not found"));
     }
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
         let mut config = AppConfig::default();
         let result = config.set_active_embedding_profile("non-existent");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert!(result.unwrap_err().message().contains("not found"));
     }
 
     // ==================== add_llm_profile ====================
@@ -272,7 +272,7 @@ mod tests {
         // 尝试删除默认配置（Qwen 是默认的）
         let result = config.remove_llm_profile("Qwen3.5-27B-Uncensored-Q4_K_M");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("default"));
+        assert!(result.unwrap_err().message().contains("default"));
     }
 
     #[test]

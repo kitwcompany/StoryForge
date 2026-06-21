@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     capabilities::get_capability_registry, error::AppError, llm::LlmService, router::TaskType,
@@ -324,11 +324,14 @@ impl PlanGenerator {
         // v0.21.0: 检查 PromptRegistry 是否有 planner_generator 覆盖
         // 有覆盖时用覆盖内容（支持 {{user_input}} {{capabilities}} 等变量），
         // 无覆盖时用原有动态拼接逻辑
-        let prompt = if let Some(pool) = crate::get_pool() {
-            crate::prompts::registry::resolve_prompt(&pool, "planner_generator").ok()
+        let prompt = if let Some(app) = &self.app_handle {
+            app.try_state::<crate::db::DbPool>().and_then(|s| {
+                crate::prompts::registry::resolve_prompt(s.inner(), "planner_generator").ok()
+            })
         } else {
-            crate::prompts::registry::resolve_prompt_default("planner_generator")
-        };
+            None
+        }
+        .or_else(|| crate::prompts::registry::resolve_prompt_default("planner_generator"));
 
         let prompt = if let Some(template) = prompt {
             // 用户覆盖了 PlanGenerator prompt，渲染模板变量

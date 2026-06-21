@@ -23,6 +23,9 @@ struct OllamaRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaOptions>,
+    /// Ollama JSON mode: https://github.com/ollama/ollama/blob/main/docs/api.md#generate-request-with-format
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -95,6 +98,7 @@ impl LlmAdapter for OllamaAdapter {
                 num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
                 top_p: request.top_p,
             }),
+            format: request.response_format.as_ref().map(|f| f.ollama_value().to_string()),
         };
 
         let response = send_with_connection_timeout(
@@ -145,6 +149,7 @@ impl LlmAdapter for OllamaAdapter {
                 num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
                 top_p: request.top_p,
             }),
+            format: request.response_format.as_ref().map(|f| f.ollama_value().to_string()),
         };
 
         let response = self

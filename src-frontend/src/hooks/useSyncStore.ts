@@ -44,6 +44,13 @@ export interface SyncStoreOptions {
   onChapterUpdated?: (chapterId: string, title?: string) => void;
   /** 章节删除回调 */
   onChapterDeleted?: (chapterId: string) => void;
+  /** 章节 commit（含 projections）完成回调 */
+  onChapterCommitted?: (
+    storyId: string,
+    chapterId: string,
+    chapterNumber: number,
+    projectionStatus: { [key: string]: string }
+  ) => void;
   /** 世界观更新回调 */
   onWorldBuildingUpdated?: (storyId: string) => void;
   /** 世界观创建回调 */
@@ -253,6 +260,21 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             // P1-9 修复: Chapter 删除会清理 scenes.chapter_id，刷新 scenes 缓存
             queryClient.invalidateQueries({ queryKey: KEYS.scenes(payload.story_id) });
             optionsRef.current.onChapterDeleted?.(payload.chapter_id);
+            break;
+          }
+          case 'chapterCommitted': {
+            // v0.23.1: commit + projections 完成后刷新 read-model
+            queryClient.invalidateQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.chapterDetail(payload.chapter_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.payoffLedger(payload.story_id) });
+            optionsRef.current.onChapterCommitted?.(
+              payload.story_id,
+              payload.chapter_id,
+              payload.chapter_number,
+              payload.projection_status
+            );
             break;
           }
 

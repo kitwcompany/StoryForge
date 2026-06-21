@@ -236,7 +236,7 @@ impl Methodology for HighDensityWorldBuildingMethodology {
         "用极少元素通过状态驱动、桥节点连接、事件回流构建活的世界"
     }
 
-    fn system_prompt_extension(&self) -> String {
+    fn system_prompt_extension(&self, _pool: Option<&crate::db::DbPool>) -> String {
         self.cumulative_context()
     }
 

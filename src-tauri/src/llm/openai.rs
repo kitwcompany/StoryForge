@@ -29,6 +29,8 @@ struct OpenAiRequest {
     frequency_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,6 +59,8 @@ struct OpenAiStreamRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     presence_penalty: Option<f32>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,6 +167,7 @@ impl LlmAdapter for OpenAiAdapter {
             top_p: request.top_p,
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
+            response_format: request.response_format.as_ref().map(|f| f.openai_value()),
         };
 
         let primary_url = format!("{}/chat/completions", self.api_base);
@@ -237,6 +242,7 @@ impl LlmAdapter for OpenAiAdapter {
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
             stream: true,
+            response_format: request.response_format.as_ref().map(|f| f.openai_value()),
         };
 
         let mut response = self

@@ -385,8 +385,6 @@ export function Foreshadowing() {
     importance: 5,
   });
 
-  // W2-F2: backstage-data-refreshed 已废弃，数据刷新由 useSyncStore 统一处理
-
   const { data: items = [], isLoading } = useForeshadowings(currentStory?.id || null);
   const { data: ledgerItems = [] } = usePayoffLedger(currentStory?.id || null);
   const { data: scenes = [] } = useScenes(currentStory?.id || null);

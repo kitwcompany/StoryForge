@@ -43,7 +43,7 @@ impl SceneCommitService {
         content: Option<&str>,
         llm_service: Option<&crate::llm::service::LlmService>,
         app_handle: Option<tauri::AppHandle>,
-        vector_store: Option<&LanceVectorStore>,
+        vector_store: Option<&dyn crate::ports::VectorStore>,
     ) -> Result<(), String> {
         let commit = self.init_commit(story_id, scene_id, chapter_id, chapter_number)?;
         let summary = content.unwrap_or("").chars().take(1000).collect::<String>();
@@ -192,7 +192,7 @@ impl SceneCommitService {
         dominant_strand: &str,
         chapter_content: Option<&str>,
         app_handle: Option<tauri::AppHandle>,
-        vector_store: Option<&LanceVectorStore>,
+        vector_store: Option<&dyn crate::ports::VectorStore>,
     ) -> Result<(), String> {
         let repo = SceneCommitRepository::new(self.pool.clone());
 
@@ -305,7 +305,7 @@ impl SceneCommitService {
                             metadata: None,
                             embedding,
                         };
-                        match store.add_record(record).await {
+                        match store.upsert(record).await {
                             Ok(_) => "success".to_string(),
                             Err(e) => format!("error: {}", e),
                         }
@@ -322,9 +322,12 @@ impl SceneCommitService {
         let has_precomputed_deltas =
             !entity_deltas_json.trim().is_empty() && entity_deltas_json.trim() != "{}";
 
+        // 克隆 AppHandle 供 KG future 捕获，避免移动原始值（后续发射 ChapterCommitted
+        // 仍需使用）
+        let app_handle_for_kg = app_handle.clone();
         let kg_future = async {
             if has_precomputed_deltas {
-                if let Some(ref app) = app_handle {
+                if let Some(ref app) = app_handle_for_kg {
                     let _ = crate::state_sync::StateSync::emit_data_refresh(
                         app,
                         Some(&story_id),
@@ -334,7 +337,7 @@ impl SceneCommitService {
                 return "success (precomputed)".to_string();
             }
 
-            if let (Some(content), Some(app)) = (chapter_content, app_handle) {
+            if let (Some(content), Some(app)) = (chapter_content, app_handle_for_kg) {
                 if content.len() >= 20 {
                     match self
                         .run_kg_ingest(&story_id, chapter_number, content, &app)
@@ -399,6 +402,34 @@ impl SceneCommitService {
         // 更新投影状态
         repo.update_projection_status(commit_id, &projection_status.to_string())
             .map_err(|e| format!("更新投影状态失败: {}", e))?;
+
+        // v0.23.1: commit（含 projections）完成后发射统一事件，通知前后台刷新
+        // read-model
+        if let (Some(ref app), Some(ref ch_id)) = (app_handle, &commit.chapter_id) {
+            let projection_status_map: std::collections::HashMap<String, String> =
+                projection_status
+                    .as_object()
+                    .map(|o| {
+                        o.iter()
+                            .map(|(k, v)| {
+                                (
+                                    k.clone(),
+                                    v.as_str()
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| v.to_string()),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            let _ = crate::state_sync::StateSync::emit_chapter_committed(
+                app,
+                &commit.story_id,
+                ch_id,
+                commit.chapter_number,
+                projection_status_map,
+            );
+        }
 
         Ok(())
     }

@@ -10,41 +10,11 @@
 use tauri::AppHandle;
 
 use super::manifest::AssetManifest;
+use crate::db::DbPool;
 
-/// 合成结果
-#[derive(Debug, Clone)]
-pub struct SynthesisResult {
-    /// 识别到的用户意图（续写/改写/新场景/润色/规划等）
-    pub intent: String,
-    /// LLM 选中的资产 ID 列表
-    pub selected_asset_ids: Vec<String>,
-    /// 合成后的综合提示词（供 Call 3 Writer 直接使用，或 Call 2 精修）
-    pub synthesized_prompt: String,
-    /// 是否需要 Call 2
-    /// 精修（复合题材/改写选中/多冲突约束/逾期伏笔多/confidence低）
-    pub needs_refinement: bool,
-    /// 精修重点（needs_refinement=true 时提供，指导 Call 2 聚焦）
-    pub refinement_focus: Option<String>,
-    /// 合成置信度（0.0-1.0）
-    pub confidence: f32,
-    /// 是否为回退结果（Call 1 失败/超时/解析失败时 true）
-    pub is_fallback: bool,
-}
+// 数据类型已迁移到 `crate::domain::prompt_synthesis`。
+pub use crate::domain::prompt_synthesis::SynthesisResult;
 
-impl SynthesisResult {
-    /// 构造回退结果：用 bundle.to_prompt() 作为合成提示词，不精修。
-    pub fn fallback(bundle_prompt: String) -> Self {
-        Self {
-            intent: "unknown".into(),
-            selected_asset_ids: vec![],
-            synthesized_prompt: bundle_prompt,
-            needs_refinement: false,
-            refinement_focus: None,
-            confidence: 0.0,
-            is_fallback: true,
-        }
-    }
-}
 
 /// 路由合成器：用最快模型选资产 + 合成提示词。
 pub struct PromptSynthesizer;
@@ -66,11 +36,13 @@ impl PromptSynthesizer {
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
         bundle_prompt: &str,
+        pool: Option<&DbPool>,
     ) -> SynthesisResult {
         let llm = crate::llm::LlmService::new(app_handle);
 
         // 构建合成 prompt
-        let prompt = Self::build_synthesis_prompt(instruction, current_content_preview, manifest);
+        let prompt =
+            Self::build_synthesis_prompt(instruction, current_content_preview, manifest, pool);
 
         // 调最快模型（静默标签 tri-shot-router）
         let response = llm
@@ -103,6 +75,7 @@ impl PromptSynthesizer {
         instruction: &str,
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
+        pool: Option<&DbPool>,
     ) -> String {
         let manifest_text = manifest.to_compact_text();
         let content_section = current_content_preview
@@ -110,8 +83,8 @@ impl PromptSynthesizer {
             .unwrap_or_default();
 
         // 优先用注册表模板，回退硬编码
-        let tpl = crate::get_pool()
-            .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "trishot_synthesizer").ok())
+        let tpl = pool
+            .and_then(|p| crate::prompts::registry::resolve_prompt(p, "trishot_synthesizer").ok())
             .or_else(|| crate::prompts::registry::resolve_prompt_default("trishot_synthesizer"));
 
         if let Some(tpl) = tpl {

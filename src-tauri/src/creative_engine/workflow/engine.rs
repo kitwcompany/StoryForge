@@ -5,7 +5,7 @@
 //! Conception → Outlining → SceneDesign → Writing → Review → Iteration →
 //! Ingestion
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -15,7 +15,6 @@ use super::{
     WorkflowStage,
 };
 use crate::{
-    agents::service::AgentService,
     db::{
         repositories::{
             CharacterRepository, KnowledgeGraphRepository, SceneRepository,
@@ -25,6 +24,7 @@ use crate::{
     },
     domain::{
         agent_context::AgentContext,
+        agent_service::AgentServicePort,
         agent_types::{AgentResult, AgentTask, AgentType},
         methodology::MethodologyConfig,
         novel_creation::{CharacterProfileOption, WorldBuildingOption, WritingStyleOption},
@@ -273,12 +273,12 @@ fn standard_phase_workflow(phase: CreationPhase, ctx: &AgentContext) -> PhaseWor
 
 /// 创作工作流引擎
 pub struct CreationWorkflowEngine {
-    agent_service: AgentService,
+    agent_service: Arc<dyn AgentServicePort>,
     pool: DbPool,
 }
 
 impl CreationWorkflowEngine {
-    pub fn new(agent_service: AgentService, pool: DbPool) -> Self {
+    pub fn new(agent_service: Arc<dyn AgentServicePort>, pool: DbPool) -> Self {
         Self {
             agent_service,
             pool,

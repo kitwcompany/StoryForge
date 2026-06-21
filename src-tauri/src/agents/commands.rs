@@ -20,6 +20,7 @@ use crate::{
         repositories::{SceneRepository, SceneUpdate, StoryRepository},
         CreateStoryRequest, DbPool,
     },
+    domain::creative_engine::CreativeEnginePort,
     error::AppError,
     state_sync::StateSync,
     subscription::{SubscriptionService, SubscriptionTier},
@@ -1199,10 +1200,16 @@ pub(crate) async fn build_agent_context(
     };
 
     let pool = app_handle.state::<DbPool>();
+    let vector_store = app_handle.state::<std::sync::Arc<dyn crate::ports::VectorStore>>();
+    let creative_engine = app_handle.state::<Arc<dyn CreativeEnginePort>>().inner().clone();
     let story_id = request.story_id.clone();
     let chapter_number = request.chapter_number.unwrap_or(1);
 
-    let optimizer = ContextOptimizer::new(pool.inner().clone());
+    let optimizer = ContextOptimizer::new(
+        pool.inner().clone(),
+        vector_store.inner().clone(),
+        creative_engine,
+    );
 
     // 根据 Agent 类型选择默认 L2 工具
     let l2_tools = match request.agent_type {
@@ -1241,12 +1248,10 @@ pub(crate) async fn build_agent_context(
     // 注入未解决的伏笔提示到世界观规则中
     // v0.14.0: spawn_blocking 包裹同步 DB，避免阻塞 tokio worker
     {
-        let pool_for_hints = pool.inner().clone();
+        let engine = app_handle.state::<Arc<dyn CreativeEnginePort>>().inner().clone();
         let story_id_for_hints = story_id.clone();
         let hints = tokio::task::spawn_blocking(move || {
-            let tracker =
-                crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool_for_hints);
-            tracker.get_writing_hints(&story_id_for_hints, 5)
+            engine.get_foreshadowing_hints(&story_id_for_hints, 5)
         })
         .await
         .map_err(|e| AppError::internal(format!("foreshadowing hints task failed: {}", e)))?;
@@ -1265,39 +1270,35 @@ pub(crate) async fn build_agent_context(
         }
     }
     if request.input.len() >= 10 {
-        if let Some(store) = crate::VECTOR_STORE.get() {
-            match crate::knowledge_base::kb_search(
-                store,
-                &story_id,
-                &request.input,
-                5,
-                None,
-                "hybrid",
-            )
-            .await
-            {
-                Ok(results) if !results.is_empty() => {
-                    let lines: Vec<String> = results
-                        .iter()
-                        .map(|r| {
-                            format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text)
-                        })
-                        .collect();
-                    let semantic_text = format!("\n\n【相关记忆检索】\n{}", lines.join("\n"));
-                    context.world.scene_structure =
-                        Some(context.world.scene_structure.unwrap_or_default() + &semantic_text);
-                    log::info!(
-                        "[build_agent_context] Injected {} semantic search results",
-                        results.len()
-                    );
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::warn!(
-                        "[build_agent_context] Semantic search failed: {}, skipping",
-                        e
-                    );
-                }
+        match crate::knowledge_base::kb_search(
+            vector_store.inner().as_ref(),
+            &story_id,
+            &request.input,
+            5,
+            None,
+            "hybrid",
+        )
+        .await
+        {
+            Ok(results) if !results.is_empty() => {
+                let lines: Vec<String> = results
+                    .iter()
+                    .map(|r| format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text))
+                    .collect();
+                let semantic_text = format!("\n\n【相关记忆检索】\n{}", lines.join("\n"));
+                context.world.scene_structure =
+                    Some(context.world.scene_structure.unwrap_or_default() + &semantic_text);
+                log::info!(
+                    "[build_agent_context] Injected {} semantic search results",
+                    results.len()
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                log::warn!(
+                    "[build_agent_context] Semantic search failed: {}, skipping",
+                    e
+                );
             }
         }
     }

@@ -18,7 +18,7 @@
 import re
 import sys
 from pathlib import Path
-from typing import Optional, Set
+from typing import List, Optional, Set, Tuple
 
 ROOT = Path(__file__).parent.parent / "src-tauri" / "src"
 
@@ -39,19 +39,79 @@ PROHIBITED = {
 }
 
 # 已知但未修复的依赖方向，供 ROADMAP/重构计划参考，不阻塞 CI。
-KNOWN_VIOLATIONS = {
-    "memory": {"agents"},  # 仍有少量历史引用，待 Phase 1.2d/1.4 彻底移除
-    # creative_engine -> agents: workflow/engine 仍引用 agents::service::AgentService 行为 trait
-    "creative_engine": {"agents"},
-    # agents -> creative_engine: agents 仍引用 creative_engine 的上下文构建/风格检查/伏笔追踪等工具
-    "agents": {"creative_engine"},
-    "narrative": {"creative_engine", "memory"},  # audit/search 的历史引用
-}
+# 截至 Phase 2.4：已通过 domain 数据类型与端口完全消除跨模块循环依赖。
+KNOWN_VIOLATIONS: dict[str, set[str]] = {}
 
 # 基础库白名单（domain 允许依赖）
 BASE_CRATES = {
     "std", "serde", "chrono", "uuid", "regex", "log", "tracing",
 }
+
+# 全局单例治理规则（Phase 1.4）
+# - FORBIDDEN_GLOBALS: 已彻底移除的全局单例；任何声明或使用都将导致失败。
+# - KNOWN_GLOBAL_DEBT: 尚未移除的全局单例；仅做信息性跟踪，不阻塞 CI。
+FORBIDDEN_GLOBALS = {
+    "VECTOR_STORE",
+    "DB_POOL",
+    "LLM_SERVICE",
+    "APP_CONFIG",
+    "SKILL_MANAGER",
+    "CHAPTER_COMMIT_DEBOUNCE",
+    "CHAPTER_COMMIT_DEBOUNCE_SECONDS",
+    "PENDING_VECTOR_INDEXES",
+    "PENDING_VECTOR_INDEXES_PATH",
+    "WRITER_APP_DIR",
+    "WRITER_APP_CONFIG",
+    "WRITER_GENRE_PROFILES",
+    "WRITER_STYLE_DNAS",
+    "APP_CONFIG_CACHE",
+}
+
+# 尚未移除的全局单例/缓存，作为后续阶段的技术债务跟踪（不阻塞 CI）。
+KNOWN_GLOBAL_DEBT: Set[str] = set()
+
+
+def find_global_singleton_declarations(text: str, file_path: Path) -> Tuple[List[str], List[str]]:
+    """扫描全局单例的声明和使用，返回 (forbidden_violations, known_debt)"""
+    forbidden = []
+    known = []
+    # 声明：static VECTOR_STORE: ... = ...; 或 static VECTOR_STORE: OnceLock<...> = ...;
+    for m in re.finditer(
+        r"^\s*(?:static(?:\s+mut)?|const)\s+(VECTOR_STORE|DB_POOL|LLM_SERVICE)\b",
+        text,
+        re.MULTILINE,
+    ):
+        name = m.group(1)
+        msg = f"{file_path}: global singleton declaration '{name}'"
+        if name in FORBIDDEN_GLOBALS:
+            forbidden.append(msg)
+        elif name in KNOWN_GLOBAL_DEBT:
+            known.append(msg)
+    # 使用：VECTOR_STORE.get() / get_vector_store() / get_db_pool() / get_llm_service()
+    for m in re.finditer(
+        r"\b(VECTOR_STORE|DB_POOL|LLM_SERVICE)\s*\.\s*(?:get|get_mut|set)\b",
+        text,
+    ):
+        name = m.group(1)
+        msg = f"{file_path}: global singleton access '{name}'"
+        if name in FORBIDDEN_GLOBALS:
+            forbidden.append(msg)
+        elif name in KNOWN_GLOBAL_DEBT:
+            known.append(msg)
+    for m in re.finditer(
+        r"\b(get_vector_store|get_db_pool|get_llm_service)\s*\(",
+        text,
+    ):
+        func = m.group(1)
+        name = func.replace("get_", "").upper().replace("LLM", "LLM_SERVICE")
+        if name == "STORE":
+            name = "VECTOR_STORE"
+        msg = f"{file_path}: global singleton helper '{func}()'"
+        if name in FORBIDDEN_GLOBALS:
+            forbidden.append(msg)
+        elif name in KNOWN_GLOBAL_DEBT:
+            known.append(msg)
+    return forbidden, known
 
 
 def file_module(file_path: Path) -> Optional[str]:
@@ -88,9 +148,15 @@ def main() -> int:
     known = []
     for file_path in ROOT.rglob("*.rs"):
         module = file_module(file_path)
+        text = file_path.read_text(encoding="utf-8")
+
+        # 全局单例治理检查
+        forb_global, known_global = find_global_singleton_declarations(text, file_path)
+        violations.extend(forb_global)
+        known.extend(known_global)
+
         if not module:
             continue
-        text = file_path.read_text(encoding="utf-8")
         used = extract_use_modules(text)
 
         for target in used:
@@ -127,7 +193,9 @@ def main() -> int:
     print("Architecture guard PASSED")
     print(f"  Enforced modules: {len(PROHIBITED)}")
     print(f"  Enforced rules: {sum(len(v) for v in PROHIBITED.values())}")
+    print(f"  Enforced global singletons removed: {len(FORBIDDEN_GLOBALS)}")
     print(f"  Known violations tracked: {sum(len(v) for v in KNOWN_VIOLATIONS.values())}")
+    print(f"  Known global singleton debt tracked: {len(KNOWN_GLOBAL_DEBT)}")
     return 0
 
 

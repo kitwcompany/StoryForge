@@ -8,11 +8,11 @@
 //! - 多助手独立会话
 
 use crate::{
-    agents::{
+    db::{Chapter, Character, Story},
+    domain::agent_context::{
         AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
         StoryContext, StyleContext, WorldContext,
     },
-    db::{Chapter, Character, Story},
 };
 
 pub mod health_daemon;
@@ -25,7 +25,7 @@ pub mod retention;
 pub mod tokenizer;
 pub mod writer;
 
-pub use orchestrator::MemoryOrchestrator;
+pub use orchestrator::{MemoryOrchestrator, MemoryTaskType};
 pub use tokenizer::CJKTokenizer;
 
 pub use crate::domain::memory_pack::{
@@ -99,7 +99,7 @@ impl ShortTermMemory {
             match orchestrator.build_memory_pack(
                 &story.id,
                 target_chapter_number as i32,
-                "write",
+                MemoryTaskType::Write,
                 None,
             ) {
                 Ok(mut pack) => {

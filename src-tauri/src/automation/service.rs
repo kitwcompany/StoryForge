@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     db::{ChapterReadingPowerRepository, DbPool, DraftRepository, SceneRepository},
+    error::AppError,
     reading_power::ReadingPowerEvaluator,
 };
 
@@ -57,7 +58,7 @@ impl AutomationService {
     }
 
     /// 初始化自动化服务
-    pub async fn initialize(&self) -> Result<(), String> {
+    pub async fn initialize(&self) -> Result<(), AppError> {
         log::info!("Initializing automation service...");
 
         // 注册默认触发器
@@ -74,7 +75,7 @@ impl AutomationService {
     }
 
     /// 注册默认触发器
-    async fn register_default_triggers(&self) -> Result<(), String> {
+    async fn register_default_triggers(&self) -> Result<(), AppError> {
         let mut triggers = self.triggers.write().await;
 
         // 故事创建触发器
@@ -167,7 +168,7 @@ impl AutomationService {
     }
 
     /// 注册默认处理器
-    async fn register_default_handlers(&self) -> Result<(), String> {
+    async fn register_default_handlers(&self) -> Result<(), AppError> {
         let mut handlers = self.handlers.write().await;
 
         // 初始化故事结构处理器
@@ -312,7 +313,7 @@ impl AutomationService {
     }
 
     /// 处理事件队列
-    async fn process_event_queue(&self) -> Result<(), String> {
+    async fn process_event_queue(&self) -> Result<(), AppError> {
         let mut is_processing = self.is_processing.write().await;
         if *is_processing {
             return Ok(());
@@ -345,7 +346,7 @@ impl AutomationService {
     }
 
     /// 处理单个事件
-    async fn process_single_event(&self, event: &TriggerEvent) -> Result<(), String> {
+    async fn process_single_event(&self, event: &TriggerEvent) -> Result<(), AppError> {
         log::debug!("Processing event: {:?}", event);
 
         let triggers = self.triggers.read().await;
@@ -388,7 +389,7 @@ impl AutomationService {
         &self,
         handler: &AutomationHandler,
         event: &TriggerEvent,
-    ) -> Result<(), String> {
+    ) -> Result<(), AppError> {
         match handler.handler_type.as_str() {
             "workflow" => {
                 if let Some(workflow_id) = handler
@@ -401,7 +402,10 @@ impl AutomationService {
                 }
             }
             _ => {
-                return Err(format!("Unknown handler type: {}", handler.handler_type));
+                return Err(AppError::validation_failed(
+                    format!("Unknown handler type: {}", handler.handler_type),
+                    Some("handler_type"),
+                ));
             }
         }
 
@@ -414,7 +418,7 @@ impl AutomationService {
         workflow_id: &str,
         _parameters: &HashMap<String, serde_json::Value>,
         event: &TriggerEvent,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         log::info!("Executing workflow: {}", workflow_id);
 
         match workflow_id {
@@ -422,7 +426,10 @@ impl AutomationService {
                 if let TriggerEvent::StoryCreated { story_id } = event {
                     self.init_story_structure(story_id).await
                 } else {
-                    Err("Invalid event type for init_story workflow".to_string())
+                    Err(AppError::validation_failed(
+                        "Invalid event type for init_story workflow",
+                        Some("event"),
+                    ))
                 }
             }
             "update_progress" => {
@@ -433,7 +440,10 @@ impl AutomationService {
                 {
                     self.update_story_progress(story_id, Some(chapter_id)).await
                 } else {
-                    Err("Invalid event type for update_progress workflow".to_string())
+                    Err(AppError::validation_failed(
+                        "Invalid event type for update_progress workflow",
+                        Some("event"),
+                    ))
                 }
             }
             "analyze_relationships" => {
@@ -445,7 +455,10 @@ impl AutomationService {
                     self.analyze_character_relationships(story_id, Some(character_id))
                         .await
                 } else {
-                    Err("Invalid event type for analyze_relationships workflow".to_string())
+                    Err(AppError::validation_failed(
+                        "Invalid event type for analyze_relationships workflow",
+                        Some("event"),
+                    ))
                 }
             }
             "update_word_count" => {
@@ -458,7 +471,10 @@ impl AutomationService {
                     self.update_word_count_stats(story_id, chapter_id, *word_count as i32)
                         .await
                 } else {
-                    Err("Invalid event type for update_word_count workflow".to_string())
+                    Err(AppError::validation_failed(
+                        "Invalid event type for update_word_count workflow",
+                        Some("event"),
+                    ))
                 }
             }
             "analyze_content" => {
@@ -470,7 +486,10 @@ impl AutomationService {
                 {
                     self.analyze_chapter_content(story_id, chapter_id).await
                 } else {
-                    Err("Invalid event type for analyze_content workflow".to_string())
+                    Err(AppError::validation_failed(
+                        "Invalid event type for analyze_content workflow",
+                        Some("event"),
+                    ))
                 }
             }
             "evaluate_reading_power" => {
@@ -478,14 +497,15 @@ impl AutomationService {
                     TriggerEvent::SceneContentUpdated { story_id, .. } => story_id.clone(),
                     TriggerEvent::ChapterFinalized { story_id, .. } => story_id.clone(),
                     _ => {
-                        return Err(
-                            "Invalid event type for evaluate_reading_power workflow".to_string()
-                        )
+                        return Err(AppError::validation_failed(
+                            "Invalid event type for evaluate_reading_power workflow",
+                            Some("event"),
+                        ))
                     }
                 };
                 self.evaluate_reading_power(event, &story_id).await
             }
-            _ => Err(format!("Unknown workflow: {}", workflow_id)),
+            _ => Err(AppError::not_found("workflow", workflow_id)),
         }
     }
 
@@ -494,36 +514,36 @@ impl AutomationService {
         &self,
         event: &TriggerEvent,
         story_id: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         log::info!("Evaluating reading power for story: {}", story_id);
 
         // 根据事件类型获取 chapter_number
         let (chapter_number, scene_id) = match event {
             TriggerEvent::SceneContentUpdated { scene_id, .. } => {
                 let scene_repo = SceneRepository::new(self.db_pool.clone());
-                match scene_repo.get_by_id(scene_id) {
-                    Ok(Some(scene)) => (scene.sequence_number, Some(scene_id.clone())),
-                    Ok(None) => return Err(format!("Scene not found: {}", scene_id)),
-                    Err(e) => return Err(format!("Failed to get scene: {}", e)),
-                }
+                let scene = scene_repo
+                    .get_by_id(scene_id)?
+                    .ok_or_else(|| AppError::not_found("Scene", scene_id))?;
+                (scene.sequence_number, Some(scene_id.clone()))
             }
             TriggerEvent::ChapterFinalized { chapter_id, .. } => {
                 let draft_repo = DraftRepository::new(self.db_pool.clone());
-                match draft_repo.get_by_id(chapter_id) {
-                    Ok(Some(draft)) => (draft.chapter_number, None),
-                    Ok(None) => return Err(format!("Draft not found: {}", chapter_id)),
-                    Err(e) => return Err(format!("Failed to get draft: {}", e)),
-                }
+                let draft = draft_repo
+                    .get_by_id(chapter_id)?
+                    .ok_or_else(|| AppError::not_found("Draft", chapter_id))?;
+                (draft.chapter_number, None)
             }
-            _ => return Err("Invalid event type for reading power evaluation".to_string()),
+            _ => {
+                return Err(AppError::validation_failed(
+                    "Invalid event type for reading power evaluation",
+                    Some("event"),
+                ))
+            }
         };
 
         // 执行评估
         let evaluator = ReadingPowerEvaluator::new(self.db_pool.clone());
-        let evaluation = match evaluator.evaluate(story_id, chapter_number) {
-            Ok(e) => e,
-            Err(e) => return Err(format!("Reading power evaluation failed: {}", e)),
-        };
+        let evaluation = evaluator.evaluate(story_id, chapter_number)?;
 
         // 保存结果到数据库
         let rp_repo = ChapterReadingPowerRepository::new(self.db_pool.clone());
@@ -544,10 +564,7 @@ impl AutomationService {
         ) {
             Ok(record) => {
                 // 补充更新 score 和 debt_balance（save 方法未覆盖的字段）
-                let conn = self
-                    .db_pool
-                    .get()
-                    .map_err(|e| format!("Database error: {}", e))?;
+                let conn = self.db_pool.get()?;
                 if let Err(e) = conn.execute(
                     "UPDATE chapter_reading_power SET debt_balance = ?1, override_count = ?2 \
                      WHERE id = ?3",
@@ -596,13 +613,13 @@ impl AutomationService {
     }
 
     /// 初始化故事结构
-    async fn init_story_structure(&self, story_id: &str) -> Result<String, String> {
+    async fn init_story_structure(&self, story_id: &str) -> Result<String, AppError> {
         log::info!("Initializing story structure for story: {}", story_id);
 
         let conn = self
             .db_pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            ?;
 
         // 创建默认的故事元数据
         conn.execute(
@@ -612,7 +629,7 @@ impl AutomationService {
              (?1, 'last_analysis', ?2)",
             rusqlite::params![story_id, chrono::Utc::now().to_rfc3339()],
         )
-        .map_err(|e| format!("Failed to initialize story metadata: {}", e))?;
+        ?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -633,7 +650,7 @@ impl AutomationService {
         &self,
         story_id: &str,
         chapter_id: Option<&str>,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         log::info!(
             "Updating story progress for story: {}, chapter: {:?}",
             story_id,
@@ -643,18 +660,18 @@ impl AutomationService {
         let conn = self
             .db_pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            ?;
 
         // 计算总章节数和字数
         let mut stmt = conn
             .prepare(
                 "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1",
             )
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+            ?;
 
         let (chapter_count, total_words): (i64, i64) = stmt
             .query_row([story_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            .map_err(|e| format!("Failed to query progress: {}", e))?;
+            ?;
 
         // 更新故事元数据
         conn.execute(
@@ -669,7 +686,7 @@ impl AutomationService {
                 chrono::Utc::now().to_rfc3339()
             ],
         )
-        .map_err(|e| format!("Failed to update progress metadata: {}", e))?;
+        ?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -695,7 +712,7 @@ impl AutomationService {
         &self,
         story_id: &str,
         character_id: Option<&str>,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         log::info!(
             "Analyzing character relationships for story: {}, character: {:?}",
             story_id,
@@ -705,18 +722,18 @@ impl AutomationService {
         let conn = self
             .db_pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            ?;
 
         // 获取所有角色
         let mut stmt = conn
             .prepare("SELECT id, name FROM characters WHERE story_id = ?1")
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+            ?;
 
         let characters: Vec<(String, String)> = stmt
             .query_map([story_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            .map_err(|e| format!("Failed to query characters: {}", e))?
+            ?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Failed to collect characters: {}", e))?;
+            ?;
 
         // 更新角色关系分析时间戳
         conn.execute(
@@ -729,7 +746,7 @@ impl AutomationService {
                 characters.len().to_string()
             ],
         )
-        .map_err(|e| format!("Failed to update relationship metadata: {}", e))?;
+        ?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -758,7 +775,7 @@ impl AutomationService {
         story_id: &str,
         chapter_id: &str,
         word_count: i32,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         log::info!(
             "Updating word count stats for story: {}, chapter: {}, words: {}",
             story_id,
@@ -769,7 +786,7 @@ impl AutomationService {
         let conn = self
             .db_pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            ?;
 
         // 更新章节字数
         conn.execute(
@@ -781,16 +798,16 @@ impl AutomationService {
                 story_id
             ],
         )
-        .map_err(|e| format!("Failed to update chapter word count: {}", e))?;
+        ?;
 
         // 重新计算总字数
         let mut stmt = conn
             .prepare("SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1")
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+            ?;
 
         let total_words: i64 = stmt
             .query_row([story_id], |row| row.get(0))
-            .map_err(|e| format!("Failed to query total words: {}", e))?;
+            ?;
 
         // 更新故事元数据
         conn.execute(
@@ -803,7 +820,7 @@ impl AutomationService {
                 chrono::Utc::now().to_rfc3339()
             ],
         )
-        .map_err(|e| format!("Failed to update word count metadata: {}", e))?;
+        ?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -830,7 +847,7 @@ impl AutomationService {
         &self,
         story_id: &str,
         chapter_id: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         log::info!(
             "Analyzing chapter content for story: {}, chapter: {}",
             story_id,
@@ -840,16 +857,16 @@ impl AutomationService {
         let conn = self
             .db_pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            ?;
 
         // 获取章节内容
         let mut stmt = conn
             .prepare("SELECT content FROM chapters WHERE id = ?1 AND story_id = ?2")
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+            ?;
 
         let content: String = stmt
             .query_row([chapter_id, story_id], |row| row.get(0))
-            .map_err(|e| format!("Failed to query chapter content: {}", e))?;
+            ?;
 
         // 简单的内容分析（实际应用中可以集成AI分析）
         let word_count = content.split_whitespace().count();
@@ -863,7 +880,7 @@ impl AutomationService {
              (?1, 'analyzed_chapter_id', ?3)",
             rusqlite::params![story_id, chrono::Utc::now().to_rfc3339(), chapter_id],
         )
-        .map_err(|e| format!("Failed to update content analysis metadata: {}", e))?;
+        ?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -889,7 +906,7 @@ impl AutomationService {
     }
 
     /// 触发事件
-    pub async fn trigger_event(&self, event: TriggerEvent) -> Result<(), String> {
+    pub async fn trigger_event(&self, event: TriggerEvent) -> Result<(), AppError> {
         log::debug!("Triggering event: {:?}", event);
 
         let queued_event = QueuedEvent {
@@ -915,14 +932,14 @@ impl AutomationService {
     }
 
     /// 添加触发器
-    pub async fn add_trigger(&self, trigger: AutomationTrigger) -> Result<(), String> {
+    pub async fn add_trigger(&self, trigger: AutomationTrigger) -> Result<(), AppError> {
         let mut triggers = self.triggers.write().await;
         triggers.insert(trigger.name.clone(), trigger);
         Ok(())
     }
 
     /// 添加处理器
-    pub async fn add_handler(&self, handler: AutomationHandler) -> Result<(), String> {
+    pub async fn add_handler(&self, handler: AutomationHandler) -> Result<(), AppError> {
         let mut handlers = self.handlers.write().await;
         handlers.insert(handler.name.clone(), handler);
         Ok(())

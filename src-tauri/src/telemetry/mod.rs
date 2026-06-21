@@ -74,18 +74,3 @@ pub fn get_feature_usage_stats(
 
     Ok(stats)
 }
-
-/// 便捷封装：自动获取全局 pool 并记录
-#[macro_export]
-macro_rules! log_feature {
-    ($feature_id:expr, $action:expr) => {
-        if let Some(pool) = crate::get_pool() {
-            crate::telemetry::log_feature_usage(&pool, $feature_id, $action, None, None);
-        }
-    };
-    ($feature_id:expr, $action:expr, $story_id:expr) => {
-        if let Some(pool) = crate::get_pool() {
-            crate::telemetry::log_feature_usage(&pool, $feature_id, $action, Some($story_id), None);
-        }
-    };
-}

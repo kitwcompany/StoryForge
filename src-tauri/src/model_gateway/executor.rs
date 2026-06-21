@@ -11,6 +11,7 @@ use super::{
     types::{GatewayRequest, GatewayRoutingDecision, ProbeResult},
 };
 use crate::{
+    db::DbPool,
     error::AppError,
     llm::{adapter::GenerateRequest, service::LlmService, GenerateResponse as LlmGenerateResponse},
 };
@@ -23,16 +24,19 @@ pub struct GatewayExecutor {
     classifier: TaskClassifier,
     probe_engine: ProbeEngine,
     llm_service: LlmService,
+    pool: DbPool,
 }
 
 impl GatewayExecutor {
     pub fn new(app_handle: AppHandle, registry: GatewayRegistry, llm_service: LlmService) -> Self {
+        let pool = app_handle.state::<DbPool>().inner().clone();
         Self {
             app_handle,
             registry,
             classifier: TaskClassifier::new(),
             probe_engine: ProbeEngine::new(),
             llm_service,
+            pool,
         }
     }
 
@@ -247,19 +251,12 @@ impl GatewayExecutor {
                 continue;
             };
 
-            let generate_request = GenerateRequest {
-                prompt: request.prompt.clone(),
-                max_tokens: request.max_tokens,
-                temperature: request.temperature,
-                ..Default::default()
-            };
-
-            // 实际调用底层 LlmService 的按 profile 执行接口
-            // TODO: 接入 LlmService::generate_with_profile_and_request_id
+            // 实际调用底层 LlmService 的按 profile 执行接口，透传 response_format
+            // 以支持 OpenAI/Ollama 的 JSON mode。
             let context_label = request.context_label.as_deref();
             let (_, result) = self
                 .llm_service
-                .generate_with_profile_and_request_id(
+                .generate_with_profile_and_request_id_with_format(
                     &profile.id,
                     request.prompt.clone(),
                     request.max_tokens,
@@ -268,6 +265,7 @@ impl GatewayExecutor {
                     Some(request.request_id.clone()),
                     request.timeout_seconds_override,
                     request.max_retries_override,
+                    request.response_format,
                 )
                 .await;
             match result {
@@ -371,7 +369,7 @@ impl GatewayExecutor {
                     tps,
                     error: None,
                 };
-                self.probe_engine.record_probe(profile, &result);
+                self.probe_engine.record_probe(profile, &result, &self.pool);
                 Ok(result)
             }
             Err(e) => {
@@ -383,7 +381,7 @@ impl GatewayExecutor {
                     tps: 0.0,
                     error: Some(e.to_string()),
                 };
-                self.probe_engine.record_probe(profile, &result);
+                self.probe_engine.record_probe(profile, &result, &self.pool);
                 Ok(result)
             }
         }
@@ -409,15 +407,8 @@ impl GatewayExecutor {
             profiles.len()
         );
 
-        let pool = match crate::get_pool() {
-            Some(p) => p,
-            None => {
-                log::error!("[GatewayExecutor] 无法获取 DB 连接池，基准跳过");
-                return;
-            }
-        };
-        let benchmarker = StreamBenchmark::new(pool.clone());
-        let store = CapabilityStore::new(pool);
+        let benchmarker = StreamBenchmark::new(self.pool.clone());
+        let store = CapabilityStore::new(self.pool.clone());
 
         for profile in &profiles {
             log::info!("[GatewayExecutor] 基准短任务 {}...", profile.name);

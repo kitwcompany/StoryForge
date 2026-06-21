@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 use crate::{
     db::{DbPool, MemoryItemRepository, StorySummaryRepository},
+    error::AppError,
     vector::lancedb_store::{LanceVectorStore, VectorRecord},
 };
 
@@ -19,7 +20,7 @@ use crate::{
 pub trait ProjectionWriter {
     fn name(&self) -> &'static str;
     fn apply(&self, story_id: &str, chapter_number: i32, commit_json: &str)
-        -> Result<bool, String>;
+        -> Result<bool, AppError>;
 }
 
 /// 状态投影写入器
@@ -43,14 +44,13 @@ impl ProjectionWriter for StateProjectionWriter {
         story_id: &str,
         chapter_number: i32,
         commit_json: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, AppError> {
         #[derive(Deserialize)]
         struct CommitData {
             state_deltas_json: Option<String>,
         }
 
-        let commit: CommitData =
-            serde_json::from_str(commit_json).map_err(|e| format!("解析 commit 失败: {}", e))?;
+        let commit: CommitData = serde_json::from_str(commit_json)?;
 
         let deltas_str = match commit.state_deltas_json {
             Some(s) if !s.is_empty() => s,
@@ -65,8 +65,7 @@ impl ProjectionWriter for StateProjectionWriter {
             new_value: String,
         }
 
-        let deltas: Vec<StateDelta> = serde_json::from_str(&deltas_str)
-            .map_err(|e| format!("解析 state_deltas 失败: {}", e))?;
+        let deltas: Vec<StateDelta> = serde_json::from_str(&deltas_str)?;
 
         let repo = MemoryItemRepository::new(self.pool.clone());
         for delta in deltas {
@@ -83,8 +82,7 @@ impl ProjectionWriter for StateProjectionWriter {
                 Some(&value),
                 Some(chapter_number),
                 0.95,
-            )
-            .map_err(|e| format!("写入 state 记忆失败: {}", e))?;
+            )?;
         }
 
         Ok(true)
@@ -112,14 +110,13 @@ impl ProjectionWriter for IndexProjectionWriter {
         story_id: &str,
         chapter_number: i32,
         commit_json: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, AppError> {
         #[derive(Deserialize)]
         struct CommitData {
             entity_deltas_json: Option<String>,
         }
 
-        let commit: CommitData =
-            serde_json::from_str(commit_json).map_err(|e| format!("解析 commit 失败: {}", e))?;
+        let commit: CommitData = serde_json::from_str(commit_json)?;
 
         let deltas_str = match commit.entity_deltas_json {
             Some(s) if !s.is_empty() => s,
@@ -134,8 +131,7 @@ impl ProjectionWriter for IndexProjectionWriter {
             changes: Option<Vec<(String, String)>>,
         }
 
-        let deltas: Vec<EntityDelta> = serde_json::from_str(&deltas_str)
-            .map_err(|e| format!("解析 entity_deltas 失败: {}", e))?;
+        let deltas: Vec<EntityDelta> = serde_json::from_str(&deltas_str)?;
 
         let repo = MemoryItemRepository::new(self.pool.clone());
         for delta in deltas {
@@ -156,8 +152,7 @@ impl ProjectionWriter for IndexProjectionWriter {
                 Some(&value),
                 Some(chapter_number),
                 0.9,
-            )
-            .map_err(|e| format!("写入 entity 索引失败: {}", e))?;
+            )?;
         }
 
         Ok(true)
@@ -185,14 +180,13 @@ impl ProjectionWriter for SummaryProjectionWriter {
         story_id: &str,
         chapter_number: i32,
         commit_json: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, AppError> {
         #[derive(Deserialize)]
         struct CommitData {
             summary_text: Option<String>,
         }
 
-        let commit: CommitData =
-            serde_json::from_str(commit_json).map_err(|e| format!("解析 commit 失败: {}", e))?;
+        let commit: CommitData = serde_json::from_str(commit_json)?;
 
         let summary = match commit.summary_text {
             Some(s) if !s.is_empty() => s,
@@ -201,8 +195,7 @@ impl ProjectionWriter for SummaryProjectionWriter {
 
         let repo = StorySummaryRepository::new(self.pool.clone());
         let content = format!("第{}章摘要\n\n{}", chapter_number, summary);
-        repo.create_summary(story_id, "chapter", &content)
-            .map_err(|e| format!("写入摘要失败: {}", e))?;
+        repo.create_summary(story_id, "chapter", &content)?;
 
         Ok(true)
     }
@@ -229,14 +222,13 @@ impl ProjectionWriter for MemoryProjectionWriter {
         story_id: &str,
         chapter_number: i32,
         commit_json: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, AppError> {
         #[derive(Deserialize)]
         struct CommitData {
             accepted_events_json: Option<String>,
         }
 
-        let commit: CommitData =
-            serde_json::from_str(commit_json).map_err(|e| format!("解析 commit 失败: {}", e))?;
+        let commit: CommitData = serde_json::from_str(commit_json)?;
 
         let events_str = match commit.accepted_events_json {
             Some(s) if !s.is_empty() => s,
@@ -249,8 +241,7 @@ impl ProjectionWriter for MemoryProjectionWriter {
             importance: Option<f32>,
         }
 
-        let events: Vec<StoryEvent> =
-            serde_json::from_str(&events_str).map_err(|e| format!("解析 events 失败: {}", e))?;
+        let events: Vec<StoryEvent> = serde_json::from_str(&events_str)?;
 
         let repo = MemoryItemRepository::new(self.pool.clone());
         for event in events {
@@ -263,8 +254,7 @@ impl ProjectionWriter for MemoryProjectionWriter {
                 Some(&event.description),
                 Some(chapter_number),
                 confidence,
-            )
-            .map_err(|e| format!("写入事件记忆失败: {}", e))?;
+            )?;
         }
 
         Ok(true)
@@ -292,14 +282,13 @@ impl ProjectionWriter for VectorProjectionWriter {
         _story_id: &str,
         chapter_number: i32,
         commit_json: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, AppError> {
         #[derive(Deserialize)]
         struct CommitData {
             summary_text: Option<String>,
         }
 
-        let commit: CommitData =
-            serde_json::from_str(commit_json).map_err(|e| format!("解析 commit 失败: {}", e))?;
+        let commit: CommitData = serde_json::from_str(commit_json)?;
 
         let summary = match commit.summary_text {
             Some(s) if !s.is_empty() => s,
@@ -308,16 +297,11 @@ impl ProjectionWriter for VectorProjectionWriter {
 
         let text = format!("第{}章: {}", chapter_number, summary);
 
-        let _embedding = match crate::embeddings::embedding::embed_text(&text) {
-            Ok(emb) => emb,
-            Err(e) => {
-                return Err(format!("生成嵌入向量失败: {}", e));
-            }
-        };
+        let _embedding = crate::embeddings::embedding::embed_text(&text)?;
 
         // VectorProjectionWriter 需要在异步上下文中运行
         // 这里返回需要异步处理的标记，由调用方处理
-        Err("VECTOR_ASYNC_REQUIRED".to_string())
+        Err(AppError::from("VECTOR_ASYNC_REQUIRED"))
     }
 }
 
@@ -337,11 +321,10 @@ pub async fn apply_vector_projection(
     story_id: &str,
     chapter_number: i32,
     summary_text: &str,
-) -> Result<bool, String> {
+) -> Result<bool, AppError> {
     let text = format!("第{}章: {}", chapter_number, summary_text);
 
-    let embedding = crate::embeddings::embedding::embed_text(&text)
-        .map_err(|e| format!("生成嵌入向量失败: {}", e))?;
+    let embedding = crate::embeddings::embedding::embed_text_async(text.clone()).await?;
 
     let record = VectorRecord {
         id: format!("{}_ch{}", story_id, chapter_number),
@@ -354,10 +337,7 @@ pub async fn apply_vector_projection(
         embedding,
     };
 
-    store
-        .add_record(record)
-        .await
-        .map_err(|e| format!("写入向量索引失败: {}", e))?;
+    store.add_record(record).await?;
 
     Ok(true)
 }

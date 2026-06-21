@@ -7,18 +7,26 @@
 //! - 状态同步事件发射
 //! - Skill Hook 执行
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::{
     automation::service::AutomationService,
     creative_engine::payoff_ledger::PayoffLedger,
     db::{Chapter, ChapterRepository, DbPool, SceneRepository},
+    skills::SkillManager,
     state_sync::StateSync,
     story_system::SceneCommitService,
-    CHAPTER_COMMIT_DEBOUNCE, CHAPTER_COMMIT_DEBOUNCE_SECONDS, SKILL_MANAGER, VECTOR_STORE,
 };
+
+use crate::ports::VectorStore;
+
+const CHAPTER_COMMIT_DEBOUNCE_SECONDS: u64 = 30; // 30 秒 debounce
 
 // ==================== 组件 1: Commit Debouncer ====================
 
@@ -26,21 +34,40 @@ use crate::{
 ///
 /// W4-B9: 防止频繁保存导致重复 commit。每次 `update_chapter` 成功后
 /// 调用 `schedule`，若 30s 内无新调度则执行 `SceneCommitService::auto_commit`。
-pub struct ChapterCommitDebouncer;
+#[derive(Clone)]
+pub struct ChapterCommitDebouncer {
+    state: Arc<Mutex<HashMap<String, Instant>>>,
+}
 
 impl ChapterCommitDebouncer {
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// 优先从 Tauri State 获取共享实例；否则创建独立实例（测试/降级场景）。
+    pub fn from_app_handle(app_handle: &AppHandle) -> Self {
+        app_handle
+            .try_state::<Self>()
+            .map(|state| state.inner().clone())
+            .unwrap_or_else(|| Self::new())
+    }
+
     /// 调度一次 debounced auto commit。
     pub fn schedule(
+        &self,
         chapter_id: String,
         story_id: String,
         chapter_number: i32,
         _content: Option<String>,
         pool: DbPool,
         app_handle: AppHandle,
+        vector_store: Arc<dyn VectorStore>,
     ) {
         let scheduled_time = Instant::now();
         {
-            let mut debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
+            let mut debounce = self.state.lock().unwrap();
             debounce.insert(chapter_id.clone(), scheduled_time);
             // 清理超过 24 小时的过期条目，防止内存泄漏
             const MAX_DEBOUNCE_AGE_HOURS: u64 = 24;
@@ -50,10 +77,11 @@ impl ChapterCommitDebouncer {
             });
         }
 
+        let state = self.state.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_secs(CHAPTER_COMMIT_DEBOUNCE_SECONDS)).await;
             let should_commit = {
-                let debounce = CHAPTER_COMMIT_DEBOUNCE.lock().unwrap();
+                let debounce = state.lock().unwrap();
                 debounce
                     .get(&chapter_id)
                     .map(|t| *t == scheduled_time)
@@ -70,7 +98,7 @@ impl ChapterCommitDebouncer {
                         .and_then(|scenes| scenes.into_iter().next())
                         .map(|s| s.id);
                     let service = SceneCommitService::new(pool);
-                    let store = VECTOR_STORE.get();
+                    let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
                     if let Err(e) = service
                         .auto_commit(
                             &story_id,
@@ -199,11 +227,16 @@ impl AutomationTrigger {
 pub struct ChapterService {
     pool: DbPool,
     app_handle: AppHandle,
+    vector_store: Arc<dyn VectorStore>,
 }
 
 impl ChapterService {
-    pub fn new(pool: DbPool, app_handle: AppHandle) -> Self {
-        Self { pool, app_handle }
+    pub fn new(pool: DbPool, app_handle: AppHandle, vector_store: Arc<dyn VectorStore>) -> Self {
+        Self {
+            pool,
+            app_handle,
+            vector_store,
+        }
     }
 
     /// `update_chapter` 成功后的后续业务处理。
@@ -253,13 +286,14 @@ impl ChapterService {
         );
 
         // 5. Debounced auto commit
-        ChapterCommitDebouncer::schedule(
+        ChapterCommitDebouncer::from_app_handle(&self.app_handle).schedule(
             chapter_id.to_string(),
             story_id.to_string(),
             chapter_number,
             None, // content will be fetched inside debouncer
             self.pool.clone(),
             self.app_handle.clone(),
+            self.vector_store.clone(),
         );
     }
 
@@ -274,27 +308,25 @@ impl ChapterService {
         automation_service: &AutomationService,
     ) {
         // 1. AfterChapterSave Skill Hook
-        if let Some(manager) = SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let story_id = chapter.story_id.clone();
-                let chapter_id = chapter.id.clone();
-                let chapter_number = chapter.chapter_number;
-                let skill_manager = skill_manager.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = crate::domain::agent_context::AgentContext::minimal(
-                        story_id,
-                        String::new(),
-                    );
-                    let data = serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
-                    let _ = skill_manager
-                        .execute_hooks(crate::skills::HookEvent::AfterChapterSave, &context, data)
-                        .await;
-                    log::info!(
-                        "Hook executed: {:?}",
-                        crate::skills::HookEvent::AfterChapterSave
-                    );
-                });
-            }
+        {
+            let skill_manager = SkillManager::from_app_handle(&self.app_handle);
+            let story_id = chapter.story_id.clone();
+            let chapter_id = chapter.id.clone();
+            let chapter_number = chapter.chapter_number;
+            tauri::async_runtime::spawn(async move {
+                let context = crate::domain::agent_context::AgentContext::minimal(
+                    story_id,
+                    String::new(),
+                );
+                let data = serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
+                let _ = skill_manager
+                    .execute_hooks(crate::skills::HookEvent::AfterChapterSave, &context, data)
+                    .await;
+                log::info!(
+                    "Hook executed: {:?}",
+                    crate::skills::HookEvent::AfterChapterSave
+                );
+            });
         }
 
         // 2. 章节创建同步事件
@@ -351,10 +383,11 @@ impl ChapterService {
         let chapter_number = chapter.chapter_number;
         let content = chapter.content.clone();
         let pool = self.pool.clone();
+        let vector_store = self.vector_store.clone();
 
         tauri::async_runtime::spawn(async move {
             let service = SceneCommitService::new(pool);
-            let store = VECTOR_STORE.get();
+            let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
             if let Err(e) = service
                 .auto_commit(
                     &story_id,

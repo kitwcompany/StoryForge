@@ -7,6 +7,7 @@
 use std::str::FromStr;
 
 use super::Methodology;
+use crate::db::DbPool;
 
 /// 雪花写作法的十个步骤
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +46,7 @@ impl SnowflakeStep {
         }
     }
 
-    pub fn prompt_instruction(&self) -> String {
+    pub fn prompt_instruction(&self, pool: Option<&DbPool>) -> String {
         let prompt_id = match self {
             SnowflakeStep::OneSentence => "methodology_snowflake_step1",
             SnowflakeStep::OneParagraph => "methodology_snowflake_step2",
@@ -61,8 +62,8 @@ impl SnowflakeStep {
 
         // v0.21.0: 优先从 PromptRegistry 读取（含用户 DB 覆盖）
         // 修复审计报告：此前用 resolve_prompt_default 旁路了 DB 覆盖
-        if let Some(pool) = crate::get_pool() {
-            if let Ok(content) = crate::prompts::registry::resolve_prompt(&pool, prompt_id) {
+        if let Some(pool) = pool {
+            if let Ok(content) = crate::prompts::registry::resolve_prompt(pool, prompt_id) {
                 return content;
             }
         }
@@ -220,7 +221,7 @@ impl SnowflakeMethodology {
     }
 
     /// 获取当前步骤及之前所有步骤的累积上下文
-    pub fn cumulative_context(&self) -> String {
+    pub fn cumulative_context(&self, pool: Option<&DbPool>) -> String {
         let step_num = self.step.number();
         let mut context = format!(
             "你正在使用雪花写作法进行创作，当前处于第 {} 步（共10步）。\n\n",
@@ -234,7 +235,7 @@ impl SnowflakeMethodology {
         context.push_str("4. 在细节填充前先建立骨架\n\n");
 
         context.push_str("当前步骤要求：\n");
-        context.push_str(&self.step.prompt_instruction());
+        context.push_str(&self.step.prompt_instruction(pool));
         context.push('\n');
 
         context
@@ -250,8 +251,8 @@ impl Methodology for SnowflakeMethodology {
         "从一句话逐步扩展为完整小说的十步创作法"
     }
 
-    fn system_prompt_extension(&self) -> String {
-        self.cumulative_context()
+    fn system_prompt_extension(&self, pool: Option<&DbPool>) -> String {
+        self.cumulative_context(pool)
     }
 
     fn output_schema(&self) -> Option<String> {

@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 use super::types::*;
+use std::sync::Arc;
+
 use crate::{
     db::{BlueprintRepository, CharacterRepository, CharacterState, DbPool},
     llm::LlmService,
+    ports::VectorStore,
     router::TaskType,
 };
 
@@ -45,9 +48,12 @@ pub async fn run_post_process_step(
     step: &PostProcessStepDef,
     pool: &DbPool,
     llm_service: &LlmService,
+    vector_store: &dyn VectorStore,
 ) -> Result<(), PipelineError> {
     match step.key.as_str() {
-        "kb_import" => run_kb_import(story_id, chapter_number, draft_content, pool).await,
+        "kb_import" => {
+            run_kb_import(story_id, chapter_number, draft_content, pool, vector_store).await
+        }
         "chapter_notes" => {
             run_chapter_notes(story_id, chapter_number, draft_content, pool, llm_service).await
         }
@@ -74,6 +80,7 @@ pub async fn run_post_process(
     steps: &[PostProcessStepDef],
     pool: &DbPool,
     llm_service: &LlmService,
+    vector_store: &dyn VectorStore,
     _callbacks: &dyn PipelineCallbacks,
     _options: Option<&PostProcessOptions>,
 ) -> Result<(), PipelineError> {
@@ -85,6 +92,7 @@ pub async fn run_post_process(
             step,
             pool,
             llm_service,
+            vector_store,
         )
         .await;
 
@@ -110,6 +118,7 @@ async fn run_kb_import(
     chapter_number: i32,
     draft_content: &str,
     _pool: &DbPool,
+    vector_store: &dyn VectorStore,
 ) -> Result<(), PipelineError> {
     log::info!(
         "[post_process] kb_import: story_id={}, chapter={}",
@@ -117,34 +126,30 @@ async fn run_kb_import(
         chapter_number
     );
 
-    if let Some(store) = crate::VECTOR_STORE.get() {
-        match crate::knowledge_base::import_text(
-            store,
-            story_id,
-            chapter_number,
-            draft_content,
-            &format!("第{}章", chapter_number),
-        )
-        .await
-        {
-            Ok(result) => {
-                log::info!(
-                    "[post_process] kb_import: 成功导入 {} chunks, {} vectors",
-                    result.chunks_imported,
-                    result.vectors_indexed
-                );
-            }
-            Err(e) => {
-                log::error!("[post_process] kb_import: 失败: {}", e);
-                return Err(PipelineError {
-                    phase: "post_process:kb_import".to_string(),
-                    message: format!("知识库导入失败: {}", e),
-                    recoverable: false,
-                });
-            }
+    match crate::knowledge_base::import_text(
+        vector_store,
+        story_id,
+        chapter_number,
+        draft_content,
+        &format!("第{}章", chapter_number),
+    )
+    .await
+    {
+        Ok(result) => {
+            log::info!(
+                "[post_process] kb_import: 成功导入 {} chunks, {} vectors",
+                result.chunks_imported,
+                result.vectors_indexed
+            );
         }
-    } else {
-        log::warn!("[post_process] kb_import: 向量存储尚未初始化，跳过");
+        Err(e) => {
+            log::error!("[post_process] kb_import: 失败: {}", e);
+            return Err(PipelineError {
+                phase: "post_process:kb_import".to_string(),
+                message: format!("知识库导入失败: {}", e),
+                recoverable: false,
+            });
+        }
     }
 
     Ok(())
@@ -172,16 +177,11 @@ async fn run_chapter_notes(
 
     // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖）
     let prompt = {
-        let tpl = if let Some(pool) = crate::get_pool() {
-            crate::prompts::registry::resolve_prompt(&pool, "pipeline_post_process_plot")
-                .unwrap_or_else(|_| {
-                    crate::prompts::registry::resolve_prompt_default("pipeline_post_process_plot")
-                        .unwrap_or_else(|| default_plot_extraction_prompt().to_string())
-                })
-        } else {
-            crate::prompts::registry::resolve_prompt_default("pipeline_post_process_plot")
-                .unwrap_or_else(|| default_plot_extraction_prompt().to_string())
-        };
+        let tpl = crate::prompts::registry::resolve_prompt(pool, "pipeline_post_process_plot")
+            .unwrap_or_else(|_| {
+                crate::prompts::registry::resolve_prompt_default("pipeline_post_process_plot")
+                    .unwrap_or_else(|| default_plot_extraction_prompt().to_string())
+            });
         let mut vars = std::collections::HashMap::new();
         vars.insert("content".to_string(), content_preview.to_string());
         crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -281,20 +281,14 @@ async fn run_character_cards(
 
     // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖）
     let prompt = {
-        let tpl = if let Some(pool) = crate::get_pool() {
-            crate::prompts::registry::resolve_prompt(&pool, "pipeline_post_process_character_state")
+        let tpl =
+            crate::prompts::registry::resolve_prompt(pool, "pipeline_post_process_character_state")
                 .unwrap_or_else(|_| {
                     crate::prompts::registry::resolve_prompt_default(
                         "pipeline_post_process_character_state",
                     )
                     .unwrap_or_else(|| default_character_state_prompt().to_string())
-                })
-        } else {
-            crate::prompts::registry::resolve_prompt_default(
-                "pipeline_post_process_character_state",
-            )
-            .unwrap_or_else(|| default_character_state_prompt().to_string())
-        };
+                });
         let mut vars = std::collections::HashMap::new();
         vars.insert("content".to_string(), content_preview.to_string());
         crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)

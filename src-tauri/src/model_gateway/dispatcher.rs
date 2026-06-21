@@ -294,6 +294,7 @@ mod tests {
             intent_object: Some("prose".to_string()),
             asset_tags: vec!["mcp_tool".to_string()],
             discovered_asset_ids: vec![],
+            response_format: None,
         };
         // 即使意图是 generate prose，mcp_tool 标签也应将其降级为 LightTool
         assert_eq!(TaskClassifier::classify_task(&req), TaskClass::LightTool);

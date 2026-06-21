@@ -27,6 +27,7 @@ use crate::{
         CreateCharacterRequest, CreateStoryRequest, DbPool, UpdateStoryRequest,
     },
     llm::{service::PipelineContext as LlmPipelineContext, LlmService},
+    ports::VectorStore,
     router::{Complexity, Priority, RoutingRequest, TaskType},
     story_system::StorySystemEngine,
     strategy::{load_all_assets, SelectionContext, StrategySelector},
@@ -46,6 +47,7 @@ pub struct GenesisContext {
     pub current_step: String,
     pub app_handle: AppHandle,
     pub pool: DbPool,
+    pub vector_store: Arc<dyn VectorStore>,
     /// 第一章正文内容（用于返回给前端）
     pub first_chapter_content: Option<String>,
     /// 模型为当前故事选择的创作策略
@@ -69,6 +71,7 @@ impl StepContext for GenesisContext {
 impl GenesisContext {
     pub fn new(app_handle: AppHandle, user_premise: String) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
+        let vector_store = app_handle.state::<Arc<dyn VectorStore>>().inner().clone();
         Self {
             story_id: String::new(),
             session_id: Uuid::new_v4().to_string(),
@@ -77,6 +80,7 @@ impl GenesisContext {
             current_step: String::new(),
             app_handle,
             pool,
+            vector_store,
             first_chapter_content: None,
             selected_strategy: None,
         }
@@ -92,6 +96,7 @@ impl GenesisContext {
         selected_strategy: Option<crate::domain::strategy::SelectedStrategy>,
     ) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
+        let vector_store = app_handle.state::<Arc<dyn VectorStore>>().inner().clone();
         Self {
             story_id,
             session_id,
@@ -100,6 +105,7 @@ impl GenesisContext {
             current_step: String::new(),
             app_handle,
             pool,
+            vector_store,
             first_chapter_content: None,
             selected_strategy,
         }
@@ -307,6 +313,7 @@ impl PipelineStep<GenesisContext> for ConceptGenerationStep {
                 PromptMode::Generate,
                 &ctx.user_premise,
                 Some(&available_profiles),
+                Some(&ctx.pool),
             );
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 2, "生成故事概念");
@@ -430,10 +437,8 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 .unwrap_or(2000);
 
             let genre_repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
-            let skills = crate::SKILL_MANAGER
-                .get()
-                .map(|m| m.lock().unwrap().get_all_skills())
-                .unwrap_or_default();
+            let skills = crate::skills::SkillManager::from_app_handle(&ctx.app_handle)
+                .get_all_skills();
 
             let assets =
                 load_all_assets(&genre_repo, &skills).map_err(|e| PipelineError::StepFailed {
@@ -441,7 +446,7 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                     reason: format!("加载创作资产失败: {}", e),
                 })?;
 
-            let selector = StrategySelector::new(llm.clone());
+            let selector = StrategySelector::new(llm.clone(), ctx.pool.clone());
             let selection_ctx = SelectionContext {
                 user_input: ctx.user_premise.clone(),
                 genre_hint: Some(genre.clone()),
@@ -701,6 +706,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             let commit_story_id = ctx.story_id.clone();
             let commit_app_handle = ctx.app_handle.clone();
             let commit_pool = ctx.pool.clone();
+            let commit_vector_store = ctx.vector_store.clone();
             let commit_chapter_id = chapter.id.clone();
             let commit_chapter_number = chapter.chapter_number;
             let commit_content = result.content.clone();
@@ -715,7 +721,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                         Some(&commit_content),
                         None,
                         Some(commit_app_handle.clone()),
-                        crate::VECTOR_STORE.get(),
+                        Some(commit_vector_store.as_ref()),
                     )
                     .await
                 {
@@ -882,6 +888,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         &meta.description,
                         Some(&strategy_notes),
                         narrative_quartet.as_deref(),
+                        Some(&pool),
                     );
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "构建世界".to_string(),
@@ -1002,6 +1009,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         &meta.description,
                         Some(&strategy_notes),
                         narrative_quartet.as_deref(),
+                        Some(&pool),
                     );
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "故事大纲".to_string(),
@@ -1118,6 +1126,7 @@ impl PipelineStep<GenesisContext> for ParallelWorldOutlineCharacterStep {
                         &meta.description,
                         Some(&strategy_notes),
                         narrative_quartet.as_deref(),
+                        Some(&pool),
                     );
                     let pipeline_ctx = LlmPipelineContext {
                         step_name: "塑造角色".to_string(),
@@ -1329,6 +1338,7 @@ impl PipelineStep<GenesisContext> for SceneGenerationStep {
                 &meta.description,
                 Some(&strategy_notes),
                 narrative_quartet.as_deref(),
+                Some(&ctx.pool),
             );
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成场景大纲");
@@ -1530,6 +1540,7 @@ impl PipelineStep<GenesisContext> for ForeshadowingGenerationStep {
                 "",
                 Some(&strategy_notes),
                 narrative_quartet.as_deref(),
+                Some(&ctx.pool),
             );
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 6, "生成伏笔");
             let request = RoutingRequest {

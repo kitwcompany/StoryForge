@@ -245,21 +245,24 @@ async fn smart_execute_inner(
                 );
 
                 // Record AI operation
-                record_ai_operation(crate::db::CreateAiOperationRequest {
-                    story_id: story_id.clone(),
-                    scene_id: None,
-                    chapter_id: None,
-                    operation_type: "bootstrap".to_string(),
-                    operation_name: "小说创世".to_string(),
-                    input_summary: Some(user_input.clone()),
-                    output_summary: None,
-                    previous_content: None,
-                    new_content: None,
-                    metadata: Some(
-                        serde_json::json!({"session_id": session_id, "mode": "concept_sync"})
-                            .to_string(),
-                    ),
-                });
+                record_ai_operation(
+                    &pool,
+                    crate::db::CreateAiOperationRequest {
+                        story_id: story_id.clone(),
+                        scene_id: None,
+                        chapter_id: None,
+                        operation_type: "bootstrap".to_string(),
+                        operation_name: "小说创世".to_string(),
+                        input_summary: Some(user_input.clone()),
+                        output_summary: None,
+                        previous_content: None,
+                        new_content: None,
+                        metadata: Some(
+                            serde_json::json!({"session_id": session_id, "mode": "concept_sync"})
+                                .to_string(),
+                        ),
+                    },
+                );
 
                 // v0.9.5: 第一章与剩余结构在后台生成，避免阻塞用户
                 let app_handle_bg = app_handle.clone();
@@ -788,23 +791,26 @@ async fn smart_execute_inner(
 
     // Record AI operation for non-bootstrap generation
     if let Some(ref story_id) = story_id_for_record {
-        record_ai_operation(crate::db::CreateAiOperationRequest {
-            story_id: story_id.clone(),
-            scene_id: scene_id_for_record,
-            chapter_id: chapter_id_for_record,
-            operation_type: "smart_execute".to_string(),
-            operation_name: "AI 续写".to_string(),
-            input_summary: Some(input_for_record),
-            output_summary: result
-                .final_content
-                .as_ref()
-                .map(|c| c.chars().take(200).collect()),
-            previous_content: prev_content_for_record,
-            new_content: result.final_content.clone(),
-            metadata: Some(
-                serde_json::json!({"steps_completed": result.steps_completed}).to_string(),
-            ),
-        });
+        record_ai_operation(
+            &pool,
+            crate::db::CreateAiOperationRequest {
+                story_id: story_id.clone(),
+                scene_id: scene_id_for_record,
+                chapter_id: chapter_id_for_record,
+                operation_type: "smart_execute".to_string(),
+                operation_name: "AI 续写".to_string(),
+                input_summary: Some(input_for_record),
+                output_summary: result
+                    .final_content
+                    .as_ref()
+                    .map(|c| c.chars().take(200).collect()),
+                previous_content: prev_content_for_record,
+                new_content: result.final_content.clone(),
+                metadata: Some(
+                    serde_json::json!({"steps_completed": result.steps_completed}).to_string(),
+                ),
+            },
+        );
     }
 
     Ok(result)

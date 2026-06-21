@@ -11,7 +11,7 @@
 //! - Phase 3 (Atomic Extraction): LLM 提取原子动词-宾语，回退到 splitn 切分
 
 use super::models::*;
-use crate::{error::AppError, intention_graph::IntentContext, llm::LlmService};
+use crate::{db::DbPool, error::AppError, intention_graph::IntentContext, llm::LlmService};
 
 /// 意图合成流水线
 pub struct IntentSynthesisPipeline {
@@ -50,9 +50,13 @@ impl IntentSynthesisPipeline {
         &self,
         user_input: &str,
         context: &IntentContext,
+        pool: Option<&DbPool>,
     ) -> SynthesizedQuery {
         // 先尝试 LLM 合成
-        match self.synthesize_query_with_llm(user_input, context).await {
+        match self
+            .synthesize_query_with_llm(user_input, context, pool)
+            .await
+        {
             Ok(query) => {
                 log::debug!(
                     "[IntentSynthesis] LLM 合成成功: {} (confidence: {:.2})",
@@ -73,15 +77,14 @@ impl IntentSynthesisPipeline {
         &self,
         user_input: &str,
         _context: &IntentContext,
+        pool: Option<&DbPool>,
     ) -> Result<SynthesizedQuery, AppError> {
         // v0.21.0: 从 PromptRegistry 读取（支持用户覆盖），回退到内置默认
-        let system_prompt = if let Some(pool) = crate::get_pool() {
-            crate::prompts::registry::resolve_prompt(&pool, "intent_analyzer").unwrap_or_else(
-                |_| {
-                    crate::prompts::registry::resolve_prompt_default("intent_analyzer")
-                        .unwrap_or_else(|| Self::default_intent_prompt().to_string())
-                },
-            )
+        let system_prompt = if let Some(pool) = pool {
+            crate::prompts::registry::resolve_prompt(pool, "intent_analyzer").unwrap_or_else(|_| {
+                crate::prompts::registry::resolve_prompt_default("intent_analyzer")
+                    .unwrap_or_else(|| Self::default_intent_prompt().to_string())
+            })
         } else {
             crate::prompts::registry::resolve_prompt_default("intent_analyzer")
                 .unwrap_or_else(|| Self::default_intent_prompt().to_string())
@@ -332,9 +335,10 @@ impl IntentSynthesisPipeline {
         &self,
         user_input: &str,
         context: &IntentContext,
+        pool: Option<&DbPool>,
     ) -> Result<IntentSynthesisResult, AppError> {
         // Phase 1: Query Synthesis (LLM 增强优先，回退到规则匹配)
-        let query = self.synthesize_query(user_input, context).await;
+        let query = self.synthesize_query(user_input, context, pool).await;
 
         // Phase 2: Chain Expansion (规则匹配)
         let chain = self.expand_chain(&query);

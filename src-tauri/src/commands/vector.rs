@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 //! Vector commands
 
+use std::sync::Arc;
+
 use tauri::State;
 
-use crate::{db::DbPool, error::AppError, vector::SearchResult, VECTOR_STORE};
+use crate::{db::DbPool, error::AppError, ports::VectorStore, vector::SearchResult};
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn search_similar(
@@ -11,12 +13,10 @@ pub async fn search_similar(
     query: String,
     top_k: Option<usize>,
     _pool: State<'_, DbPool>,
+    store: State<'_, Arc<dyn VectorStore>>,
 ) -> Result<Vec<SearchResult>, AppError> {
     use crate::embeddings::embed_text_async;
 
-    let store = VECTOR_STORE
-        .get()
-        .ok_or(AppError::internal("Vector store not initialized"))?;
     let query_embedding = embed_text_async(query.clone())
         .await
         .map_err(AppError::from)?;
@@ -32,10 +32,8 @@ pub async fn text_search_vectors(
     story_id: String,
     query: String,
     top_k: Option<usize>,
+    store: State<'_, Arc<dyn VectorStore>>,
 ) -> Result<Vec<SearchResult>, AppError> {
-    let store = VECTOR_STORE
-        .get()
-        .ok_or(AppError::internal("Vector store not initialized"))?;
     store
         .text_search(&story_id, &query, top_k.unwrap_or(5))
         .await
@@ -48,12 +46,10 @@ pub async fn hybrid_search_vectors(
     query: String,
     top_k: Option<usize>,
     _pool: State<'_, DbPool>,
+    store: State<'_, Arc<dyn VectorStore>>,
 ) -> Result<Vec<SearchResult>, AppError> {
     use crate::embeddings::embed_text_async;
 
-    let store = VECTOR_STORE
-        .get()
-        .ok_or(AppError::internal("Vector store not initialized"))?;
     let query_embedding = embed_text_async(query.clone())
         .await
         .map_err(AppError::from)?;
@@ -69,12 +65,10 @@ pub async fn embed_chapter(
     chapter_id: String,
     content: String,
     pool: State<'_, DbPool>,
+    store: State<'_, Arc<dyn VectorStore>>,
 ) -> Result<(), AppError> {
     use crate::{embeddings::embed_text_async, vector::VectorRecord};
 
-    let store = VECTOR_STORE
-        .get()
-        .ok_or(AppError::internal("Vector store not initialized"))?;
     let pool = pool.inner().clone();
     let chapter = crate::db::ChapterRepository::new(pool)
         .get_by_id(&chapter_id)
@@ -98,5 +92,5 @@ pub async fn embed_chapter(
         embedding,
     };
 
-    store.add_record(record).await.map_err(AppError::from)
+    store.upsert(record).await.map_err(AppError::from)
 }

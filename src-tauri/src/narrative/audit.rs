@@ -10,18 +10,19 @@
 //! 4. 世界观一致性 — 场景中的设定是否与世界观规则冲突
 //! 5. 大纲完成度 — 实际场景数 vs 预估场景数
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    creative_engine::foreshadowing::ForeshadowingTracker,
     db::{
         repositories::{
             CharacterRepository, SceneRepository, StoryOutlineRepository, WorldBuildingRepository,
         },
         DbPool,
     },
+    domain::foreshadowing::{ForeshadowingProvider, ForeshadowingStatus as TrackerStatus},
+    error::AppError,
     llm::LlmService,
 };
 
@@ -63,15 +64,24 @@ pub enum FindingSeverity {
 pub struct StoryStructureAuditor {
     pool: DbPool,
     llm_service: LlmService,
+    foreshadowing_provider: Arc<dyn ForeshadowingProvider>,
 }
 
 impl StoryStructureAuditor {
-    pub fn new(pool: DbPool, llm_service: LlmService) -> Self {
-        Self { pool, llm_service }
+    pub fn new(
+        pool: DbPool,
+        llm_service: LlmService,
+        foreshadowing_provider: Arc<dyn ForeshadowingProvider>,
+    ) -> Self {
+        Self {
+            pool,
+            llm_service,
+            foreshadowing_provider,
+        }
     }
 
     /// 对已有故事进行结构分析
-    pub async fn analyze(&self, story_id: &str) -> Result<StoryAnalysisReport, String> {
+    pub async fn analyze(&self, story_id: &str) -> Result<StoryAnalysisReport, AppError> {
         let mut dimensions = Vec::new();
         let findings = Vec::new();
 
@@ -121,11 +131,11 @@ impl StoryStructureAuditor {
 
     // ==================== 各维度审计 ====================
 
-    async fn audit_foreshadowings(&self, story_id: &str) -> Result<AuditDimension, String> {
-        let tracker = ForeshadowingTracker::new(self.pool.clone());
-        let foreshadowings = tracker
+    async fn audit_foreshadowings(&self, story_id: &str) -> Result<AuditDimension, AppError> {
+        let foreshadowings = self
+            .foreshadowing_provider
             .get_all(story_id)
-            .map_err(|e| format!("读取伏笔失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("读取伏笔失败: {}", e)))?;
 
         let total = foreshadowings.len();
         if total == 0 {
@@ -138,7 +148,6 @@ impl StoryStructureAuditor {
             });
         }
 
-        use crate::creative_engine::foreshadowing::ForeshadowingStatus as TrackerStatus;
         let paid_off = foreshadowings
             .iter()
             .filter(|f| matches!(f.status, TrackerStatus::Payoff))
@@ -182,11 +191,11 @@ impl StoryStructureAuditor {
         })
     }
 
-    async fn audit_characters(&self, story_id: &str) -> Result<AuditDimension, String> {
+    async fn audit_characters(&self, story_id: &str) -> Result<AuditDimension, AppError> {
         let repo = CharacterRepository::new(self.pool.clone());
         let characters = repo
             .get_by_story(story_id)
-            .map_err(|e| format!("读取角色失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("读取角色失败: {}", e)))?;
 
         let total = characters.len();
         if total == 0 {
@@ -237,11 +246,11 @@ impl StoryStructureAuditor {
         })
     }
 
-    async fn audit_scenes(&self, story_id: &str) -> Result<AuditDimension, String> {
+    async fn audit_scenes(&self, story_id: &str) -> Result<AuditDimension, AppError> {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = repo
             .get_by_story(story_id)
-            .map_err(|e| format!("读取场景失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("读取场景失败: {}", e)))?;
 
         let total = scenes.len();
         if total == 0 {
@@ -288,11 +297,11 @@ impl StoryStructureAuditor {
         })
     }
 
-    async fn audit_world_building(&self, story_id: &str) -> Result<AuditDimension, String> {
+    async fn audit_world_building(&self, story_id: &str) -> Result<AuditDimension, AppError> {
         let repo = WorldBuildingRepository::new(self.pool.clone());
         let wb = repo
             .get_by_story(story_id)
-            .map_err(|e| format!("读取世界观失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("读取世界观失败: {}", e)))?;
 
         if let Some(wb) = wb {
             let rules_count = wb.rules.len();
@@ -337,16 +346,16 @@ impl StoryStructureAuditor {
         }
     }
 
-    async fn audit_outline(&self, story_id: &str) -> Result<AuditDimension, String> {
+    async fn audit_outline(&self, story_id: &str) -> Result<AuditDimension, AppError> {
         let outline_repo = StoryOutlineRepository::new(self.pool.clone());
         let scene_repo = SceneRepository::new(self.pool.clone());
 
         let outline = outline_repo
             .get_by_story(story_id)
-            .map_err(|e| format!("读取大纲失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("读取大纲失败: {}", e)))?;
         let scenes = scene_repo
             .get_by_story(story_id)
-            .map_err(|e| format!("读取场景失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("读取场景失败: {}", e)))?;
 
         let actual_scenes = scenes.len() as i32;
         let estimated_scenes = outline

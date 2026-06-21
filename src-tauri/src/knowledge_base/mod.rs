@@ -3,7 +3,8 @@ pub mod commands;
 
 use serde::{Deserialize, Serialize};
 
-use crate::vector::{LanceVectorStore, VectorRecord};
+use crate::ports::VectorStore;
+use crate::vector::VectorRecord;
 
 /// 知识库导入结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,7 +100,7 @@ fn chunk_id(story_id: &str, chapter_number: i32, index: usize) -> String {
 
 /// 导入文本到知识库
 pub async fn import_text(
-    store: &LanceVectorStore,
+    store: &dyn VectorStore,
     story_id: &str,
     chapter_number: i32,
     content: &str,
@@ -157,7 +158,7 @@ pub async fn import_text(
 
 /// 知识库搜索
 pub async fn kb_search(
-    store: &LanceVectorStore,
+    store: &dyn VectorStore,
     story_id: &str,
     query: &str,
     top_k: usize,
@@ -201,7 +202,7 @@ pub async fn kb_search(
 
 /// 删除某章的向量记录
 pub async fn delete_chapter_vectors(
-    store: &LanceVectorStore,
+    store: &dyn VectorStore,
     story_id: &str,
     chapter_number: i32,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {

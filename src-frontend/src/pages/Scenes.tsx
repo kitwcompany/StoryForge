@@ -26,7 +26,6 @@ export function Scenes() {
   const queryClient = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
 
-  // W2-F2: backstage-data-refreshed 已废弃，数据刷新由 useSyncStore 统一处理
   const [isEditing, setIsEditing] = useState(false);
   const [previewTab, setPreviewTab] = useState<'content' | 'versions'>('content');
   const [compareVersions, setCompareVersions] = useState<[SceneVersion, SceneVersion] | null>(null);

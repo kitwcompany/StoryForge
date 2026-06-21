@@ -5,7 +5,7 @@ use crate::{
         PipelineReviewRepository,
     },
     domain::contracts::RuntimeContract,
-    llm::LlmService,
+    llm::{LlmService, ResponseFormat},
     router::TaskType,
     story_system::StorySystemEngine,
 };
@@ -94,14 +94,15 @@ pub async fn review_draft(
     callbacks.log("[审稿] 已构建审稿 prompt");
     callbacks.progress("review", 0.4);
 
-    // 4. 调用 LLM 生成审稿报告
+    // 4. 调用 LLM 生成审稿报告（启用 OpenAI/Ollama JSON mode）
     let review_result = match llm_service
-        .generate_for_task(
+        .generate_for_task_with_format(
             TaskType::Analysis,
             prompt,
             Some(4096),
             Some(0.3),
             Some("AI审稿报告"),
+            Some(ResponseFormat::JsonObject),
         )
         .await
     {
@@ -198,12 +199,8 @@ fn build_review_prompt(
     pool: &DbPool,
 ) -> String {
     // v0.21.0: 系统提示词骨架从 PromptRegistry 读取（支持用户覆盖）
-    let mut prompt = if let Some(pool) = crate::get_pool() {
-        crate::prompts::registry::resolve_prompt(&pool, "pipeline_review")
-            .unwrap_or_else(|_| default_review_system_prompt().to_string())
-    } else {
-        default_review_system_prompt().to_string()
-    };
+    let mut prompt = crate::prompts::registry::resolve_prompt(pool, "pipeline_review")
+        .unwrap_or_else(|_| default_review_system_prompt().to_string());
 
     // 构建评审维度描述（动态部分，保留在代码中）
     let mut review_dimensions = String::new();

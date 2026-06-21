@@ -48,8 +48,6 @@ export function Characters() {
   const [activeTab, setActiveTab] = useState<CharacterTab>('info');
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
-  // W2-F2: backstage-data-refreshed 已废弃，数据刷新由 useSyncStore 统一处理
-
   const createCharacter = useCreateCharacter();
   const deleteCharacter = useDeleteCharacter();
 

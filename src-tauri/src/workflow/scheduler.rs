@@ -568,7 +568,9 @@ impl WorkflowScheduler {
 
                 if content.len() > 50 {
                     let llm_service = crate::llm::LlmService::new(app_handle.clone());
-                    let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
+                    let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
+                    let pipeline =
+                        crate::memory::ingest::IngestPipeline::new(llm_service).with_pool(pool);
                     let ingest_content = crate::memory::ingest::IngestContent {
                         text: content.clone(),
                         source: format!("workflow:{}", instance.id),

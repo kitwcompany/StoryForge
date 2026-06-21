@@ -25,7 +25,7 @@ pub mod metrics;
 pub use blend::StyleBlendConfig;
 pub use dna::StyleDNA;
 pub use drift_checker::StyleDriftChecker;
-use serde::{Deserialize, Serialize};
+pub use crate::domain::style::StyleCheckResult;
 
 use crate::{llm::service::LlmService, router::TaskType};
 
@@ -457,14 +457,6 @@ impl StyleChecker {
             text.chars().take(2000).collect::<String>()
         )
     }
-}
-
-/// 风格检查结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StyleCheckResult {
-    pub score: f32,
-    pub passed: bool,
-    pub issues: Vec<String>,
 }
 
 #[cfg(test)]

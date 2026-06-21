@@ -111,7 +111,7 @@ impl AuditExecutor {
 
     /// 审计核心逻辑。返回创建的 annotation 数量。
     async fn run_audit_inner(&self, payload: &AuditPayload) -> Result<u32, String> {
-        let prompt = build_inspector_prompt(payload);
+        let prompt = build_inspector_prompt(payload, &self.pool);
 
         let llm = LlmService::new(self.app_handle.clone());
         let response = llm
@@ -269,13 +269,13 @@ impl AuditExecutor {
 
 // ==================== Inspector prompt ====================
 
-fn build_inspector_prompt(payload: &AuditPayload) -> String {
+fn build_inspector_prompt(payload: &AuditPayload, pool: &DbPool) -> String {
     let title = payload.story_title.as_deref().unwrap_or("未命名作品");
     let genre = payload.genre.as_deref().unwrap_or("未知");
 
     // v0.21.0: 优先从 PromptRegistry 读取覆盖
-    if let Some(tpl) = crate::get_pool()
-        .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "audit_quality_inspector").ok())
+    if let Some(tpl) = crate::prompts::registry::resolve_prompt(pool, "audit_quality_inspector")
+        .ok()
         .or_else(|| crate::prompts::registry::resolve_prompt_default("audit_quality_inspector"))
     {
         let content = payload.content.chars().take(8000).collect::<String>();

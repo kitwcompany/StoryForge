@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::types::{HealthStatus, ModelHealthSnapshot, ProbeResult};
-use crate::config::settings::LlmProfile;
+use crate::{config::settings::LlmProfile, db::DbPool};
 
 /// 单个模型的历史健康记录
 #[derive(Debug, Clone, Default)]
@@ -62,8 +62,11 @@ impl HealthRegistry {
     }
 
     /// 从历史 llm_calls 聚合最近 24 小时成功率
-    pub fn aggregate_success_rate_from_history(&mut self, model_id: &str) -> Option<f64> {
-        let pool = crate::get_pool()?;
+    pub fn aggregate_success_rate_from_history(
+        &mut self,
+        model_id: &str,
+        pool: &DbPool,
+    ) -> Option<f64> {
         let conn = pool.get().ok()?;
         let since = chrono::Local::now() - chrono::Duration::hours(24);
         let since_str = since.to_rfc3339();
@@ -92,7 +95,12 @@ impl HealthRegistry {
     }
 
     /// 根据探测结果更新模型健康状态
-    pub fn apply_probe_result(&mut self, profile: &LlmProfile, result: &ProbeResult) {
+    pub fn apply_probe_result(
+        &mut self,
+        profile: &LlmProfile,
+        result: &ProbeResult,
+        pool: &DbPool,
+    ) {
         let mut status = if result.success {
             HealthStatus::Healthy
         } else {
@@ -101,7 +109,7 @@ impl HealthRegistry {
 
         // 如果历史成功率过低，标记为 degraded
         let success_rate = self
-            .aggregate_success_rate_from_history(&profile.id)
+            .aggregate_success_rate_from_history(&profile.id, pool)
             .or(Some(1.0));
         if result.success {
             if let Some(rate) = success_rate {
@@ -181,9 +189,9 @@ impl ProbeEngine {
     /// 对单个模型执行轻量探测
     ///
     /// 实际调用由 executor 层注入，health 模块只负责记录与聚合。
-    pub fn record_probe(&self, profile: &LlmProfile, result: &ProbeResult) {
+    pub fn record_probe(&self, profile: &LlmProfile, result: &ProbeResult, pool: &DbPool) {
         if let Ok(mut reg) = self.registry.lock() {
-            reg.apply_probe_result(profile, result);
+            reg.apply_probe_result(profile, result, pool);
         }
     }
 }

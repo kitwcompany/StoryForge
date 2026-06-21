@@ -186,6 +186,26 @@ node scripts/cdp-inspect.js
 
 ### 最近完成的功能
 
+  - **v0.23.3 测试基线修复 + 工程化（48 个 V092 失败清零）** (2026-06-21) — 修复迁移框架 bug 与 narrative 表 schema 不匹配，让 `cargo test --lib` 首次全绿。核心变更：
+    - **MigrationRunner 交错执行**：`run_with_legacy` 改为按版本将 SQL 文件 migration 与 inline Rust migration 交错执行，避免高版本 SQL 文件跳过低版本 inline migrations；新增 `MAX_INLINE_MIGRATION_VERSION` 约束与注释
+    - **SING migration 版本上调**：`V095__意图图_SING_数据层.sql` → `V099__...`，确保其跑在所有 inline migrations 之后
+    - **`narrative_*` 表补 status 列**：`narrative_characters` / `narrative_scenes` / `narrative_world_buildings` 加入 `status TEXT NOT NULL DEFAULT 'active'`，并新增 inline Migration 98 为已存在表补列
+    - **ElementSource/ElementStatus round-trip 修复**：`domain/narrative_elements.rs` 新增 `as_str()` / `from_str()`（snake_case 英文）；`db/repositories_narrative.rs` 存储与解析统一使用英文键，新增 3 个 repository round-trip 测试
+    - **验证**：`cargo check` 零错误；`cargo test --lib` **538 passed / 0 failed / 2 ignored**（新增 3 个测试，零回归）；`npx tsc --noEmit` 零错误；`python3 scripts/architecture_guard.py` 通过
+
+  - **v0.23.2 事件总线与状态同步治理** (2026-06-21) — 在 v0.23.1 架构清理基础上，补齐后端提交事件流并收敛前端编辑器状态源。核心变更：
+    - **后端 `SyncEvent::ChapterCommitted`**：`state_sync/events.rs` 新增 `ChapterCommitted` 变体，携带 `projection_status`；`SceneCommitService::apply_commit` 在 projections 完成后统一发射，替代零散的 `dataRefresh("knowledgeGraph")`
+    - **前端 `content/isSaved` 迁移到 `frontstageStore`**：`FrontstageApp.tsx` 移除本地 `useState(content/isSaved)`，改为 `useFrontstageStore` 读写；保留 `isSaved` + editor focus 双重保护，后台同步事件不会覆盖未保存编辑内容
+    - **清理遗留事件/hack**：删除所有 `backstage-data-refreshed` 废弃注释，更新 `CONTEXT.md` 数据刷新说明；`useWebViewRedrawFix` 改为 `FIXME` 标记，待真实场景验证后再移除
+    - **验证**：`cargo check` 零错误；`cargo test --lib` 487 passed / 48 failed（新增 1 个序列化测试，基线一致，零新回归）；`npx tsc --noEmit` 零错误；`npx vitest run` 126 passed / 3 skipped
+
+  - **v0.23.1 架构债务清偿：全局单例治理 + 模块依赖解耦** (2026-06-21) — 为 TriShot 之后的长期可维护性清理架构底层，零业务行为变更。核心变更：
+    - **全局单例清零**：彻底移除 14 个全局 `static`/缓存（`VECTOR_STORE` / `DB_POOL` / `LLM_SERVICE` / `APP_CONFIG` / `SKILL_MANAGER` / `CHAPTER_COMMIT_DEBOUNCE` / `PENDING_VECTOR_INDEXES` / `WRITER_*` 缓存 / `APP_CONFIG_CACHE` 等），全部改为 Tauri State 注入或每次调用重新加载
+    - **domain 领域层扩展**：新增 `agent_context` / `agent_types` / `foreshadowing` / `search` / `write_time_bundle` / `asset_snapshot` / `continuity` / `adaptive` / `prompt_synthesis` / `agent_service` / `creative_engine` 等共享类型与端口，统一跨模块数据契约
+    - **模块循环依赖斩断**：`memory → agents`、`narrative → memory`、`narrative → creative_engine` 数据类型下沉到 `domain`；`agents ↔ creative_engine` 行为依赖通过 `CreativeEnginePort` / `AgentServicePort` 双向反转，彻底消除循环导入
+    - **架构守卫收紧**：`scripts/architecture_guard.py` 的 `KNOWN_VIOLATIONS` 清空，`architecture_guard.py` 报告 **0 known violations / 14 enforced global singletons removed**
+    - **验证**：`cargo check` 零错误；`cargo test --lib` 486 passed / 48 failed（与 TriShot 基线一致，零新回归）
+
   - **v0.23.0 TriShot 三击生成管线** (2026-06-21) — 全面实施「最多 3 次 LLM」三击生成架构。核心变更：
 
     - **TriShot 三击管线**：新增 `GenerationMode::TriShot` 模式，Call 1 用最快模型选资产+合成提示词 → Call 2(可选) 精修 → Call 3 Writer 生成。关键路径最多 3 次 LLM，质检/改写/入库/洞察全部下沉后台静默执行

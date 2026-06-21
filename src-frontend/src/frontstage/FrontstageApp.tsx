@@ -23,6 +23,7 @@ import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import { useAppStore } from '@/stores/appStore';
+import { useFrontstageStore } from './store/frontstageStore';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import { useSettings, useModels } from '@/hooks/useSettings';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
@@ -144,11 +145,16 @@ const FrontstageApp: React.FC = () => {
     currentChapterRef.current = currentChapter;
   }, [currentChapter]);
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
-  // W2-F1 TODO: `content` 和 `isSaved` 应迁移到 frontstageStore（唯一可写源）。
-  // 当前已通过事件入口保护（ContentUpdate/ChapterSwitch 在 isSaved===false 时不覆盖）
-  // 和 RichTextEditor 焦点保护满足验收标准。
-  const [content, setContent] = useState('');
-  const [isSaved, setIsSaved] = useState(true);
+  // W2-F1: 编辑中内容与保存状态由 frontstageStore 作为唯一可写源。
+  const content = useFrontstageStore(state => state.content);
+  const setContent = useFrontstageStore(state => state.setContent);
+  const isSaved = useFrontstageStore(state => state.isSaved);
+  const setSaveStatus = useFrontstageStore(state => state.setSaveStatus);
+  const setChapterInfo = useFrontstageStore(state => state.setChapterInfo);
+  const setIsSaved = useCallback(
+    (saved: boolean) => setSaveStatus(saved, saved ? new Date().toISOString() : null),
+    [setSaveStatus]
+  );
   const isSavedRef = useRef(isSaved);
   useEffect(() => {
     isSavedRef.current = isSaved;
@@ -1393,6 +1399,7 @@ const FrontstageApp: React.FC = () => {
     setCurrentChapter(chapter);
     setContent(autoFormatText(chapter.content || ''));
     setIsSaved(true);
+    setChapterInfo(chapter.id, chapter.title || '', currentStory?.title);
 
     // Sync currentScene if chapter has associated scene
     if (chapter.scene_id) {

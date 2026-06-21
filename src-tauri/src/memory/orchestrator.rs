@@ -12,7 +12,29 @@ use std::collections::HashMap;
 use crate::{
     db::{DbPool, MemoryItemRepository, SceneCommitRepository},
     domain::memory_pack::*,
+    error::AppError,
 };
+
+/// 记忆包构建任务类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryTaskType {
+    /// 写作/续写场景
+    Write,
+    /// 大纲/规划场景
+    Plan,
+    /// 审稿/分析场景
+    Review,
+}
+
+impl MemoryTaskType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MemoryTaskType::Write => "write",
+            MemoryTaskType::Plan => "plan",
+            MemoryTaskType::Review => "review",
+        }
+    }
+}
 
 /// 记忆类别优先级（数值越小优先级越高）
 pub const MEMORY_PRIORITY: &[(&str, i32)] = &[
@@ -44,24 +66,23 @@ impl Default for MemoryBudget {
 }
 
 impl MemoryBudget {
-    pub fn for_task_type(task_type: &str) -> Self {
+    pub fn for_task_type(task_type: MemoryTaskType) -> Self {
         match task_type {
-            "write" => Self {
+            MemoryTaskType::Write => Self {
                 working_max: 10,
                 episodic_max: 15,
                 semantic_max: 30,
             },
-            "plan" => Self {
+            MemoryTaskType::Plan => Self {
                 working_max: 15,
                 episodic_max: 10,
                 semantic_max: 20,
             },
-            "review" => Self {
+            MemoryTaskType::Review => Self {
                 working_max: 5,
                 episodic_max: 20,
                 semantic_max: 25,
             },
-            _ => Self::default(),
         }
     }
 }
@@ -81,9 +102,9 @@ impl MemoryOrchestrator {
         &self,
         story_id: &str,
         chapter_number: i32,
-        task_type: &str,
+        task_type: MemoryTaskType,
         outline: Option<&str>,
-    ) -> Result<MemoryPack, String> {
+    ) -> Result<MemoryPack, AppError> {
         let budget = MemoryBudget::for_task_type(task_type);
 
         // 1. 构建工作记忆
@@ -94,13 +115,9 @@ impl MemoryOrchestrator {
 
         // 3. 获取语义记忆
         let repo = MemoryItemRepository::new(self.pool.clone());
-        let active_items = repo
-            .get_active_by_story(story_id)
-            .map_err(|e| format!("获取记忆项失败: {}", e))?;
+        let active_items = repo.get_active_by_story(story_id)?;
 
-        let conflicts = repo
-            .get_conflicts(story_id)
-            .map_err(|e| format!("获取冲突项失败: {}", e))?;
+        let conflicts = repo.get_conflicts(story_id)?;
 
         // 4. 按相关性过滤
         let filtered = self.filter_relevant(&active_items, chapter_number, outline);
@@ -120,15 +137,9 @@ impl MemoryOrchestrator {
             })
             .collect::<Vec<_>>();
 
-        let working_items = working
-            .into_iter()
-            .take(budget.working_max)
-            .collect::<Vec<_>>();
+        let working_items = working.into_iter().take(budget.working_max).collect::<Vec<_>>();
 
-        let episodic_items = episodic
-            .into_iter()
-            .take(budget.episodic_max)
-            .collect::<Vec<_>>();
+        let episodic_items = episodic.into_iter().take(budget.episodic_max).collect::<Vec<_>>();
 
         // 6. 提取活跃约束
         let active_constraints: Vec<MemoryItemDto> = semantic_items
@@ -190,12 +201,11 @@ impl MemoryOrchestrator {
         &self,
         story_id: &str,
         chapter_number: i32,
-        task_type: &str,
+        task_type: MemoryTaskType,
         outline: Option<&str>,
-    ) -> Result<MemoryPack, String> {
+    ) -> Result<MemoryPack, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
-        let task_type = task_type.to_string();
         let outline = outline.map(|s| s.to_string());
 
         tokio::task::spawn_blocking(move || {
@@ -203,12 +213,12 @@ impl MemoryOrchestrator {
             orchestrator.build_memory_pack(
                 &story_id,
                 chapter_number,
-                &task_type,
+                task_type,
                 outline.as_deref(),
             )
         })
         .await
-        .map_err(|e| format!("memory pack task failed: {}", e))?
+        .map_err(|e| AppError::internal(format!("memory pack task failed: {}", e)))?
     }
 
     fn build_working_memory(
@@ -216,7 +226,7 @@ impl MemoryOrchestrator {
         story_id: &str,
         chapter_number: i32,
         outline: Option<&str>,
-    ) -> Result<Vec<MemoryEntry>, String> {
+    ) -> Result<Vec<MemoryEntry>, AppError> {
         let mut result = Vec::new();
 
         // 添加大纲
@@ -231,9 +241,7 @@ impl MemoryOrchestrator {
 
         // 添加近章摘要（最近3章）
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
-        let recent_commits = commit_repo
-            .get_by_story(story_id)
-            .map_err(|e| format!("获取最近提交失败: {}", e))?;
+        let recent_commits = commit_repo.get_by_story(story_id)?;
 
         let recent_summaries: Vec<_> = recent_commits
             .into_iter()
@@ -259,14 +267,12 @@ impl MemoryOrchestrator {
         &self,
         story_id: &str,
         chapter_number: i32,
-    ) -> Result<Vec<MemoryEntry>, String> {
+    ) -> Result<Vec<MemoryEntry>, AppError> {
         let mut result = Vec::new();
 
         // 1. 获取最近 3 个章节的场景提交记录（状态变更历史）
         let commit_repo = SceneCommitRepository::new(self.pool.clone());
-        let commits = commit_repo
-            .get_by_story(story_id)
-            .map_err(|e| format!("获取场景提交失败: {}", e))?;
+        let commits = commit_repo.get_by_story(story_id)?;
 
         for commit in commits
             .into_iter()

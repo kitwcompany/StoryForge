@@ -5,6 +5,7 @@
 //! 用于角色创建、角色一致性检查、角色驱动情节设计。
 
 use super::Methodology;
+use crate::db::DbPool;
 
 /// 人物维度
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,11 +157,11 @@ impl Methodology for CharacterDepthModel {
         "目标-动机-冲突-秘密-弧光-顿悟六维人物模型"
     }
 
-    fn system_prompt_extension(&self) -> String {
+    fn system_prompt_extension(&self, pool: Option<&DbPool>) -> String {
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        if let Some(tpl) = crate::get_pool()
+        if let Some(tpl) = pool
             .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "methodology_character_depth").ok()
+                crate::prompts::registry::resolve_prompt(p, "methodology_character_depth").ok()
             })
             .or_else(|| {
                 crate::prompts::registry::resolve_prompt_default("methodology_character_depth")

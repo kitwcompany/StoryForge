@@ -6,6 +6,7 @@ use crate::{
     db::DbPool,
     domain::memory_pack::{MemoryItemDto, MemoryPack},
     error::AppError,
+    memory::MemoryTaskType,
 };
 
 // ==================== Memory Commands ====================
@@ -18,12 +19,18 @@ pub fn build_memory_pack(
     task_type: String,
     outline: Option<String>,
 ) -> Result<MemoryPack, AppError> {
+    let memory_task_type = match task_type.as_str() {
+        "plan" => MemoryTaskType::Plan,
+        "review" => MemoryTaskType::Review,
+        _ => MemoryTaskType::Write,
+    };
+
     let pool = pool.inner().clone();
     let orchestrator = crate::memory::MemoryOrchestrator::new(pool.clone());
     let mut pack = orchestrator.build_memory_pack(
         &story_id,
         chapter_number,
-        &task_type,
+        memory_task_type,
         outline.as_deref(),
     )?;
 

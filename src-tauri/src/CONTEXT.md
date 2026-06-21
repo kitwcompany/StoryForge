@@ -69,9 +69,7 @@ Three quality-evaluation systems exist with overlapping concerns but distinct pu
 
 ### Book Deconstruction storage
 
-Deconstruction output currently lands in `reference_books` / `reference_characters` / `reference_scenes` (Migration 16/17), while genesis output lands in `narrative_*` tables (Migration 38). The "one-click convert to story" feature copies data between these disjoint schemas, breaking the "isomorphic pipeline" design promised in v5.3.0.
-
-**Intended resolution:** Deprecate `reference_*` tables. Deconstruction elements should enter `narrative_*` tables with `ElementSource::Extracted`, coexisting with genesis elements (`ElementSource::Generated`). The only distinction between reference material and story project should be a `status` field (`reference` vs `active`). QueryPipeline should search both statuses so deconstructed novels become part of the author's creative memory.
+**Resolved in v0.23 (Phase 6.4).** `reference_characters` and `reference_scenes` have been dropped (Migration V100). Deconstruction elements now enter `narrative_*` tables with `ElementSource::Extracted` and `status = 'reference'`, coexisting with genesis elements (`ElementSource::Generated`). `reference_books` remains as the metadata/aggregation table for uploaded reference novels. The "one-click convert to story" feature activates these reference elements by setting `status = 'active'`.
 
 ### MCP tool registration in PlanExecutor
 

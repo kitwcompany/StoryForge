@@ -11,12 +11,14 @@ use tokio::time::{timeout, Duration};
 
 use super::service::{AgentService, AgentTask};
 use crate::{
-    creative_engine::style::StyleChecker,
     db::{repositories::StyleDnaRepository, DbPool},
     domain::{
         agent_context::AgentContext,
         agent_types::{AgentResult, AgentType},
-        style::StyleDNA,
+        creative_engine::CreativeEnginePort,
+        prompt_synthesis::{AssetManifest, SynthesisResult},
+        style::{StyleCheckResult, StyleDNA},
+        write_time_bundle::WriteTimeBundle,
     },
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
@@ -327,24 +329,23 @@ impl AgentOrchestrator {
         );
 
         // BeforeAiWrite hook
-        if let Some(manager) = crate::SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let story_id = task.context.story.story_id.clone();
-                let chapter_number = task.context.narrative.chapter_number;
-                let input = task.input.clone();
-                let skill_manager = skill_manager.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = AgentContext::minimal(story_id, input);
-                    let data = serde_json::json!({ "chapter_number": chapter_number });
-                    let _ = skill_manager
-                        .execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data)
-                        .await;
-                    log::info!(
-                        "[AgentOrchestrator] Hook executed: {:?}",
-                        crate::skills::HookEvent::BeforeAiWrite
-                    );
-                });
-            }
+        {
+            let skill_manager =
+                crate::skills::SkillManager::from_app_handle(&self.app_handle);
+            let story_id = task.context.story.story_id.clone();
+            let chapter_number = task.context.narrative.chapter_number;
+            let input = task.input.clone();
+            tauri::async_runtime::spawn(async move {
+                let context = AgentContext::minimal(story_id, input);
+                let data = serde_json::json!({ "chapter_number": chapter_number });
+                let _ = skill_manager
+                    .execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data)
+                    .await;
+                log::info!(
+                    "[AgentOrchestrator] Hook executed: {:?}",
+                    crate::skills::HookEvent::BeforeAiWrite
+                );
+            });
         }
 
         let trace = GenerationTrace::new(task.id.clone());
@@ -495,26 +496,23 @@ impl AgentOrchestrator {
 
         // AfterAiWrite hook (only on success)
         if let Ok(ref workflow_result) = result {
-            if let Some(manager) = crate::SKILL_MANAGER.get() {
-                if let Ok(skill_manager) = manager.lock() {
-                    let story_id = task.context.story.story_id.clone();
-                    let chapter_number = task.context.narrative.chapter_number;
-                    let content = workflow_result.final_content.clone();
-                    let score_val = workflow_result.final_score;
-                    let skill_manager = skill_manager.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let context = AgentContext::minimal(story_id, content);
-                        let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
-                        let _ = skill_manager
-                            .execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data)
-                            .await;
-                        log::info!(
-                            "[AgentOrchestrator] Hook executed: {:?}",
-                            crate::skills::HookEvent::AfterAiWrite
-                        );
-                    });
-                }
-            }
+            let skill_manager =
+                crate::skills::SkillManager::from_app_handle(&self.app_handle);
+            let story_id = task.context.story.story_id.clone();
+            let chapter_number = task.context.narrative.chapter_number;
+            let content = workflow_result.final_content.clone();
+            let score_val = workflow_result.final_score;
+            tauri::async_runtime::spawn(async move {
+                let context = AgentContext::minimal(story_id, content);
+                let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
+                let _ = skill_manager
+                    .execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data)
+                    .await;
+                log::info!(
+                    "[AgentOrchestrator] Hook executed: {:?}",
+                    crate::skills::HookEvent::AfterAiWrite
+                );
+            });
         }
 
         // v0.11.2: 发出完成/失败状态事件，让前端 backendActivityStore 正确结束活动
@@ -668,7 +666,7 @@ impl AgentOrchestrator {
         // 加载 WriteTimeBundle（最小约束包），全部 DB 查询在 spawn_blocking 内
         let story_id = task.context.story.story_id.clone();
         let chapter_number = task.context.narrative.chapter_number as i32;
-        let pool_clone = pool.inner().clone();
+        let _pool_clone = pool.inner().clone();
         let secondary_genre_profile_ids: Option<Vec<String>> = task
             .parameters
             .get("secondary_genre_profile_ids")
@@ -683,9 +681,9 @@ impl AgentOrchestrator {
             })
             .filter(|ids: &Vec<String>| !ids.is_empty());
         let bundle_start = std::time::Instant::now();
+        let engine = self.service.creative_engine().clone();
         let bundle = tokio::task::spawn_blocking(move || {
-            crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
-                &pool_clone,
+            engine.load_write_time_bundle(
                 &story_id,
                 chapter_number,
                 None, // style_slice_override：任务 1.6 暂不接入 StyleDna，留空
@@ -720,13 +718,14 @@ impl AgentOrchestrator {
             task.input.clone()
         };
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "orchestrator_timesliced_writer").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("orchestrator_timesliced_writer")
-            }) {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(pool.inner(), "orchestrator_timesliced_writer")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default(
+                        "orchestrator_timesliced_writer",
+                    )
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("context".to_string(), bundle_prompt.clone());
             vars.insert("instruction".to_string(), user_instruction.clone());
@@ -971,7 +970,7 @@ impl AgentOrchestrator {
 
         let story_id = task.context.story.story_id.clone();
         let chapter_number = task.context.narrative.chapter_number as i32;
-        let pool_clone = pool.inner().clone();
+        let _pool_clone = pool.inner().clone();
         let secondary_genre_profile_ids: Option<Vec<String>> = task
             .parameters
             .get("secondary_genre_profile_ids")
@@ -995,9 +994,9 @@ impl AgentOrchestrator {
         );
 
         let bundle_start = std::time::Instant::now();
+        let engine = self.service.creative_engine().clone();
         let mut bundle = tokio::task::spawn_blocking(move || {
-            crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
-                &pool_clone,
+            engine.load_write_time_bundle(
                 &story_id,
                 chapter_number,
                 None,
@@ -1035,10 +1034,10 @@ impl AgentOrchestrator {
         };
 
         // 构造资产清单
-        let manifest =
-            crate::creative_engine::prompt_synthesis::manifest::AssetManifest::build(&bundle);
+        let engine = self.service.creative_engine().clone();
+        let manifest = engine.build_asset_manifest(&bundle);
         // 本地拼接（Call 1 失败回退）
-        let bundle_prompt = bundle.to_prompt();
+        let bundle_prompt = engine.render_bundle_prompt(&bundle);
 
         // ===== Phase 1 / Call 1: 路由合成器（最快模型）=====
         self.emit_generation_status(
@@ -1050,9 +1049,10 @@ impl AgentOrchestrator {
         );
 
         let t_synth = std::time::Instant::now();
-        let synthesis =
-            crate::creative_engine::prompt_synthesis::synthesizer::PromptSynthesizer::synthesize(
-                self.app_handle.clone(),
+        let app_handle = self.app_handle.clone();
+        let synthesis = engine
+            .synthesize_prompt(
+                app_handle,
                 &user_instruction,
                 current_content_preview,
                 &manifest,
@@ -1104,8 +1104,10 @@ impl AgentOrchestrator {
                 );
 
                 let t_refine = std::time::Instant::now();
-                let refined =
-                    crate::creative_engine::prompt_synthesis::refiner::PromptRefiner::refine(
+                let refined = self
+                    .service
+                    .creative_engine()
+                    .refine_prompt(
                         self.app_handle.clone(),
                         &synthesis.synthesized_prompt,
                         synthesis.refinement_focus.as_deref(),
@@ -1518,8 +1520,10 @@ impl AgentOrchestrator {
                         }
                     }
                     if !dnas.is_empty() {
-                        let check_result =
-                            StyleChecker::check_blend(&current_content, blend, &dnas);
+                        let check_result = self
+                            .service
+                            .creative_engine()
+                            .check_style_blend(&current_content, blend, &dnas);
                         if !check_result.passed {
                             style_issues = check_result.issues;
                         }
@@ -1531,7 +1535,10 @@ impl AgentOrchestrator {
                     let repo = StyleDnaRepository::new(pool.inner().clone());
                     if let Ok(Some(db_dna)) = repo.get_by_id(style_id) {
                         if let Ok(target_dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                            let check_result = StyleChecker::check(&current_content, &target_dna);
+                            let check_result = self
+                                .service
+                                .creative_engine()
+                                .check_style(&current_content, &target_dna);
                             if !check_result.passed {
                                 style_issues = check_result.issues;
                             }
@@ -1736,15 +1743,7 @@ impl AgentOrchestrator {
 
     /// v0.9.6: 在 Writer 输出后自动调用内置增强技能（情感节奏 + 文风润色）
     async fn apply_writing_skills(&self, context: &AgentContext, content: &str) -> String {
-        let Some(manager) = crate::SKILL_MANAGER.get() else {
-            return content.to_string();
-        };
-        let skill_manager = {
-            let Ok(guard) = manager.lock() else {
-                return content.to_string();
-            };
-            guard.clone()
-        };
+        let skill_manager = crate::skills::SkillManager::from_app_handle(&self.app_handle);
 
         let mut result = content.to_string();
 

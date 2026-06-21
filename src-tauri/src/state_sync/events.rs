@@ -2,6 +2,8 @@
 //!
 //! 所有数据变更操作完成后发射这些事件，前后台窗口监听并自动刷新对应数据。
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -84,6 +86,14 @@ pub enum SyncEvent {
     ChapterDeleted {
         story_id: String,
         chapter_id: String,
+    },
+    /// v0.23.1: 章节 commit（含 projections）完成后发射，用于通知前后台刷新
+    /// read-model。
+    ChapterCommitted {
+        story_id: String,
+        chapter_id: String,
+        chapter_number: i32,
+        projection_status: HashMap<String, String>,
     },
 
     // === World Building 事件 ===
@@ -218,7 +228,8 @@ impl SyncEvent {
             | SyncEvent::SceneSelected { .. } => "scenes",
             SyncEvent::ChapterCreated { .. }
             | SyncEvent::ChapterUpdated { .. }
-            | SyncEvent::ChapterDeleted { .. } => "chapters",
+            | SyncEvent::ChapterDeleted { .. }
+            | SyncEvent::ChapterCommitted { .. } => "chapters",
             SyncEvent::WorldBuildingUpdated { .. }
             | SyncEvent::WorldBuildingCreated { .. }
             | SyncEvent::WorldBuildingDeleted { .. } => "worldBuilding",
@@ -258,6 +269,7 @@ impl SyncEvent {
             SyncEvent::ChapterCreated { story_id, .. } => Some(story_id),
             SyncEvent::ChapterUpdated { story_id, .. } => Some(story_id),
             SyncEvent::ChapterDeleted { story_id, .. } => Some(story_id),
+            SyncEvent::ChapterCommitted { story_id, .. } => Some(story_id),
             SyncEvent::WorldBuildingUpdated { story_id, .. } => Some(story_id),
             SyncEvent::WorldBuildingCreated { story_id, .. } => Some(story_id),
             SyncEvent::WorldBuildingDeleted { story_id, .. } => Some(story_id),
@@ -358,5 +370,29 @@ mod trishot_event_tests {
         assert!(json.contains("\"suggestions\""), "json={}", json);
         assert_eq!(event.story_id(), Some(&"s2".to_string()));
         assert_eq!(event.resource_type(), "revisionSuggested");
+    }
+
+    #[test]
+    fn test_chapter_committed_serialization() {
+        // v0.23.1: ChapterCommitted 序列化为 tag/content 模式并携带 projection_status
+        let mut projection_status = HashMap::new();
+        projection_status.insert("vector".to_string(), "success".to_string());
+        projection_status.insert("kg".to_string(), "success".to_string());
+        let event = SyncEvent::ChapterCommitted {
+            story_id: "s1".to_string(),
+            chapter_id: "ch1".to_string(),
+            chapter_number: 3,
+            projection_status,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(
+            json.contains("\"type\":\"chapterCommitted\""),
+            "json={}",
+            json
+        );
+        assert!(json.contains("\"chapter_number\":3"), "json={}", json);
+        assert!(json.contains("\"projection_status\""), "json={}", json);
+        assert_eq!(event.story_id(), Some(&"s1".to_string()));
+        assert_eq!(event.resource_type(), "chapters");
     }
 }

@@ -23,7 +23,10 @@ pub use high_density_world_building::{HighDensityWorldBuildingMethodology, World
 pub use scene_structure::SceneStructureMethodology;
 pub use snowflake::{SnowflakeMethodology, SnowflakeStep};
 
-pub use crate::domain::methodology::{MethodologyConfig, MethodologyType};
+pub use crate::{
+    db::DbPool,
+    domain::methodology::{MethodologyConfig, MethodologyType},
+};
 
 /// 方法论 trait - 所有方法论必须实现
 pub trait Methodology: Send + Sync {
@@ -32,7 +35,7 @@ pub trait Methodology: Send + Sync {
     /// 方法论描述
     fn description(&self) -> &'static str;
     /// 获取该方法论的 system prompt 片段
-    fn system_prompt_extension(&self) -> String;
+    fn system_prompt_extension(&self, pool: Option<&DbPool>) -> String;
     /// 获取输出格式要求（JSON Schema 或文本描述）
     fn output_schema(&self) -> Option<String>;
     /// 获取该方法论的当前阶段/步骤（如有）
@@ -44,7 +47,7 @@ pub struct MethodologyEngine;
 
 impl MethodologyEngine {
     /// 根据配置生成 system prompt 扩展
-    pub fn build_prompt_extension(config: &MethodologyConfig) -> String {
+    pub fn build_prompt_extension(config: &MethodologyConfig, pool: Option<&DbPool>) -> String {
         if !config.is_active {
             return String::new();
         }
@@ -78,7 +81,7 @@ impl MethodologyEngine {
             }
         };
 
-        methodology.system_prompt_extension()
+        methodology.system_prompt_extension(pool)
     }
 
     /// 获取所有可用方法论列表
@@ -123,7 +126,7 @@ mod tests {
             current_step: None,
             custom_params: serde_json::json!({}),
         };
-        let ext = MethodologyEngine::build_prompt_extension(&config);
+        let ext = MethodologyEngine::build_prompt_extension(&config, None);
         assert!(ext.contains("目标场景"));
         assert!(ext.contains("反应场景"));
     }
@@ -136,7 +139,7 @@ mod tests {
             current_step: None,
             custom_params: serde_json::json!({}),
         };
-        let ext = MethodologyEngine::build_prompt_extension(&config);
+        let ext = MethodologyEngine::build_prompt_extension(&config, None);
         assert!(ext.is_empty());
     }
 }

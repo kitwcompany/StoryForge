@@ -51,6 +51,7 @@ pub async fn create_scene(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     automation_service: State<'_, crate::automation::service::AutomationService>,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<Scene, AppError> {
     log::info!(
         "[story_commands] {} called: story_id={}",
@@ -112,7 +113,11 @@ pub async fn create_scene(
     }
 
     // 委托领域服务处理后续业务编排
-    let service = SceneService::new(pool.inner().clone(), app_handle);
+    let service = SceneService::new(
+        pool.inner().clone(),
+        app_handle,
+        vector_store.inner().clone(),
+    );
     service.on_scene_created(
         &scene,
         has_extra,
@@ -189,6 +194,7 @@ pub async fn update_scene(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     automation_service: State<'_, crate::automation::service::AutomationService>,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<usize, AppError> {
     log::info!(
         "[story_commands] {} called: scene_id={}",
@@ -234,6 +240,7 @@ pub async fn update_scene(
         let pool_clone = pool.inner().clone();
         let scene_id_clone = scene_id.clone();
         let app_handle_clone = app_handle.clone();
+        let vector_store_clone = vector_store.inner().clone();
 
         tauri::async_runtime::spawn(async move {
             // C2: 全局并发背压，限制同时运行的后台 ingest 任务数量。
@@ -355,41 +362,38 @@ pub async fn update_scene(
                             Some(&story_id),
                             "knowledgeGraph",
                         );
-                        if let Some(store) = crate::VECTOR_STORE.get() {
-                            match crate::embeddings::embed_text_async(content_for_vector.clone())
-                                .await
-                            {
-                                Ok(embedding) => {
-                                    let record = crate::vector::VectorRecord {
-                                        id: format!("scene:{}", scene_id_clone),
-                                        story_id: story_id.clone(),
-                                        chapter_id: scene.chapter_id.clone().unwrap_or_default(),
-                                        chapter_number: scene.sequence_number,
-                                        text: content_for_vector,
-                                        record_type: "scene".to_string(),
-                                        metadata: None,
-                                        embedding,
-                                    };
-                                    match store.add_record(record).await {
-                                        Ok(_) => log::info!(
-                                            "[AutoIngest] Scene {} indexed to vector store",
-                                            scene_id_clone
-                                        ),
-                                        Err(e) => log::warn!(
-                                            "[AutoIngest] Failed to index scene {}: {}",
-                                            scene_id_clone,
-                                            e
-                                        ),
-                                    }
-                                }
-                                Err(e) => {
-                                    log::warn!(
-                                        "[AutoIngest] Failed to generate embedding for scene {}: \
-                                         {}",
+                        match crate::embeddings::embed_text_async(content_for_vector.clone()).await
+                        {
+                            Ok(embedding) => {
+                                let record = crate::vector::VectorRecord {
+                                    id: format!("scene:{}", scene_id_clone),
+                                    story_id: story_id.clone(),
+                                    chapter_id: scene.chapter_id.clone().unwrap_or_default(),
+                                    chapter_number: scene.sequence_number,
+                                    text: content_for_vector,
+                                    record_type: "scene".to_string(),
+                                    metadata: None,
+                                    embedding,
+                                };
+                                match vector_store_clone.upsert(record).await {
+                                    Ok(_) => log::info!(
+                                        "[AutoIngest] Scene {} indexed to vector store",
+                                        scene_id_clone
+                                    ),
+                                    Err(e) => log::warn!(
+                                        "[AutoIngest] Failed to index scene {}: {}",
                                         scene_id_clone,
                                         e
-                                    );
+                                    ),
                                 }
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[AutoIngest] Failed to generate embedding for scene {}: \
+                                     {}",
+                                    scene_id_clone,
+                                    e
+                                );
                             }
                         }
                     }

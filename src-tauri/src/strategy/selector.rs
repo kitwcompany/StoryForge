@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use super::models::{SelectableAsset, SelectionContext};
 use crate::{
     book_deconstruction::repository::ReferenceBookRepository,
-    db::StoryRepository,
+    db::{DbPool, StoryRepository},
     domain::strategy::{SelectedStrategy, StrategyOverrides},
     error::AppError,
     llm::LlmService,
@@ -19,11 +19,12 @@ use crate::{
 #[derive(Clone)]
 pub struct StrategySelector {
     llm_service: LlmService,
+    pool: DbPool,
 }
 
 impl StrategySelector {
-    pub fn new(llm_service: LlmService) -> Self {
-        Self { llm_service }
+    pub fn new(llm_service: LlmService, pool: DbPool) -> Self {
+        Self { llm_service, pool }
     }
 
     /// 为给定的创作场景选择策略
@@ -70,7 +71,7 @@ impl StrategySelector {
         }
 
         // 3. 调用 LLM 做最终选择
-        let prompt = build_selection_prompt(context, assets, &strategy);
+        let prompt = build_selection_prompt(context, assets, &strategy, &self.pool);
         let response = self
             .llm_service
             .generate_for_task(
@@ -211,15 +212,15 @@ fn merge_strategies(a: SelectedStrategy, b: SelectedStrategy) -> SelectedStrateg
 /// 保证策略选择不被阻塞。
 fn load_reference_book_summary(
     story_id: Option<&str>,
+    pool: &DbPool,
 ) -> Option<crate::book_deconstruction::models::ReferenceBookSummary> {
-    let pool = crate::get_pool()?;
     let story_id = story_id?;
     let story = StoryRepository::new(pool.clone())
         .get_by_id(story_id)
         .ok()
         .flatten()?;
     let book_id = story.reference_book_id?;
-    ReferenceBookRepository::new(pool)
+    ReferenceBookRepository::new(pool.clone())
         .get_book_analysis_summary(&book_id)
         .ok()
         .flatten()
@@ -261,13 +262,14 @@ fn build_selection_prompt(
     context: &SelectionContext,
     assets: &[SelectableAsset],
     current_strategy: &SelectedStrategy,
+    pool: &DbPool,
 ) -> String {
     // Phase 3.2: 加载关联参考书籍分析摘要（非阻塞）
-    let ref_summary = load_reference_book_summary(context.story_id.as_deref());
+    let ref_summary = load_reference_book_summary(context.story_id.as_deref(), pool);
 
     // v0.21.0: 优先从 PromptRegistry 读取覆盖
-    if let Some(tpl) = crate::get_pool()
-        .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "strategy_selector").ok())
+    if let Some(tpl) = crate::prompts::registry::resolve_prompt(pool, "strategy_selector")
+        .ok()
         .or_else(|| crate::prompts::registry::resolve_prompt_default("strategy_selector"))
     {
         let context_str = format!(

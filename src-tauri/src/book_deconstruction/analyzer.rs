@@ -321,12 +321,12 @@ impl BookAnalyzer {
         sample_text: &str,
     ) -> Result<ExtractedMetadata, AnalysisError> {
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "deconstruction_metadata").ok()
-            })
-            .or_else(|| crate::prompts::registry::resolve_prompt_default("deconstruction_metadata"))
-        {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(&self.pool, "deconstruction_metadata")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default("deconstruction_metadata")
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("text".to_string(), sample_text.to_string());
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -404,13 +404,14 @@ JSON格式：
             .await;
 
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "deconstruction_world_building").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("deconstruction_world_building")
-            }) {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(&self.pool, "deconstruction_world_building")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default(
+                        "deconstruction_world_building",
+                    )
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("text".to_string(), sample.to_string());
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -467,13 +468,14 @@ JSON格式：
             }
 
             // v0.21.0: 优先从 PromptRegistry 读取覆盖
-            let prompt = if let Some(tpl) = crate::get_pool()
-                .and_then(|p| {
-                    crate::prompts::registry::resolve_prompt(&p, "deconstruction_characters").ok()
-                })
-                .or_else(|| {
-                    crate::prompts::registry::resolve_prompt_default("deconstruction_characters")
-                }) {
+            let prompt = if let Some(tpl) =
+                crate::prompts::registry::resolve_prompt(&self.pool, "deconstruction_characters")
+                    .ok()
+                    .or_else(|| {
+                        crate::prompts::registry::resolve_prompt_default(
+                            "deconstruction_characters",
+                        )
+                    }) {
                 let mut vars = std::collections::HashMap::new();
                 vars.insert("text".to_string(), chunk.content.clone());
                 crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -607,16 +609,14 @@ JSON格式：
             }
 
             // v0.21.0: 优先从 PromptRegistry 读取覆盖
-            let prompt = if let Some(tpl) = crate::get_pool()
-                .and_then(|p| {
-                    crate::prompts::registry::resolve_prompt(&p, "deconstruction_chapter_summary")
-                        .ok()
-                })
-                .or_else(|| {
-                    crate::prompts::registry::resolve_prompt_default(
-                        "deconstruction_chapter_summary",
-                    )
-                }) {
+            let prompt = if let Some(tpl) = crate::prompts::registry::resolve_prompt(
+                &self.pool,
+                "deconstruction_chapter_summary",
+            )
+            .ok()
+            .or_else(|| {
+                crate::prompts::registry::resolve_prompt_default("deconstruction_chapter_summary")
+            }) {
                 let mut vars = std::collections::HashMap::new();
                 vars.insert("text".to_string(), chunk.content.clone());
                 crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)

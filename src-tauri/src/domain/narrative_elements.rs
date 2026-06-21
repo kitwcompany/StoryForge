@@ -5,9 +5,10 @@
 //! 的循环依赖而下放到中性的 `domain` 模块。本模块只包含纯数据结构，
 //! 不依赖任何业务模块。
 //!
-//! 生产表（stories/characters/scenes）和参考表（reference_books/
-//! reference_characters/reference_scenes）共享同一套数据结构，通过
-//! ElementSource 区分数据来源。
+//! 生产表（characters/scenes/world_buildings）与拆书提取的参考元素
+//! 共享同一套数据结构，通过 `ElementSource` 区分数据来源
+//! （`Generated` / `Extracted` / `UserCreated`），通过 `ElementStatus`
+//! 区分活跃状态（`Active` / `Reference` / `Archived`）。
 
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +86,48 @@ impl std::fmt::Display for ElementSource {
     }
 }
 
+impl ElementSource {
+    /// 返回数据库/序列化使用的 snake_case 标识。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ElementSource::Generated => "generated",
+            ElementSource::Extracted => "extracted",
+            ElementSource::UserCreated => "user_created",
+            ElementSource::Imported => "imported",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "generated" => Some(ElementSource::Generated),
+            "extracted" => Some(ElementSource::Extracted),
+            "user_created" => Some(ElementSource::UserCreated),
+            "imported" => Some(ElementSource::Imported),
+            _ => None,
+        }
+    }
+}
+
+impl ElementStatus {
+    /// 返回数据库/序列化使用的 snake_case 标识。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ElementStatus::Active => "active",
+            ElementStatus::Reference => "reference",
+            ElementStatus::Archived => "archived",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "active" => Some(ElementStatus::Active),
+            "reference" => Some(ElementStatus::Reference),
+            "archived" => Some(ElementStatus::Archived),
+            _ => None,
+        }
+    }
+}
+
 // ==================== 统一角色模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,6 +202,11 @@ pub struct SceneElement {
     #[serde(default)]
     pub setting_time: String,
     pub content: Option<String>, // 正文内容（可选）
+    // v0.23: 从拆书提取的原始字段
+    #[serde(default)]
+    pub key_events: Vec<String>, // 关键事件
+    #[serde(default)]
+    pub emotional_tone: String, // 情感基调
     // LitSeg: 叙事分析字段（从 conflict_type + emotional_tone 推导）
     #[serde(default)]
     pub narrative_intensity: f32, // 0.0-1.0

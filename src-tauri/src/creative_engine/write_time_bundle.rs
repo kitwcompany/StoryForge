@@ -14,166 +14,20 @@
 //! 2. 题材自适应：按 stories.genre 决定是否纳入风格片段。
 
 use crate::{
-    book_deconstruction::models::ReferenceScene,
     creative_engine::asset_snapshot::CreativeAssetSnapshot,
     db::{
-        Character, CharacterRepository, DbPool, GenreProfileRepository, SceneRepository,
-        StoryContractRepository, StyleDnaRepository,
+        repositories_narrative::NarrativeSceneRepository, Character, CharacterRepository, DbPool,
+        GenreProfileRepository, SceneRepository, StoryContractRepository, StyleDnaRepository,
     },
-    domain::contracts::RuntimeContract,
+    domain::narrative_elements::SceneElement,
     story_system::StorySystemEngine,
 };
 
 // ==================== 数据结构 ====================
-
-/// 写作时刻的最小约束包。
-///
-/// 只含"一次写对基本盘"必需的资产。审计用资产（Inspector/记忆比对）
-/// 不在此处——它们在时间线 2（AuditExecutor）异步加载。
-///
-/// P1-1（审计报告）：在保持速度优先的前提下，接入精选资产子集，
-/// 解决 TimeSliced "资产黑洞"问题——伏笔状态、叙事阶段、主导风格摘要、
-/// 叙事四元组此前在默认续写路径完全不进入 LLM prompt。
-pub struct WriteTimeBundle {
-    /// 合同红线：MASTER_SETTING 核心世界观约束
-    pub contract_redlines: Option<String>,
-    /// 当前章节出场角色核心（姓名 + 当前状态）
-    pub core_characters: Vec<CoreCharacter>,
-    /// 当前 scene 大纲（dramatic_goal + conflict_type + setting）
-    pub scene_outline: Option<SceneOutline>,
-    /// GenreProfile 反模式清单
-    pub genre_antipatterns: Vec<String>,
-    /// 风格 DNA 片段（题材自适应，部分题材为 None）
-    pub style_slice: Option<String>,
-    /// 故事基础元信息
-    pub story_meta: StoryMeta,
-    /// 题材分类（决定 style_slice 是否纳入）
-    pub genre_category: GenreCategory,
-    /// P1-1: 叙事阶段指导（一行，来自 CanonicalStateManager）
-    pub narrative_phase_guidance: Option<String>,
-    /// P1-1: 待回收伏笔（top 3，每条一行）
-    pub pending_foreshadowings: Vec<String>,
-    /// P1-1: 逾期伏笔（top 1，每条一行，带警告）
-    pub overdue_foreshadowings: Vec<String>,
-    /// P1-1: 主导风格一句话摘要（来自 StyleDNA，全题材纳入）
-    pub style_dna_summary: Option<String>,
-    /// P1-1: 叙事四元组渲染文本（来自 task.parameters，由调用方设置）
-    pub narrative_quartet: Option<String>,
-    // v0.22.0: 解决 TimeSliced "资产黑洞"（Phase A）
-    // 此前默认续写路径不注入 StyleDNA 六维量化指标/方法论规则/题材画像全字段/写作策略
-    /// 风格 DNA 完整六维指标
-    pub style_dna_extension: Option<String>,
-    /// 方法论约束（当前步骤的完整规则）
-    pub methodology_extension: Option<String>,
-    /// 题材画像策略（core_tone + pacing_strategy + reference_tables +
-    /// typical_structure）
-    pub genre_profile_strategy: Option<String>,
-    /// Phase 4: 次要题材画像策略（复合题材时从 selected_strategy 透传）
-    pub secondary_genre_profile_strategy: Option<String>,
-    /// 写作策略约束
-    pub writing_strategy_constraints: Option<String>,
-    /// v0.22.5: Story System 运行时合同（MASTER_SETTING + 当前章节合同）
-    pub runtime_contract: Option<RuntimeContract>,
-    /// Phase 3.1: 参考场景 few-shots（来自关联 reference_book 的相似场景）
-    pub reference_scene_fewshots: Vec<ReferenceSceneFewShot>,
-}
-
-pub struct CoreCharacter {
-    pub name: String,
-    pub identity: Option<String>,
-    pub physical_state: Option<String>,
-    pub mental_state: Option<String>,
-    pub location: Option<String>,
-    pub personality: Option<String>,
-}
-
-pub struct SceneOutline {
-    pub dramatic_goal: Option<String>,
-    pub conflict_type: Option<String>,
-    pub external_pressure: Option<String>,
-    pub setting_location: Option<String>,
-}
-
-/// Phase 3.1: 参考场景 few-shot（用于拆书功能关联写作）。
-#[derive(Debug, Clone)]
-pub struct ReferenceSceneFewShot {
-    pub title: String,
-    pub summary: String,
-    pub content_snippet: String,
-    pub similarity: f32,
-}
-
-pub struct StoryMeta {
-    pub title: String,
-    pub genre: Option<String>,
-    pub tone: Option<String>,
-    pub pacing: Option<String>,
-    pub description: Option<String>,
-}
-
-/// 题材分类——决定风格片段是否纳入（Phase 0 实证）。
-#[derive(Debug, Clone, PartialEq)]
-pub enum GenreCategory {
-    /// 都市/情感/现实主义：风格细节是质量关键，纳入轻量风格片段
-    RealismEmotional,
-    /// 玄幻/仙侠/科幻：红线守严 > 风格约束，不纳入风格片段
-    Speculative,
-    /// 悬疑/推理：逻辑链是关键
-    Mystery,
-    /// 未知/默认：保守策略，不纳入
-    Unknown,
-}
-
-impl GenreCategory {
-    /// 是否应纳入轻量风格片段（Phase 0 实证）。
-    pub fn include_style_slice(&self) -> bool {
-        matches!(
-            self,
-            GenreCategory::RealismEmotional | GenreCategory::Mystery
-        )
-    }
-
-    /// 根据 genre 字符串推断题材分类。
-    /// 匹配逻辑宽松（包含关键词即命中），未命中归 Unknown。
-    pub fn from_genre(genre: Option<&str>) -> Self {
-        let g = match genre {
-            Some(s) if !s.trim().is_empty() => s.trim(),
-            _ => return GenreCategory::Unknown,
-        };
-        let g_lower = g.to_lowercase();
-        // 现实/情感类
-        let realism_keywords = [
-            "都市", "现实", "情感", "言情", "青春", "校园", "职场", "家庭", "年代", "生活", "治愈",
-            "日常", "urban", "realism", "romance",
-        ];
-        if realism_keywords.iter().any(|k| g_lower.contains(k)) {
-            return GenreCategory::RealismEmotional;
-        }
-        // 悬疑/推理类
-        let mystery_keywords = [
-            "悬疑",
-            "推理",
-            "侦探",
-            "犯罪",
-            "惊悚",
-            "mystery",
-            "thriller",
-            "detective",
-        ];
-        if mystery_keywords.iter().any(|k| g_lower.contains(k)) {
-            return GenreCategory::Mystery;
-        }
-        // 架空/幻想类
-        let speculative_keywords = [
-            "玄幻", "仙侠", "科幻", "奇幻", "修真", "末世", "网游", "灵异", "fantasy", "scifi",
-            "sci-fi", "xianxia",
-        ];
-        if speculative_keywords.iter().any(|k| g_lower.contains(k)) {
-            return GenreCategory::Speculative;
-        }
-        GenreCategory::Unknown
-    }
-}
+//
+// 数据类型已迁移到 `crate::domain::write_time_bundle` 以保持中性；
+// 本模块仅保留 I/O 加载与 prompt 渲染行为实现。
+pub use crate::domain::write_time_bundle::*;
 
 // ==================== 加载 ====================
 
@@ -494,10 +348,8 @@ impl WriteTimeBundle {
         book_id: &str,
         scene_outline: &Option<SceneOutline>,
     ) -> Result<Vec<ReferenceSceneFewShot>, Box<dyn std::error::Error>> {
-        use crate::book_deconstruction::repository::ReferenceSceneRepository;
-
-        let scene_repo = ReferenceSceneRepository::new(pool.clone());
-        let scenes = scene_repo.get_reference_scenes_by_book(book_id)?;
+        let scene_repo = NarrativeSceneRepository::new(pool.clone());
+        let scenes = scene_repo.get_by_story(book_id)?;
         if scenes.is_empty() {
             return Ok(vec![]);
         }
@@ -514,7 +366,7 @@ impl WriteTimeBundle {
 
         let query_tokens = tokenize_text(&query_text);
 
-        let mut scored: Vec<(f32, ReferenceScene)> = scenes
+        let mut scored: Vec<(f32, SceneElement)> = scenes
             .into_iter()
             .map(|scene| {
                 let scene_text = Self::reference_scene_text(&scene);
@@ -559,35 +411,36 @@ impl WriteTimeBundle {
         parts.join(" ")
     }
 
-    fn reference_scene_text(scene: &ReferenceScene) -> String {
+    fn reference_scene_text(scene: &SceneElement) -> String {
         let mut parts = Vec::new();
-        if let Some(ref title) = scene.title {
-            parts.push(title.clone());
+        if !scene.title.is_empty() {
+            parts.push(scene.title.clone());
         }
-        if let Some(ref summary) = scene.summary {
-            parts.push(summary.clone());
+        if !scene.summary.is_empty() {
+            parts.push(scene.summary.clone());
         }
-        if let Some(ref key_events) = scene.key_events {
-            parts.push(key_events.clone());
+        if !scene.key_events.is_empty() {
+            parts.push(scene.key_events.join(", "));
         }
-        if let Some(ref characters) = scene.characters_present {
-            parts.push(characters.clone());
+        if !scene.characters_present.is_empty() {
+            parts.push(scene.characters_present.join(", "));
         }
-        if let Some(ref conflict) = scene.conflict_type {
-            parts.push(conflict.clone());
+        if !scene.conflict_type.is_empty() {
+            parts.push(scene.conflict_type.clone());
         }
-        if let Some(ref tone) = scene.emotional_tone {
-            parts.push(tone.clone());
+        if !scene.emotional_tone.is_empty() {
+            parts.push(scene.emotional_tone.clone());
         }
         parts.join(" ")
     }
 
-    fn reference_scene_to_fewshot(scene: ReferenceScene) -> ReferenceSceneFewShot {
-        let title = scene
-            .title
-            .clone()
-            .unwrap_or_else(|| format!("场景 {}", scene.sequence_number));
-        let summary = scene.summary.clone().unwrap_or_default();
+    fn reference_scene_to_fewshot(scene: SceneElement) -> ReferenceSceneFewShot {
+        let title = if scene.title.is_empty() {
+            format!("场景 {}", scene.sequence_number)
+        } else {
+            scene.title.clone()
+        };
+        let summary = scene.summary.clone();
         let content_snippet = {
             let text = Self::reference_scene_text(&scene);
             truncate(&text, 300)
@@ -598,33 +451,6 @@ impl WriteTimeBundle {
             content_snippet,
             similarity: 0.0,
         }
-    }
-
-    /// 渲染参考场景 few-shots 段落。
-    pub fn render_reference_scene_fewshots(fewshots: &[ReferenceSceneFewShot]) -> String {
-        let items: Vec<String> = fewshots
-            .iter()
-            .enumerate()
-            .map(|(i, fs)| {
-                let mut lines = vec![format!(
-                    "示例 {}：{}（相似度：{:.2}）",
-                    i + 1,
-                    fs.title,
-                    fs.similarity
-                )];
-                if !fs.summary.is_empty() {
-                    lines.push(format!("  摘要：{}", fs.summary));
-                }
-                if !fs.content_snippet.is_empty() {
-                    lines.push(format!("  片段：{}", fs.content_snippet));
-                }
-                lines.join("\n")
-            })
-            .collect();
-        format!(
-            "【参考场景 few-shots（仅借鉴叙事节奏与冲突处理方式，禁止复制原文）】\n{}\n\n请仅学习上述参考场景的节奏、张力与写作技巧，不得直接复制其文字、人物或专有设定。",
-            items.join("\n\n")
-        )
     }
 
     /// 将 bundle 序列化为 prompt 注入字符串。

@@ -28,7 +28,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::timeout;
 
 use super::{
-    adapter::{GenerateRequest, GenerateResponse},
+    adapter::{GenerateRequest, GenerateResponse, ResponseFormat},
     anthropic::AnthropicAdapter,
     ollama::OllamaAdapter,
     openai::OpenAiAdapter,
@@ -50,6 +50,8 @@ struct PromptCacheKey {
     model: String,
     max_tokens: Option<i32>,
     temperature: Option<f32>,
+    /// v0.23: JSON mode 与普通文本输出必须隔离缓存键
+    response_format: Option<String>,
     prompt_hash: u64,
 }
 
@@ -59,6 +61,7 @@ impl PartialEq for PromptCacheKey {
             && self.model == other.model
             && self.max_tokens == other.max_tokens
             && self.temperature.map(|f| f.to_bits()) == other.temperature.map(|f| f.to_bits())
+            && self.response_format == other.response_format
             && self.prompt_hash == other.prompt_hash
     }
 }
@@ -71,6 +74,7 @@ impl Hash for PromptCacheKey {
         self.model.hash(state);
         self.max_tokens.hash(state);
         self.temperature.map(|f| f.to_bits()).hash(state);
+        self.response_format.hash(state);
         self.prompt_hash.hash(state);
     }
 }
@@ -103,6 +107,7 @@ impl PromptCache {
         prompt: &str,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
+        response_format: Option<ResponseFormat>,
     ) -> PromptCacheKey {
         let mut hasher = DefaultHasher::new();
         prompt.hash(&mut hasher);
@@ -111,6 +116,7 @@ impl PromptCache {
             model: profile.model.clone(),
             max_tokens,
             temperature,
+            response_format: response_format.map(|f| format!("{:?}", f)),
             prompt_hash: hasher.finish(),
         }
     }
@@ -121,8 +127,9 @@ impl PromptCache {
         prompt: &str,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
+        response_format: Option<ResponseFormat>,
     ) -> Option<GenerateResponse> {
-        let key = Self::key(profile, prompt, max_tokens, temperature);
+        let key = Self::key(profile, prompt, max_tokens, temperature, response_format);
         let mut inner = self.inner.lock().ok()?;
         if let Some(entry) = inner.get(&key) {
             if entry.created_at.elapsed() < self.ttl {
@@ -140,6 +147,7 @@ impl PromptCache {
         prompt: &str,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
+        response_format: Option<ResponseFormat>,
         response: GenerateResponse,
     ) {
         let Ok(mut inner) = self.inner.lock() else {
@@ -154,7 +162,7 @@ impl PromptCache {
                 inner.remove(&k);
             }
         }
-        let key = Self::key(profile, prompt, max_tokens, temperature);
+        let key = Self::key(profile, prompt, max_tokens, temperature, response_format);
         inner.insert(
             key,
             PromptCacheEntry {
@@ -246,13 +254,13 @@ pub struct LlmService {
 impl LlmService {
     /// 创建新的 LLM 服务实例。
     ///
-    /// 如果全局 LLM 服务已经初始化（通过
-    /// `init_llm_service`），则直接返回其克隆， 从而复用 reqwest 连接池与
-    /// adapter 缓存；否则创建新实例。
+    /// 优先返回通过 Tauri State 管理的共享实例（由 setup() 注入），
+    /// 复用 reqwest 连接池与 adapter 缓存；若 State 不存在（例如测试），
+    /// 则创建独立实例。
     pub fn new(app_handle: AppHandle) -> Self {
-        // 优先返回全局共享实例，避免每次命令重建 client 与缓存。
-        if let Some(service) = get_llm_service() {
-            return service;
+        // 优先返回 Tauri State 中的共享实例，避免每次命令重建 client 与缓存。
+        if let Some(state) = app_handle.try_state::<Self>() {
+            return state.inner().clone();
         }
 
         let app_dir = app_handle
@@ -375,6 +383,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -388,6 +397,9 @@ impl LlmService {
     /// Phase 2/3: 新增 asset_tags /
     /// discovered_asset_ids，把意图图发现的资产信息
     /// 透传给模型网关，用于任务分类与候选模型筛选。
+    ///
+    /// v0.23: 新增 `response_format`，结构化输出请求可透传到 OpenAI/Ollama 的
+    /// JSON mode；Anthropic 适配器暂忽略，仍靠 prompt 约束。
     pub async fn generate_for_request_with_request_id(
         &self,
         request: RoutingRequest,
@@ -404,6 +416,7 @@ impl LlmService {
         // Phase 2/3: 意图图资产标签与发现资产 ID
         asset_tags: Option<Vec<String>>,
         discovered_asset_ids: Option<Vec<String>>,
+        response_format: Option<ResponseFormat>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         let req_id = request_id
             .clone()
@@ -434,6 +447,8 @@ impl LlmService {
             // Phase 2/3: 注入意图图资产发现信息
             asset_tags: asset_tags.unwrap_or_default(),
             discovered_asset_ids: discovered_asset_ids.unwrap_or_default(),
+            // v0.23: 结构化输出格式透传
+            response_format,
         };
         match gateway.generate(gateway_request).await {
             Ok(resp) => return (req_id, Ok(resp)),
@@ -447,7 +462,7 @@ impl LlmService {
             Ok(p) => p,
             Err(e) => return (req_id, Err(e)),
         };
-        self.generate_with_profile_and_request_id(
+        self.generate_with_profile_and_request_id_with_format(
             &profile.id,
             prompt,
             max_tokens,
@@ -456,6 +471,7 @@ impl LlmService {
             Some(req_id),
             None,
             None,
+            response_format,
         )
         .await
     }
@@ -469,6 +485,20 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
+        self.generate_for_task_with_format(task, prompt, max_tokens, temperature, context_label, None)
+            .await
+    }
+
+    /// 简化入口（显式指定输出格式）：仅指定任务类型，使用默认复杂度/优先级进行路由生成
+    pub async fn generate_for_task_with_format(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        response_format: Option<ResponseFormat>,
+    ) -> Result<GenerateResponse, AppError> {
         let request = RoutingRequest {
             task,
             complexity: Complexity::Medium,
@@ -477,8 +507,24 @@ impl LlmService {
             estimated_input_tokens: 0,
             constraints: vec![],
         };
-        self.generate_for_request(request, prompt, max_tokens, temperature, context_label)
-            .await
+        let (_, result) = self
+            .generate_for_request_with_request_id(
+                request,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                response_format,
+            )
+            .await;
+        result
     }
 
     /// v0.23 TriShot：用「最快可用模型」生成文本，用于 Call 1 路由合成器。
@@ -828,6 +874,7 @@ impl LlmService {
         request_id: Option<String>,
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
+        response_format: Option<ResponseFormat>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         if !profile.enabled {
             let msg = format!("模型 {} 已被禁用，请在设置中启用或切换可用模型", profile.id);
@@ -882,6 +929,7 @@ impl LlmService {
             top_p: profile.top_p,
             frequency_penalty: profile.frequency_penalty,
             presence_penalty: profile.presence_penalty,
+            response_format,
         };
 
         let label = context_label.unwrap_or("");
@@ -1200,6 +1248,7 @@ impl LlmService {
             request_id,
             None,
             None,
+            None,
         )
         .await
     }
@@ -1290,6 +1339,54 @@ impl LlmService {
             request_id,
             timeout_seconds_override,
             max_retries_override,
+            None,
+        )
+        .await
+    }
+
+    /// 使用指定模型配置同步生成文本，返回 (request_id, Result)，并显式指定
+    /// `response_format`。供模型网关/审稿等需要结构化输出的路径使用。
+    pub async fn generate_with_profile_and_request_id_with_format(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        request_id: Option<String>,
+        timeout_seconds_override: Option<u64>,
+        max_retries_override: Option<u32>,
+        response_format: Option<ResponseFormat>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
+        log::info!(
+            "[LLM] Starting sync generation with profile={} prompt_len={} format={:?}",
+            profile_id,
+            prompt.len(),
+            response_format
+        );
+
+        let profile = match self.get_profile_by_id(profile_id) {
+            Some(p) => p,
+            None => {
+                log::error!("[LLM] Active profile not found: {}", profile_id);
+                return (
+                    request_id.unwrap_or_default(),
+                    Err(AppError::not_found("llm_profile", profile_id)),
+                );
+            }
+        };
+
+        self.execute_generation(
+            profile,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            None,
+            request_id,
+            timeout_seconds_override,
+            max_retries_override,
+            response_format,
         )
         .await
     }
@@ -1315,6 +1412,7 @@ impl LlmService {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -1333,6 +1431,7 @@ impl LlmService {
         request_id: Option<String>,
         timeout_seconds_override: Option<u64>,
         max_retries_override: Option<u32>,
+        response_format: Option<ResponseFormat>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!(
             "[LLM] Starting sync generation with profile={} prompt_len={}",
@@ -1361,6 +1460,7 @@ impl LlmService {
             request_id,
             timeout_seconds_override,
             max_retries_override,
+            response_format,
         )
         .await
     }
@@ -1414,6 +1514,7 @@ impl LlmService {
             top_p: profile.top_p,
             frequency_penalty: profile.frequency_penalty,
             presence_penalty: profile.presence_penalty,
+            response_format: None,
         };
 
         // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile 超时动态计算，
@@ -1576,7 +1677,7 @@ impl LlmService {
 
         if let Some(cached) = self
             .prompt_cache
-            .get(&profile, &prompt, max_tokens, temperature)
+            .get(&profile, &prompt, max_tokens, temperature, None)
         {
             return Ok(cached);
         }
@@ -1585,7 +1686,7 @@ impl LlmService {
             .generate(prompt.clone(), max_tokens, temperature)
             .await?;
         self.prompt_cache
-            .put(&profile, &prompt, max_tokens, temperature, response.clone());
+            .put(&profile, &prompt, max_tokens, temperature, None, response.clone());
         Ok(response)
     }
 
@@ -1701,6 +1802,84 @@ impl LlmService {
     }
 }
 
+#[async_trait::async_trait]
+impl crate::ports::LlmService for LlmService {
+    async fn generate(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Result<GenerateResponse, AppError> {
+        self.generate(prompt, max_tokens, temperature).await
+    }
+
+    async fn generate_with_context(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+    ) -> Result<GenerateResponse, AppError> {
+        self.generate_with_context(prompt, max_tokens, temperature, context_label)
+            .await
+    }
+
+    async fn generate_with_request_id(
+        &self,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        pipeline_ctx: Option<PipelineContext>,
+        request_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
+        self.generate_with_request_id(
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            pipeline_ctx,
+            request_id,
+        )
+        .await
+    }
+
+    async fn generate_with_profile(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Result<GenerateResponse, AppError> {
+        self.generate_with_profile(profile_id, prompt, max_tokens, temperature)
+            .await
+    }
+
+    async fn generate_stream(
+        &self,
+        request_id: String,
+        prompt: String,
+        context: Option<String>,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Result<(), AppError> {
+        self.generate_stream(request_id, prompt, context, max_tokens, temperature)
+            .await
+    }
+
+    fn is_cancelled(&self, request_id: &str) -> bool {
+        self.is_cancelled(request_id)
+    }
+
+    async fn test_connection(&self) -> Result<(bool, u64), AppError> {
+        self.test_connection().await
+    }
+
+    fn get_active_profile(&self) -> Option<LlmProfile> {
+        self.get_active_profile()
+    }
+}
+
 /// 构建写作专用提示词（纯函数，无需 self）
 fn build_writing_prompt(user_input: &str, context: Option<&str>) -> String {
     let mut prompt = String::new();
@@ -1724,26 +1903,6 @@ fn build_writing_prompt(user_input: &str, context: Option<&str>) -> String {
     prompt.push_str("请直接输出续写内容，不要添加解释。保持文风一致，情节连贯。");
 
     prompt
-}
-
-// GLOBAL: LLM 服务单例。
-// SAFETY: OnceCell 保证仅初始化一次。通过 init_llm_service() 在 setup()
-// 中设置。内部存储 Arc<LlmService>，初始化后 get_llm_service() 直接 clone
-// Arc，无需再加全局 Mutex。
-// NOTE: 当前使用全局静态是因为大量命令处理器直接调用
-// get_llm_service()。 长期目标：通过 Tauri State 注入，消除全局依赖。
-static LLM_SERVICE: once_cell::sync::OnceCell<std::sync::Arc<LlmService>> =
-    once_cell::sync::OnceCell::new();
-
-/// 初始化LLM服务
-pub fn init_llm_service(app_handle: AppHandle) {
-    let service = LlmService::new(app_handle);
-    let _ = LLM_SERVICE.set(std::sync::Arc::new(service));
-}
-
-/// 获取LLM服务
-pub fn get_llm_service() -> Option<LlmService> {
-    LLM_SERVICE.get().map(|s| s.as_ref().clone())
 }
 
 impl Clone for LlmService {
@@ -1892,6 +2051,7 @@ mod tests {
             top_p: None,
             frequency_penalty: None,
             presence_penalty: None,
+            response_format: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();
@@ -1957,15 +2117,15 @@ mod tests {
             cost: 0.0,
         };
 
-        assert!(cache.get(&profile, "hello", Some(10), Some(0.0)).is_none());
-        cache.put(&profile, "hello", Some(10), Some(0.0), response.clone());
-        let hit = cache.get(&profile, "hello", Some(10), Some(0.0));
+        assert!(cache.get(&profile, "hello", Some(10), Some(0.0), None).is_none());
+        cache.put(&profile, "hello", Some(10), Some(0.0), None, response.clone());
+        let hit = cache.get(&profile, "hello", Some(10), Some(0.0), None);
         assert!(hit.is_some());
         assert_eq!(hit.unwrap().content, "OK");
 
         // 不同参数未命中
-        assert!(cache.get(&profile, "hello", Some(20), Some(0.0)).is_none());
-        assert!(cache.get(&profile, "world", Some(10), Some(0.0)).is_none());
+        assert!(cache.get(&profile, "hello", Some(20), Some(0.0), None).is_none());
+        assert!(cache.get(&profile, "world", Some(10), Some(0.0), None).is_none());
     }
 
     #[test]
@@ -2011,10 +2171,10 @@ mod tests {
             cost: 0.0,
         };
 
-        cache.put(&profile, "hello", None, None, response);
-        assert!(cache.get(&profile, "hello", None, None).is_some());
+        cache.put(&profile, "hello", None, None, None, response);
+        assert!(cache.get(&profile, "hello", None, None, None).is_some());
         std::thread::sleep(Duration::from_millis(50));
-        assert!(cache.get(&profile, "hello", None, None).is_none());
+        assert!(cache.get(&profile, "hello", None, None, None).is_none());
     }
 
     // ==================== 阶段一超时/重试策略 ====================

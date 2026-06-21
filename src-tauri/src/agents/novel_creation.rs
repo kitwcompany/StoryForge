@@ -9,11 +9,12 @@ use serde_json;
 pub use crate::domain::novel_creation::{
     CharacterProfileOption, WorldBuildingOption, WritingStyleOption,
 };
-use crate::{llm::LlmService, router::TaskType};
+use crate::{db::DbPool, llm::LlmService, router::TaskType};
 
 /// 小说创建 Agent
 pub struct NovelCreationAgent {
     llm_service: LlmService,
+    pool: DbPool,
 }
 
 /// 生成选项
@@ -45,8 +46,8 @@ pub enum DetailLevel {
 }
 
 impl NovelCreationAgent {
-    pub fn new(llm_service: LlmService) -> Self {
-        Self { llm_service }
+    pub fn new(llm_service: LlmService, pool: DbPool) -> Self {
+        Self { llm_service, pool }
     }
 
     /// 第一步：根据用户输入生成世界观选项
@@ -56,13 +57,12 @@ impl NovelCreationAgent {
         options: &GenerationOptions,
     ) -> Result<Vec<WorldBuildingOption>, Box<dyn std::error::Error>> {
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "novel_creation_world_options").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("novel_creation_world_options")
-            }) {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_world_options")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default("novel_creation_world_options")
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("count".to_string(), options.count.to_string());
             vars.insert("input".to_string(), user_input.to_string());
@@ -146,13 +146,14 @@ impl NovelCreationAgent {
         );
 
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "novel_creation_character_roster").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("novel_creation_character_roster")
-            }) {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_character_roster")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default(
+                        "novel_creation_character_roster",
+                    )
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("count".to_string(), options.count.to_string());
             vars.insert("input".to_string(), world_info.to_string());
@@ -232,13 +233,12 @@ impl NovelCreationAgent {
         options: &GenerationOptions,
     ) -> Result<Vec<WritingStyleOption>, Box<dyn std::error::Error>> {
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "novel_creation_writing_style").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("novel_creation_writing_style")
-            }) {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_writing_style")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default("novel_creation_writing_style")
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert("count".to_string(), options.count.to_string());
             vars.insert(
@@ -319,13 +319,12 @@ impl NovelCreationAgent {
             .join("\n");
 
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "novel_creation_opening_scene").ok()
-            })
-            .or_else(|| {
-                crate::prompts::registry::resolve_prompt_default("novel_creation_opening_scene")
-            }) {
+        let prompt = if let Some(tpl) =
+            crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_opening_scene")
+                .ok()
+                .or_else(|| {
+                    crate::prompts::registry::resolve_prompt_default("novel_creation_opening_scene")
+                }) {
             let mut vars = std::collections::HashMap::new();
             vars.insert(
                 "input".to_string(),

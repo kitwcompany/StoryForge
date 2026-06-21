@@ -33,6 +33,7 @@ pub struct PlanExecutionResult {
 
 pub struct PlanExecutor {
     app_handle: AppHandle,
+    pool: crate::db::DbPool,
     template_library: Mutex<PlanTemplateLibrary>,
     evolution_engine: CapabilityEvolutionEngine,
     intention_graph_planner: Option<IntentionGraphPlanner>,
@@ -58,6 +59,7 @@ impl PlanExecutor {
 
         Self {
             app_handle,
+            pool: pool.clone(),
             template_library: Mutex::new(PlanTemplateLibrary::new(pool)),
             evolution_engine,
             intention_graph_planner,
@@ -1327,10 +1329,7 @@ impl PlanExecutor {
             serde_json::Value::String(story_id.clone()),
         );
 
-        let manager = crate::SKILL_MANAGER
-            .get()
-            .ok_or("Skill manager not initialized")?;
-        let skill_manager = manager.lock().map_err(AppError::from)?.clone();
+        let skill_manager = crate::skills::SkillManager::from_app_handle(&self.app_handle);
 
         let agent_context = self.build_agent_context(&story_id, None, None).await?;
 
@@ -1396,16 +1395,12 @@ impl PlanExecutor {
 请用 JSON 格式回复更新后的角色属性。只输出 JSON。"#
                     .to_string()
             };
-            let tpl = if let Some(pool) = crate::get_pool() {
-                crate::prompts::registry::resolve_prompt(&pool, "planner_edit_character")
+            let tpl =
+                crate::prompts::registry::resolve_prompt(&self.pool, "planner_edit_character")
                     .unwrap_or_else(|_| {
                         crate::prompts::registry::resolve_prompt_default("planner_edit_character")
                             .unwrap_or_else(default_tpl)
-                    })
-            } else {
-                crate::prompts::registry::resolve_prompt_default("planner_edit_character")
-                    .unwrap_or_else(default_tpl)
-            };
+                    });
             let mut vars = std::collections::HashMap::new();
             vars.insert("character_name".to_string(), character.name.clone());
             vars.insert(
@@ -1504,24 +1499,23 @@ impl PlanExecutor {
         // 使用LLM解析修改意图
         let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
         // v0.21.0: 优先从 PromptRegistry 读取（支持用户覆盖）
-        if let Some(pool) = crate::get_pool() {
-            if let Ok(tpl) = crate::prompts::registry::resolve_prompt(&pool, "planner_edit_world") {
-                let mut vars = std::collections::HashMap::new();
-                vars.insert("current_world".to_string(), wb.concept.as_str().to_string());
-                vars.insert("user_request".to_string(), changes.replace('"', "'"));
-                let prompt =
-                    crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
-                let response = llm_service
-                    .generate_for_task(
-                        TaskType::Editing,
-                        prompt,
-                        Some(1024),
-                        Some(0.3),
-                        Some("update_world_building"),
-                    )
-                    .await?;
-                return Ok(serde_json::from_str(&response.content)?);
-            }
+        if let Ok(tpl) = crate::prompts::registry::resolve_prompt(&self.pool, "planner_edit_world")
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("current_world".to_string(), wb.concept.as_str().to_string());
+            vars.insert("user_request".to_string(), changes.replace('"', "'"));
+            let prompt =
+                crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+            let response = llm_service
+                .generate_for_task(
+                    TaskType::Editing,
+                    prompt,
+                    Some(1024),
+                    Some(0.3),
+                    Some("update_world_building"),
+                )
+                .await?;
+            return Ok(serde_json::from_str(&response.content)?);
         }
         let prompt = format!(
             r#"你是一位世界观编辑助手。请根据用户的修改要求，生成新的世界观设定。
@@ -1673,27 +1667,26 @@ impl PlanExecutor {
         // 使用LLM解析修改意图
         let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
         // v0.21.0: 优先从 PromptRegistry 读取（支持用户覆盖）
-        if let Some(pool) = crate::get_pool() {
-            if let Ok(tpl) = crate::prompts::registry::resolve_prompt(&pool, "planner_edit_scene") {
-                let mut vars = std::collections::HashMap::new();
-                vars.insert(
-                    "current_scene".to_string(),
-                    scene.title.as_deref().unwrap_or("未设定").to_string(),
-                );
-                vars.insert("user_request".to_string(), changes.replace('"', "'"));
-                let prompt =
-                    crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
-                let response = llm_service
-                    .generate_for_task(
-                        TaskType::Editing,
-                        prompt,
-                        Some(1024),
-                        Some(0.3),
-                        Some("update_scene"),
-                    )
-                    .await?;
-                return Ok(serde_json::from_str(&response.content)?);
-            }
+        if let Ok(tpl) = crate::prompts::registry::resolve_prompt(&self.pool, "planner_edit_scene")
+        {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert(
+                "current_scene".to_string(),
+                scene.title.as_deref().unwrap_or("未设定").to_string(),
+            );
+            vars.insert("user_request".to_string(), changes.replace('"', "'"));
+            let prompt =
+                crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+            let response = llm_service
+                .generate_for_task(
+                    TaskType::Editing,
+                    prompt,
+                    Some(1024),
+                    Some(0.3),
+                    Some("update_scene"),
+                )
+                .await?;
+            return Ok(serde_json::from_str(&response.content)?);
         }
         let prompt = format!(
             r#"你是一位场景编辑助手。请根据用户的修改要求，生成新的场景属性。

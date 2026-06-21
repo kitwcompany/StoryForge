@@ -50,6 +50,7 @@ pub fn update_chapter(
     pool: State<'_, DbPool>,
     app: AppHandle,
     automation_service: tauri::State<'_, crate::automation::service::AutomationService>,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<(), AppError> {
     let pool = pool.inner().clone();
     let repo = crate::db::ChapterRepository::new(pool.clone());
@@ -64,7 +65,7 @@ pub fn update_chapter(
 
     // 委托领域服务处理业务编排
     if let Some(ref story_id) = story_id_opt {
-        let service = ChapterService::new(pool, app);
+        let service = ChapterService::new(pool, app, vector_store.inner().clone());
         service.on_chapter_updated(
             &id,
             story_id,
@@ -101,6 +102,7 @@ pub fn create_chapter(
     pool: State<'_, DbPool>,
     app: AppHandle,
     automation_service: tauri::State<'_, crate::automation::service::AutomationService>,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<crate::db::Chapter, AppError> {
     let pool = pool.inner().clone();
     let repo = ChapterRepository::new(pool.clone());
@@ -130,7 +132,7 @@ pub fn create_chapter(
     let chapter = repo.create(req).map_err(AppError::from)?;
 
     // 委托领域服务处理后续业务编排
-    let service = ChapterService::new(pool, app);
+    let service = ChapterService::new(pool, app, vector_store.inner().clone());
     service.on_chapter_created(&chapter, title, automation_service.inner());
 
     Ok(chapter)

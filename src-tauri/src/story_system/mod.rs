@@ -24,6 +24,8 @@ pub mod scene_service;
 
 // Re-export public types used by external code.
 #[allow(unused_imports)]
+pub use chapter_service::ChapterCommitDebouncer;
+#[allow(unused_imports)]
 pub use commit_service::SceneCommitService;
 #[allow(unused_imports)]
 pub use contract_service::{ContractTree, ProjectionHealthReport, StorySystemEngine, WriterHealth};

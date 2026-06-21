@@ -2,13 +2,30 @@
 //!
 //! IPC 命令层，暴露给前端调用。
 
+use std::sync::Arc;
+
 use tauri::{command, AppHandle, Manager};
 
 use super::{
     models::*,
     service::{AnalysisStatusResponse, BookDeconstructionService},
 };
-use crate::{db::DbPool, error::AppError, llm::LlmService, subscription::SubscriptionService};
+use crate::{
+    db::DbPool, error::AppError, llm::LlmService, ports::VectorStore,
+    subscription::SubscriptionService,
+};
+
+fn new_service(app_handle: &AppHandle) -> Result<BookDeconstructionService, AppError> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let vector_store = app_handle.state::<Arc<dyn VectorStore>>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    Ok(BookDeconstructionService::new(
+        pool,
+        llm_service,
+        app_handle.clone(),
+        vector_store,
+    ))
+}
 
 fn get_user_id(app_handle: &AppHandle) -> String {
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
@@ -36,8 +53,7 @@ pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<Str
         ));
     }
 
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service
         .upload_and_analyze(std::path::Path::new(&file_path))
@@ -51,9 +67,7 @@ pub async fn get_analysis_status(
     book_id: String,
     app_handle: AppHandle,
 ) -> Result<AnalysisStatusResponse, AppError> {
-    let pool = app_handle.state::<DbPool>().inner().clone();
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service.get_status(&book_id)
 }
@@ -64,9 +78,7 @@ pub async fn get_book_analysis(
     book_id: String,
     app_handle: AppHandle,
 ) -> Result<BookAnalysisResult, AppError> {
-    let pool = app_handle.state::<DbPool>().inner().clone();
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service.get_analysis(&book_id)
 }
@@ -76,9 +88,7 @@ pub async fn get_book_analysis(
 pub async fn list_reference_books(
     app_handle: AppHandle,
 ) -> Result<Vec<ReferenceBookListItem>, AppError> {
-    let pool = app_handle.state::<DbPool>().inner().clone();
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service.list_books()
 }
@@ -86,9 +96,7 @@ pub async fn list_reference_books(
 /// 删除参考书籍
 #[command]
 pub async fn delete_reference_book(book_id: String, app_handle: AppHandle) -> Result<(), AppError> {
-    let pool = app_handle.state::<DbPool>().inner().clone();
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service.delete_book(&book_id)
 }
@@ -99,9 +107,7 @@ pub async fn convert_book_to_story(
     book_id: String,
     app_handle: AppHandle,
 ) -> Result<String, AppError> {
-    let pool = app_handle.state::<DbPool>().inner().clone();
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service.convert_to_story(&book_id).await
 }
@@ -109,9 +115,7 @@ pub async fn convert_book_to_story(
 /// 取消拆书分析
 #[command]
 pub async fn cancel_book_analysis(book_id: String, app_handle: AppHandle) -> Result<(), AppError> {
-    let pool = app_handle.state::<DbPool>().inner().clone();
-    let llm_service = LlmService::new(app_handle.clone());
-    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+    let service = new_service(&app_handle)?;
 
     service.cancel_analysis(&book_id)
 }

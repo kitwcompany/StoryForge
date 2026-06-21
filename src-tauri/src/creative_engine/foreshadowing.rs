@@ -8,43 +8,10 @@ use chrono::Local;
 use rusqlite::params;
 use uuid::Uuid;
 
-use crate::db::DbPool;
-
-/// 伏笔状态
-#[derive(Debug, Clone)]
-pub enum ForeshadowingStatus {
-    Setup,     // 已设置，未回收
-    Payoff,    // 已回收
-    Abandoned, // 已放弃
-}
-
-impl std::fmt::Display for ForeshadowingStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ForeshadowingStatus::Setup => write!(f, "setup"),
-            ForeshadowingStatus::Payoff => write!(f, "payoff"),
-            ForeshadowingStatus::Abandoned => write!(f, "abandoned"),
-        }
-    }
-}
-
-/// 伏笔记录
-#[derive(Debug, Clone)]
-pub struct ForeshadowingRecord {
-    pub id: String,
-    pub story_id: String,
-    pub content: String,
-    pub setup_scene_id: Option<String>,
-    pub payoff_scene_id: Option<String>,
-    // LitSeg: 叙事事件关联（从 narrative_threads.foreshadow 合并）
-    pub setup_event_id: Option<String>,
-    pub payoff_event_id: Option<String>,
-    pub risk_signals_score: Option<f32>,
-    pub status: ForeshadowingStatus,
-    pub importance: i32, // 1-10
-    pub created_at: String,
-    pub resolved_at: Option<String>,
-}
+use crate::{
+    db::DbPool,
+    domain::foreshadowing::{ForeshadowingProvider, ForeshadowingRecord, ForeshadowingStatus},
+};
 
 /// 伏笔追踪器
 pub struct ForeshadowingTracker {
@@ -243,6 +210,16 @@ impl ForeshadowingTracker {
             })
             .collect();
         Ok(hints)
+    }
+}
+
+impl ForeshadowingProvider for ForeshadowingTracker {
+    fn get_all(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<ForeshadowingRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        self.get_all(story_id)
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as _)
     }
 }
 

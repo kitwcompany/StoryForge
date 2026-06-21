@@ -14,25 +14,7 @@ use crate::{
     vector::lancedb_store::{LanceVectorStore, SearchResult as VectorSearchResult},
 };
 
-/// 混合搜索结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HybridSearchResult {
-    pub id: String,
-    pub content: String,
-    pub bm25_score: f32,
-    pub vector_score: f32,
-    pub hybrid_score: f32,
-    pub source_type: SourceType,
-    pub metadata: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SourceType {
-    Scene,
-    Entity,
-    Memory,
-    Note,
-}
+pub use crate::domain::search::{HybridSearchResult, SourceType};
 
 /// 混合搜索配置
 #[derive(Debug, Clone)]

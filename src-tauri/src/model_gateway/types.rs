@@ -4,7 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::router::{Complexity, Priority, RoutingDecision, TaskType};
+use crate::{
+    llm::adapter::ResponseFormat,
+    router::{Complexity, Priority, RoutingDecision, TaskType},
+};
 
 /// 模型健康状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +128,9 @@ pub struct GatewayRequest {
     /// Phase 2/3: 意图图发现的具体资产 ID 列表
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub discovered_asset_ids: Vec<String>,
+    /// v0.23: 结构化输出格式（OpenAI/Ollama JSON mode）
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub response_format: Option<ResponseFormat>,
 }
 
 impl GatewayRequest {
@@ -154,6 +160,7 @@ impl GatewayRequest {
             intent_object: None,
             asset_tags: Vec::new(),
             discovered_asset_ids: Vec::new(),
+            response_format: None,
         }
     }
 }

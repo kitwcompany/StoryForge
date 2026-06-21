@@ -2,9 +2,9 @@
 //! 统一叙事元素 Repository
 //!
 //! 操作 narrative_characters / narrative_scenes / narrative_world_buildings
-//! 表。 生产表（characters/scenes/
-//! world_buildings）和参考表（reference_characters/reference_scenes）
-//! 的数据最终都汇聚到这些统一表中。
+//! 表。拆书提取的角色/场景（原 reference_characters/reference_scenes）
+//! 已统一汇聚到这些表中，通过 `ElementSource::Extracted` 和
+//! `ElementStatus::Reference` 标识来源与状态。
 
 use chrono::Local;
 use rusqlite::params;
@@ -50,9 +50,9 @@ impl NarrativeCharacterRepository {
                 character.gender,
                 character.age,
                 character.importance_score,
-                format!("{}", character.source),
+                character.source.as_str(),
                 character.source_ref_id,
-                format!("{}", character.status),
+                character.status.as_str(),
                 now
             ],
         )?;
@@ -144,9 +144,9 @@ impl NarrativeCharacterRepository {
                     character.gender,
                     character.age,
                     character.importance_score,
-                    format!("{}", character.source),
+                    character.source.as_str(),
                     character.source_ref_id,
-                    format!("{}", character.status),
+                    character.status.as_str(),
                     now
                 ],
             )?;
@@ -187,12 +187,18 @@ impl NarrativeSceneRepository {
         let chars_present_json =
             serde_json::to_string(&scene.characters_present).unwrap_or_default();
 
+        let key_events_json = serde_json::to_string(&scene.key_events).unwrap_or_default();
+        let event_types_json =
+            serde_json::to_string(&scene.narrative_event_types).unwrap_or_default();
+
         conn.execute(
             "INSERT INTO narrative_scenes (
                 id, story_id, sequence_number, title, summary, dramatic_goal, external_pressure,
                 conflict_type, characters_present, setting_location, setting_time, content,
+                key_events, emotional_tone, narrative_intensity, narrative_sentiment,
+                narrative_event_types, act_number, position_in_act,
                 source, source_ref_id, status, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?22)",
             params![
                 scene.id,
                 scene.story_id,
@@ -206,9 +212,16 @@ impl NarrativeSceneRepository {
                 scene.setting_location,
                 scene.setting_time,
                 scene.content,
-                format!("{}", scene.source),
+                key_events_json,
+                scene.emotional_tone,
+                scene.narrative_intensity,
+                scene.narrative_sentiment,
+                event_types_json,
+                scene.act_number,
+                scene.position_in_act,
+                scene.source.as_str(),
                 scene.source_ref_id,
-                format!("{}", scene.status),
+                scene.status.as_str(),
                 now
             ],
         )?;
@@ -226,14 +239,20 @@ impl NarrativeSceneRepository {
         for scene in scenes {
             let chars_present_json =
                 serde_json::to_string(&scene.characters_present).unwrap_or_default();
+            let key_events_json =
+                serde_json::to_string(&scene.key_events).unwrap_or_default();
+            let event_types_json =
+                serde_json::to_string(&scene.narrative_event_types).unwrap_or_default();
             tx.execute(
                 "INSERT INTO narrative_scenes (
                     id, story_id, sequence_number, title, summary, dramatic_goal, \
                  external_pressure,
                     conflict_type, characters_present, setting_location, setting_time, content,
+                    key_events, emotional_tone, narrative_intensity, narrative_sentiment,
+                    narrative_event_types, act_number, position_in_act,
                     source, source_ref_id, status, created_at, updated_at
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-                 ?16)",
+                 ?17, ?18, ?19, ?20, ?21, ?22, ?22)",
                 params![
                     scene.id,
                     scene.story_id,
@@ -247,9 +266,16 @@ impl NarrativeSceneRepository {
                     scene.setting_location,
                     scene.setting_time,
                     scene.content,
-                    format!("{}", scene.source),
+                    key_events_json,
+                    scene.emotional_tone,
+                    scene.narrative_intensity,
+                    scene.narrative_sentiment,
+                    event_types_json,
+                    scene.act_number,
+                    scene.position_in_act,
+                    scene.source.as_str(),
                     scene.source_ref_id,
-                    format!("{}", scene.status),
+                    scene.status.as_str(),
                     now
                 ],
             )?;
@@ -267,6 +293,8 @@ impl NarrativeSceneRepository {
             "SELECT id, story_id, sequence_number, title, summary, dramatic_goal, \
              external_pressure,
                     conflict_type, characters_present, setting_location, setting_time, content,
+                    key_events, emotional_tone, narrative_intensity, narrative_sentiment,
+                    narrative_event_types, act_number, position_in_act,
                     source, source_ref_id, status
              FROM narrative_scenes WHERE story_id = ?1 ORDER BY sequence_number",
         )?;
@@ -275,6 +303,12 @@ impl NarrativeSceneRepository {
             let chars_json: String = row.get(8).unwrap_or_default();
             let characters_present: Vec<String> =
                 serde_json::from_str(&chars_json).unwrap_or_default();
+            let key_events_json: String = row.get(12).unwrap_or_default();
+            let key_events: Vec<String> =
+                serde_json::from_str(&key_events_json).unwrap_or_default();
+            let event_types_json: String = row.get(16).unwrap_or_default();
+            let narrative_event_types: Vec<String> =
+                serde_json::from_str(&event_types_json).unwrap_or_default();
 
             Ok(SceneElement {
                 id: row.get(0)?,
@@ -289,14 +323,16 @@ impl NarrativeSceneRepository {
                 setting_location: row.get(9)?,
                 setting_time: row.get(10)?,
                 content: row.get(11)?,
-                narrative_intensity: 0.0,
-                narrative_sentiment: 0.0,
-                narrative_event_types: Vec::new(),
-                act_number: 1,
-                position_in_act: 0.0,
-                source: parse_source(&row.get::<_, String>(12).unwrap_or_default()),
-                source_ref_id: row.get(13)?,
-                status: parse_status(&row.get::<_, String>(14).unwrap_or_default()),
+                key_events,
+                emotional_tone: row.get(13).unwrap_or_default(),
+                narrative_intensity: row.get(14).unwrap_or(0.0),
+                narrative_sentiment: row.get(15).unwrap_or(0.0),
+                narrative_event_types,
+                act_number: row.get(17).unwrap_or(1),
+                position_in_act: row.get(18).unwrap_or(0.0),
+                source: parse_source(&row.get::<_, String>(19).unwrap_or_default()),
+                source_ref_id: row.get(20)?,
+                status: parse_status(&row.get::<_, String>(21).unwrap_or_default()),
             })
         })?;
 
@@ -348,9 +384,9 @@ impl NarrativeWorldBuildingRepository {
                 wb.history,
                 locations_json,
                 wb.power_system,
-                format!("{}", wb.source),
+                wb.source.as_str(),
                 wb.source_ref_id,
-                format!("{}", wb.status),
+                wb.status.as_str(),
                 now
             ],
         )?;
@@ -411,21 +447,86 @@ impl NarrativeWorldBuildingRepository {
 // ==================== 辅助函数 ====================
 
 fn parse_source(s: &str) -> ElementSource {
-    match s {
-        "generated" => ElementSource::Generated,
-        "extracted" => ElementSource::Extracted,
-        "user_created" => ElementSource::UserCreated,
-        "imported" => ElementSource::Imported,
-        _ => ElementSource::UserCreated,
-    }
+    ElementSource::from_str(s).unwrap_or(ElementSource::UserCreated)
 }
 
 fn parse_status(s: &str) -> crate::domain::narrative_elements::ElementStatus {
     use crate::domain::narrative_elements::ElementStatus;
-    match s {
-        "active" => ElementStatus::Active,
-        "reference" => ElementStatus::Reference,
-        "archived" => ElementStatus::Archived,
-        _ => ElementStatus::Active,
+    ElementStatus::from_str(s).unwrap_or(ElementStatus::Active)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{CreateStoryRequest, StoryRepository};
+
+    #[test]
+    fn test_character_element_source_status_round_trip() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "RoundTrip".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+
+        let repo = NarrativeCharacterRepository::new(pool);
+        let character = CharacterElement {
+            id: "char-1".to_string(),
+            story_id: story.id,
+            name: "Test".to_string(),
+            role_type: "protagonist".to_string(),
+            personality: "calm".to_string(),
+            background: "none".to_string(),
+            goals: "survive".to_string(),
+            fears: String::new(),
+            appearance: "tall".to_string(),
+            gender: "unknown".to_string(),
+            age: 20,
+            relationships: vec![],
+            importance_score: 5.0,
+            source: ElementSource::Extracted,
+            source_ref_id: Some("book-1".to_string()),
+            status: ElementStatus::Reference,
+        };
+
+        repo.create(&character).unwrap();
+        let loaded = repo.get_by_story(&character.story_id).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].source, ElementSource::Extracted);
+        assert_eq!(loaded[0].status, ElementStatus::Reference);
+    }
+
+    #[test]
+    fn test_element_source_as_str_round_trip() {
+        for source in [
+            ElementSource::Generated,
+            ElementSource::Extracted,
+            ElementSource::UserCreated,
+            ElementSource::Imported,
+        ] {
+            let s = source.as_str();
+            assert_eq!(ElementSource::from_str(s), Some(source));
+        }
+        assert_eq!(ElementSource::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_element_status_as_str_round_trip() {
+        for status in [
+            ElementStatus::Active,
+            ElementStatus::Reference,
+            ElementStatus::Archived,
+        ] {
+            let s = status.as_str();
+            assert_eq!(ElementStatus::from_str(s), Some(status));
+        }
+        assert_eq!(ElementStatus::from_str("invalid"), None);
     }
 }

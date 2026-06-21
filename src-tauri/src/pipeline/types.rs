@@ -65,6 +65,17 @@ impl std::fmt::Display for PipelineError {
 
 impl std::error::Error for PipelineError {}
 
+/// 修稿变更说明
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefineChangeNote {
+    pub category: String,
+    #[serde(default)]
+    pub original: Option<String>,
+    #[serde(default)]
+    pub revised: Option<String>,
+    pub reason: String,
+}
+
 /// 修稿结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefineResult {
@@ -73,6 +84,8 @@ pub struct RefineResult {
     pub refined_content: String,
     pub word_count: i32,
     pub change_summary: Option<String>,
+    #[serde(default)]
+    pub refinement_notes: Vec<RefineChangeNote>,
 }
 
 /// 审稿结果

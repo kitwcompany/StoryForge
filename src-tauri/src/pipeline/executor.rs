@@ -2,12 +2,15 @@
 //!
 //! 将 Pipeline 修稿/审稿/定稿任务接入 Task System，支持后台执行和进度追踪。
 
+use std::sync::Arc;
+
 use tauri::AppHandle;
 
 use super::types::*;
 use crate::{
     db::DbPool,
     llm::LlmService,
+    ports::VectorStore,
     task_system::{
         executor::{TaskExecutionContext, TaskExecutor},
         models::*,
@@ -17,11 +20,16 @@ use crate::{
 pub struct PipelineReviewExecutor {
     pool: DbPool,
     app_handle: AppHandle,
+    vector_store: Arc<dyn VectorStore>,
 }
 
 impl PipelineReviewExecutor {
-    pub fn new(pool: DbPool, app_handle: AppHandle) -> Self {
-        Self { pool, app_handle }
+    pub fn new(pool: DbPool, app_handle: AppHandle, vector_store: Arc<dyn VectorStore>) -> Self {
+        Self {
+            pool,
+            app_handle,
+            vector_store,
+        }
     }
 }
 
@@ -209,6 +217,7 @@ impl TaskExecutor for PipelineReviewExecutor {
                     &self.pool,
                     &self.app_handle,
                     &callbacks,
+                    self.vector_store.as_ref(),
                 )
                 .await
                 {

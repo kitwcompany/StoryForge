@@ -199,6 +199,10 @@ impl IngestPipeline {
         self
     }
 
+    pub fn pool(&self) -> Option<&DbPool> {
+        self.pool.as_ref()
+    }
+
     /// 执行两步思维链Ingest，自动追踪作业状态
     pub async fn ingest(
         &self,
@@ -432,12 +436,88 @@ impl IngestPipeline {
         }
 
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        let base_prompt = if let Some(tpl) = crate::get_pool()
-            .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "memory_content_analysis").ok()
-            })
-            .or_else(|| crate::prompts::registry::resolve_prompt_default("memory_content_analysis"))
-        {
+        let base_prompt = if let Some(pool) = self.pool.as_ref() {
+            let tpl = crate::prompts::registry::resolve_prompt(pool, "memory_content_analysis")
+                .ok()
+                .or_else(|| crate::prompts::registry::resolve_prompt_default("memory_content_analysis"))
+                .unwrap_or_else(|| r#"你是一位专业的小说分析师。请深入分析以下小说内容，提取结构化信息。
+
+【内容】
+{}
+
+【来源】
+{}
+
+【输出要求】
+请按以下JSON格式输出分析结果。必须严格遵循格式，不要添加任何注释或说明文字：
+{{
+  "entities": [
+    {{
+      "name": "实体名称（必须是文本中明确出现的名字，禁止编造）",
+      "entity_type": "Character", // 可选值: Character(人物), Location(地点), Item(物品), Organization(组织), Concept(概念), Event(事件)
+      "mentions": ["文本中出现该实体的具体片段，引用原文1-2句"],
+      "attributes": {{"key": "value"}}
+    }}
+  ],
+  "relationships": [
+    {{
+      "source": "源实体名称",
+      "target": "目标实体名称",
+      "relation_type": "关系类型（如: 朋友/敌人/家人/师徒/上下级/爱慕/仇恨/竞争）",
+      "evidence": "支持该关系的原文引用",
+      "strength": 0.8 // 0.0-1.0 的浮点数
+    }}
+  ],
+  "events": [
+    {{
+      "description": "事件描述（30字以内）",
+      "participants": ["参与者1", "参与者2"],
+      "importance": 8, // 1-10 的整数
+      "trigger": "触发原因",
+      "consequence": "后果影响"
+    }}
+  ],
+  "sentiment": {{
+    "overall": "positive", // 可选值: positive/negative/neutral
+    "intensity": 0.7, // 0.0-1.0 的浮点数
+    "arc": [{{"position": 0.5, "sentiment": "tense", "intensity": 0.8}}]
+  }},
+  "foreshadowing": [
+    {{
+      "content": "伏笔内容",
+      "type_": "setup", // 可选值: setup(埋下)/payoff(回收)
+      "related_to": ["相关内容"]
+    }}
+  ],
+  "themes": ["主题1", "主题2"]
+}}
+
+【Few-shot示例】
+输入: "林枫站在青云山顶，望着远处的云海。他握紧手中的长剑，心中暗暗发誓要找到杀害师父的凶手。"
+输出: {{
+  "entities": [
+    {{"name": "林枫", "entity_type": "Character", "mentions": ["林枫站在青云山顶"], "attributes": {{"location": "青云山顶", "mood": "愤怒/决心"}}}},
+    {{"name": "青云山", "entity_type": "Location", "mentions": ["林枫站在青云山顶"], "attributes": {{}}}} ,
+    {{"name": "长剑", "entity_type": "Item", "mentions": ["握紧手中的长剑"], "attributes": {{}}}}
+  ],
+  "relationships": [
+    {{"source": "林枫", "target": "师父", "relation_type": "师徒", "evidence": "要找到杀害师父的凶手", "strength": 0.9}}
+  ],
+  "events": [
+    {{"description": "林枫在青云山顶发誓复仇", "participants": ["林枫"], "importance": 9, "trigger": "师父被杀", "consequence": "林枫决心复仇"}}
+  ],
+  "sentiment": {{"overall": "negative", "intensity": 0.8, "arc": [{{"position": 0.5, "sentiment": "determined", "intensity": 0.9}}]}},
+  "foreshadowing": [{{"content": "要找到杀害师父的凶手", "type_": "setup", "related_to": ["复仇主线"]}}],
+  "themes": ["复仇", "成长"]
+}}
+
+【重要规则】
+1. 实体名称必须是文本中明确出现的名字，禁止编造或推断未命名的实体
+2. 实体类型必须严格使用: Character/Location/Item/Organization/Concept/Event 之一
+3. 关系必须有明确的原文证据支持，禁止臆测
+4. 事件重要性评估: 1(轻微提及) 到 10(核心转折)
+5. 确保输出是合法的JSON，不要添加markdown代码块标记
+6. 如果文本中没有足够信息，返回空数组即可，不要编造"#.to_string());
             let mut vars = std::collections::HashMap::new();
             vars.insert("content".to_string(), content.text.clone());
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
@@ -524,7 +604,6 @@ impl IngestPipeline {
                 content.text, content.source
             )
         };
-
         let mut last_error: Option<String> = None;
         for attempt in 0..3 {
             if let Some(token) = cancel {

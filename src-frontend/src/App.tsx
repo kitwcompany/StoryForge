@@ -62,8 +62,6 @@ function App() {
   useWorkflowNodes();
 
   // 统一实时状态同步中心：监听后端数据变更事件，自动刷新缓存
-  // W2-F2: 数据刷新已由 useSyncStore 内部通过 queryClient.invalidateQueries 完成，
-  // 不再需要 backstage-data-refreshed DOM CustomEvent
   useSyncStore({
     onStoryCreated: storyId => {
       toast.success('新故事已创建');
@@ -184,7 +182,6 @@ function App() {
           queryClient.invalidateQueries({ queryKey: ['character-relationships', cs.id] });
         }
         // 触发全局数据刷新事件，让各页面重新获取数据
-        // W2-F2: backstage-data-refreshed 已废弃，useSyncStore 已覆盖数据刷新
       } catch (e) {
         createLogger('ui:App').error('Failed to refresh on window shown', { error: e });
         if (retries > 0) {

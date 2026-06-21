@@ -7,7 +7,7 @@ import { useRef, useCallback } from 'react';
  * 此 hook 提供强制重绘机制，封装了 opacity 抖动 hack。
  *
  * 背景: v5.2.0/W2-F3 引入，用于解决 WebView2 compositor 在窗口切换后不刷新的问题。
- * TODO: 当 Tauri 升级到修复此问题的版本后，可移除此 hook。
+ * FIXME: 仍是临时 hack，需在真实窗口恢复/切换场景验证无白屏后再移除。
  */
 export function useWebViewRedrawFix() {
   const mainRef = useRef<HTMLElement>(null);

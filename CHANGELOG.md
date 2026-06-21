@@ -2,6 +2,127 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.4] - 智能层闭环落地（2026-06-21）
+
+### 背景
+TriShot 管线与架构债务清偿完成后，智能创作层仍需补齐最后一环：LLM 结构化输出原生支持、MemoryPack 预算语义化、拆书数据统一汇入 narrative 资产表。本版本完成 Phase 6，不改动业务行为，只提升输出确定性与数据一致性。
+
+### 新增
+- `llm::adapter::ResponseFormat` 枚举，当前支持 `JsonObject`
+- OpenAI 适配器请求体附加 `response_format: { "type": "json_object" }`
+- Ollama 适配器请求体附加 `format: "json"`
+- `LlmService::generate_for_task_with_format` / `generate_with_profile_and_request_id_with_format` 等结构化输出入口
+- `GatewayRequest` 新增 `response_format` 字段，模型网关可透传 JSON mode
+- `RefineChangeNote` 类型与 `RefineResult.refinement_notes`，修稿结果携带分类变更说明
+- 拆书场景统一字段：`SceneElement.key_events` / `emotional_tone`
+- 数据库迁移 `V100__拆书存储统一_删除_reference_表.sql`：补齐 `narrative_scenes` 字段并删除 `reference_characters` / `reference_scenes`
+
+### 改造
+- `pipeline/review.rs` 调用 `generate_for_task_with_format(..., JsonObject)`，保留 JSON 解析容错
+- `pipeline/refine.rs` 调用 JSON mode 并解析 `{ refined_content, change_summary, refinement_notes }`
+- `MemoryBudget::for_task_type` 改为接收 `MemoryTaskType { Write, Plan, Review }`，IPC/调用点同步更新
+- `BookDeconstructionService` 删除 `ReferenceCharacterRepository` / `ReferenceSceneRepository` 双写，统一写入 `NarrativeCharacterRepository` / `NarrativeSceneRepository`
+- `BookDeconstructionRepository::get_book_analysis_summary` 改为查询 `narrative_scenes`
+- `WriteTimeBundle` 参考场景 few-shots 改用 `NarrativeSceneRepository` + `SceneElement`
+- Prompt 缓存键隔离 JSON mode 与普通文本输出
+- `CONTEXT.md` 拆书存储章节更新为已解决
+
+### Schema
+- `narrative_scenes` 新增列：`key_events`、`emotional_tone`、`narrative_intensity`、`narrative_sentiment`、`narrative_event_types`、`act_number`、`position_in_act`
+- 新数据库的 `narrative_scenes` 建表语句已包含上述列
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **538 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit` ✅ 零错误
+- `python3 scripts/architecture_guard.py` ✅ 通过
+
+## [v0.23.1] - 架构债务清偿：全局单例治理与模块依赖解耦（2026-06-21）
+
+### 背景
+TriShot 管线落地后，后端仍存在 v0.22.x 之前遗留的全局 `static` 单例与模块间循环导入，阻碍并行初始化、单测 mock 与长期演进。本版本彻底清理这些架构债务，不改动任何业务行为。
+
+### 治理
+- 移除 14 个已禁止的全局单例/缓存：`VECTOR_STORE`、`DB_POOL`、`LLM_SERVICE`、`APP_CONFIG`、`SKILL_MANAGER`、`CHAPTER_COMMIT_DEBOUNCE`、`PENDING_VECTOR_INDEXES`、`WRITER_APP_DIR`、`WRITER_APP_CONFIG`、`WRITER_GENRE_PROFILES`、`WRITER_STYLE_DNAS`、`APP_CONFIG_CACHE` 等
+- 全局依赖全部替换为 Tauri `state` 注入或函数级显式参数传递
+
+### 架构
+- 扩展 `domain` 领域层，统一放置跨模块共享类型：
+  - `agent_context`、`agent_types`、`foreshadowing`、`search`、`write_time_bundle`
+  - `asset_snapshot`、`continuity`、`adaptive`、`prompt_synthesis`
+  - `agent_service`（`AgentServicePort` 行为端口）、`creative_engine`（`CreativeEnginePort` 行为端口）
+- 解决历史模块依赖方向：
+  - `memory → agents`、`narrative → memory`、`narrative → creative_engine`：数据类型下沉到 `domain`
+  - `agents ↔ creative_engine`：通过 `CreativeEnginePort` / `AgentServicePort` 双向依赖反转，消除循环导入
+- `creative_engine` 提供 `CreativeEngineAdapter` 实现 `CreativeEnginePort`；`agents/service.rs` 实现 `AgentServicePort`
+- `scripts/architecture_guard.py` 清空 `KNOWN_VIOLATIONS`，当前报告：
+  - Enforced global singletons removed: **14**
+  - Known violations tracked: **0**
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ 486 passed / 48 failed（48 failed 为已知 V092 基线问题，零新回归）
+- `npx tsc --noEmit` ✅ 零错误（本版本未改动前端源码）
+
+## [v0.23.2] - 事件总线与状态同步治理（2026-06-21）
+
+### 背景
+v0.23.1 清除了全局单例与模块循环依赖后，后端仍缺少一次完整 `CHAPTER_COMMIT` 的显式事件，前端 `FrontstageApp` 仍在本地 `useState` 维护编辑器内容，未兑现 "single source of truth"。本版本补齐事件流并收敛状态源。
+
+### 新增
+- 后端 `SyncEvent::ChapterCommitted` 变体（`state_sync/events.rs`），携带 `story_id`、`chapter_id`、`chapter_number`、`projection_status`（`HashMap<String, String>`）
+- `StateSync::emit_chapter_committed` 发射助手（`state_sync/service.rs`）
+- `SceneCommitService::apply_commit` 在同步 + 异步 projections 全部完成后发射 `ChapterCommitted`
+- `useSyncStore` 中处理 `chapterCommitted`：失效 `chapters`、`chapterDetail`、`knowledgeGraph`、`foreshadowings`、`payoffLedger` 缓存
+
+### 改造
+- `FrontstageApp.tsx` 将 `content` / `isSaved` 从本地 `useState` 迁移到 `useFrontstageStore`
+  - 保留 `isSaved` 与编辑器焦点双重保护，后台同步事件不会覆盖未保存内容
+  - 自动保存成功后通过 `setSaveStatus` 回写保存状态与时间戳
+  - 章节切换时同步写入 `frontstageStore.setChapterInfo`
+- 删除所有 `backstage-data-refreshed` 废弃注释（`App.tsx`、`Scenes.tsx`、`Characters.tsx`、`Foreshadowing.tsx`）
+- `src-frontend/src/CONTEXT.md` 更新 Data Refresh 定义为仅 `sync-event`
+- `useWebViewRedrawFix` 注释由 `TODO` 改为 `FIXME`，明确仍是临时 hack
+
+### 测试
+- 新增 `state_sync::events::trishot_event_tests::test_chapter_committed_serialization` 序列化测试
+- 前端 vitest 基线不变：126 passed / 3 skipped
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ 487 passed / 48 failed（48 failed 为已知 V092 基线问题，零新回归；新增 1 测试通过）
+- `npx tsc --noEmit` ✅ 零错误
+- `npx vitest run` ✅ 126 passed / 3 skipped
+- `python3 scripts/architecture_guard.py` ✅ 通过
+
+## [v0.23.3] - 测试基线修复 + 工程化（2026-06-21）
+
+### 背景
+自 v0.17.0 起 `cargo test --lib` 一直有 48 个失败，被当作“V092 基线问题”。根因是 `V095__意图图_SING_数据层.sql` 在 inline Rust migrations 之前运行，导致 28–94 号 inline migrations 被跳过，大量表/列缺失。本版本彻底修复。
+
+### 修复
+- `MigrationRunner::run_with_legacy` 改为按版本交错执行：SQL 文件版本 ≤ `MAX_INLINE_MIGRATION_VERSION` 时先运行，然后运行 inline Rust migrations，最后运行更高版本的 SQL 文件
+- `V095__意图图_SING_数据层.sql` 重命名为 `V099__意图图_SING_数据层.sql`，确保其永远在所有 inline migrations 之后应用
+- `db/connection.rs` 新增 `MAX_INLINE_MIGRATION_VERSION = 98` 常量与防护注释
+
+### Schema
+- `narrative_characters` / `narrative_scenes` / `narrative_world_buildings` 建表语句加入 `status TEXT NOT NULL DEFAULT 'active'`
+- 新增 inline Migration 98：为已存在的三张 narrative 表 `ALTER TABLE ADD COLUMN status`
+
+### Repository
+- `domain/narrative_elements.rs` 为 `ElementSource` / `ElementStatus` 新增 `as_str()` / `from_str()`（snake_case 英文）
+- `db/repositories_narrative.rs` 存储与解析统一使用英文键，修复中文 `Display` 与英文解析不匹配导致的 round-trip 失败
+
+### 测试
+- 新增 `db::repositories_narrative::tests` 3 例：source/status round-trip、repository 读写 round-trip
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ **538 passed / 0 failed / 2 ignored**（首次全绿）
+- `npx tsc --noEmit` ✅ 零错误
+- `npx vitest run` ✅ 126 passed / 3 skipped
+- `python3 scripts/architecture_guard.py` ✅ 通过
+
 ## [v0.23.0] - TriShot 三击生成管线（2026-06-21）
 
 ### 背景

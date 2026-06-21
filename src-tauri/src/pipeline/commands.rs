@@ -267,6 +267,7 @@ pub async fn run_finalize(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     task_service: State<'_, crate::task_system::service::TaskService>,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<PipelineResult, AppError> {
     check_pipeline_feature_access(&app_handle, "pipeline_finalize")?;
 
@@ -314,6 +315,7 @@ pub async fn run_finalize(
         pool.inner(),
         &app_handle,
         callbacks,
+        vector_store.inner().as_ref(),
     )
     .await;
 
@@ -352,6 +354,7 @@ pub async fn repair_finalize(
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     task_service: State<'_, crate::task_system::service::TaskService>,
+    vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<PipelineResult, AppError> {
     let orchestrator = PipelineOrchestrator::new(pool.inner().clone());
 
@@ -402,6 +405,7 @@ pub async fn repair_finalize(
         pool.inner(),
         &app_handle,
         callbacks,
+        vector_store.inner().as_ref(),
     )
     .await;
 

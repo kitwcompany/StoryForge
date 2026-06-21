@@ -8,6 +8,7 @@
 use std::str::FromStr;
 
 use super::Methodology;
+use crate::db::DbPool;
 
 /// 英雄之旅的12个阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -227,11 +228,11 @@ impl Methodology for HeroJourneyMethodology {
         "约瑟夫·坎普贝尔的12阶段英雄之旅结构"
     }
 
-    fn system_prompt_extension(&self) -> String {
+    fn system_prompt_extension(&self, pool: Option<&DbPool>) -> String {
         // v0.21.0: 优先从 PromptRegistry 读取覆盖
-        if let Some(tpl) = crate::get_pool()
+        if let Some(tpl) = pool
             .and_then(|p| {
-                crate::prompts::registry::resolve_prompt(&p, "methodology_hero_journey").ok()
+                crate::prompts::registry::resolve_prompt(p, "methodology_hero_journey").ok()
             })
             .or_else(|| {
                 crate::prompts::registry::resolve_prompt_default("methodology_hero_journey")

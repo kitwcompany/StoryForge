@@ -15,8 +15,6 @@
 //! v0.17.2 接入：在 `build_writer_prompt` 注入 style 块之前调用
 //! [`sanitize_style_brief`]。
 
-use serde::{Deserialize, Serialize};
-
 /// 在世作者黑名单（≤70 年公有领域期 + 仍在创作）。
 /// 命中后会被替换为 [`CRAFT_SLIDER_HINTS`] 中的等效描述。
 ///
@@ -70,16 +68,9 @@ pub const LIVING_AUTHOR_BLACKLIST: &[&str] = &[
     "Haruki Murakami",
 ];
 
-/// 「手工艺滑块」单档建议
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CraftSliderHint {
-    /// 维度名（如「句长偏好」）
-    pub dimension: String,
-    /// 当前档位（如「短句为主」/「长短交替」/「长句缠绕」）
-    pub level: String,
-    /// 写作要求（注入 prompt 的原文）
-    pub directive: String,
-}
+// 数据类型已迁移到 `crate::domain::style`。
+pub use crate::domain::style::{CraftSliderHint, SanitizeOutcome};
+
 
 /// 5 维 × 3 档的默认滑块表。这是中性、不针对任何特定作者的写作要求。
 pub fn default_craft_sliders() -> Vec<CraftSliderHint> {
@@ -125,17 +116,6 @@ pub fn render_craft_sliders(sliders: &[CraftSliderHint]) -> String {
         ));
     }
     out
-}
-
-/// 风格摘要清洗结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SanitizeOutcome {
-    /// 清洗后的文本（已去除在世作者姓名）
-    pub sanitized: String,
-    /// 命中的在世作者列表（用于日志/UI 提示）
-    pub removed_authors: Vec<String>,
-    /// 是否需要在 prompt 中追加「手工艺滑块」段
-    pub require_craft_sliders: bool,
 }
 
 /// 扫描并替换风格简介中的在世作者姓名。

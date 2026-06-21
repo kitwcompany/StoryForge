@@ -17,6 +17,7 @@ use crate::{
     },
     llm::LlmService,
     narrative::elements::ElementStatus,
+    ports::VectorStore,
     task_system::{
         executor::{TaskExecutionContext, TaskExecutor},
         models::*,
@@ -27,14 +28,21 @@ pub struct BookDeconstructionExecutor {
     pool: DbPool,
     llm_service: LlmService,
     app_handle: AppHandle,
+    vector_store: Arc<dyn VectorStore>,
 }
 
 impl BookDeconstructionExecutor {
-    pub fn new(pool: DbPool, llm_service: LlmService, app_handle: AppHandle) -> Self {
+    pub fn new(
+        pool: DbPool,
+        llm_service: LlmService,
+        app_handle: AppHandle,
+        vector_store: Arc<dyn VectorStore>,
+    ) -> Self {
         Self {
             pool,
             llm_service,
             app_handle,
+            vector_store,
         }
     }
 }
@@ -374,6 +382,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 self.pool.clone(),
                 self.llm_service.clone(),
                 self.app_handle.clone(),
+                self.vector_store.clone(),
             );
             if let Err(e) = service.store_embeddings(book_id, &analysis_result).await {
                 log::warn!(

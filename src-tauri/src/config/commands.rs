@@ -680,13 +680,11 @@ pub fn create_model(
     app_config.save(&app_dir).map_err(AppError::from)?;
 
     // v0.11.2: 刷新 LLM 服务内存配置，避免新增/修改模型后仍使用旧适配器或旧活跃模型
-    if let Some(service) = crate::llm::service::get_llm_service() {
-        service.reload_config();
-        log::info!(
-            "[create_model] reloaded LLM service config for {}",
-            model_id
-        );
-    }
+    crate::llm::LlmService::new(app_handle.clone()).reload_config();
+    log::info!(
+        "[create_model] reloaded LLM service config for {}",
+        model_id
+    );
 
     // 通知 frontstage 刷新模型列表
     let _ = crate::window::WindowManager::send_to_frontstage(
@@ -820,10 +818,8 @@ pub fn update_model(
     app_config.save(&app_dir).map_err(AppError::from)?;
 
     // v0.11.2: 刷新 LLM 服务内存配置，确保 api_base/api_key 等变更立即生效
-    if let Some(service) = crate::llm::service::get_llm_service() {
-        service.reload_config();
-        log::info!("[update_model] reloaded LLM service config for {}", id);
-    }
+    crate::llm::LlmService::new(app_handle.clone()).reload_config();
+    log::info!("[update_model] reloaded LLM service config for {}", id);
 
     // 通知 frontstage 刷新模型列表
     let _ = crate::window::WindowManager::send_to_frontstage(
@@ -934,13 +930,11 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
     config.save(&app_dir).map_err(AppError::from)?;
 
     // v0.11.2: 删除模型后立即刷新 LLM 服务内存配置，避免后续生成仍使用已删除模型
-    if let Some(service) = crate::llm::service::get_llm_service() {
-        service.reload_config();
-        log::info!(
-            "[delete_model] reloaded LLM service config after removing {}",
-            id
-        );
-    }
+    crate::llm::LlmService::new(app_handle.clone()).reload_config();
+    log::info!(
+        "[delete_model] reloaded LLM service config after removing {}",
+        id
+    );
 
     // v0.11.2: 通知 frontstage 刷新模型状态，保持多窗口/多组件数据一致
     let _ = crate::window::WindowManager::send_to_frontstage(
@@ -988,13 +982,11 @@ pub fn set_active_model(
     config.save(&app_dir).map_err(AppError::from)?;
 
     // v0.11.2: 刷新 LLM 服务内存配置，确保后续生成请求立即使用新活跃模型
-    if let Some(service) = crate::llm::service::get_llm_service() {
-        service.reload_config();
-        log::info!(
-            "[set_active_model] reloaded LLM service config for {}",
-            model_id
-        );
-    }
+    crate::llm::LlmService::new(app_handle.clone()).reload_config();
+    log::info!(
+        "[set_active_model] reloaded LLM service config for {}",
+        model_id
+    );
 
     // 通知幕前窗口刷新模型状态
     let _ = crate::window::WindowManager::send_to_frontstage(

@@ -11,13 +11,15 @@
 
 use tauri::AppHandle;
 
+use std::sync::Arc;
+
 use crate::{
     automation::service::AutomationService,
     db::{DbPool, KnowledgeGraphRepository, Scene, SceneRepository, SceneUpdate},
     llm::LlmService,
     memory::ingest::{IngestContent, IngestPipeline},
+    ports::VectorStore,
     state_sync::StateSync,
-    VECTOR_STORE,
 };
 
 // ==================== 组件 1: Scene Ingestor ====================
@@ -43,7 +45,12 @@ impl SceneIngestor {
     }
 
     /// 启动后台 ingest 任务。
-    pub fn spawn_ingest(scene_id: String, pool: DbPool, app_handle: AppHandle) {
+    pub fn spawn_ingest(
+        scene_id: String,
+        pool: DbPool,
+        app_handle: AppHandle,
+        vector_store: Arc<dyn VectorStore>,
+    ) {
         tauri::async_runtime::spawn(async move {
             let scene_repo = SceneRepository::new(pool.clone());
             let Some(scene) = (match scene_repo.get_by_id(&scene_id) {
@@ -148,38 +155,33 @@ impl SceneIngestor {
             );
 
             // 向量索引更新
-            if let Some(store) = VECTOR_STORE.get() {
-                match crate::embeddings::embed_text_async(content_for_vector.clone()).await {
-                    Ok(embedding) => {
-                        let record = crate::vector::VectorRecord {
-                            id: format!("scene:{}", scene_id),
-                            story_id: story_id.clone(),
-                            chapter_id: scene.chapter_id.clone().unwrap_or_default(),
-                            chapter_number: scene.sequence_number,
-                            text: content_for_vector,
-                            record_type: "scene".to_string(),
-                            metadata: None,
-                            embedding,
-                        };
-                        match store.add_record(record).await {
-                            Ok(_) => log::info!(
-                                "[SceneIngestor] Scene {} indexed to vector store",
-                                scene_id
-                            ),
-                            Err(e) => log::warn!(
-                                "[SceneIngestor] Failed to index scene {}: {}",
-                                scene_id,
-                                e
-                            ),
+            match crate::embeddings::embed_text_async(content_for_vector.clone()).await {
+                Ok(embedding) => {
+                    let record = crate::vector::VectorRecord {
+                        id: format!("scene:{}", scene_id),
+                        story_id: story_id.clone(),
+                        chapter_id: scene.chapter_id.clone().unwrap_or_default(),
+                        chapter_number: scene.sequence_number,
+                        text: content_for_vector,
+                        record_type: "scene".to_string(),
+                        metadata: None,
+                        embedding,
+                    };
+                    match vector_store.upsert(record).await {
+                        Ok(_) => {
+                            log::info!("[SceneIngestor] Scene {} indexed to vector store", scene_id)
+                        }
+                        Err(e) => {
+                            log::warn!("[SceneIngestor] Failed to index scene {}: {}", scene_id, e)
                         }
                     }
-                    Err(e) => {
-                        log::warn!(
-                            "[SceneIngestor] Failed to generate embedding for scene {}: {}",
-                            scene_id,
-                            e
-                        );
-                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[SceneIngestor] Failed to generate embedding for scene {}: {}",
+                        scene_id,
+                        e
+                    );
                 }
             }
         });
@@ -248,11 +250,16 @@ impl SceneAutomationTrigger {
 pub struct SceneService {
     pool: DbPool,
     app_handle: AppHandle,
+    vector_store: Arc<dyn VectorStore>,
 }
 
 impl SceneService {
-    pub fn new(pool: DbPool, app_handle: AppHandle) -> Self {
-        Self { pool, app_handle }
+    pub fn new(pool: DbPool, app_handle: AppHandle, vector_store: Arc<dyn VectorStore>) -> Self {
+        Self {
+            pool,
+            app_handle,
+            vector_store,
+        }
     }
 
     /// `update_scene` 成功后的后续业务处理。
@@ -269,6 +276,7 @@ impl SceneService {
                 scene_id.to_string(),
                 self.pool.clone(),
                 self.app_handle.clone(),
+                self.vector_store.clone(),
             );
         }
 
@@ -311,28 +319,27 @@ impl SceneService {
         automation_service: &AutomationService,
     ) {
         // 1. OnSceneCreate Skill Hook
-        if let Some(manager) = crate::SKILL_MANAGER.get() {
-            if let Ok(skill_manager) = manager.lock() {
-                let story_id = scene.story_id.clone();
-                let scene_id = scene.id.clone();
-                let scene_title = scene.title.clone();
-                let skill_manager = skill_manager.clone();
-                tauri::async_runtime::spawn(async move {
-                    let context = crate::domain::agent_context::AgentContext::minimal(
-                        story_id,
-                        String::new(),
-                    );
-                    let data =
-                        serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
-                    let _ = skill_manager
-                        .execute_hooks(crate::skills::HookEvent::OnSceneCreate, &context, data)
-                        .await;
-                    log::info!(
-                        "Hook executed: {:?}",
-                        crate::skills::HookEvent::OnSceneCreate
-                    );
-                });
-            }
+        {
+            let skill_manager =
+                crate::skills::SkillManager::from_app_handle(&self.app_handle);
+            let story_id = scene.story_id.clone();
+            let scene_id = scene.id.clone();
+            let scene_title = scene.title.clone();
+            tauri::async_runtime::spawn(async move {
+                let context = crate::domain::agent_context::AgentContext::minimal(
+                    story_id,
+                    String::new(),
+                );
+                let data =
+                    serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
+                let _ = skill_manager
+                    .execute_hooks(crate::skills::HookEvent::OnSceneCreate, &context, data)
+                    .await;
+                log::info!(
+                    "Hook executed: {:?}",
+                    crate::skills::HookEvent::OnSceneCreate
+                );
+            });
         }
 
         // 2. 如果额外字段被更新，发射 scene_updated 确保前端缓存刷新（P1-9）

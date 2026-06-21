@@ -31,7 +31,7 @@ use crate::{
         style::StyleBlendConfig,
     },
     error::AppError,
-    memory::tokenizer::{count_tokens, truncate_to_budget, truncate_to_budget_from_end},
+    memory::{tokenizer::{count_tokens, truncate_to_budget, truncate_to_budget_from_end}, MemoryTaskType},
 };
 
 /// 创作上下文缓存键
@@ -482,7 +482,7 @@ impl StoryContextBuilder {
             match orchestrator.build_memory_pack(
                 story_id,
                 scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
-                "write",
+                MemoryTaskType::Write,
                 current_scene
                     .as_ref()
                     .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),
@@ -1068,7 +1068,7 @@ impl StoryContextBuilder {
             match orchestrator.build_memory_pack(
                 &story_id,
                 scene_number.map(|n| n.max(0) as i32).unwrap_or(1),
-                "write",
+                MemoryTaskType::Write,
                 current_scene
                     .as_ref()
                     .and_then(|s| s.outline_content.as_ref().map(|o| o.as_str())),

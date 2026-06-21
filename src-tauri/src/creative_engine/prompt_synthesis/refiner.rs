@@ -5,6 +5,8 @@
 
 use tauri::AppHandle;
 
+use crate::db::DbPool;
+
 /// 提示词精修器
 pub struct PromptRefiner;
 
@@ -24,6 +26,7 @@ impl PromptRefiner {
         story_title: &str,
         story_genre: Option<&str>,
         story_tone: Option<&str>,
+        pool: Option<&DbPool>,
     ) -> String {
         let llm = crate::llm::LlmService::new(app_handle);
 
@@ -31,8 +34,8 @@ impl PromptRefiner {
 
         // 构建精修 prompt
         let prompt = {
-            let tpl = crate::get_pool()
-                .and_then(|p| crate::prompts::registry::resolve_prompt(&p, "trishot_refiner").ok())
+            let tpl = pool
+                .and_then(|p| crate::prompts::registry::resolve_prompt(p, "trishot_refiner").ok())
                 .or_else(|| crate::prompts::registry::resolve_prompt_default("trishot_refiner"));
 
             if let Some(tpl) = tpl {

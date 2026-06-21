@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     db::{CharacterRepository, CreateCharacterRequest, DbPool},
     error::AppError,
-    SKILL_MANAGER,
+    skills::SkillManager,
 };
 
 #[tauri::command(rename_all = "snake_case")]
@@ -46,25 +46,23 @@ pub fn create_character(
         .map_err(AppError::from)?;
 
     // OnCharacterCreate hook
-    if let Some(manager) = SKILL_MANAGER.get() {
-        if let Ok(skill_manager) = manager.lock() {
-            let story_id = character.story_id.clone();
-            let character_id = character.id.clone();
-            let character_name = character.name.clone();
-            let skill_manager = skill_manager.clone();
-            tauri::async_runtime::spawn(async move {
-                let context =
-                    crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
-                let data = serde_json::json!({ "character_id": character_id, "character_name": character_name });
-                let _ = skill_manager
-                    .execute_hooks(crate::skills::HookEvent::OnCharacterCreate, &context, data)
-                    .await;
-                log::info!(
-                    "Hook executed: {:?}",
-                    crate::skills::HookEvent::OnCharacterCreate
-                );
-            });
-        }
+    {
+        let skill_manager = SkillManager::from_app_handle(&app);
+        let story_id = character.story_id.clone();
+        let character_id = character.id.clone();
+        let character_name = character.name.clone();
+        tauri::async_runtime::spawn(async move {
+            let context =
+                crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
+            let data = serde_json::json!({ "character_id": character_id, "character_name": character_name });
+            let _ = skill_manager
+                .execute_hooks(crate::skills::HookEvent::OnCharacterCreate, &context, data)
+                .await;
+            log::info!(
+                "Hook executed: {:?}",
+                crate::skills::HookEvent::OnCharacterCreate
+            );
+        });
     }
 
     let _ = crate::state_sync::StateSync::emit_character_created(

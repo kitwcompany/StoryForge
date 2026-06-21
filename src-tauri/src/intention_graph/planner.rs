@@ -216,8 +216,13 @@ impl IntentionGraphPlanner {
         intent_context.add_input(context.user_input.clone());
 
         // v0.20.1: LLM 增强合成（失败时内部回退到规则匹配）
+        let pool = self
+            .app_handle
+            .as_ref()
+            .and_then(|app| app.try_state::<crate::db::DbPool>())
+            .map(|s| s.inner().clone());
         let result = pipeline
-            .synthesize_full(&context.user_input, &intent_context)
+            .synthesize_full(&context.user_input, &intent_context, pool.as_ref())
             .await?;
         Ok(result)
     }

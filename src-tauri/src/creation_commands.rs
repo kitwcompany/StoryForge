@@ -36,9 +36,10 @@ use crate::{
 pub async fn generate_world_building_options(
     user_input: String,
     app_handle: AppHandle,
+    pool: State<'_, DbPool>,
 ) -> Result<Vec<WorldBuildingOption>, AppError> {
     let llm_service = LlmService::new(app_handle);
-    let agent = NovelCreationAgent::new(llm_service);
+    let agent = NovelCreationAgent::new(llm_service, pool.inner().clone());
     let options = GenerationOptions::default();
 
     agent
@@ -51,9 +52,10 @@ pub async fn generate_world_building_options(
 pub async fn generate_character_profiles(
     world_building: WorldBuildingOption,
     app_handle: AppHandle,
+    pool: State<'_, DbPool>,
 ) -> Result<Vec<Vec<CharacterProfileOption>>, AppError> {
     let llm_service = LlmService::new(app_handle);
-    let agent = NovelCreationAgent::new(llm_service);
+    let agent = NovelCreationAgent::new(llm_service, pool.inner().clone());
     let options = GenerationOptions::default();
 
     agent
@@ -67,9 +69,10 @@ pub async fn generate_writing_styles(
     genre: String,
     world_building: WorldBuildingOption,
     app_handle: AppHandle,
+    pool: State<'_, DbPool>,
 ) -> Result<Vec<WritingStyleOption>, AppError> {
     let llm_service = LlmService::new(app_handle);
-    let agent = NovelCreationAgent::new(llm_service);
+    let agent = NovelCreationAgent::new(llm_service, pool.inner().clone());
     let options = GenerationOptions::default();
 
     agent
@@ -84,9 +87,10 @@ pub async fn generate_first_scene(
     characters: Vec<CharacterProfileOption>,
     writing_style: WritingStyleOption,
     app_handle: AppHandle,
+    pool: State<'_, DbPool>,
 ) -> Result<SceneProposal, AppError> {
     let llm_service = LlmService::new(app_handle);
-    let agent = NovelCreationAgent::new(llm_service);
+    let agent = NovelCreationAgent::new(llm_service, pool.inner().clone());
 
     agent
         .generate_first_scene(&world_building, &characters, &writing_style)
@@ -540,7 +544,8 @@ pub async fn run_creation_workflow(
         _ => CreationMode::AiDraftHumanEdit,
     };
 
-    let agent_service = AgentService::new(app_handle.clone());
+    let agent_service: std::sync::Arc<dyn crate::domain::agent_service::AgentServicePort> =
+        std::sync::Arc::new(AgentService::new(app_handle.clone()));
     let engine = CreationWorkflowEngine::new(agent_service, pool.inner().clone());
     let config = CreationWorkflowEngine::create_standard_workflow(&story_id, mode, &app_handle);
 
@@ -569,7 +574,8 @@ pub async fn run_creation_workflow(
                         "[story_commands] Spawning background enrich for story_id={}",
                         story_id_clone
                     );
-                    let agent_service = AgentService::new(app_handle_clone);
+                    let agent_service: std::sync::Arc<dyn crate::domain::agent_service::AgentServicePort> =
+                        std::sync::Arc::new(AgentService::new(app_handle_clone));
                     let engine = CreationWorkflowEngine::new(agent_service, pool_clone);
                     if let Err(e) = engine.enrich_story_elements(&story_id_clone).await {
                         log::warn!("[story_commands] Background enrich failed: {}", e);

@@ -2,7 +2,7 @@
 //!
 //! 业务逻辑层：整合解析器、分块器、分析器，对外提供高层 API。
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use chrono::Local;
 use sha2::{Digest, Sha256};
@@ -24,6 +24,7 @@ use crate::{
     error::AppError,
     llm::LlmService,
     narrative::elements::{ElementSource, ElementStatus},
+    ports::VectorStore,
     task_system::{models::CreateTaskRequest, service::TaskService},
 };
 
@@ -33,14 +34,21 @@ pub struct BookDeconstructionService {
     pool: DbPool,
     llm_service: LlmService,
     app_handle: AppHandle,
+    vector_store: Arc<dyn VectorStore>,
 }
 
 impl BookDeconstructionService {
-    pub fn new(pool: DbPool, llm_service: LlmService, app_handle: AppHandle) -> Self {
+    pub fn new(
+        pool: DbPool,
+        llm_service: LlmService,
+        app_handle: AppHandle,
+        vector_store: Arc<dyn VectorStore>,
+    ) -> Self {
         Self {
             pool,
             llm_service,
             app_handle,
+            vector_store,
         }
     }
 
@@ -168,6 +176,7 @@ impl BookDeconstructionService {
                 let pool = self.pool.clone();
                 let llm_service = self.llm_service.clone();
                 let app_handle = self.app_handle.clone();
+                let vector_store = self.vector_store.clone();
                 let book_id_clone = book_id.clone();
                 let chunks = create_chunks(&parsed);
                 let word_count = parsed.word_count;
@@ -176,6 +185,7 @@ impl BookDeconstructionService {
                         pool.clone(),
                         llm_service.clone(),
                         app_handle.clone(),
+                        vector_store.clone(),
                     );
                     if let Err(e) = service
                         .run_analysis(&book_id_clone, &chunks, word_count)
@@ -246,19 +256,8 @@ impl BookDeconstructionService {
         repo.update_status(book_id, AnalysisStatus::Completed, 100)
             .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
 
-        // 保存人物（参考表，兼容旧接口）
-        let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
-        char_repo
-            .create_batch(&result.characters)
-            .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
-
-        // 保存场景（参考表，兼容旧接口）
-        let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
-        scene_repo
-            .create_batch(&result.scenes)
-            .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
-
-        // W3-B3: 同步保存到 narrative_* 统一表
+        // W3-B3: 拆书结果统一写入 narrative_* 表，reference_characters/reference_scenes
+        // 表已在 Migration 99 中移除。
         {
             let narrative_chars: Vec<crate::narrative::elements::CharacterElement> = result
                 .characters
@@ -294,6 +293,11 @@ impl BookDeconstructionService {
                         .as_ref()
                         .and_then(|cp| serde_json::from_str(cp).ok())
                         .unwrap_or_default();
+                    let key_events: Vec<String> = s
+                        .key_events
+                        .as_ref()
+                        .and_then(|ke| serde_json::from_str(ke).ok())
+                        .unwrap_or_default();
                     crate::narrative::elements::SceneElement {
                         id: s.id.clone(),
                         story_id: book_id.to_string(),
@@ -307,6 +311,8 @@ impl BookDeconstructionService {
                         setting_location: String::new(),
                         setting_time: String::new(),
                         content: None,
+                        key_events,
+                        emotional_tone: s.emotional_tone.clone().unwrap_or_default(),
                         narrative_intensity: s.narrative_intensity.unwrap_or(0.0),
                         narrative_sentiment: s.narrative_sentiment.unwrap_or(0.0),
                         narrative_event_types: s
@@ -408,6 +414,8 @@ impl BookDeconstructionService {
             .into_iter()
             .map(|s| {
                 let chars_present_json = serde_json::to_string(&s.characters_present).ok();
+                let key_events_json = serde_json::to_string(&s.key_events).ok();
+                let event_types_json = serde_json::to_string(&s.narrative_event_types).ok();
                 ReferenceScene {
                     id: s.id,
                     book_id: s.story_id,
@@ -415,12 +423,12 @@ impl BookDeconstructionService {
                     title: Some(s.title),
                     summary: Some(s.summary),
                     characters_present: chars_present_json,
-                    key_events: None,
+                    key_events: key_events_json,
                     conflict_type: Some(s.conflict_type),
-                    emotional_tone: None,
+                    emotional_tone: Some(s.emotional_tone),
                     narrative_intensity: Some(s.narrative_intensity),
                     narrative_sentiment: Some(s.narrative_sentiment),
-                    narrative_event_types: None,
+                    narrative_event_types: event_types_json,
                     act_number: Some(s.act_number),
                     position_in_act: Some(s.position_in_act),
                     created_at: Local::now(),
@@ -443,16 +451,11 @@ impl BookDeconstructionService {
     // ==================== 删除 ====================
 
     pub fn delete_book(&self, book_id: &str) -> Result<(), AppError> {
-        // 删除数据库记录
+        // 删除数据库记录（拆书结果统一存储在 narrative_* 表）
         let book_repo = ReferenceBookRepository::new(self.pool.clone());
-        let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
-        let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
-
-        char_repo.delete_by_book(book_id).map_err(AppError::from)?;
-        scene_repo.delete_by_book(book_id).map_err(AppError::from)?;
         book_repo.delete(book_id).map_err(AppError::from)?;
 
-        // W3-B3: 同时删除 narrative_* 统一表中的记录
+        // W3-B3: 删除 narrative_* 统一表中的拆书记录
         let nchar_repo = NarrativeCharacterRepository::new(self.pool.clone());
         let nscene_repo = NarrativeSceneRepository::new(self.pool.clone());
         let nwb_repo = NarrativeWorldBuildingRepository::new(self.pool.clone());
@@ -697,15 +700,7 @@ impl BookDeconstructionService {
     ) -> Result<(), AnalysisError> {
         use crate::{embeddings::embed_text_async, vector::VectorRecord};
 
-        let store = match crate::VECTOR_STORE.get() {
-            Some(s) => s,
-            None => {
-                log::warn!(
-                    "[BookDeconstruction] Vector store not initialized, skipping embeddings"
-                );
-                return Ok(());
-            }
-        };
+        let store = self.vector_store.as_ref();
 
         log::info!(
             "[BookDeconstruction] Storing embeddings for book {}",

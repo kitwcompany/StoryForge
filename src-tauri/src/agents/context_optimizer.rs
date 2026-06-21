@@ -8,6 +8,8 @@
 //!
 //! 目标：在有限的上下文窗口内，为 Agent 提供最相关、最紧凑的上下文。
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -24,8 +26,12 @@ use crate::{
             AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
             StoryContext, StyleContext, WorldContext,
         },
+        creative_engine::CreativeEnginePort,
         style::StyleBlendConfig,
     },
+    error::AppError,
+    memory::MemoryTaskType,
+    ports::VectorStore,
 };
 
 // ==================== L0: 静态元数据 ====================
@@ -299,17 +305,27 @@ pub struct L2ToolResult {
 /// 负责构建 L0/L1/L2 三层上下文
 pub struct ContextOptimizer {
     pool: DbPool,
+    vector_store: Arc<dyn VectorStore>,
+    creative_engine: Arc<dyn CreativeEnginePort>,
 }
 
 impl ContextOptimizer {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(
+        pool: DbPool,
+        vector_store: Arc<dyn VectorStore>,
+        creative_engine: Arc<dyn CreativeEnginePort>,
+    ) -> Self {
+        Self {
+            pool,
+            vector_store,
+            creative_engine,
+        }
     }
 
     // ==================== L0 构建 ====================
 
     /// 构建 L0 静态元数据上下文
-    pub async fn build_l0(&self, story_id: &str) -> Result<L0Context, String> {
+    pub async fn build_l0(&self, story_id: &str) -> Result<L0Context, AppError> {
         let story = self.fetch_story(story_id).await?;
         let style = self.fetch_writing_style(story_id).await.ok().flatten();
 
@@ -338,7 +354,7 @@ impl ContextOptimizer {
     // ==================== L1 构建 ====================
 
     /// 构建 L1 结构化知识上下文
-    pub async fn build_l1(&self, story_id: &str, chapter_number: u32) -> Result<L1Context, String> {
+    pub async fn build_l1(&self, story_id: &str, chapter_number: u32) -> Result<L1Context, AppError> {
         let chapter_number_i32 = chapter_number as i32;
 
         // 并行获取数据
@@ -375,7 +391,7 @@ impl ContextOptimizer {
         &self,
         story_id: &str,
         tool: L2Tool,
-    ) -> Result<L2ToolResult, String> {
+    ) -> Result<L2ToolResult, AppError> {
         let content = match &tool {
             L2Tool::SearchKnowledge {
                 query,
@@ -424,18 +440,17 @@ impl ContextOptimizer {
         current_content: Option<String>,
         selected_text: Option<String>,
         l2_tools: Vec<L2Tool>,
-    ) -> Result<AgentContext, String> {
+    ) -> Result<AgentContext, AppError> {
         // 并行构建 L0 / L1 / 叙事结构 / 活跃线索 / 叙事事件历史
         // v0.22.5: 复用 StoryContextBuilder 的 LitSeg 分析结果，
         // 避免 ContextOptimizer 路径丢失 narrative_structure / active_threads。
-        let builder =
-            crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone());
+        let engine = self.creative_engine.clone();
         let (l0, l1, narrative_structure, active_threads, narrative_event_history) = tokio::join!(
             self.build_l0(story_id),
             self.build_l1(story_id, chapter_number),
-            builder.build_narrative_structure_context_async(story_id, Some(chapter_number as i32)),
-            builder.fetch_active_threads_async(story_id),
-            builder.build_narrative_event_history_async(story_id),
+            engine.build_narrative_structure_context(story_id, Some(chapter_number as i32)),
+            engine.fetch_active_threads(story_id),
+            engine.build_narrative_event_history(story_id),
         );
         let l0 = l0?;
         let l1 = l1?;
@@ -456,7 +471,7 @@ impl ContextOptimizer {
             let orchestrator =
                 crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
             match orchestrator
-                .build_memory_pack_async(story_id, chapter_number as i32, "write", None)
+                .build_memory_pack_async(story_id, chapter_number as i32, MemoryTaskType::Write, None)
                 .await
             {
                 Ok(mut pack) => {
@@ -587,39 +602,39 @@ impl ContextOptimizer {
         &self,
         story_id: &str,
         chapter_number: u32,
-    ) -> Result<AgentContext, String> {
+    ) -> Result<AgentContext, AppError> {
         self.build_full_context(story_id, chapter_number, None, None, vec![])
             .await
     }
 
     // ==================== 数据获取方法 ====================
 
-    async fn fetch_story(&self, story_id: &str) -> Result<crate::db::Story, String> {
+    async fn fetch_story(&self, story_id: &str) -> Result<crate::db::Story, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
             let repo = StoryRepository::new(pool);
             repo.get_by_id(&story_id)
-                .map_err(|e| format!("获取故事失败: {}", e))?
-                .ok_or_else(|| "故事不存在".to_string())
+                .map_err(|e| AppError::internal(format!("获取故事失败: {}", e)))?
+                .ok_or_else(|| AppError::not_found("story", story_id.clone()))
         })
         .await
-        .map_err(|e| format!("获取故事任务失败: {}", e))?
+        .map_err(|e| AppError::internal(format!("获取故事任务失败: {}", e)))?
     }
 
     async fn fetch_writing_style(
         &self,
         story_id: &str,
-    ) -> Result<Option<crate::db::models::WritingStyle>, String> {
+    ) -> Result<Option<crate::db::models::WritingStyle>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
             let repo = WritingStyleRepository::new(pool);
             repo.get_by_story(&story_id)
-                .map_err(|e| format!("获取文风失败: {}", e))
+                .map_err(|e| AppError::internal(format!("获取文风失败: {}", e)))
         })
         .await
-        .map_err(|e| format!("获取文风任务失败: {}", e))?
+        .map_err(|e| AppError::internal(format!("获取文风任务失败: {}", e)))?
     }
 
     async fn fetch_style_blend(&self, story_id: &str) -> Option<StyleBlendConfig> {
@@ -681,14 +696,14 @@ impl ContextOptimizer {
         .ok()?
     }
 
-    async fn fetch_character_cards(&self, story_id: &str) -> Result<Vec<CharacterCard>, String> {
+    async fn fetch_character_cards(&self, story_id: &str) -> Result<Vec<CharacterCard>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
             let repo = CharacterRepository::new(pool);
             let characters = repo
                 .get_by_story(&story_id)
-                .map_err(|e| format!("获取角色失败: {}", e))?;
+                .map_err(|e| AppError::internal(format!("获取角色失败: {}", e)))?;
 
             Ok(characters
                 .into_iter()
@@ -723,21 +738,21 @@ impl ContextOptimizer {
                 .collect())
         })
         .await
-        .map_err(|e| format!("获取角色任务失败: {}", e))?
+        .map_err(|e| AppError::internal(format!("获取角色任务失败: {}", e)))?
     }
 
     async fn fetch_recent_chapters(
         &self,
         story_id: &str,
         current_chapter: u32,
-    ) -> Result<Vec<ChapterSummary>, String> {
+    ) -> Result<Vec<ChapterSummary>, AppError> {
         let pool = self.pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || {
             let repo = SceneRepository::new(pool);
             let all_scenes = repo
                 .get_by_story(&story_id)
-                .map_err(|e| format!("获取场景失败: {}", e))?;
+                .map_err(|e| AppError::internal(format!("获取场景失败: {}", e)))?;
 
             let mut prev: Vec<_> = all_scenes
                 .into_iter()
@@ -774,7 +789,7 @@ impl ContextOptimizer {
                 .collect())
         })
         .await
-        .map_err(|e| format!("获取场景任务失败: {}", e))?
+        .map_err(|e| AppError::internal(format!("获取场景任务失败: {}", e)))?
     }
 
     async fn fetch_world_rules_text(&self, story_id: &str) -> Option<String> {
@@ -894,34 +909,28 @@ impl ContextOptimizer {
         query: &str,
         top_k: usize,
         chapter_range: Option<(i32, i32)>,
-    ) -> Result<String, String> {
-        if let Some(store) = crate::VECTOR_STORE.get() {
-            match crate::knowledge_base::kb_search(
-                store,
-                story_id,
-                query,
-                top_k,
-                chapter_range,
-                "hybrid",
-            )
-            .await
-            {
-                Ok(results) => {
-                    if results.is_empty() {
-                        return Ok("未找到相关知识".to_string());
-                    }
-                    let lines: Vec<String> = results
-                        .iter()
-                        .map(|r| {
-                            format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text)
-                        })
-                        .collect();
-                    Ok(lines.join("\n"))
+    ) -> Result<String, AppError> {
+        match crate::knowledge_base::kb_search(
+            self.vector_store.as_ref(),
+            story_id,
+            query,
+            top_k,
+            chapter_range,
+            "hybrid",
+        )
+        .await
+        {
+            Ok(results) => {
+                if results.is_empty() {
+                    return Ok("未找到相关知识".to_string());
                 }
-                Err(e) => Err(format!("知识库搜索失败: {}", e)),
+                let lines: Vec<String> = results
+                    .iter()
+                    .map(|r| format!("[第{}章 相似度{:.2}] {}", r.chapter_number, r.score, r.text))
+                    .collect();
+                Ok(lines.join("\n"))
             }
-        } else {
-            Ok("向量存储未初始化".to_string())
+            Err(e) => Err(AppError::internal(format!("知识库搜索失败: {}", e))),
         }
     }
 
@@ -929,16 +938,16 @@ impl ContextOptimizer {
         &self,
         story_id: &str,
         character_name: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         let repo = CharacterRepository::new(self.pool.clone());
         let characters = repo
             .get_by_story(story_id)
-            .map_err(|e| format!("获取角色失败: {}", e))?;
+            .map_err(|e| AppError::internal(format!("获取角色失败: {}", e)))?;
 
         let character = characters
             .into_iter()
             .find(|c| c.name == character_name)
-            .ok_or_else(|| format!("未找到角色: {}", character_name))?;
+            .ok_or_else(|| AppError::not_found("character", character_name))?;
 
         let mut parts = vec![
             format!("角色: {}", character.name),
@@ -969,7 +978,7 @@ impl ContextOptimizer {
         Ok(parts.join("\n"))
     }
 
-    fn tool_read_blueprint(&self, story_id: &str, chapter_number: i32) -> Result<String, String> {
+    fn tool_read_blueprint(&self, story_id: &str, chapter_number: i32) -> Result<String, AppError> {
         let repo = BlueprintRepository::new(self.pool.clone());
         match repo.get_by_chapter(story_id, chapter_number) {
             Ok(Some(bp)) => {
@@ -1011,15 +1020,15 @@ impl ContextOptimizer {
                 Ok(parts.join("\n"))
             }
             Ok(None) => Ok(format!("第{}章暂无蓝图", chapter_number)),
-            Err(e) => Err(format!("读取蓝图失败: {}", e)),
+            Err(e) => Err(AppError::internal(format!("读取蓝图失败: {}", e))),
         }
     }
 
-    async fn tool_check_continuity(&self, story_id: &str, content: &str) -> Result<String, String> {
+    async fn tool_check_continuity(&self, story_id: &str, content: &str) -> Result<String, AppError> {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = match repo.get_by_story(story_id) {
             Ok(s) => s,
-            Err(e) => return Err(format!("获取场景失败: {}", e)),
+            Err(e) => return Err(AppError::internal(format!("获取场景失败: {}", e))),
         };
 
         // 获取最近3个场景的内容进行连续性检查
@@ -1078,34 +1087,32 @@ impl ContextOptimizer {
         story_id: &str,
         keyword: &str,
         max_results: usize,
-    ) -> Result<String, String> {
+    ) -> Result<String, AppError> {
         // 优先使用向量搜索
-        if let Some(store) = crate::VECTOR_STORE.get() {
-            match crate::knowledge_base::kb_search(
-                store,
-                story_id,
-                keyword,
-                max_results,
-                None,
-                "hybrid",
-            )
-            .await
-            {
-                Ok(results) => {
-                    if !results.is_empty() {
-                        let lines: Vec<String> = results
-                            .iter()
-                            .map(|r| format!("[第{}章] {}", r.chapter_number, r.text))
-                            .collect();
-                        return Ok(lines.join("\n"));
-                    }
+        match crate::knowledge_base::kb_search(
+            self.vector_store.as_ref(),
+            story_id,
+            keyword,
+            max_results,
+            None,
+            "hybrid",
+        )
+        .await
+        {
+            Ok(results) => {
+                if !results.is_empty() {
+                    let lines: Vec<String> = results
+                        .iter()
+                        .map(|r| format!("[第{}章] {}", r.chapter_number, r.text))
+                        .collect();
+                    return Ok(lines.join("\n"));
                 }
-                Err(e) => {
-                    log::warn!(
-                        "[ContextOptimizer] KB search failed: {}, falling back to text search",
-                        e
-                    );
-                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "[ContextOptimizer] KB search failed: {}, falling back to text search",
+                    e
+                );
             }
         }
 
@@ -1113,7 +1120,7 @@ impl ContextOptimizer {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = match repo.get_by_story(story_id) {
             Ok(s) => s,
-            Err(e) => return Err(format!("获取场景失败: {}", e)),
+            Err(e) => return Err(AppError::internal(format!("获取场景失败: {}", e))),
         };
 
         let mut matches = Vec::new();

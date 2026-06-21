@@ -5,10 +5,13 @@ use crate::{
         RevisionRepository, RevisionType,
     },
     domain::contracts::RuntimeContract,
-    llm::LlmService,
+    llm::{LlmService, ResponseFormat},
     router::TaskType,
     story_system::StorySystemEngine,
 };
+
+use super::types::{RefineChangeNote, RefineResult};
+use serde::{Deserialize, Serialize};
 
 /// 执行 AI 修稿
 ///
@@ -86,18 +89,19 @@ pub async fn refine_draft(
     callbacks.log("[修稿] 已构建修稿 prompt");
     callbacks.progress("refine", 0.4);
 
-    // 5. 调用 LLM 进行修稿
-    let response = match llm_service
-        .generate_for_task(
+    // 5. 调用 LLM 进行修稿（启用 JSON mode，要求返回结构化修稿结果）
+    let raw_response = match llm_service
+        .generate_for_task_with_format(
             TaskType::Editing,
             prompt,
             Some(4096),
             Some(0.7),
             Some("AI修稿润色"),
+            Some(ResponseFormat::JsonObject),
         )
         .await
     {
-        Ok(resp) => resp,
+        Ok(resp) => resp.content,
         Err(e) => {
             return Err(PipelineError {
                 phase: "refine".to_string(),
@@ -107,26 +111,48 @@ pub async fn refine_draft(
         }
     };
 
-    let refined_content = response.content.trim().to_string();
+    let parsed = parse_refine_json(&raw_response).unwrap_or_else(|parse_err| {
+        callbacks.log(&format!(
+            "[修稿] 结构化 JSON 解析失败，回退到原始文本: {}",
+            parse_err.message
+        ));
+        RefineJsonOutput {
+            refined_content: raw_response.trim().to_string(),
+            change_summary: None,
+            refinement_notes: vec![],
+        }
+    });
+
+    let refined_content = parsed.refined_content;
     let word_count = refined_content.chars().count() as i32;
 
-    // 计算变更摘要
-    let change_summary = if refined_content == draft.content {
-        Some("修稿后内容与原稿一致（AI 认为无需修改）".to_string())
-    } else {
-        let diff_ratio = calculate_diff_ratio(&draft.content, &refined_content);
-        Some(format!("修稿完成，内容变动约 {:.1}%", diff_ratio * 100.0))
-    };
+    // 若模型未提供变更摘要，则本地计算
+    let change_summary = parsed.change_summary.or_else(|| {
+        if refined_content == draft.content {
+            Some("修稿后内容与原稿一致（AI 认为无需修改）".to_string())
+        } else {
+            let diff_ratio = calculate_diff_ratio(&draft.content, &refined_content);
+            Some(format!("修稿完成，内容变动约 {:.1}%", diff_ratio * 100.0))
+        }
+    });
 
     callbacks.log("[修稿] AI 修稿完成");
     callbacks.progress("refine", 0.8);
 
-    // 6. 创建 revision 记录
+    // 6. 创建 revision 记录（把结构化 notes 存入 metadata）
     let revision_repo = RevisionRepository::new(pool.clone());
     let revision_index = revision_repo
         .get_by_draft(draft_id)
         .map(|revs| revs.len() as i32 + 1)
         .unwrap_or(1);
+
+    let metadata = if parsed.refinement_notes.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&parsed.refinement_notes)
+            .ok()
+            .map(|s| s as String)
+    };
 
     let revision = revision_repo
         .create(
@@ -141,7 +167,7 @@ pub async fn refine_draft(
             change_summary.as_deref(),
             None,
             None,
-            None,
+            metadata.as_deref(),
         )
         .map_err(|e| PipelineError {
             phase: "refine".to_string(),
@@ -166,6 +192,33 @@ pub async fn refine_draft(
         refined_content,
         word_count,
         change_summary,
+        refinement_notes: parsed.refinement_notes,
+    })
+}
+
+/// LLM 返回的结构化修稿 JSON 格式
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RefineJsonOutput {
+    pub refined_content: String,
+    #[serde(default)]
+    pub change_summary: Option<String>,
+    #[serde(default)]
+    pub refinement_notes: Vec<RefineChangeNote>,
+}
+
+/// 解析修稿 JSON（容错）
+pub fn parse_refine_json(text: &str) -> Result<RefineJsonOutput, PipelineError> {
+    let mut clean = text.replace("```json", "").replace("```", "");
+    clean = clean.trim().to_string();
+    let first_brace = clean.find('{');
+    let last_brace = clean.rfind('}');
+    if let (Some(start), Some(end)) = (first_brace, last_brace) {
+        clean = clean[start..=end].to_string();
+    }
+    serde_json::from_str::<RefineJsonOutput>(&clean).map_err(|e| PipelineError {
+        phase: "refine".to_string(),
+        message: format!("修稿 JSON 解析失败: {}", e),
+        recoverable: true,
     })
 }
 
@@ -189,15 +242,9 @@ fn build_refine_prompt(
     );
     vars.insert("draft_content".to_string(), draft_content.to_string());
 
-    let mut prompt = if let Some(pool) = crate::get_pool() {
-        let tpl = crate::prompts::registry::resolve_prompt(&pool, "pipeline_refine")
-            .unwrap_or_else(|_| default_refine_prompt().to_string());
-        crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
-    } else {
-        let tpl = crate::prompts::registry::resolve_prompt_default("pipeline_refine")
-            .unwrap_or_else(|| default_refine_prompt().to_string());
-        crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
-    };
+    let tpl = crate::prompts::registry::resolve_prompt(pool, "pipeline_refine")
+        .unwrap_or_else(|_| default_refine_prompt().to_string());
+    let mut prompt = crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
 
     // 追加动态上下文（蓝图、角色信息）
     if let Some(bp) = blueprint {
@@ -266,8 +313,21 @@ fn default_refine_prompt() -> &'static str {
 {{draft_content}}
 ```
 
-## 输出要求
-直接输出修稿后的完整正文，不要解释修改原因。如果内容已经完美，可以原样返回。"#
+## 输出要求（严格 JSON）
+必须且仅返回如下格式的 JSON 对象，不要包含额外解释或 markdown 代码块标记：
+```json
+{
+  "refined_content": "修稿后的完整正文",
+  "change_summary": "一句话总结本次修稿的主要改动（可选）",
+  "refinement_notes": [
+    {"category": "grammar", "original": "原句片段（可选）", "revised": "修改后片段（可选）", "reason": "修改原因"}
+  ]
+}
+```
+注意：
+- `refined_content` 必须包含完整正文。
+- `change_summary` 可为空字符串或省略。
+- `refinement_notes` 可为空数组；category 只能是 grammar / style / logic / character / pacing / other 之一。"#
 }
 
 /// 计算两段文本的差异比例（简化版：基于行/字符差异）

@@ -9,35 +9,9 @@
 
 use crate::creative_engine::write_time_bundle::WriteTimeBundle;
 
-/// 单条资产清单项
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AssetManifestItem {
-    /// 稳定 ID（用于 LLM 引用选中资产）
-    pub id: String,
-    /// 资产类别（redline / character / scene / antipattern / style /
-    /// foreshadowing / methodology / genre_profile / strategy / contract /
-    /// fewshot 等）
-    pub kind: String,
-    /// 人类可读标签（与 to_prompt 段落标题对齐）
-    pub label: String,
-    /// 一行摘要（核心约束，供 LLM 判断是否纳入）
-    pub one_line: String,
-    /// 相关性标签（如 ["hard_constraint","redline"]、["style","optional"]）
-    pub tags: Vec<String>,
-}
+// 数据类型已迁移到 `crate::domain::prompt_synthesis`。
+pub use crate::domain::prompt_synthesis::{AssetManifest, AssetManifestItem};
 
-/// 资产清单
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AssetManifest {
-    /// 清单项列表（已按优先级排序，红线最前）
-    pub items: Vec<AssetManifestItem>,
-    /// 故事元信息（标题/题材/基调/节奏/简介）——供合成器理解全局
-    pub story_title: String,
-    pub story_genre: Option<String>,
-    pub story_tone: Option<String>,
-    pub story_pacing: Option<String>,
-    pub story_description: Option<String>,
-}
 
 impl AssetManifest {
     /// 从 WriteTimeBundle 构建紧凑资产清单。

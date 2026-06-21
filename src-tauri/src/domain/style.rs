@@ -231,3 +231,35 @@ pub struct DialogueProfile {
     /// 对话标签偏好: said_only / varied_tags / action_beats / minimal
     pub tag_style: String,
 }
+
+// ==================== Style Guard / Checker results ====================
+
+/// 「手工艺滑块」单档建议
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CraftSliderHint {
+    /// 维度名（如「句长偏好」）
+    pub dimension: String,
+    /// 当前档位（如「短句为主」/「长短交替」/「长句缠绕」）
+    pub level: String,
+    /// 写作要求（注入 prompt 的原文）
+    pub directive: String,
+}
+
+/// 风格摘要清洗结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SanitizeOutcome {
+    /// 清洗后的文本（已去除在世作者姓名）
+    pub sanitized: String,
+    /// 命中的在世作者列表（用于日志/UI 提示）
+    pub removed_authors: Vec<String>,
+    /// 是否需要在 prompt 中追加「手工艺滑块」段
+    pub require_craft_sliders: bool,
+}
+
+/// 风格检查结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StyleCheckResult {
+    pub score: f32,
+    pub passed: bool,
+    pub issues: Vec<String>,
+}
