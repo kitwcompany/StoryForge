@@ -2,6 +2,57 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.22.2] - 题材画像推荐资产种子 + 策略选择硬约束 + CI 修复（2026-06-21）
+
+### 建设性意见实施
+- **GenreProfile 推荐资产字段种子**：`seed_genre_recommendations()` 为 7 个常用题材写入推荐风格/方法论/技能映射（末世→余华/英雄之旅 等）
+- **策略选择器硬约束**：`build_selected_strategy` 中体裁画像有推荐时跳过 LLM 直接使用推荐资产
+- **算力档案默认值修正**：`capability_score` 未测试时默认值从 0.5 改为 0.0，避免虚假质量分基准
+- **CI 修复**：`cargo +nightly fmt` + `prettier` 格式化全部通过
+
+## [v0.22.1] - 提示词与后台资产深度结合：5 条建设性意见全部实施（2026-06-21）
+
+### 5 条意见实施
+- **意见 1：StrategySelector 题材推荐映射**：`get_genre_recommendations()` 覆盖末世/玄幻/都市/科幻/悬疑/古言/校园 7 种题材→风格推荐
+- **意见 2：StyleDNA 句长偏差检测**：`execute_time_sliced` 生成后计算实际句长 vs 目标句长，偏差>30% 记录建议
+- **意见 3：Inspector 方法论动态 prompt ID**：按 `methodology_id` 动态选择 prompt（雪花法/英雄之旅/场景结构/人物深度/高密度世界构建）
+- **意见 4 (Phase F)：GenreProfile 推荐资产字段**：4 新列 + Migration 96 + Repository SQL 更新
+- **意见 5：算力档案质量分权重**：HeavyCreation→quality80%，LightTool→speed60%，含 TPS/success_rate/capability_score
+
+## [v0.22.0] - 提示词与后台资产完整结合：5 个系统性缺口全部修复（2026-06-21）
+
+### Phase A: TimeSliced 路径全资产注入
+- **WriteTimeBundle** 新增 4 字段：`style_dna_extension`（完整六维）、`methodology_extension`（方法论规则）、`genre_profile_strategy`（题材画像全字段）、`writing_strategy_constraints`
+- `load_sync` 加载 StyleDNA → `to_prompt_extension()`、方法论 → `build_prompt_extension()`、GenreProfile 全字段、写作策略
+- `to_prompt()` 追加 4 个新 section（⑪-⑭）
+
+### Phase B: Inspector 全资产注入
+- `build_inspector_prompt` 追加体裁画像策略、方法论约束、角色当前状态、活跃冲突、叙事四元组 5 个 section
+
+### Phase C: 意图感知调度接线
+- `LlmService.generate_for_request_with_request_id` 新增 `intent_verb`/`intent_object` 参数
+- `generate_for_agent_with_options` 按 agent_type 自动推导意图（Writer→generate/prose 等）
+
+### Phase D: 算力档案消费闭环
+- `select_candidates` 加载 `CapabilityProfile`，TTFB<2s 模型获速度加分
+
+### Phase E: 资产→生成参数规则映射
+- 新增 `creative_engine/adaptive/asset_params.rs` —— StyleDNA→temperature, methodology→max_tokens, genre→max_tokens 规则映射表
+
+### 修复前后对比
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| TimeSliced Writer 注入资产 | 仅一句话摘要 | StyleDNA六维+方法论+题材画像+策略 |
+| Inspector 检查维度 | 4 维度 | 5+ 维度（含题材/角色/冲突/方法论） |
+| 意图感知调度 | intent 恒 None | Writer→(generate,prose) |
+| 末世→风格推荐 | 莫言（魔幻现实）❌ | 余华（冷酷白描）✅ |
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib intention_graph` ✅ 18/18 通过
+- `cargo test --lib adaptive::asset_params` ✅ 3/3 通过
+- 真实模型测试（Gemma4-e2b, 6 场景）✅ 6/6 通过
+
 ## [v0.21.0] - 提示词全量可配置化：所有硬编码提示词提取到前端可编辑（2026-06-21）
 
 ### 核心升级
