@@ -8,10 +8,8 @@
 //! - 低相关项（无 tags 命中且 one_line 为空）截断，保留红线/角色/伏笔等硬约束。
 
 use crate::creative_engine::write_time_bundle::WriteTimeBundle;
-
 // 数据类型已迁移到 `crate::domain::prompt_synthesis`。
 pub use crate::domain::prompt_synthesis::{AssetManifest, AssetManifestItem};
-
 
 impl AssetManifest {
     /// 从 WriteTimeBundle 构建紧凑资产清单。

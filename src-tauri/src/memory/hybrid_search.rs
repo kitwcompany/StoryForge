@@ -8,13 +8,12 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::domain::search::{HybridSearchResult, SourceType};
 use crate::{
     db::models::Entity,
     embeddings::embedding::embed_text_async,
     vector::lancedb_store::{LanceVectorStore, SearchResult as VectorSearchResult},
 };
-
-pub use crate::domain::search::{HybridSearchResult, SourceType};
 
 /// 混合搜索配置
 #[derive(Debug, Clone)]

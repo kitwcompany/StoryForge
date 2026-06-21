@@ -120,8 +120,8 @@ pub struct GenerateRequest {
     pub frequency_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
-    /// 结构化输出格式。OpenAI/Ollama 适配器会映射为对应 API 字段；Anthropic 暂不支持，
-    /// 仍靠 prompt 约束输出 JSON。
+    /// 结构化输出格式。OpenAI/Ollama 适配器会映射为对应 API 字段；Anthropic
+    /// 暂不支持， 仍靠 prompt 约束输出 JSON。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
 }

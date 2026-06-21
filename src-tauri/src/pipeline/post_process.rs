@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-use super::types::*;
 use std::sync::Arc;
 
+use super::types::*;
 use crate::{
     db::{BlueprintRepository, CharacterRepository, CharacterState, DbPool},
     llm::LlmService,

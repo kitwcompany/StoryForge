@@ -5,11 +5,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-// W4-B3: SQLite-backed config storage
-use crate::error::AppError;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
+
+// W4-B3: SQLite-backed config storage
+use crate::error::AppError;
 
 /// 启动级配置 —— 保留在 config.json 中
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,9 +189,12 @@ impl Default for WritingStrategy {
 /// 用户级运行时配置。
 ///
 /// 持久化策略（W4-B3）：
-/// - 主源：SQLite `app_settings` 表的 `app_config` 行（`save_to_db` / `load_from_db`）。
-/// - 兼容：`load` 会回退读取旧版 `config.json` 并自动迁移到 SQLite；`save` 只写入 SQLite。
-/// - `config.json` 仅保留启动级字段（`BootstrapConfig`：db_path / log_level），不再存放用户级设置。
+/// - 主源：SQLite `app_settings` 表的 `app_config` 行（`save_to_db` /
+///   `load_from_db`）。
+/// - 兼容：`load` 会回退读取旧版 `config.json` 并自动迁移到 SQLite；`save`
+///   只写入 SQLite。
+/// - `config.json` 仅保留启动级字段（`BootstrapConfig`：db_path /
+///   log_level），不再存放用户级设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub llm: LlmConfig,

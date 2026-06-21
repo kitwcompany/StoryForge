@@ -55,7 +55,8 @@ pub trait CreativeEnginePort: Send + Sync {
     fn build_methodology_prompt_extension(&self, config: &MethodologyConfig) -> String;
 
     // ---- Prompt personalizer ----
-    async fn build_prompt_personalizer_extension(&self, story_id: &str) -> Result<String, AppError>;
+    async fn build_prompt_personalizer_extension(&self, story_id: &str)
+        -> Result<String, AppError>;
 
     // ---- Style guard ----
     fn sanitize_style_brief(&self, text: &str) -> SanitizeOutcome;
@@ -111,5 +112,9 @@ pub trait CreativeEnginePort: Send + Sync {
     ) -> Result<Option<String>, AppError>;
 
     // ---- Foreshadowing ----
-    fn get_foreshadowing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError>;
+    fn get_foreshadowing_hints(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, AppError>;
 }

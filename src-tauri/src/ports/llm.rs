@@ -1,8 +1,10 @@
 //! LLM Service port
 
 use crate::{
-    config::settings::LlmProfile, error::AppError, llm::adapter::GenerateResponse,
-    llm::service::PipelineContext, router::TaskType,
+    config::settings::LlmProfile,
+    error::AppError,
+    llm::{adapter::GenerateResponse, service::PipelineContext},
+    router::TaskType,
 };
 
 /// LLM 服务端口

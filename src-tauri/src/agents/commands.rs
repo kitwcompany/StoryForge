@@ -1201,7 +1201,10 @@ pub(crate) async fn build_agent_context(
 
     let pool = app_handle.state::<DbPool>();
     let vector_store = app_handle.state::<std::sync::Arc<dyn crate::ports::VectorStore>>();
-    let creative_engine = app_handle.state::<Arc<dyn CreativeEnginePort>>().inner().clone();
+    let creative_engine = app_handle
+        .state::<Arc<dyn CreativeEnginePort>>()
+        .inner()
+        .clone();
     let story_id = request.story_id.clone();
     let chapter_number = request.chapter_number.unwrap_or(1);
 
@@ -1248,7 +1251,10 @@ pub(crate) async fn build_agent_context(
     // 注入未解决的伏笔提示到世界观规则中
     // v0.14.0: spawn_blocking 包裹同步 DB，避免阻塞 tokio worker
     {
-        let engine = app_handle.state::<Arc<dyn CreativeEnginePort>>().inner().clone();
+        let engine = app_handle
+            .state::<Arc<dyn CreativeEnginePort>>()
+            .inner()
+            .clone();
         let story_id_for_hints = story_id.clone();
         let hints = tokio::task::spawn_blocking(move || {
             engine.get_foreshadowing_hints(&story_id_for_hints, 5)

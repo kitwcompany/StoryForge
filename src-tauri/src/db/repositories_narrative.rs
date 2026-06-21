@@ -239,8 +239,7 @@ impl NarrativeSceneRepository {
         for scene in scenes {
             let chars_present_json =
                 serde_json::to_string(&scene.characters_present).unwrap_or_default();
-            let key_events_json =
-                serde_json::to_string(&scene.key_events).unwrap_or_default();
+            let key_events_json = serde_json::to_string(&scene.key_events).unwrap_or_default();
             let event_types_json =
                 serde_json::to_string(&scene.narrative_event_types).unwrap_or_default();
             tx.execute(

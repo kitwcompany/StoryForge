@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 //! 中性伏笔类型
 //!
-//! 被 creative_engine / narrative 等模块共享，避免 narrative 直接依赖 creative_engine。
+//! 被 creative_engine / narrative 等模块共享，避免 narrative 直接依赖
+//! creative_engine。
 
 /// 伏笔状态
 #[derive(Debug, Clone)]

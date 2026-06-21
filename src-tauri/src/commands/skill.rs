@@ -5,8 +5,11 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    commands::EmitSync, db::DbPool, error::AppError, router::TaskType, skills::SkillInfo,
-    skills::SkillManager,
+    commands::EmitSync,
+    db::DbPool,
+    error::AppError,
+    router::TaskType,
+    skills::{SkillInfo, SkillManager},
 };
 
 fn task_type_for_category(category: &crate::skills::SkillCategory) -> TaskType {

@@ -71,7 +71,6 @@ pub const LIVING_AUTHOR_BLACKLIST: &[&str] = &[
 // 数据类型已迁移到 `crate::domain::style`。
 pub use crate::domain::style::{CraftSliderHint, SanitizeOutcome};
 
-
 /// 5 维 × 3 档的默认滑块表。这是中性、不针对任何特定作者的写作要求。
 pub fn default_craft_sliders() -> Vec<CraftSliderHint> {
     vec![

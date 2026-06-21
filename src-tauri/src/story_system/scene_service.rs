@@ -9,9 +9,9 @@
 //! - 自动化服务触发
 //! - Skill Hook 执行
 
-use tauri::AppHandle;
-
 use std::sync::Arc;
+
+use tauri::AppHandle;
 
 use crate::{
     automation::service::AutomationService,
@@ -320,18 +320,14 @@ impl SceneService {
     ) {
         // 1. OnSceneCreate Skill Hook
         {
-            let skill_manager =
-                crate::skills::SkillManager::from_app_handle(&self.app_handle);
+            let skill_manager = crate::skills::SkillManager::from_app_handle(&self.app_handle);
             let story_id = scene.story_id.clone();
             let scene_id = scene.id.clone();
             let scene_title = scene.title.clone();
             tauri::async_runtime::spawn(async move {
-                let context = crate::domain::agent_context::AgentContext::minimal(
-                    story_id,
-                    String::new(),
-                );
-                let data =
-                    serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
+                let context =
+                    crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
+                let data = serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
                 let _ = skill_manager
                     .execute_hooks(crate::skills::HookEvent::OnSceneCreate, &context, data)
                     .await;

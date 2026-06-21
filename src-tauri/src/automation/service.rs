@@ -616,10 +616,7 @@ impl AutomationService {
     async fn init_story_structure(&self, story_id: &str) -> Result<String, AppError> {
         log::info!("Initializing story structure for story: {}", story_id);
 
-        let conn = self
-            .db_pool
-            .get()
-            ?;
+        let conn = self.db_pool.get()?;
 
         // 创建默认的故事元数据
         conn.execute(
@@ -628,8 +625,7 @@ impl AutomationService {
              (?1, 'auto_sync_enabled', 'true'),
              (?1, 'last_analysis', ?2)",
             rusqlite::params![story_id, chrono::Utc::now().to_rfc3339()],
-        )
-        ?;
+        )?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -657,21 +653,15 @@ impl AutomationService {
             chapter_id
         );
 
-        let conn = self
-            .db_pool
-            .get()
-            ?;
+        let conn = self.db_pool.get()?;
 
         // 计算总章节数和字数
-        let mut stmt = conn
-            .prepare(
-                "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1",
-            )
-            ?;
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1",
+        )?;
 
-        let (chapter_count, total_words): (i64, i64) = stmt
-            .query_row([story_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            ?;
+        let (chapter_count, total_words): (i64, i64) =
+            stmt.query_row([story_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
 
         // 更新故事元数据
         conn.execute(
@@ -685,8 +675,7 @@ impl AutomationService {
                 total_words.to_string(),
                 chrono::Utc::now().to_rfc3339()
             ],
-        )
-        ?;
+        )?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -719,21 +708,14 @@ impl AutomationService {
             character_id
         );
 
-        let conn = self
-            .db_pool
-            .get()
-            ?;
+        let conn = self.db_pool.get()?;
 
         // 获取所有角色
-        let mut stmt = conn
-            .prepare("SELECT id, name FROM characters WHERE story_id = ?1")
-            ?;
+        let mut stmt = conn.prepare("SELECT id, name FROM characters WHERE story_id = ?1")?;
 
         let characters: Vec<(String, String)> = stmt
-            .query_map([story_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            ?
-            .collect::<Result<Vec<_>, _>>()
-            ?;
+            .query_map([story_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
 
         // 更新角色关系分析时间戳
         conn.execute(
@@ -745,8 +727,7 @@ impl AutomationService {
                 chrono::Utc::now().to_rfc3339(),
                 characters.len().to_string()
             ],
-        )
-        ?;
+        )?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -783,10 +764,7 @@ impl AutomationService {
             word_count
         );
 
-        let conn = self
-            .db_pool
-            .get()
-            ?;
+        let conn = self.db_pool.get()?;
 
         // 更新章节字数
         conn.execute(
@@ -797,17 +775,13 @@ impl AutomationService {
                 chapter_id,
                 story_id
             ],
-        )
-        ?;
+        )?;
 
         // 重新计算总字数
-        let mut stmt = conn
-            .prepare("SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1")
-            ?;
+        let mut stmt =
+            conn.prepare("SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE story_id = ?1")?;
 
-        let total_words: i64 = stmt
-            .query_row([story_id], |row| row.get(0))
-            ?;
+        let total_words: i64 = stmt.query_row([story_id], |row| row.get(0))?;
 
         // 更新故事元数据
         conn.execute(
@@ -819,8 +793,7 @@ impl AutomationService {
                 total_words.to_string(),
                 chrono::Utc::now().to_rfc3339()
             ],
-        )
-        ?;
+        )?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(
@@ -854,19 +827,13 @@ impl AutomationService {
             chapter_id
         );
 
-        let conn = self
-            .db_pool
-            .get()
-            ?;
+        let conn = self.db_pool.get()?;
 
         // 获取章节内容
-        let mut stmt = conn
-            .prepare("SELECT content FROM chapters WHERE id = ?1 AND story_id = ?2")
-            ?;
+        let mut stmt =
+            conn.prepare("SELECT content FROM chapters WHERE id = ?1 AND story_id = ?2")?;
 
-        let content: String = stmt
-            .query_row([chapter_id, story_id], |row| row.get(0))
-            ?;
+        let content: String = stmt.query_row([chapter_id, story_id], |row| row.get(0))?;
 
         // 简单的内容分析（实际应用中可以集成AI分析）
         let word_count = content.split_whitespace().count();
@@ -879,8 +846,7 @@ impl AutomationService {
              (?1, 'last_content_analysis', ?2),
              (?1, 'analyzed_chapter_id', ?3)",
             rusqlite::params![story_id, chrono::Utc::now().to_rfc3339(), chapter_id],
-        )
-        ?;
+        )?;
 
         // 发送前端同步事件
         if let Err(e) = self.app_handle.emit(

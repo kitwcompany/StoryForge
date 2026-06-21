@@ -330,8 +330,7 @@ impl AgentOrchestrator {
 
         // BeforeAiWrite hook
         {
-            let skill_manager =
-                crate::skills::SkillManager::from_app_handle(&self.app_handle);
+            let skill_manager = crate::skills::SkillManager::from_app_handle(&self.app_handle);
             let story_id = task.context.story.story_id.clone();
             let chapter_number = task.context.narrative.chapter_number;
             let input = task.input.clone();
@@ -496,15 +495,15 @@ impl AgentOrchestrator {
 
         // AfterAiWrite hook (only on success)
         if let Ok(ref workflow_result) = result {
-            let skill_manager =
-                crate::skills::SkillManager::from_app_handle(&self.app_handle);
+            let skill_manager = crate::skills::SkillManager::from_app_handle(&self.app_handle);
             let story_id = task.context.story.story_id.clone();
             let chapter_number = task.context.narrative.chapter_number;
             let content = workflow_result.final_content.clone();
             let score_val = workflow_result.final_score;
             tauri::async_runtime::spawn(async move {
                 let context = AgentContext::minimal(story_id, content);
-                let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
+                let data =
+                    serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
                 let _ = skill_manager
                     .execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data)
                     .await;
@@ -1520,10 +1519,11 @@ impl AgentOrchestrator {
                         }
                     }
                     if !dnas.is_empty() {
-                        let check_result = self
-                            .service
-                            .creative_engine()
-                            .check_style_blend(&current_content, blend, &dnas);
+                        let check_result = self.service.creative_engine().check_style_blend(
+                            &current_content,
+                            blend,
+                            &dnas,
+                        );
                         if !check_result.passed {
                             style_issues = check_result.issues;
                         }

@@ -19,8 +19,12 @@ use crate::{
 /// 投影写入器 trait
 pub trait ProjectionWriter {
     fn name(&self) -> &'static str;
-    fn apply(&self, story_id: &str, chapter_number: i32, commit_json: &str)
-        -> Result<bool, AppError>;
+    fn apply(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+        commit_json: &str,
+    ) -> Result<bool, AppError>;
 }
 
 /// 状态投影写入器

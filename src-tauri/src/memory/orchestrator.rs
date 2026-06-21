@@ -137,9 +137,15 @@ impl MemoryOrchestrator {
             })
             .collect::<Vec<_>>();
 
-        let working_items = working.into_iter().take(budget.working_max).collect::<Vec<_>>();
+        let working_items = working
+            .into_iter()
+            .take(budget.working_max)
+            .collect::<Vec<_>>();
 
-        let episodic_items = episodic.into_iter().take(budget.episodic_max).collect::<Vec<_>>();
+        let episodic_items = episodic
+            .into_iter()
+            .take(budget.episodic_max)
+            .collect::<Vec<_>>();
 
         // 6. 提取活跃约束
         let active_constraints: Vec<MemoryItemDto> = semantic_items
@@ -210,12 +216,7 @@ impl MemoryOrchestrator {
 
         tokio::task::spawn_blocking(move || {
             let orchestrator = MemoryOrchestrator::new(pool);
-            orchestrator.build_memory_pack(
-                &story_id,
-                chapter_number,
-                task_type,
-                outline.as_deref(),
-            )
+            orchestrator.build_memory_pack(&story_id, chapter_number, task_type, outline.as_deref())
         })
         .await
         .map_err(|e| AppError::internal(format!("memory pack task failed: {}", e)))?

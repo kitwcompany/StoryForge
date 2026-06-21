@@ -6,14 +6,12 @@
 //! - prompt 权重调整
 //! - 生成内容类型偏好注入
 
+// 数据类型已迁移到 `crate::domain::adaptive`。
+pub use crate::domain::adaptive::{GenerationStrategy, PromptWeightAdjustment};
 use crate::{
     db::{repositories::UserPreferenceRepository, DbPool},
     error::AppError,
 };
-
-// 数据类型已迁移到 `crate::domain::adaptive`。
-pub use crate::domain::adaptive::{GenerationStrategy, PromptWeightAdjustment};
-
 
 /// 自适应生成器
 pub struct AdaptiveGenerator {

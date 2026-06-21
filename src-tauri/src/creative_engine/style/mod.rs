@@ -25,8 +25,8 @@ pub mod metrics;
 pub use blend::StyleBlendConfig;
 pub use dna::StyleDNA;
 pub use drift_checker::StyleDriftChecker;
-pub use crate::domain::style::StyleCheckResult;
 
+pub use crate::domain::style::StyleCheckResult;
 use crate::{llm::service::LlmService, router::TaskType};
 
 /// 风格分析器 - 从文本样例解析风格特征

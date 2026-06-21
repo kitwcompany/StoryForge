@@ -485,11 +485,19 @@ impl LlmService {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        self.generate_for_task_with_format(task, prompt, max_tokens, temperature, context_label, None)
-            .await
+        self.generate_for_task_with_format(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            None,
+        )
+        .await
     }
 
-    /// 简化入口（显式指定输出格式）：仅指定任务类型，使用默认复杂度/优先级进行路由生成
+    /// 简化入口（显式指定输出格式）：仅指定任务类型，使用默认复杂度/
+    /// 优先级进行路由生成
     pub async fn generate_for_task_with_format(
         &self,
         task: TaskType,
@@ -1675,9 +1683,9 @@ impl LlmService {
             }
         };
 
-        if let Some(cached) = self
-            .prompt_cache
-            .get(&profile, &prompt, max_tokens, temperature, None)
+        if let Some(cached) =
+            self.prompt_cache
+                .get(&profile, &prompt, max_tokens, temperature, None)
         {
             return Ok(cached);
         }
@@ -1685,8 +1693,14 @@ impl LlmService {
         let response = self
             .generate(prompt.clone(), max_tokens, temperature)
             .await?;
-        self.prompt_cache
-            .put(&profile, &prompt, max_tokens, temperature, None, response.clone());
+        self.prompt_cache.put(
+            &profile,
+            &prompt,
+            max_tokens,
+            temperature,
+            None,
+            response.clone(),
+        );
         Ok(response)
     }
 
@@ -2117,15 +2131,28 @@ mod tests {
             cost: 0.0,
         };
 
-        assert!(cache.get(&profile, "hello", Some(10), Some(0.0), None).is_none());
-        cache.put(&profile, "hello", Some(10), Some(0.0), None, response.clone());
+        assert!(cache
+            .get(&profile, "hello", Some(10), Some(0.0), None)
+            .is_none());
+        cache.put(
+            &profile,
+            "hello",
+            Some(10),
+            Some(0.0),
+            None,
+            response.clone(),
+        );
         let hit = cache.get(&profile, "hello", Some(10), Some(0.0), None);
         assert!(hit.is_some());
         assert_eq!(hit.unwrap().content, "OK");
 
         // 不同参数未命中
-        assert!(cache.get(&profile, "hello", Some(20), Some(0.0), None).is_none());
-        assert!(cache.get(&profile, "world", Some(10), Some(0.0), None).is_none());
+        assert!(cache
+            .get(&profile, "hello", Some(20), Some(0.0), None)
+            .is_none());
+        assert!(cache
+            .get(&profile, "world", Some(10), Some(0.0), None)
+            .is_none());
     }
 
     #[test]

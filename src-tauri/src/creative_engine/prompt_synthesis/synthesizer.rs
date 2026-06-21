@@ -11,10 +11,8 @@ use tauri::AppHandle;
 
 use super::manifest::AssetManifest;
 use crate::db::DbPool;
-
 // 数据类型已迁移到 `crate::domain::prompt_synthesis`。
 pub use crate::domain::prompt_synthesis::SynthesisResult;
-
 
 /// 路由合成器：用最快模型选资产 + 合成提示词。
 pub struct PromptSynthesizer;

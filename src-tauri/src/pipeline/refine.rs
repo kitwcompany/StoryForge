@@ -1,4 +1,6 @@
-use super::types::*;
+use serde::{Deserialize, Serialize};
+
+use super::types::{RefineChangeNote, RefineResult, *};
 use crate::{
     db::{
         BlueprintRepository, CharacterRepository, DbPool, DraftRepository, DraftStatus,
@@ -9,9 +11,6 @@ use crate::{
     router::TaskType,
     story_system::StorySystemEngine,
 };
-
-use super::types::{RefineChangeNote, RefineResult};
-use serde::{Deserialize, Serialize};
 
 /// 执行 AI 修稿
 ///

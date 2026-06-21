@@ -437,8 +437,8 @@ impl PipelineStep<GenesisContext> for StrategySelectionStep {
                 .unwrap_or(2000);
 
             let genre_repo = crate::db::GenreProfileRepository::new(ctx.pool.clone());
-            let skills = crate::skills::SkillManager::from_app_handle(&ctx.app_handle)
-                .get_all_skills();
+            let skills =
+                crate::skills::SkillManager::from_app_handle(&ctx.app_handle).get_all_skills();
 
             let assets =
                 load_all_assets(&genre_repo, &skills).map_err(|e| PipelineError::StepFailed {

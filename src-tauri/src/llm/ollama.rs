@@ -98,7 +98,10 @@ impl LlmAdapter for OllamaAdapter {
                 num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
                 top_p: request.top_p,
             }),
-            format: request.response_format.as_ref().map(|f| f.ollama_value().to_string()),
+            format: request
+                .response_format
+                .as_ref()
+                .map(|f| f.ollama_value().to_string()),
         };
 
         let response = send_with_connection_timeout(
@@ -149,7 +152,10 @@ impl LlmAdapter for OllamaAdapter {
                 num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
                 top_p: request.top_p,
             }),
-            format: request.response_format.as_ref().map(|f| f.ollama_value().to_string()),
+            format: request
+                .response_format
+                .as_ref()
+                .map(|f| f.ollama_value().to_string()),
         };
 
         let response = self

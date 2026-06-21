@@ -15,11 +15,8 @@ pub use crate::domain::agent_types::{AgentResult, AgentTask, AgentType};
 use crate::{
     config::settings::AppConfig,
     domain::{
-        agent_context::AgentContext,
-        asset_snapshot::AssetSnapshot,
-        continuity::Severity,
-        creative_engine::CreativeEnginePort,
-        methodology::MethodologyConfig,
+        agent_context::AgentContext, asset_snapshot::AssetSnapshot, continuity::Severity,
+        creative_engine::CreativeEnginePort, methodology::MethodologyConfig,
         write_time_bundle::WriteTimeBundle,
     },
     error::AppError,
@@ -1328,9 +1325,7 @@ impl AgentService {
                 let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
                 let mut issues = Vec::new();
                 if let Ok(scenes) = scene_repo.get_by_story(&story_id) {
-                    if let Some(scene) = scenes
-                        .iter()
-                        .find(|s| s.sequence_number == chapter_number)
+                    if let Some(scene) = scenes.iter().find(|s| s.sequence_number == chapter_number)
                     {
                         match engine.check_scene_continuity(&story_id, &scene.id, &content) {
                             Ok(check) if !check.is_valid => {
@@ -1959,7 +1954,9 @@ impl AgentService {
                         current_step: ctx.world.methodology_step.clone(),
                         custom_params: serde_json::json!({}),
                     };
-                    let extension = self.creative_engine.build_methodology_prompt_extension(&config);
+                    let extension = self
+                        .creative_engine
+                        .build_methodology_prompt_extension(&config);
                     if !extension.is_empty() {
                         system_prompt.push_str("\n\n【创作方法论约束】\n");
                         system_prompt.push_str(&extension);
@@ -2331,9 +2328,9 @@ impl AgentService {
         if !bundle.reference_scene_fewshots.is_empty() {
             emit_and_yield("正在注入参考场景 few-shots...", 0.193);
             system_prompt.push_str("\n\n");
-            system_prompt.push_str(
-                &WriteTimeBundle::render_reference_scene_fewshots(&bundle.reference_scene_fewshots),
-            );
+            system_prompt.push_str(&WriteTimeBundle::render_reference_scene_fewshots(
+                &bundle.reference_scene_fewshots,
+            ));
             tokio::task::yield_now().await;
         }
 
@@ -2413,10 +2410,9 @@ impl AgentService {
 
         // 规范状态快照（伏笔 + 叙事阶段）——P3-3: 使用统一资产注入网关
         {
-            let snapshot = self.creative_engine.load_asset_snapshot(
-                &ctx.story.story_id,
-                ctx.style.style_dna_id.as_deref(),
-            );
+            let snapshot = self
+                .creative_engine
+                .load_asset_snapshot(&ctx.story.story_id, ctx.style.style_dna_id.as_deref());
             if !snapshot.pending_foreshadowings.is_empty() {
                 let payoffs: Vec<String> = snapshot
                     .pending_foreshadowings
@@ -2581,10 +2577,9 @@ impl AgentService {
 
         // 角色当前状态 + 活跃冲突
         {
-            let snap = self.creative_engine.load_asset_snapshot(
-                &ctx.story.story_id,
-                ctx.style.style_dna_id.as_deref(),
-            );
+            let snap = self
+                .creative_engine
+                .load_asset_snapshot(&ctx.story.story_id, ctx.style.style_dna_id.as_deref());
             // 角色状态
             if !snap.character_states.is_empty() {
                 let states: Vec<String> = snap
@@ -2600,8 +2595,7 @@ impl AgentService {
                         )
                     })
                     .collect();
-                context_sections
-                    .push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
+                context_sections.push(format!("【角色状态（检查一致性）】\n{}", states.join("\n")));
             }
             // 活跃冲突
             if !snap.active_conflicts.is_empty() {
@@ -3370,7 +3364,6 @@ mod narrative_quartet_render_tests {
         assert!(out.contains("不是模板"));
     }
 }
-
 
 #[async_trait::async_trait]
 impl crate::domain::agent_service::AgentServicePort for AgentService {

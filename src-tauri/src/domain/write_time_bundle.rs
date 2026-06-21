@@ -175,5 +175,3 @@ impl WriteTimeBundle {
         )
     }
 }
-
-

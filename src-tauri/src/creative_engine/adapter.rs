@@ -111,12 +111,11 @@ impl CreativeEnginePort for CreativeEngineAdapter {
     }
 
     fn load_asset_snapshot(&self, story_id: &str, style_dna_id: Option<&str>) -> AssetSnapshot {
-        let internal =
-            crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
-                &self.pool,
-                story_id,
-                style_dna_id,
-            );
+        let internal = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
+            &self.pool,
+            story_id,
+            style_dna_id,
+        );
         let narrative_phase_guidance = internal
             .canonical
             .as_ref()
@@ -249,7 +248,11 @@ impl CreativeEnginePort for CreativeEngineAdapter {
             .map_err(AppError::from)
     }
 
-    fn get_foreshadowing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError> {
+    fn get_foreshadowing_hints(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, AppError> {
         crate::creative_engine::foreshadowing::ForeshadowingTracker::new(self.pool.clone())
             .get_writing_hints(story_id, limit)
             .map_err(AppError::from)

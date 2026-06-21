@@ -6,7 +6,10 @@
 use async_trait::async_trait;
 use tauri::AppHandle;
 
-use crate::{domain::agent_types::{AgentResult, AgentTask}, error::AppError};
+use crate::{
+    domain::agent_types::{AgentResult, AgentTask},
+    error::AppError,
+};
 
 #[async_trait]
 pub trait AgentServicePort: Send + Sync {

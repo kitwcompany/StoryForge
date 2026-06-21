@@ -3,8 +3,7 @@ pub mod commands;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ports::VectorStore;
-use crate::vector::VectorRecord;
+use crate::{ports::VectorStore, vector::VectorRecord};
 
 /// 知识库导入结果
 #[derive(Debug, Clone, Serialize, Deserialize)]

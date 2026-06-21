@@ -574,8 +574,9 @@ pub async fn run_creation_workflow(
                         "[story_commands] Spawning background enrich for story_id={}",
                         story_id_clone
                     );
-                    let agent_service: std::sync::Arc<dyn crate::domain::agent_service::AgentServicePort> =
-                        std::sync::Arc::new(AgentService::new(app_handle_clone));
+                    let agent_service: std::sync::Arc<
+                        dyn crate::domain::agent_service::AgentServicePort,
+                    > = std::sync::Arc::new(AgentService::new(app_handle_clone));
                     let engine = CreationWorkflowEngine::new(agent_service, pool_clone);
                     if let Err(e) = engine.enrich_story_elements(&story_id_clone).await {
                         log::warn!("[story_commands] Background enrich failed: {}", e);

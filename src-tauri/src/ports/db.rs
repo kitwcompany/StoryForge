@@ -1,7 +1,6 @@
 //! Database connection pool port
 
-use crate::db::DbPool;
-use crate::error::AppError;
+use crate::{db::DbPool, error::AppError};
 
 /// 数据库连接池端口
 ///

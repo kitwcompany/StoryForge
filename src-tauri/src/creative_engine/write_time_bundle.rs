@@ -13,6 +13,11 @@
 //! 1. 红线突出注入：to_prompt() 输出时红线在最前、加粗强调。
 //! 2. 题材自适应：按 stories.genre 决定是否纳入风格片段。
 
+// ==================== 数据结构 ====================
+//
+// 数据类型已迁移到 `crate::domain::write_time_bundle` 以保持中性；
+// 本模块仅保留 I/O 加载与 prompt 渲染行为实现。
+pub use crate::domain::write_time_bundle::*;
 use crate::{
     creative_engine::asset_snapshot::CreativeAssetSnapshot,
     db::{
@@ -22,12 +27,6 @@ use crate::{
     domain::narrative_elements::SceneElement,
     story_system::StorySystemEngine,
 };
-
-// ==================== 数据结构 ====================
-//
-// 数据类型已迁移到 `crate::domain::write_time_bundle` 以保持中性；
-// 本模块仅保留 I/O 加载与 prompt 渲染行为实现。
-pub use crate::domain::write_time_bundle::*;
 
 // ==================== 加载 ====================
 

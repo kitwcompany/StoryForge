@@ -11,7 +11,6 @@ use crate::db::{
     repositories::{CharacterRepository, KnowledgeGraphRepository, SceneRepository},
     DbPool,
 };
-
 // 数据类型已迁移到 `crate::domain::continuity`。
 pub use crate::domain::continuity::*;
 

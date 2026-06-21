@@ -20,7 +20,10 @@ pub async fn trigger_automation_event(
 ) -> Result<(), String> {
     log::debug!("[IPC] trigger_automation_event: {:?}", event);
 
-    automation_service.trigger_event(event).await.map_err(|e| e.message())?;
+    automation_service
+        .trigger_event(event)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }
 
@@ -54,7 +57,10 @@ pub async fn add_automation_trigger(
 ) -> Result<(), String> {
     log::debug!("[IPC] add_automation_trigger: {}", trigger.name);
 
-    automation_service.add_trigger(trigger).await.map_err(|e| e.message())?;
+    automation_service
+        .add_trigger(trigger)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }
 
@@ -66,7 +72,10 @@ pub async fn add_automation_handler(
 ) -> Result<(), String> {
     log::debug!("[IPC] add_automation_handler: {}", handler.name);
 
-    automation_service.add_handler(handler).await.map_err(|e| e.message())?;
+    automation_service
+        .add_handler(handler)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }
 
@@ -79,7 +88,10 @@ pub async fn trigger_story_created(
     log::debug!("[IPC] trigger_story_created: {}", story_id);
 
     let event = TriggerEvent::StoryCreated { story_id };
-    automation_service.trigger_event(event).await.map_err(|e| e.message())?;
+    automation_service
+        .trigger_event(event)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }
 
@@ -100,7 +112,10 @@ pub async fn trigger_chapter_created(
         story_id,
         chapter_id,
     };
-    automation_service.trigger_event(event).await.map_err(|e| e.message())?;
+    automation_service
+        .trigger_event(event)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }
 
@@ -121,7 +136,10 @@ pub async fn trigger_character_created(
         story_id,
         character_id,
     };
-    automation_service.trigger_event(event).await.map_err(|e| e.message())?;
+    automation_service
+        .trigger_event(event)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }
 
@@ -145,6 +163,9 @@ pub async fn trigger_chapter_content_updated(
         chapter_id,
         word_count,
     };
-    automation_service.trigger_event(event).await.map_err(|e| e.message())?;
+    automation_service
+        .trigger_event(event)
+        .await
+        .map_err(|e| e.message())?;
     Ok(())
 }

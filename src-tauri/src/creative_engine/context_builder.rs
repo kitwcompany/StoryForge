@@ -31,7 +31,10 @@ use crate::{
         style::StyleBlendConfig,
     },
     error::AppError,
-    memory::{tokenizer::{count_tokens, truncate_to_budget, truncate_to_budget_from_end}, MemoryTaskType},
+    memory::{
+        tokenizer::{count_tokens, truncate_to_budget, truncate_to_budget_from_end},
+        MemoryTaskType,
+    },
 };
 
 /// 创作上下文缓存键

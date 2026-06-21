@@ -354,7 +354,11 @@ impl ContextOptimizer {
     // ==================== L1 构建 ====================
 
     /// 构建 L1 结构化知识上下文
-    pub async fn build_l1(&self, story_id: &str, chapter_number: u32) -> Result<L1Context, AppError> {
+    pub async fn build_l1(
+        &self,
+        story_id: &str,
+        chapter_number: u32,
+    ) -> Result<L1Context, AppError> {
         let chapter_number_i32 = chapter_number as i32;
 
         // 并行获取数据
@@ -471,7 +475,12 @@ impl ContextOptimizer {
             let orchestrator =
                 crate::memory::orchestrator::MemoryOrchestrator::new(self.pool.clone());
             match orchestrator
-                .build_memory_pack_async(story_id, chapter_number as i32, MemoryTaskType::Write, None)
+                .build_memory_pack_async(
+                    story_id,
+                    chapter_number as i32,
+                    MemoryTaskType::Write,
+                    None,
+                )
                 .await
             {
                 Ok(mut pack) => {
@@ -1024,7 +1033,11 @@ impl ContextOptimizer {
         }
     }
 
-    async fn tool_check_continuity(&self, story_id: &str, content: &str) -> Result<String, AppError> {
+    async fn tool_check_continuity(
+        &self,
+        story_id: &str,
+        content: &str,
+    ) -> Result<String, AppError> {
         let repo = SceneRepository::new(self.pool.clone());
         let scenes = match repo.get_by_story(story_id) {
             Ok(s) => s,

@@ -19,12 +19,11 @@ use crate::{
     automation::service::AutomationService,
     creative_engine::payoff_ledger::PayoffLedger,
     db::{Chapter, ChapterRepository, DbPool, SceneRepository},
+    ports::VectorStore,
     skills::SkillManager,
     state_sync::StateSync,
     story_system::SceneCommitService,
 };
-
-use crate::ports::VectorStore;
 
 const CHAPTER_COMMIT_DEBOUNCE_SECONDS: u64 = 30; // 30 秒 debounce
 
@@ -314,10 +313,8 @@ impl ChapterService {
             let chapter_id = chapter.id.clone();
             let chapter_number = chapter.chapter_number;
             tauri::async_runtime::spawn(async move {
-                let context = crate::domain::agent_context::AgentContext::minimal(
-                    story_id,
-                    String::new(),
-                );
+                let context =
+                    crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
                 let data = serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
                 let _ = skill_manager
                     .execute_hooks(crate::skills::HookEvent::AfterChapterSave, &context, data)
