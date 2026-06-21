@@ -1,8 +1,8 @@
-# StoryForge (草苔) v0.7.4 功能清单
+# StoryForge (草苔) v0.22.2 功能清单（历史档案）
 
-> 按幕前幕后双界面架构整理，反映 v0.7.4 最新项目状态
+> 按幕前幕后双界面架构整理，当前项目版本：**v0.22.2**
 >
-> **注意**：本文档为历史归档，部分早期功能描述可能未同步最新变更。
+> **注意**：本文档为历史归档，初始编写于 v0.7.4，部分早期功能描述可能未同步最新变更。
 > 完整最新功能请参考 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。
 
 ---
@@ -457,3 +457,40 @@ Layer 1: Raw Sources (原始内容)
 - [V3 架构计划](plans/ARCHITECTURE_V3_PLAN.md) - V3 详细设计
 - [CHANGELOG](../CHANGELOG.md) - 版本变更记录
 - [PROJECT_STATUS](../PROJECT_STATUS.md) - 项目状态
+
+---
+
+## 🆕 v0.22.x 新功能补充（2026-06-21）
+
+### v0.22.2 — 题材画像推荐资产种子 + 策略硬约束
+
+- **GenreProfile 推荐种子**：`seed_genre_recommendations()` 为末世/科幻/修仙/都市/悬疑/历史 6 题材写入推荐风格+方法论+技能映射
+- **策略选择器硬约束**：`build_selected_strategy` 中体裁画像有推荐时跳过 LLM 直接使用
+- **算力档案默认值修正**：capability_score 未测试时默认 0.0（避免虚假质量分基准）
+
+### v0.22.1 — 5 条建设性意见实施
+
+- **StrategySelector 题材推荐映射**：`get_genre_recommendations()` 覆盖 7 种题材→风格推荐
+- **StyleDNA 句长偏差检测**：`execute_time_sliced` 生成后检测句长偏差，>30% 记录建议
+- **Inspector 方法论动态 prompt**：按 methodology_id 选择 prompt（5 种方法论全覆盖）
+- **GenreProfile 推荐字段**：4 新列 + Migration 96 + Repository SQL 更新
+
+### v0.22.0 — 提示词与后台资产完整结合
+
+- **Phase A**：WriteTimeBundle 新增 4 字段，`to_prompt()` 追加 4 个 section
+- **Phase B**：`build_inspector_prompt` 追加题材画像/方法论/角色状态/冲突/四元组
+- **Phase C**：`generate_for_request_with_request_id` 新增 intent 参数，agent_type 自动推导意图
+- **Phase D**：`select_candidates` 加载 CapabilityProfile 参与候选排序
+- **Phase E**：新增 `asset_params.rs` —— StyleDNA→temperature / methodology→max_tokens / genre→max_tokens
+
+### v0.21.0 — 提示词全量可配置化
+
+- **注册表扩展**：新增 6 个 PromptCategory，注册 ~50 个新提示词条目
+- **假接入修复**：15 个 key 改为 resolve_prompt（含 DB 覆盖）
+- **旁路接线**：40+ 个硬编码提示词全部接入 registry
+- **前端 PromptsPanel 重写**：Monaco 编辑器 + 批量导出/导入
+
+### v0.20.x — SING 意图图集成
+
+- **v0.20.1**：修复 5 处致命断环（资产同步/网关意图/执行图持久化/LLM 合成/PPR 传播）
+- **v0.20.0**：arXiv:2606.16591v2 论文的意图-工具异构图理论全面集成，动态 ReAct + 分层发现

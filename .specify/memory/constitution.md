@@ -76,12 +76,12 @@ StoryForge is built around AI assistance, not bolted-on:
 ```powershell
 # Full release build — MUST pass before any push
 .\scripts\build-local.ps1
-# Outputs: src-tauri/target/release/bundle/msi/StoryForge_3.3.0_x64_en-US.msi
-#          src-tauri/target/release/bundle/nsis/StoryForge_3.3.0_x64-setup.exe
+# Outputs: src-tauri/target/release/bundle/msi/StoryForge_0.22.2_x64_en-US.msi
+#          src-tauri/target/release/bundle/nsis/StoryForge_0.22.2_x64-setup.exe
 ```
 
 ### GitHub Actions (Cross-Platform)
-- Push to `master` → `v3.3.0-nightly` prerelease (overwrites)
+- Push to `master` → `v0.22.2-nightly` prerelease (overwrites)
 - Push tag `v*` → Stable release (independent, non-overwriting)
 - Platforms: `windows-latest`, `ubuntu-latest`, `macos-latest`
 

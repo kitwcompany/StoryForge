@@ -6,8 +6,8 @@ shell commands, and other important information, read the current plan.
 
 **StoryForge (草苔)** — AI-assisted novel writing desktop application
 - GitHub: https://github.com/91zgaoge/StoryForge
-- Version: v3.3.0
-- Tech Stack: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite
+- Version: v0.22.2
+- Tech Stack: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 
 ### Architecture
 - **Frontstage (幕前)**: Immersive writing interface (`/frontstage.html`) — warm paper tone, distraction-free
