@@ -281,7 +281,6 @@ export interface AppSettings {
   // 隐私设置
   privacy: {
     share_usage_data: boolean;
-    store_api_keys_securely: boolean;
   };
 
   // 拆书分析 LLM 并发数（默认 3，本地模型可调到 50）

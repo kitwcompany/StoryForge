@@ -1,10 +1,15 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-21（v0.22.2）
+> 最后更新: 2026-06-21（v0.22.3）
 
 ## ✅ v0.22.x 已实施完成
 
-### 提示词与后台资产深度结合 ✅
+### 🔐 钥匙串彻底移除 + 模型健康报告自动刷新 ✅ (v0.22.3)
+- [x] 移除 keyring crate（全平台依赖）
+- [x] 移除 secure_storage 模块
+- [x] API Key 改为直接存 SQLite
+- [x] 模型健康报告每 30 秒自动刷新
+- [x] AppConfig.load() 热路径冗余调用消除
 - [x] Phase A：TimeSliced 路径全资产注入（StyleDNA六维+方法论+体裁画像+写作策略）
 - [x] Phase B：Inspector 全资产注入（体裁画像+角色状态+活跃冲突+四元组+方法论）
 - [x] Phase C：意图感知调度接线（agent_type→intent 自动推导，activate classify_by_intention）

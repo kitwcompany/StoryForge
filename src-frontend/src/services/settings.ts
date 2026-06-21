@@ -103,7 +103,6 @@ const BROWSER_FALLBACK_SETTINGS: AppSettings = {
   },
   privacy: {
     share_usage_data: false,
-    store_api_keys_securely: true,
   },
   book_deconstruction_concurrency: 3,
   rewrite_threshold: 0.75,

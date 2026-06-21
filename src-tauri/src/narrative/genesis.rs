@@ -503,6 +503,15 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
+            // v0.22.3: 一次性加载 AppConfig，避免同一函数内原先 3 次 load()；
+            // 配合钥匙串内存缓存，大幅减少 macOS 钥匙串访问。
+            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
+            let app_config = crate::config::AppConfig::load(&app_dir).unwrap_or_default();
+            let word_count_target = app_config.genesis_first_chapter_word_count_target;
+            let writing_strategy = app_config.writing_strategy.clone();
+            let orchestrator_config =
+                crate::agents::orchestrator::WorkflowConfig::from_app_config(&app_config);
+
             // 通过 AgentService 生成第一章
             // auto-fill 已支持自动补齐角色和场景，preflight 不会再阻塞
             let builder =
@@ -511,16 +520,6 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 .build(&ctx.story_id, Some(1), None, None)
                 .await
                 .map_err(|e| PipelineError::LlmError(e.to_string()))?;
-
-            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
-            let (writing_strategy, word_count_target) = crate::config::AppConfig::load(&app_dir)
-                .map(|c| {
-                    (
-                        c.writing_strategy.clone(),
-                        c.genesis_first_chapter_word_count_target,
-                    )
-                })
-                .unwrap_or_else(|_| (crate::config::WritingStrategy::default(), 2000));
 
             // 构建策略注解：将模型选择的体裁画像、方法论等注入写作指令
             let strategy_notes = build_strategy_notes(ctx, &meta.genre);
@@ -569,10 +568,6 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
             });
 
             // v0.9.6: Bootstrap 初稿走 Orchestrator Full 模式，确保第一章质量
-            let app_dir = ctx.app_handle.path().app_data_dir().unwrap_or_default();
-            let orchestrator_config = crate::config::AppConfig::load(&app_dir)
-                .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
-                .unwrap_or_default();
             let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
                 service,
                 orchestrator_config,

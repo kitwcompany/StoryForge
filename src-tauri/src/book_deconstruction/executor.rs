@@ -120,13 +120,6 @@ impl TaskExecutor for BookDeconstructionExecutor {
         ctx.update_progress("analyzing", 10, "开始LLM分析...");
         ctx.heartbeat();
 
-        // 读取并发数配置
-        let _concurrency = {
-            let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
-            crate::config::AppConfig::load(&app_dir)
-                .map(|c| c.book_deconstruction_concurrency)
-                .unwrap_or(3)
-        };
         // 转换 TextChunk 类型
         let narrative_chunks: Vec<crate::narrative::analysis::TextChunk> = chunks
             .iter()

@@ -104,10 +104,6 @@ pub fn is_private_url(url: &str) -> bool {
     false
 }
 
-// ============================================================================
-// Secure API Key Storage (cross-platform keychain)
-// ============================================================================
-
 /// Agent 显示名称（默认映射初始化用）
 fn agent_display_name(agent_id: &str) -> String {
     match agent_id {
@@ -132,47 +128,7 @@ fn agent_description(agent_id: &str) -> Option<String> {
     }
 }
 
-pub mod secure_storage {
-    use keyring::Entry;
-
-    const SERVICE_NAME: &str = "storyforge";
-
-    /// Store an API key in the OS keychain
-    pub fn store_api_key(profile_id: &str, api_key: &str) -> Result<(), String> {
-        if api_key.is_empty() {
-            return Ok(());
-        }
-        let entry = Entry::new(SERVICE_NAME, profile_id)
-            .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
-        entry
-            .set_password(api_key)
-            .map_err(|e| format!("Failed to store API key: {}", e))?;
-        Ok(())
-    }
-
-    /// Retrieve an API key from the OS keychain
-    pub fn get_api_key(profile_id: &str) -> Result<Option<String>, String> {
-        let entry = Entry::new(SERVICE_NAME, profile_id)
-            .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
-        match entry.get_password() {
-            Ok(key) => Ok(Some(key)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(format!("Failed to retrieve API key: {}", e)),
-        }
-    }
-
-    /// Delete an API key from the OS keychain
-    pub fn delete_api_key(profile_id: &str) -> Result<(), String> {
-        let entry = Entry::new(SERVICE_NAME, profile_id)
-            .map_err(|e| format!("Keyring entry creation failed: {}", e))?;
-        entry
-            .delete_credential()
-            .map_err(|e| format!("Failed to delete API key: {}", e))?;
-        Ok(())
-    }
-}
-
-/// Agent 模型映射 + 任务策略配置
+/// 语言模型配置（向后兼容）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMapping {
     pub agent_id: String,
@@ -320,8 +276,6 @@ pub struct AppConfig {
     /// 隐私设置
     #[serde(default = "default_share_usage_data")]
     pub share_usage_data: bool,
-    #[serde(default = "default_store_api_keys_securely")]
-    pub store_api_keys_securely: bool,
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
     /// v0.14.3: AI 生成模式（auto/time_sliced/fast/full）
@@ -471,10 +425,6 @@ fn default_line_height() -> f32 {
 
 fn default_share_usage_data() -> bool {
     false
-}
-
-fn default_store_api_keys_securely() -> bool {
-    true
 }
 
 /// 语言模型配置（向后兼容）
@@ -1012,7 +962,6 @@ impl Default for AppConfig {
             font_size: default_font_size(),
             line_height: default_line_height(),
             share_usage_data: default_share_usage_data(),
-            store_api_keys_securely: default_store_api_keys_securely(),
             writing_strategy: WritingStrategy::default(),
             generation_mode: default_generation_mode(),
             llm_connect_timeout_secs: default_llm_connect_timeout(),
@@ -1038,9 +987,8 @@ struct AppConfigCacheEntry {
 static APP_CONFIG_CACHE: Lazy<RwLock<Option<AppConfigCacheEntry>>> =
     Lazy::new(|| RwLock::new(None));
 
-/// 缓存有效期。生产环境命令密集，5 秒足够抵消反复 load 的开销，又不会因为
-/// 外部修改（如多窗口）长期不一致。
-const APP_CONFIG_CACHE_TTL: Duration = Duration::from_secs(5);
+/// 缓存有效期。配置变更不频繁，30 秒可抵消绝大多数重复 load。
+const APP_CONFIG_CACHE_TTL: Duration = Duration::from_secs(30);
 
 impl AppConfig {
     /// 打开配置数据库（内部 helper）
@@ -1106,17 +1054,7 @@ impl AppConfig {
         let conn = pool.get()?;
         Self::ensure_app_settings_table(&conn)?;
 
-        // 序列化前 strip API keys（它们由 keychain 管理）
-        let mut temp = self.clone();
-        for profile in temp.llm_profiles.values_mut() {
-            profile.api_key.clear();
-        }
-        for profile in temp.embedding_profiles.values_mut() {
-            profile.api_key.clear();
-        }
-        temp.llm.api_key.clear();
-
-        let json = serde_json::to_string(&temp)?;
+        let json = serde_json::to_string(self)?;
         let now = chrono::Local::now().to_rfc3339();
         conn.execute(
             "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
@@ -1176,108 +1114,9 @@ impl AppConfig {
             }
         };
 
-        // ================================================================
-        // Migrate API keys from config.json to OS keychain (W1-B5)
-        // ================================================================
-        let mut keys_migrated = false;
-
-        // Migrate LLM profile API keys
-        for (id, profile) in config.llm_profiles.iter_mut() {
-            if !profile.api_key.is_empty() {
-                match secure_storage::store_api_key(id, &profile.api_key) {
-                    Ok(()) => {
-                        log::info!(
-                            "[SecureStorage] Migrated API key for profile '{}' to OS keychain",
-                            id
-                        );
-                        profile.api_key.clear();
-                        keys_migrated = true;
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "[SecureStorage] Failed to migrate API key for profile '{}': {}",
-                            id,
-                            e
-                        );
-                    }
-                }
-            }
-        }
-
-        // Migrate embedding profile API keys
-        for (id, profile) in config.embedding_profiles.iter_mut() {
-            if !profile.api_key.is_empty() {
-                match secure_storage::store_api_key(id, &profile.api_key) {
-                    Ok(()) => {
-                        log::info!(
-                            "[SecureStorage] Migrated API key for embedding profile '{}' to OS \
-                             keychain",
-                            id
-                        );
-                        profile.api_key.clear();
-                        keys_migrated = true;
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "[SecureStorage] Failed to migrate API key for embedding profile \
-                             '{}': {}",
-                            id,
-                            e
-                        );
-                    }
-                }
-            }
-        }
-
-        // Migrate legacy LLM config API key
-        if !config.llm.api_key.is_empty() {
-            match secure_storage::store_api_key("legacy_llm", &config.llm.api_key) {
-                Ok(()) => {
-                    log::info!("[SecureStorage] Migrated legacy LLM API key to OS keychain");
-                    config.llm.api_key.clear();
-                    keys_migrated = true;
-                }
-                Err(e) => {
-                    log::warn!(
-                        "[SecureStorage] Failed to migrate legacy LLM API key: {}",
-                        e
-                    );
-                }
-            }
-        }
-
-        // Restore API keys from keychain into memory for runtime use
-        for (id, profile) in config.llm_profiles.iter_mut() {
-            match secure_storage::get_api_key(id) {
-                Ok(Some(key)) => profile.api_key = key,
-                Ok(None) => {}
-                Err(e) => log::warn!(
-                    "[SecureStorage] Failed to load API key for profile '{}': {}",
-                    id,
-                    e
-                ),
-            }
-        }
-        for (id, profile) in config.embedding_profiles.iter_mut() {
-            match secure_storage::get_api_key(id) {
-                Ok(Some(key)) => profile.api_key = key,
-                Ok(None) => {}
-                Err(e) => log::warn!(
-                    "[SecureStorage] Failed to load API key for embedding profile '{}': {}",
-                    id,
-                    e
-                ),
-            }
-        }
-        match secure_storage::get_api_key("legacy_llm") {
-            Ok(Some(key)) => config.llm.api_key = key,
-            Ok(None) => {}
-            Err(e) => log::warn!("[SecureStorage] Failed to load legacy LLM API key: {}", e),
-        }
-
-        if keys_migrated {
-            let _ = config.save(config_dir);
-        }
+        // v0.22.3: API Key 直接存储在 SQLite 中，不再使用 macOS 钥匙串。
+        // 钥匙串已彻底移除 —— 对本地模型用户（API Key 为空）无影响；
+        // 使用云 API 的用户若之前密钥存在钥匙串中，需在设置中重新输入一次。
 
         // v0.11.0: 迁移旧配置字段，不再自动补充硬编码真实模型
         let mut needs_save = false;
@@ -1378,41 +1217,21 @@ impl AppConfig {
     }
 
     pub fn save(&self, config_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        // 1. Persist all API keys to OS keychain first
-        for (id, profile) in &self.llm_profiles {
-            if !profile.api_key.is_empty() {
-                if let Err(e) = secure_storage::store_api_key(id, &profile.api_key) {
-                    log::warn!(
-                        "[SecureStorage] Failed to store API key for profile '{}': {}",
-                        id,
-                        e
-                    );
-                }
-            }
-        }
-        for (id, profile) in &self.embedding_profiles {
-            if !profile.api_key.is_empty() {
-                if let Err(e) = secure_storage::store_api_key(id, &profile.api_key) {
-                    log::warn!(
-                        "[SecureStorage] Failed to store API key for embedding profile '{}': {}",
-                        id,
-                        e
-                    );
-                }
-            }
-        }
-        if !self.llm.api_key.is_empty() {
-            if let Err(e) = secure_storage::store_api_key("legacy_llm", &self.llm.api_key) {
-                log::warn!("[SecureStorage] Failed to store legacy LLM API key: {}", e);
-            }
-        }
-
-        // 2. W4-B3: Save user-level config to SQLite
+        // 1. W4-B3: Save user-level config to SQLite（含 API Key）
         self.save_to_db(config_dir)?;
 
-        // 3. W4-B3: config.json 只保留启动级配置
+        // 2. W4-B3: config.json 只保留启动级配置
         let bootstrap = BootstrapConfig::default();
         bootstrap.save(config_dir)?;
+
+        // 3. 刷新内存缓存，避免 save 后立即 load 仍需等 TTL 过期
+        if let Ok(mut cache) = APP_CONFIG_CACHE.write() {
+            *cache = Some(AppConfigCacheEntry {
+                config_dir: config_dir.to_path_buf(),
+                config: self.clone(),
+                loaded_at: Instant::now(),
+            });
+        }
 
         Ok(())
     }

@@ -130,8 +130,10 @@ pub async fn benchmark_model_for_task(
 }
 
 /// 生成所有启用模型在常见任务上的健康报告
+/// v0.22.3: 改为 async 命令，避免阻塞 Tauri IPC 主线程。
+/// 配合 settings.rs 的钥匙串内存缓存，查询毫秒级返回。
 #[command]
-pub fn get_model_health_reports(
+pub async fn get_model_health_reports(
     window_limit: Option<i64>,
     app_handle: AppHandle,
 ) -> Result<Vec<ModelHealthReport>, AppError> {

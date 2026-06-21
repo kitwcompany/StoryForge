@@ -288,7 +288,6 @@ pub struct GeneralSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PrivacySettings {
     pub share_usage_data: bool,
-    pub store_api_keys_securely: bool,
 }
 
 /// 获取应用设置
@@ -427,7 +426,6 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         },
         privacy: PrivacySettings {
             share_usage_data: config.share_usage_data,
-            store_api_keys_securely: config.store_api_keys_securely,
         },
         book_deconstruction_concurrency: config.book_deconstruction_concurrency,
         rewrite_threshold: config.rewrite_threshold,
@@ -496,7 +494,6 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     config.font_size = settings.general.font_size;
     config.line_height = settings.general.line_height;
     config.share_usage_data = settings.privacy.share_usage_data;
-    config.store_api_keys_securely = settings.privacy.store_api_keys_securely;
 
     // v0.17.1: 保存 v0.16.0 高级字段（None 表示前端未触及，保持原值）。
     // 修复「超时设置一改就弹出 保存设置失败: undefined 且数字不变」的根因。

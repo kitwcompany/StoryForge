@@ -1,6 +1,6 @@
 [package]
 name = "storyforge"
-version = "0.22.2"
+version = "0.22.3"
 edition = "2021"
 
 [build-dependencies]
@@ -80,8 +80,6 @@ oauth2 = { version = "5.0", features = ["reqwest"] }
 jsonwebtoken = "9"
 argon2 = "0.5"
 
-# Secure API key storage (cross-platform keychain)
-keyring = { version = "3", features = ["linux-native", "windows-native", "apple-native"] }
 
 # Tauri plugins (v2.x)
 tauri-plugin-fs = "2"

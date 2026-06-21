@@ -856,9 +856,10 @@ impl PlanExecutor {
         let sw = (plan_context.style_weight as f32 / 100.0).clamp(0.0, 1.0);
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
         log::info!("[PlanExecutor::execute_writer] Loading AppConfig...");
-        let mut config = crate::config::AppConfig::load(&app_dir)
-            .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
-            .unwrap_or_default();
+        let app_config = crate::config::AppConfig::load(&app_dir).unwrap_or_default();
+        let app_config_mode = app_config.generation_mode.clone();
+        let mut config =
+            crate::agents::orchestrator::WorkflowConfig::from_app_config(&app_config);
         config.style_weight = sw;
         config.narrative_weight = 1.0 - sw;
         let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
@@ -937,10 +938,6 @@ impl PlanExecutor {
         // 该文档明确指定 smart_execute 默认 TimeSliced，但实施时漏改了 PlanExecutor
         // 路径。 模式选择优先级：plan 参数 > AppConfig.generation_mode >
         // 场景智能路由
-        let app_config_mode = crate::config::AppConfig::load(&app_dir)
-            .ok()
-            .map(|c| c.generation_mode.clone())
-            .unwrap_or_else(|| "auto".to_string());
         let mode_str = params
             .get("mode")
             .and_then(|v| v.as_str())

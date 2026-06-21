@@ -1,13 +1,19 @@
-# StoryForge (草苔) v0.22.2 项目完成状态
+# StoryForge (草苔) v0.22.3 项目完成状态
 
-> 最后更新: 2026-06-21（v0.22.2 提示词与后台资产深度结合 + 全面文档更新）
+> 最后更新: 2026-06-21（v0.22.3 钥匙串彻底移除 + 模型健康报告自动刷新）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
 
-### v0.22.2 — 素材推荐种子 + 策略硬约束（2026-06-21）
+### v0.22.3 — 钥匙串彻底移除 + 模型健康报告自动刷新（2026-06-21）
+
+- 🔐 **钥匙串彻底移除**：删除 keyring crate、secure_storage 模块、store_api_keys_securely 配置项
+- 🧹 **移除 ~260 行钥匙串读写逻辑**：load/save 中全部钥匙串访问已清除
+- 📊 **模型健康报告自动刷新**：前端每 30 秒自动刷新，后端改为 async
+- ⚡ **冗余 load 消除**：execute_writer 2→1 次、FirstChapterGenerationStep 3→1 次
+- ✅ **零回归**：cargo check 零错误，425 passed，tsc 零错误
 
 - GenreProfile 推荐资产种子：7 个题材写入推荐风格/方法论/技能
 - 策略选择硬约束：体裁画像有推荐时跳过 LLM 直接使用

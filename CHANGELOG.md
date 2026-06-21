@@ -2,6 +2,36 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.22.3] - 钥匙串彻底移除 + 模型健康报告自动刷新 + 配置加载优化（2026-06-21）
+
+### 🔥 核心变更
+
+#### 1. 彻底移除 macOS 钥匙串依赖
+- **移除 `keyring` crate**（Linux/Windows/macOS native 全平台依赖已清除），编译产物不再链接 Security.framework
+- **移除 `secure_storage` 模块**（~75 行），API Key 改为直接存入 SQLite
+- **移除 `store_api_keys_securely` 配置项**，不再需要钥匙串开关
+- **移除 `load()` 中的钥匙串迁移 + 恢复逻辑**（~130 行），启动时不再创建 `keyring::Entry` 实例
+- **移除 `save()` 中的钥匙串持久化逻辑**（~55 行），保存时不再写钥匙串
+- **移除 `save_to_db()` 中的 API Key 剥离逻辑**，完整配置（含 Key）直接写入 SQLite
+
+**影响**：本地模型用户（API Key 为空）永远不会触发钥匙串；云 API 用户在设置页面输入密钥后直接存数据库，不再弹出系统级密码提示。
+
+#### 2. 模型健康报告自动刷新
+- 前端 `useModelHealthReports` 添加 `refetchInterval: 30_000`（每 30 秒自动刷新）
+- 后端 `get_model_health_reports` 改为 `async` 命令，不再阻塞 IPC 线程
+- 配合钥匙串移除，查询毫秒级返回，用户不再需要手动点击「刷新」
+
+#### 3. AppConfig.load() 冗余调用消除
+- `planner/executor.rs`: `execute_writer` 中 2 次 `AppConfig::load()` → 1 次
+- `narrative/genesis.rs`: `FirstChapterGenerationStep` 中 3 次 `AppConfig::load()` → 1 次
+- `book_deconstruction/executor.rs`: 移除死代码（`_concurrency` 结果未使用）
+- 缓存 TTL 保持 30 秒，绝大多数命令走内存缓存
+
+### 验证
+- `cargo check` ✅ 零错误
+- `cargo test --lib` ✅ 425 passed（49 failed = 已知 V092 基线，零回归）
+- `npx tsc --noEmit` ✅ 零错误
+
 ## [v0.22.2] - 题材画像推荐资产种子 + 策略选择硬约束 + CI 修复（2026-06-21）
 
 ### 建设性意见实施

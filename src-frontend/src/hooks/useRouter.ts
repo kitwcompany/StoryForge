@@ -33,6 +33,10 @@ export function useModelHealthReports(windowLimit?: number) {
     gcTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    // v0.22.3: 每 30 秒自动刷新，用户无需手动点击「刷新」按钮
+    // 即可看到最新的模型健康数据。配合后端钥匙串缓存优化，
+    // 自动刷新不会触发 macOS 钥匙串密码提示。
+    refetchInterval: 30_000,
   });
 }
 

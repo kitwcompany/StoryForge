@@ -1,13 +1,13 @@
-# 🧪 StoryForge 自动化测试环境 (v0.22.2)
+# 🧪 StoryForge 自动化测试环境 (v0.22.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 | 套件 | 数量 | 状态 |
 |------|------|------|
+| `cargo test --lib` | 425 | ✅（49 failed 为已知 V092 基线） |
 | `cargo test --lib intention_graph` | 18 | ✅ |
 | `cargo test --lib adaptive::asset_params` | 3 | ✅ |
-| 真实模型测试（Gemma4-e2b） | 6 | ✅ |
 | `cargo check` | — | ✅ 零错误 |
 | `npx tsc --noEmit` | — | ✅ 零错误 |
 

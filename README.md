@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.22.2-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.22.3-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.22.2 提示词与后台资产深度结合——5 个系统性缺口全部修复，从用户意图到模型调度的全链路资产感知。题材画像预置推荐（末世→余华+英雄之旅），策略选择硬约束（有推荐跳过 LLM 直接使用），算力档案消费闭环（TTFB/TPS 参与候选排序），SING 意图感知调度激活。所有 79 个提示词均可前端编辑覆盖。真实模型测试 6/6 通过。
+**最新动态**：v0.22.3 钥匙串彻底移除 + 模型健康报告自动刷新。macOS 钥匙串依赖已全部清除，API Key 直接存储在 SQLite 中，本地模型用户不再被反复提示输入钥匙串密码。模型健康报告每 30 秒自动刷新。AppConfig.load() 热路径冗余调用已消除。
 
 > **上一版**：v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。v0.21.0 提示词全量可配置化——79 个提示词全部前端可编辑。v0.20.1 SING 意图图集成审计修复。
 
