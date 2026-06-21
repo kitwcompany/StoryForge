@@ -2353,6 +2353,125 @@ impl AgentService {
             }
         }
 
+        // v0.22.0: Inspector 全资产注入（Phase B）
+        // 修复审计报告缺口 2
+
+        // 体裁画像策略
+        if let Some(pool) = crate::get_pool() {
+            if let Some(ref gpid) = ctx.story.genre_profile_id {
+                if !gpid.is_empty() {
+                    let genre_repo =
+                        crate::db::GenreProfileRepository::new(pool.clone());
+                    if let Ok(Some(profile)) = genre_repo.get_by_id(gpid) {
+                        let mut parts = vec![];
+                        if let Some(ref tone) = profile.core_tone {
+                            parts.push(format!("基调：{}", tone));
+                        }
+                        if let Some(ref pacing) = profile.pacing_strategy {
+                            parts.push(format!("节奏：{}", pacing));
+                        }
+                        let anti = {
+                            let s = profile.anti_patterns_json.as_deref().unwrap_or("");
+                            if s.trim().is_empty() {
+                                vec![]
+                            } else if let Ok(arr) =
+                                serde_json::from_str::<Vec<String>>(s)
+                            {
+                                arr
+                            } else {
+                                s.lines()
+                                    .map(|l| l.trim().trim_start_matches('-').trim().to_string())
+                                    .filter(|l| !l.is_empty())
+                                    .collect()
+                            }
+                        };
+                        if !anti.is_empty() {
+                            parts.push(format!("反模式：{}", anti.join(", ")));
+                        }
+                        if !parts.is_empty() {
+                            context_sections.push(format!(
+                                "【体裁画像（检查题材套路合规）】\n{}",
+                                parts.join("\n")
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 方法论约束
+        if let Some(ref mid) = ctx.world.methodology_id {
+            if !mid.is_empty() {
+                let step = ctx.world.methodology_step.as_deref().unwrap_or("1");
+                let prompt_id = format!("methodology_snowflake_step{}", step);
+                if let Some(content) =
+                    crate::prompts::registry::resolve_prompt_default(&prompt_id)
+                {
+                    context_sections.push(format!(
+                        "【方法论节拍（雪花法 第{}步，检查结构完整性）】\n{}",
+                        step, content
+                    ));
+                }
+            }
+        }
+
+        // 角色当前状态 + 活跃冲突
+        if let Some(pool) = crate::get_pool() {
+            let snap = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
+                &pool,
+                &ctx.story.story_id,
+                ctx.style.style_dna_id.as_deref(),
+            );
+            // 角色状态
+            if let Some(ref canonical) = snap.canonical {
+                if !canonical.character_states.is_empty() {
+                    let states: Vec<String> = canonical
+                        .character_states
+                        .iter()
+                        .take(5)
+                        .map(|cs| {
+                            format!(
+                                "- {}: 位置={}, 情绪={}",
+                                cs.name,
+                                cs.current_location.as_deref().unwrap_or("未知"),
+                                cs.current_emotion.as_deref().unwrap_or("未知"),
+                            )
+                        })
+                        .collect();
+                    context_sections.push(format!(
+                        "【角色状态（检查一致性）】\n{}",
+                        states.join("\n")
+                    ));
+                }
+                // 活跃冲突
+                if !canonical.story_context.active_conflicts.is_empty() {
+                    let conflicts: Vec<String> = canonical
+                        .story_context
+                        .active_conflicts
+                        .iter()
+                        .take(3)
+                        .map(|c| format!("  - {} (涉及: {}; 利害: {})", c.conflict_type, c.parties.join(", "), c.stakes))
+                        .collect();
+                    context_sections.push(format!(
+                        "【活跃冲突（检查是否推进或解决）】\n{}",
+                        conflicts.join("\n")
+                    ));
+                }
+            }
+        }
+
+        // 叙事四元组
+        if let Some(ref quartet) = task.parameters.get("narrative_quartet") {
+            if let Some(q_str) = quartet.as_str() {
+                if !q_str.is_empty() {
+                    context_sections.push(format!(
+                        "【叙事四元组（检查目标达成）】\n{}",
+                        q_str
+                    ));
+                }
+            }
+        }
+
         let context_block = if context_sections.is_empty() {
             String::new()
         } else {

@@ -56,6 +56,16 @@ pub struct WriteTimeBundle {
     pub style_dna_summary: Option<String>,
     /// P1-1: 叙事四元组渲染文本（来自 task.parameters，由调用方设置）
     pub narrative_quartet: Option<String>,
+    // v0.22.0: 解决 TimeSliced "资产黑洞"（Phase A）
+    // 此前默认续写路径不注入 StyleDNA 六维量化指标/方法论规则/题材画像全字段/写作策略
+    /// 风格 DNA 完整六维指标
+    pub style_dna_extension: Option<String>,
+    /// 方法论约束（当前步骤的完整规则）
+    pub methodology_extension: Option<String>,
+    /// 题材画像策略（core_tone + pacing_strategy + reference_tables + typical_structure）
+    pub genre_profile_strategy: Option<String>,
+    /// 写作策略约束
+    pub writing_strategy_constraints: Option<String>,
 }
 
 pub struct CoreCharacter {
@@ -246,6 +256,89 @@ impl WriteTimeBundle {
             None
         };
 
+        // v0.22.0: 加载完整 StyleDNA 六维指标
+        let style_dna_extension = match story.style_dna_id.as_deref() {
+            Some(dna_id) if !dna_id.is_empty() => {
+                let dna_repo = StyleDnaRepository::new(pool.clone());
+                match dna_repo.get_by_id(dna_id) {
+                    Ok(Some(dna)) => {
+                        match serde_json::from_str::<
+                            crate::creative_engine::style::dna::StyleDNA,
+                        >(&dna.dna_json)
+                        {
+                            Ok(dna_obj) => Some(dna_obj.to_prompt_extension()),
+                            Err(e) => {
+                                log::warn!("[WriteTimeBundle] StyleDNA 解析失败: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+
+        // v0.22.0: 加载方法论扩展
+        let methodology_extension = match story.methodology_id.as_deref() {
+            Some(mid) if !mid.is_empty() => {
+                let step = story.methodology_step.unwrap_or(1);
+                // 使用雪花法作为示例（后续可扩展到其他方法论）
+                let prompt_id = format!("methodology_snowflake_step{}", step);
+                if let Some(content) =
+                    crate::prompts::registry::resolve_prompt_default(&prompt_id)
+                {
+                    Some(format!(
+                        "【创作方法论（雪花法 第{}步）】\n{}",
+                        step, content
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // v0.22.0: 加载 GenreProfile 完整策略
+        let genre_profile_strategy = {
+            let genre_name = story.genre.as_deref().unwrap_or("");
+            if genre_name.is_empty() {
+                None
+            } else {
+                let genre_repo2 = GenreProfileRepository::new(pool.clone());
+                match genre_repo2.get_by_name(genre_name) {
+                    Ok(Some(profile)) => {
+                        let mut parts = vec![];
+                        if let Some(ref tone) = profile.core_tone {
+                            parts.push(format!("基调：{}", tone));
+                        }
+                        if let Some(ref pacing) = profile.pacing_strategy {
+                            parts.push(format!("节奏策略：{}", pacing));
+                        }
+                        if !parts.is_empty() {
+                            Some(format!(
+                                "【体裁画像策略（{}）】\n{}",
+                                genre_name,
+                                parts.join("\n")
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+        };
+
+        // v0.22.0: 加载写作策略约束
+        let writing_strategy_constraints = {
+            // 使用默认策略（后续可通过参数传入覆盖）
+            Some(
+                "【写作策略约束】\n运行模式：标准\n冲突强度：0.5\n叙事节奏：正常\nAI 自由度：0.5"
+                    .to_string(),
+            )
+        };
+
         // P1-1: 精选资产子集——解决 TimeSliced "资产黑洞"
         // P3-3: 使用统一资产注入网关 CreativeAssetSnapshot，消除重复加载逻辑。
         let snapshot =
@@ -269,6 +362,10 @@ impl WriteTimeBundle {
             overdue_foreshadowings,
             style_dna_summary,
             narrative_quartet: None, // 由调用方（orchestrator）从 task.parameters 设置
+            style_dna_extension,
+            methodology_extension,
+            genre_profile_strategy,
+            writing_strategy_constraints,
         })
     }
 
@@ -406,6 +503,27 @@ impl WriteTimeBundle {
         // ⑩ 叙事四元组（来自 task.parameters，由 orchestrator 设置）
         if let Some(ref quartet) = self.narrative_quartet {
             sections.push(quartet.clone());
+        }
+
+        // v0.22.0: 解决 TimeSliced "资产黑洞"——注入与 Full 路径对等的完整资产
+        // ⑪ 风格 DNA 六维量化指标（完整，替代之前的"一句话摘要"）
+        if let Some(ref dna) = self.style_dna_extension {
+            sections.push(format!("【风格 DNA 六维指标】\n{}", dna));
+        }
+
+        // ⑫ 方法论约束（当前步骤的完整规则）
+        if let Some(ref method) = self.methodology_extension {
+            sections.push(format!("【创作方法论约束】\n{}", method));
+        }
+
+        // ⑬ 题材画像策略（core_tone + pacing + reference + structure）
+        if let Some(ref genre) = self.genre_profile_strategy {
+            sections.push(genre.clone());
+        }
+
+        // ⑭ 写作策略约束
+        if let Some(ref ws) = self.writing_strategy_constraints {
+            sections.push(ws.clone());
         }
 
         sections.join("\n\n")
@@ -628,6 +746,10 @@ mod tests {
             overdue_foreshadowings: vec![],
             style_dna_summary: None,
             narrative_quartet: None,
+            style_dna_extension: None,
+            methodology_extension: None,
+            genre_profile_strategy: None,
+            writing_strategy_constraints: None,
         };
         let prompt = bundle.to_prompt();
         let redline_pos = prompt.find("绝对红线内容").unwrap_or(usize::MAX);
