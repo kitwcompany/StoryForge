@@ -514,7 +514,10 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     }
     if let Some(v) = settings.generation_mode {
         // 仅接受白名单值，避免脏数据
-        if matches!(v.as_str(), "auto" | "time_sliced" | "fast" | "full") {
+        if matches!(
+            v.as_str(),
+            "auto" | "time_sliced" | "fast" | "full" | "tri_shot"
+        ) {
             config.generation_mode = v;
         }
     }
