@@ -88,7 +88,8 @@ impl GatewayExecutor {
         }
     }
 
-    /// v0.23.13: 模型必须出现在健康注册表且状态为 Healthy/Degraded 才可用于调度。
+    /// v0.23.13: 模型必须出现在健康注册表且状态为 Healthy/Degraded
+    /// 才可用于调度。
     fn is_model_available(&self, model_id: &str) -> bool {
         let health = self.health_registry();
         if let Ok(guard) = health.lock() {
@@ -584,7 +585,8 @@ impl GatewayExecutor {
                     tps,
                     error: None,
                 };
-                self.probe_engine.record_probe(&profile, &result, &self.pool);
+                self.probe_engine
+                    .record_probe(&profile, &result, &self.pool);
                 Ok(result)
             }
             Err(e) => {
@@ -596,7 +598,8 @@ impl GatewayExecutor {
                     tps: 0.0,
                     error: Some(e.to_string()),
                 };
-                self.probe_engine.record_probe(&profile, &result, &self.pool);
+                self.probe_engine
+                    .record_probe(&profile, &result, &self.pool);
                 Ok(result)
             }
         }

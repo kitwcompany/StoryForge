@@ -31,11 +31,11 @@ pub async fn get_gateway_status(
         guard.models_with_health(&health)
     }
     .into_iter()
-        .filter(|m| {
-            m.status == super::types::HealthStatus::Healthy
-                || m.status == super::types::HealthStatus::Degraded
-        })
-        .collect();
+    .filter(|m| {
+        m.status == super::types::HealthStatus::Healthy
+            || m.status == super::types::HealthStatus::Degraded
+    })
+    .collect();
 
     Ok(GatewayStatus {
         last_probe_at: models

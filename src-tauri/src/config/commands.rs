@@ -688,8 +688,8 @@ pub fn create_model(
 
     // v0.23.13: 新模型加入后立即刷新网关注册表并执行即时健康探测，
     // 探测通过则立刻进入可用模型池，避免调度范围遗漏。
-    if let Some(executor) = app_handle
-        .try_state::<crate::model_gateway::executor::GatewayExecutor>()
+    if let Some(executor) =
+        app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
     {
         let executor = executor.inner().clone();
         executor.refresh_registry();

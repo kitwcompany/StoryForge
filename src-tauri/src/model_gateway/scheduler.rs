@@ -47,7 +47,12 @@ async fn run_full_probe(executor: &GatewayExecutor) {
     let models: Vec<String> = executor
         .registry
         .lock()
-        .map(|g| g.enabled_generative_models().into_iter().map(|m| m.id.clone()).collect())
+        .map(|g| {
+            g.enabled_generative_models()
+                .into_iter()
+                .map(|m| m.id.clone())
+                .collect()
+        })
         .unwrap_or_default();
 
     log::info!("[GatewayScheduler] 启动时全量探测 {} 个模型", models.len());
