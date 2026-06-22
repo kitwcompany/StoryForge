@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.14-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.16-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.14 彻底重塑模型管理体系——建设干净的健康的模型池。启动归零、实时探测生成健康报告、删除即级联清理。模型能力分数（capability_score）从实测 TTFB/TPS/成功率合成，网关 select_candidates 和 select_fastest_profile 全面消费。词元限制恢复后最多 60 秒自动回池，也可手动重新检测即时回池。前端硬编码 LAN IP 模型全部清除，id/name 显示统一。v0.23.13 已强制所有生成路径使用活跃模型，v0.23.12 新增 WorkflowLogger。
+**最新动态**：v0.23.16 修复 Genesis 快速阶段 600s 卡死——`story_repo.create()` 改用 spawn_blocking 防阻塞 tokio worker。v0.23.15 TriShot 管线 4 处缺陷修复（预检 auto-fill、消息标记、预算守卫、超时覆盖）。v0.23.14 彻底重塑模型管理体系——建设干净的健康的模型池。E2E 集成测试 73.2s 完成全部 Call 1-3 流程。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

@@ -2,6 +2,27 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.16] - Genesis 快速阶段卡死修复 + E2E 集成测试（2026-06-22）
+
+### 修复
+- **Genesis 快速阶段 600s 卡死**：v0.23.15 的概念 LLM 在 6.7s 完成后 Story 从未创建，pipeline 阻塞 600s 直到前端超时。根因是 `StoryRepository::create()` 为同步 r2d2 调用，在 async 上下文中直接执行。若 DB 连接池满或有写锁冲突，阻塞 tokio worker 线程导致外层 `tokio::time::timeout(600s)` 无法 poll future，超时永不触发。
+  - 修复：`story_repo.create()` 改用 `tokio::task::spawn_blocking` 异步化
+  - `ConceptGenerationStep` LLM 调用后每个子步骤添加 `log::warn!` 诊断日志（LLM 返回 → JSON 解析 → Story 创建 → ctx 写入）
+  - `FirstChapterGenerationStep` 入口添加诊断日志
+  - `smart_execute_inner` Genesis 路径添加 pipeline 启动/完成诊断日志
+
+### 测试基础设施
+- 新增 `scripts/test_trishot_e2e.py` 端到端集成测试脚本
+  - 从应用 `app_settings` 表读取真实模型配置
+  - 模拟「写一部异星末世生存的小说」走完完整 Call 1-3 流程
+  - 验证结果：**73.2s 完成，2270 字符，1852 中文字，全部检查通过**
+
+### 验证
+- `cargo check` ✅
+- `cargo test --lib` ✅ **551 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check` ✅
+- E2E 集成测试 ✅ Gemma4-e2b 真实 LLM，73.2s 生成 1852 中文字
+
 ## [v0.23.15] - TriShot 管线 4 处缺陷修复（2026-06-22）
 
 ### 修复
