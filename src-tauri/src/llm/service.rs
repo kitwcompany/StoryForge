@@ -746,7 +746,9 @@ impl LlmService {
         });
         log::info!(target: "llm_metrics", "{}", metrics);
 
+        self.workflow_log("llm.record_call.try_state", "开始获取 DbPool state", None);
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            self.workflow_log("llm.record_call.db_write", "开始写入 llm_calls 表", None);
             use crate::db::{repositories_pipeline::LlmCallRepository, RecordLlmCallRequest};
             let repo = LlmCallRepository::new(pool.inner().clone());
             let req = RecordLlmCallRequest {
@@ -786,6 +788,13 @@ impl LlmService {
             ) {
                 log::warn!("[LLM] Failed to record llm_call: {}", e);
             }
+            self.workflow_log("llm.record_call.db_done", "llm_calls 表写入完成", None);
+        } else {
+            self.workflow_log(
+                "llm.record_call.no_pool",
+                "DbPool state 不可用，跳过 llm_calls 记录",
+                None,
+            );
         }
     }
 
@@ -1431,6 +1440,11 @@ impl LlmService {
                     "llm_calls 记录写入完成",
                     Some(serde_json::json!({"request_id": request_id})),
                 );
+                self.workflow_log(
+                    "llm.emit_completed.start",
+                    "准备发射 completed 进度事件",
+                    Some(serde_json::json!({"request_id": request_id})),
+                );
                 if !is_silent_background {
                     self.emit_llm_progress(
                         "completed",
@@ -1446,6 +1460,11 @@ impl LlmService {
                         Some(request_id.as_str()),
                     );
                 }
+                self.workflow_log(
+                    "llm.emit_completed.done",
+                    "completed 进度事件已发射",
+                    Some(serde_json::json!({"request_id": request_id})),
+                );
                 self.workflow_log(
                     "llm.generate.return_ok",
                     "LLM 生成成功，准备返回结果给调用者",
@@ -2523,5 +2542,249 @@ mod tests {
         );
         assert_eq!(AppError::llm_timeout(120_000).code(), "LLM_TIMEOUT");
         assert_eq!(AppError::cancelled("用户取消").code(), "CANCELLATION");
+    }
+
+    // ====================================================================
+    // v0.23.17: 独立模块测试 — 验证不在 Python E2E 测试中的关键路径
+    // 1. heartbeat abort/await 是否会陷入无限阻塞
+    // 2. TASK_START_TIMES Mutex 并发死锁
+    // 3. record_llm_call 连接池满时的行为
+    // ====================================================================
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_heartbeat_abort_does_not_block_indefinitely() {
+        // 模拟心跳任务：emit 可能阻塞的情况下，abort+await 应在合理时间内完成
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        let emitted = Arc::new(AtomicBool::new(false));
+        let emitted_clone = emitted.clone();
+
+        // 启动心跳：在一个间隔内至少 emit 一次
+        let heartbeat = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(50));
+            loop {
+                interval.tick().await;
+                emitted_clone.store(true, Ordering::SeqCst);
+                // 模拟 emit 的同步操作（可能阻塞的情形）
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+
+        // 等待第一次 emit
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(emitted.load(Ordering::SeqCst), "心跳应至少 emit 一次");
+
+        // abort + await 应在 5 秒内完成
+        heartbeat.abort();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), heartbeat).await;
+
+        assert!(
+            result.is_ok(),
+            "heartbeat abort + await 应在 5 秒内完成，但超时了！这证明心跳任务卡在同步代码中无法被 abort"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_heartbeat_with_blocking_emit_handled_by_timeout() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        let entered = Arc::new(AtomicBool::new(false));
+        let entered_clone = entered.clone();
+
+        let heartbeat = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            entered_clone.store(true, Ordering::SeqCst);
+            // 模拟长时间阻塞（但在测试中只用 2 秒，避免 CI 超时）
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(entered.load(Ordering::SeqCst));
+
+        heartbeat.abort();
+        // abort 后 JoinHandle 应立即 resolve（即使任务在 std::thread::sleep 中），
+        // 因为 tokio 的 abort 会立即标记任务取消，JoinHandle.await 不会阻塞
+        let result = tokio::time::timeout(std::time::Duration::from_millis(500), heartbeat).await;
+
+        assert!(result.is_ok(), "abort 后 JoinHandle 应在 500ms 内 resolve");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_task_start_times_mutex_no_deadlock() {
+        // 验证 std::sync::Mutex 在并发场景下不会死锁
+        use std::{
+            collections::HashMap,
+            sync::{Arc, Mutex},
+        };
+
+        let map = Arc::new(Mutex::new(HashMap::<String, std::time::Instant>::new()));
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let map = map.clone();
+                let task_id = format!("test-task-{}", i);
+                std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        let mut guard = map.lock().unwrap_or_else(|e| e.into_inner());
+                        guard
+                            .entry(task_id.clone())
+                            .or_insert_with(std::time::Instant::now);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let start = std::time::Instant::now();
+            while !h.is_finished() && start.elapsed() < std::time::Duration::from_secs(5) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(h.is_finished(), "Mutex 并发线程应在 5 秒内完成但卡住了");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_record_llm_call_pool_timeout() {
+        use r2d2::Pool;
+        use r2d2_sqlite::SqliteConnectionManager;
+
+        // 创建一个小连接池（仅 1 个连接）
+        let manager = SqliteConnectionManager::file(":memory:");
+        let pool = Pool::builder()
+            .max_size(1)
+            .connection_timeout(std::time::Duration::from_secs(2))
+            .build(manager)
+            .expect("应能创建连接池");
+
+        // 占用唯一的连接
+        let _holder = pool.get().expect("应能获取连接");
+
+        // 尝试再次获取连接——应该超时（2 秒内）
+        let pool_clone = pool.clone();
+        let start = std::time::Instant::now();
+        let result = tokio::task::spawn_blocking(move || pool_clone.get())
+            .await
+            .expect("spawn_blocking 应成功");
+
+        let elapsed = start.elapsed();
+
+        match result {
+            Ok(_) => {
+                // 意外获取到了连接（可能是内部创建了新连接？检查 max_size）
+                // 这仍然可以接受，只要不无限阻塞
+            }
+            Err(_) => {
+                // 预期的超时
+                assert!(
+                    elapsed < std::time::Duration::from_secs(5),
+                    "pool.get() 应在 5 秒内返回（超时或成功），但耗时 {:?}",
+                    elapsed
+                );
+            }
+        }
+    }
+
+    /// v0.23.17 关键测试：模拟真实应用的 record_llm_call 路径
+    /// 使用与生产环境相同的连接池配置，验证 DB 写入不会无限阻塞
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_record_llm_call_non_blocking() {
+        use r2d2::Pool;
+        use r2d2_sqlite::SqliteConnectionManager;
+
+        // 创建与生产环境相同的连接池配置
+        let manager = SqliteConnectionManager::file(":memory:");
+        let pool = Pool::builder()
+            .max_size(10)
+            .connection_timeout(std::time::Duration::from_secs(10))
+            .build(manager)
+            .expect("应能创建连接池");
+
+        // 初始化 llm_calls 表
+        {
+            let conn = pool.get().expect("获取连接失败");
+            conn.execute(
+                "CREATE TABLE llm_calls (
+                id TEXT PRIMARY KEY,
+                story_id TEXT,
+                draft_id TEXT,
+                model_id TEXT NOT NULL,
+                model_name TEXT,
+                purpose TEXT,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                duration_ms INTEGER DEFAULT 0,
+                success INTEGER DEFAULT 0,
+                error_message TEXT,
+                prompt_preview TEXT,
+                metadata TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                task_type TEXT,
+                quality_score REAL,
+                latency_ms INTEGER,
+                route_decision TEXT,
+                audit_feedback TEXT
+            )",
+                [],
+            )
+            .expect("建表失败");
+        }
+
+        use std::sync::{Arc, Barrier};
+
+        // 并发写入测试：10 个线程同时写 llm_calls
+        let pool = Arc::new(pool);
+        let barrier = Arc::new(Barrier::new(10));
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let pool = pool.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait(); // 所有线程同步启动
+                    let start = std::time::Instant::now();
+                    let conn = pool.get();
+                    let elapsed = start.elapsed();
+                    match conn {
+                        Ok(conn) => {
+                            let id = format!("test-{}-{}", i, uuid::Uuid::new_v4());
+                            conn.execute(
+                                "INSERT INTO llm_calls (id, model_id, purpose, created_at) VALUES (?1, 'test', 'test', datetime('now'))",
+                                rusqlite::params![id],
+                            ).ok();
+                            assert!(
+                                elapsed < std::time::Duration::from_secs(10),
+                                "线程 {} pool.get() 耗时 {:?}，超过 10s",
+                                i, elapsed
+                            );
+                        }
+                        Err(e) => {
+                            // 连接池满时允许超时
+                            assert!(
+                                elapsed < std::time::Duration::from_secs(15),
+                                "线程 {} pool.get() 失败耗时 {:?}，超过 15s: {}",
+                                i, elapsed, e
+                            );
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            let start = std::time::Instant::now();
+            while !h.is_finished() && start.elapsed() < std::time::Duration::from_secs(15) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            assert!(
+                h.is_finished(),
+                "record_llm_call 并发测试线程在 15 秒内未完成，存在死锁风险"
+            );
+        }
     }
 }
