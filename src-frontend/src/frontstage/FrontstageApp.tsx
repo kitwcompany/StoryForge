@@ -1837,7 +1837,12 @@ const FrontstageApp: React.FC = () => {
           m.startsWith('story_created:')
         );
         const isBackgroundBootstrap = result.messages?.some(
-          (m: string) => m === 'novel_bootstrap_background_started'
+          (m: string) =>
+            m === 'novel_bootstrap_background_started' ||
+            m === 'novel_bootstrap_first_chapter_ready'
+        );
+        const isFirstChapterReady = result.messages?.some(
+          (m: string) => m === 'novel_bootstrap_first_chapter_ready'
         );
 
         if (storyCreatedMsg) {
@@ -1866,14 +1871,26 @@ const FrontstageApp: React.FC = () => {
           })();
         }
 
-        // v0.9.5: 新故事创建后，第一章在后台生成，此时 final_content 为空是正常的
-        if (isBackgroundBootstrap) {
+        // v0.23.15: 第一章已就绪时，正文已通过 ChapterSwitch 事件加载到编辑器，
+        // 不再走"后台生成中"的空内容路径。仅旧版 background_started 才走后台路径。
+        if (isBackgroundBootstrap && !isFirstChapterReady) {
           frontstageLogger.info(
             '[Bootstrap] Story created, first chapter generating in background'
           );
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
             duration: 5000,
           });
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          setOrchestratorStatus(null);
+          return;
+        }
+
+        // v0.23.15: 第一章已就绪——正文已通过 ChapterSwitch 加载，直接完成
+        if (isFirstChapterReady) {
+          frontstageLogger.info('[Bootstrap] Story created, first chapter ready');
+          toast.success('小说已创建！第一章已生成，您可以开始写作了', { duration: 4000 });
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -2314,14 +2331,22 @@ const FrontstageApp: React.FC = () => {
 
         currentToastPhaseRef.current = null;
 
-        // v0.9.5: 区分后台生成中的 Bootstrap 与已完成的 Bootstrap
+        // v0.23.15: 区分三种 Bootstrap 状态
+        // - first_chapter_ready: 第一章已生成（v0.23.14+），正文已通过 ChapterSwitch 加载
+        // - background_started: 旧版后台生成中（final_content 为空）
+        const isFirstChapterReady = result.messages.some(
+          m => m === 'novel_bootstrap_first_chapter_ready'
+        );
         const isBackgroundBootstrap = result.messages.some(
           m => m === 'novel_bootstrap_background_started'
         );
         const isBootstrapCompleted =
-          !isBackgroundBootstrap && result.messages.some(m => m.includes('novel_bootstrap'));
+          isFirstChapterReady ||
+          (!isBackgroundBootstrap && result.messages.some(m => m.includes('novel_bootstrap')));
 
-        if (isBackgroundBootstrap) {
+        if (isFirstChapterReady) {
+          frontstageLogger.info('[SmartGeneration] Story created, first chapter ready');
+        } else if (isBackgroundBootstrap) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter in background');
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
             duration: 5000,

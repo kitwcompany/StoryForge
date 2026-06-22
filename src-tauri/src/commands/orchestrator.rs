@@ -374,7 +374,9 @@ async fn smart_execute_inner(
                     messages: vec![
                         format!("story_created:{}", story_id),
                         format!("session_id:{}", session_id),
-                        "novel_bootstrap_background_started".to_string(),
+                        // v0.23.15: 语义变更——第一章已就绪，后台仅生成世界观/大纲等。
+                        // 前端据此走"正文已就绪"路径，而非"后台生成中"路径。
+                        "novel_bootstrap_first_chapter_ready".to_string(),
                     ],
                     error: None,
                 });

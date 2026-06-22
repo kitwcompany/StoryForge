@@ -571,7 +571,7 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 crate::agents::orchestrator::WorkflowConfig::from_app_config(&app_config);
 
             // 通过 AgentService 生成第一章
-            // auto-fill 已支持自动补齐角色和场景，preflight 不会再阻塞
+            // v0.23.15: TriShot 模式的预检失败会自动触发 auto-fill 补齐角色，
             let builder =
                 crate::creative_engine::context_builder::StoryContextBuilder::new(ctx.pool.clone());
             let agent_context = builder

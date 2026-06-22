@@ -593,6 +593,31 @@ impl LlmService {
         asset_tags: Vec<String>,
         discovered_asset_ids: Vec<String>,
     ) -> Result<GenerateResponse, AppError> {
+        self.generate_for_task_with_tags_and_timeout(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            asset_tags,
+            discovered_asset_ids,
+            None,
+        )
+        .await
+    }
+
+    /// v0.23.15: 带 timeout_seconds_override 的版本，供 TriShot Call 3 使用。
+    pub async fn generate_for_task_with_tags_and_timeout(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        asset_tags: Vec<String>,
+        discovered_asset_ids: Vec<String>,
+        timeout_seconds_override: Option<u64>,
+    ) -> Result<GenerateResponse, AppError> {
         let request = RoutingRequest {
             task,
             complexity: Complexity::Medium,
@@ -609,7 +634,7 @@ impl LlmService {
                 temperature,
                 context_label,
                 None,
-                None,
+                timeout_seconds_override,
                 None,
                 None,
                 None,

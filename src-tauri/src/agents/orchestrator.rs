@@ -975,6 +975,13 @@ impl AgentOrchestrator {
 
         // ===== Phase 0: QuickPreflight + 加载 WriteTimeBundle（复用 TimeSliced
         // 逻辑）=====
+        // v0.23.15: 记录整个 TriShot 执行起始时间，供 Call 1/2 预算守卫使用。
+        let total_start = std::time::Instant::now();
+        let total_budget: u64 = self
+            .app_handle
+            .try_state::<crate::config::settings::AppConfig>()
+            .map(|c| c.smart_execute_total_timeout_secs)
+            .unwrap_or(180);
         self.emit_generation_status(
             &task.id,
             GenerationPhase::PreparingContext,
@@ -990,10 +997,79 @@ impl AgentOrchestrator {
         )
         .await;
         if !quick_check.ready {
-            return Err(AppError::preflight_failed(
-                "三击模式预检未通过（缺少角色）",
-                quick_check.blocking_issues,
-            ));
+            // v0.23.15: Genesis 新故事角色表为空时，先 auto-fill 补齐基础数据再重试预检。
+            // 与 prepare_writer_context 路径行为一致，避免 TriShot 模式下 Genesis
+            // 必然失败。
+            log::info!(
+                "[TriShot] QuickPreflight failed for story {}: {:?}, attempting auto-fill",
+                task.context.story.story_id,
+                quick_check.blocking_issues
+            );
+            let builder = crate::story_system::auto_contract::AutoContractBuilder::new(
+                pool.inner().clone(),
+                self.app_handle.clone(),
+            );
+            let target_scene_id = {
+                let pool = pool.inner().clone();
+                let story_id = task.context.story.story_id.clone();
+                let chapter_number = task.context.narrative.chapter_number as i32;
+                tokio::task::spawn_blocking(move || {
+                    let scene_repo = crate::db::repositories::SceneRepository::new(pool);
+                    scene_repo
+                        .get_by_story(&story_id)
+                        .ok()
+                        .and_then(|scenes| {
+                            scenes
+                                .into_iter()
+                                .find(|s| s.sequence_number == chapter_number)
+                        })
+                        .map(|s| s.id)
+                })
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("[TriShot] 目标场景查询任务失败: {}", e);
+                    None
+                })
+            };
+            match builder
+                .auto_fill(
+                    &task.context.story.story_id,
+                    task.context.narrative.chapter_number as i32,
+                    target_scene_id.as_deref(),
+                )
+                .await
+            {
+                Ok(result) => {
+                    log::info!(
+                        "[TriShot] Auto-fill completed: master={}, chapter={}, character={}, \
+                         scene={}, outline={}",
+                        result.created_master,
+                        result.created_chapter,
+                        result.created_character,
+                        result.created_scene,
+                        result.created_outline
+                    );
+                    let preflight_after =
+                        crate::story_system::preflight::QuickPreflightChecker::check(
+                            pool.inner(),
+                            &task.context.story.story_id,
+                        )
+                        .await;
+                    if !preflight_after.ready {
+                        return Err(AppError::preflight_failed(
+                            "三击模式预检未通过（auto-fill 后仍缺少角色）",
+                            preflight_after.blocking_issues,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[TriShot] Auto-fill failed: {}", e);
+                    return Err(AppError::preflight_failed(
+                        "三击模式预检未通过（缺少角色），自动补齐失败",
+                        quick_check.blocking_issues,
+                    ));
+                }
+            }
         }
 
         let story_id = task.context.story.story_id.clone();
@@ -1081,17 +1157,13 @@ impl AgentOrchestrator {
         let capability_manifest = self.app_handle.try_state::<Arc<AssetCapabilityManifest>>();
         let capability_summary = capability_manifest.as_ref().map(|m| m.summary());
 
-        // v0.23.9: Call 1 预算守卫：若剩余时间明显不够完成 Call 1 + Call 3，
-        // 直接回退到本地 bundle_prompt，避免前端长时间无响应。
+        // v0.23.15: Call 1 预算守卫——用 total_start（含预检/auto-fill/bundle 加载）
+        // 计算已耗时间，而非 t_synth（刚创建，elapsed≈0 导致守卫永远不触发）。
         let t_synth = std::time::Instant::now();
-        let total_budget: u64 = self
-            .app_handle
-            .try_state::<crate::config::settings::AppConfig>()
-            .map(|c| c.smart_execute_total_timeout_secs)
-            .unwrap_or(180);
         let writer_min_estimate: u64 = 60;
         let call1_max_estimate: u64 = 90;
-        let remaining_budget = total_budget.saturating_sub(t_synth.elapsed().as_secs());
+        let elapsed_secs = total_start.elapsed().as_secs();
+        let remaining_budget = total_budget.saturating_sub(elapsed_secs);
         let skip_call1 = remaining_budget < call1_max_estimate + writer_min_estimate;
         let mut synthesis = if skip_call1 {
             log::info!(
@@ -1162,9 +1234,8 @@ impl AgentOrchestrator {
 
         // ===== Phase 2 / Call 2: 精修器（可选，仅 needs_refinement && 预算够）=====
         if synthesis.needs_refinement && !synthesis.is_fallback {
-            // 预算守卫：估算剩余时间，不够跳过 Call 2
-            let elapsed = t_synth.elapsed().as_secs();
-            let total_budget: u64 = 180; // smart_execute 伞保护
+            // v0.23.15: 预算守卫——用 total_start 计算已耗时间，读配置的 total_budget。
+            let elapsed = total_start.elapsed().as_secs();
             let writer_min_estimate: u64 = 60; // Call 3 最少预留
             if elapsed + 30 + writer_min_estimate > total_budget {
                 log::info!(
@@ -1231,6 +1302,10 @@ impl AgentOrchestrator {
             .map(|m| m.tags_for_selected(&selected_ids))
             .unwrap_or_default();
         let call3_request_id = uuid::Uuid::new_v4().to_string();
+        // v0.23.15: Call 3 超时覆盖——按剩余预算计算，最少 30s 最多 120s，
+        // 避免跑满 profile.timeout_seconds（用户可能设 300s）导致前端先超时。
+        let call3_elapsed = total_start.elapsed().as_secs();
+        let call3_timeout = total_budget.saturating_sub(call3_elapsed).max(30).min(120);
         self.workflow_log(
             "trishot.call3.start",
             "Call 3 作家模型开始生成",
@@ -1240,12 +1315,13 @@ impl AgentOrchestrator {
                 "asset_tags": asset_tags,
                 "selected_asset_ids": selected_ids,
                 "final_prompt_chars": final_prompt.chars().count(),
+                "timeout_seconds": call3_timeout,
             })),
         );
         let gen_response = self
             .service
             .llm_service_ref()
-            .generate_for_task_with_tags(
+            .generate_for_task_with_tags_and_timeout(
                 crate::router::TaskType::CreativeWriting,
                 final_prompt,
                 Some(2048),
@@ -1253,12 +1329,13 @@ impl AgentOrchestrator {
                 Some("trishot-writer"),
                 asset_tags,
                 selected_ids,
+                Some(call3_timeout),
             )
             .await?;
         trace.log_phase(
             "call3_writer",
             writer_start.elapsed().as_millis(),
-            Some("trishot writer generate_for_task_with_tags"),
+            Some("trishot writer generate_for_task_with_tags_and_timeout"),
         );
         self.workflow_log(
             "trishot.call3.done",
@@ -1272,7 +1349,20 @@ impl AgentOrchestrator {
             })),
         );
 
+        // v0.23.15: 空内容检查——Call 3 返回空字符串时直接报错，不静默传递空
+        // final_content。
         let content = gen_response.content;
+        if content.trim().is_empty() {
+            log::warn!(
+                "[TriShot] Call 3 返回空内容（request_id={}，timeout={}s）",
+                call3_request_id,
+                call3_timeout
+            );
+            return Err(AppError::internal(format!(
+                "三击模式 Call 3 生成内容为空（超时 {}s），请检查模型服务是否正常",
+                call3_timeout
+            )));
+        }
         let request_id = call3_request_id;
 
         // 句长偏差检测（复用 TimeSliced 逻辑）
