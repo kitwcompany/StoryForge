@@ -3,11 +3,16 @@
 //!
 //! 提供给前端调用的LLM相关命令
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, State};
 
 use super::service::LlmService;
-use crate::error::AppError;
+use crate::{
+    diagnostics::{DiagnosticStore, LastLlmPrompt},
+    error::AppError,
+};
 
 /// 生成请求
 #[derive(Debug, Deserialize)]
@@ -110,6 +115,14 @@ pub async fn llm_cancel_all_generations(app_handle: AppHandle) -> Result<(), App
     let service = LlmService::new(app_handle);
     service.cancel_all_generations();
     Ok(())
+}
+
+/// v0.23.8: 获取最近一次实际发给 LLM 的提示词全文（诊断用）。
+#[command(rename_all = "snake_case")]
+pub async fn get_last_llm_prompt(
+    store: State<'_, Arc<DiagnosticStore>>,
+) -> Result<Option<LastLlmPrompt>, AppError> {
+    Ok(store.get_last_llm_prompt())
 }
 
 /// 初始化LLM服务（在应用启动时调用）

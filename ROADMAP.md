@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-22（v0.23.7）
+> 最后更新: 2026-06-22（v0.23.9）
 
 ## ✅ v0.23.x 已实施完成
 
@@ -42,6 +42,20 @@
 - [x] 诊断信息新增 AI 生成模式、当前模型 ID/名称/提供商/端点
 - [x] 诊断信息新增最后调用模型与最后发给 LLM 的提示词全文
 - [x] 后端 `LlmService` 发射 `llm-prompt-sent` 事件供前端诊断捕获
+
+### 🚀 v0.23.8 AI 进度指示精细化 ✅ (2026-06-22)
+- [x] `LlmGeneratingProgress` 新增 `model_id`、`provider`、`prompt_chars`、`prompt_tokens`、`response_tokens`
+- [x] 进度文案具体化：连接模型、组合提示词、等待回应、模型回应 token 数、解析结果
+- [x] 新增 `diagnostics::DiagnosticStore` 与 `get_last_llm_prompt` 命令
+- [x] 解决大提示词事件丢失导致诊断“未捕获”的问题
+
+### 📚 v0.23.9 运行时创作资产能力清单 ✅ (2026-06-22)
+- [x] 应用启动时自动生成并刷新全部系统创作资产目录
+- [x] `AssetCapabilityManifest` 注入 Tauri State
+- [x] TriShot Call 1 prompt 注入【系统可用创作资产目录】
+- [x] TriShot Call 3 透传 `selected_asset_ids` / `asset_tags` 给 ModelGateway
+- [x] ModelGateway dispatcher 识别 methodology/beat_card/story_engine/pressure_relationship/style_dna/skill 等标签
+- [x] 修复 TriShot `request_id` 错误赋值、Call 1 无预算守卫
 
 ## ✅ v0.22.x 已实施完成
 
@@ -326,6 +340,15 @@ $ cd src-tauri && cargo test --lib
 ---
 
 ## 📈 历史版本
+
+### v0.23.9 (2026-06-22)
+- [x] 运行时创作资产能力清单：启动时刷新全部系统资产并注入 TriShot/ModelGateway
+- [x] TriShot Call 1 可见全局资产，Call 3 透传选中资产给模型网关
+- [x] 修复 TriShot request_id 错误与 Call 1 预算守卫
+
+### v0.23.8 (2026-06-22)
+- [x] AI 进度指示精细化：连接模型、组合提示词、等待回应、模型回应、解析结果
+- [x] 新增 `DiagnosticStore` 与 `get_last_llm_prompt` 命令，提升提示词诊断可靠性
 
 ### v0.23.7 (2026-06-22)
 - [x] 诊断卡片版本号改为从 `package.json` 动态读取

@@ -85,6 +85,7 @@ pub trait CreativeEnginePort: Send + Sync {
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
         bundle_prompt: &str,
+        asset_capability_summary: Option<&str>,
     ) -> SynthesisResult;
 
     async fn refine_prompt(

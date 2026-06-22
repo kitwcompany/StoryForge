@@ -35,6 +35,7 @@ use super::{
 };
 use crate::{
     config::settings::{AppConfig, LlmProfile, LlmProvider},
+    diagnostics::{DiagnosticStore, LastLlmPrompt},
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
     memory::tokenizer::count_tokens,
@@ -203,13 +204,25 @@ pub struct GenerationError {
     pub error_code: String,
 }
 
-/// LLM生成进度事件 — 携带Pipeline步骤上下文，让用户知道"当前在进行哪一步"
+/// LLM生成进度事件 —
+/// 携带Pipeline步骤上下文与模型/提示词细节，让用户知道"当前在进行哪一步"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmGeneratingProgress {
-    pub stage: String, // "connecting" | "generating" | "completed" | "error"
+    pub stage: String, // "connecting" | "sent" | "generating" | "completed" | "error"
     pub message: String,
     pub elapsed_seconds: u64,
+    /// 实际模型名，如 "qwen2.5-7b-instruct"
     pub model: String,
+    /// 模型配置 ID，如 "local-qwen"
+    pub model_id: String,
+    /// 提供商，如 "ollama" / "openai"
+    pub provider: String,
+    /// 提示词字符数
+    pub prompt_chars: Option<usize>,
+    /// 提示词 token 估算（仅参考）
+    pub prompt_tokens: Option<usize>,
+    /// 模型返回 token 数
+    pub response_tokens: Option<usize>,
     /// Pipeline步骤上下文（可选）— 用于Bootstrap等长流程，显示"步骤名 X/Y"
     pub pipeline_context: Option<PipelineContext>,
 }
@@ -422,21 +435,6 @@ impl LlmService {
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-        // v0.23.7: 向前端诊断系统广播本次调用使用的提示词与模型，
-        // 便于超时/失败时用户可复制完整 prompt 排查模型端行为。
-        let active_profile = self.get_active_profile();
-        let _ = self.app_handle.emit(
-            "llm-prompt-sent",
-            serde_json::json!({
-                "request_id": req_id,
-                "context_label": context_label,
-                "model_id": active_profile.as_ref().map(|p| p.id.clone()).unwrap_or_default(),
-                "model_name": active_profile.as_ref().map(|p| p.model.clone()).unwrap_or_default(),
-                "provider": active_profile.as_ref().map(|p| format!("{:?}", p.provider)).unwrap_or_default(),
-                "prompt": prompt,
-            }),
-        );
-
         // 优先尝试模型网关
         let gateway = self
             .app_handle
@@ -545,6 +543,46 @@ impl LlmService {
                 None,
                 None,
                 response_format,
+            )
+            .await;
+        result
+    }
+
+    /// v0.23.9: 生成任务并携带资产标签/已发现资产 ID，供 ModelGateway
+    /// 做意图感知路由。
+    pub async fn generate_for_task_with_tags(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        asset_tags: Vec<String>,
+        discovered_asset_ids: Vec<String>,
+    ) -> Result<GenerateResponse, AppError> {
+        let request = RoutingRequest {
+            task,
+            complexity: Complexity::Medium,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::Low,
+            estimated_input_tokens: 0,
+            constraints: vec![],
+        };
+        let (_, result) = self
+            .generate_for_request_with_request_id(
+                request,
+                prompt,
+                max_tokens,
+                temperature,
+                context_label,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(asset_tags),
+                Some(discovered_asset_ids),
+                None,
             )
             .await;
         result
@@ -796,12 +834,18 @@ impl LlmService {
     }
 
     /// 发送 LLM 生成进度事件
+    #[allow(clippy::too_many_arguments)]
     fn emit_llm_progress(
         &self,
         stage: &str,
         message: &str,
         elapsed_seconds: u64,
         model: &str,
+        model_id: &str,
+        provider: &str,
+        prompt_chars: Option<usize>,
+        prompt_tokens: Option<usize>,
+        response_tokens: Option<usize>,
         pipeline_ctx: Option<&PipelineContext>,
         request_id: Option<&str>,
     ) {
@@ -812,6 +856,11 @@ impl LlmService {
                 message: message.to_string(),
                 elapsed_seconds,
                 model: model.to_string(),
+                model_id: model_id.to_string(),
+                provider: provider.to_string(),
+                prompt_chars,
+                prompt_tokens,
+                response_tokens,
                 pipeline_context: pipeline_ctx.cloned(),
             },
         );
@@ -913,6 +962,7 @@ impl LlmService {
 
         let model_name = profile.model.clone();
         let provider = profile.provider.clone();
+        let model_id = profile.id.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
         let effective_timeout =
             timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
@@ -956,6 +1006,42 @@ impl LlmService {
         };
 
         let label = context_label.unwrap_or("");
+
+        // v0.23.8: 把本次实际要发给 LLM 的提示词存入诊断存储，并向前端发送轻量通知。
+        // 完整 prompt 通过 get_last_llm_prompt 命令读取，避免事件 payload
+        // 过大导致丢失。
+        let req_id = request_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let prompt_chars = req.prompt.chars().count();
+        let prompt_tokens_est = prompt_chars / 2;
+        if let Some(store) = self.app_handle.try_state::<Arc<DiagnosticStore>>() {
+            store.set_last_llm_prompt(LastLlmPrompt {
+                request_id: req_id.clone(),
+                context_label: label.to_string(),
+                model_id: model_id.clone(),
+                model_name: model_name.clone(),
+                provider: format!("{:?}", provider),
+                prompt: req.prompt.clone(),
+                prompt_chars,
+                prompt_tokens: prompt_tokens_est,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+        let prompt_preview: String = req.prompt.chars().take(500).collect();
+        let _ = self.app_handle.emit(
+            "llm-prompt-sent",
+            serde_json::json!({
+                "request_id": req_id,
+                "context_label": context_label,
+                "model_id": model_id,
+                "model_name": model_name,
+                "provider": format!("{:?}", provider),
+                "prompt_preview": prompt_preview,
+                "prompt_chars": prompt_chars,
+                "prompt_tokens": prompt_tokens_est,
+            }),
+        );
         // v0.14.4: 识别后台静默调用（如模型健康探测），跳过心跳发射避免误导前端
         // 模型探测在应用启动时自动触发，不应让前端误以为用户的生成任务正在进行
         // v0.16.2: 时间线 2/3 的后台审计与洞察 LLM 调用同样静默——主流程已发出
@@ -985,20 +1071,38 @@ impl LlmService {
             .map(|p| format!("[{} {}/{}] ", p.step_name, p.step_number, p.total_steps))
             .unwrap_or_default();
 
+        // v0.23.8: 进度文案带上具体模型 ID、提供商、提示词规模，让用户随时知道 backend
+        // 在做什么
+        let provider_str = format!("{:?}", provider).to_lowercase();
         let connecting_msg = if label.is_empty() {
-            format!("{}正在连接模型...", step_prefix)
+            format!(
+                "{}连接模型 {}（{}）...",
+                step_prefix, model_id, provider_str
+            )
         } else {
-            format!("{}正在连接模型 [{}]...", step_prefix, label)
+            format!(
+                "{}连接模型 {}（{}）用于 [{}]...",
+                step_prefix, model_id, provider_str, label
+            )
         };
         let sent_msg = if label.is_empty() {
-            format!("{}已发送请求，等待响应...", step_prefix)
+            format!(
+                "{}已连接 {}，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...",
+                step_prefix, model_id, prompt_chars, prompt_tokens_est
+            )
         } else {
-            format!("{}已发送请求 [{}]，等待响应...", step_prefix, label)
+            format!(
+                "{}已连接 {} 用于 [{}]，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...",
+                step_prefix, model_id, label, prompt_chars, prompt_tokens_est
+            )
         };
         let completed_msg = if label.is_empty() {
-            format!("{}AI 响应完成", step_prefix)
+            format!("{}模型 {} 回应完成，正在解析结果...", step_prefix, model_id)
         } else {
-            format!("{}{} 完成", step_prefix, label)
+            format!(
+                "{}模型 {} 回应完成 [{}]，正在解析结果...",
+                step_prefix, model_id, label
+            )
         };
 
         if !is_silent_background {
@@ -1007,6 +1111,11 @@ impl LlmService {
                 &connecting_msg,
                 0,
                 &model_name,
+                &model_id,
+                &provider_str,
+                Some(prompt_chars),
+                Some(prompt_tokens_est),
+                None,
                 pipeline_ref,
                 request_id.as_deref(),
             );
@@ -1015,10 +1124,15 @@ impl LlmService {
         // 启动心跳任务
         // v0.14.4: 后台静默调用（如 model_gateway_probe）跳过心跳，
         // 避免应用启动时探测请求误触发前端"AI 正在深度思考中..."状态栏
+        // v0.23.8: 心跳文案带上具体模型 ID 与等待时长，不再只用“构思故事”。
         let app_handle = self.app_handle.clone();
-        let model = model_name.clone();
+        let model_hb = model_name.clone();
+        let model_id_hb = model_id.clone();
+        let provider_hb = provider_str.clone();
         let label_owned = label.to_string();
         let pipeline_ctx_for_heartbeat = pipeline_ctx.clone();
+        let prompt_chars_hb = prompt_chars;
+        let prompt_tokens_hb = prompt_tokens_est;
         let heartbeat_handle = if is_silent_background {
             tokio::spawn(async {
                 // 静默调用：不发心跳
@@ -1036,13 +1150,13 @@ impl LlmService {
                         .unwrap_or_default();
                     let message = if label_owned.is_empty() {
                         format!(
-                            "{}AI 正在深度思考中...（已等待 {} 秒）",
-                            step_prefix_hb, elapsed
+                            "{}等待模型 {}（{}）回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒",
+                            step_prefix_hb, model_id_hb, provider_hb, prompt_chars_hb, prompt_tokens_hb, elapsed
                         )
                     } else {
                         format!(
-                            "{}正在{}...（已等待 {} 秒）",
-                            step_prefix_hb, label_owned, elapsed
+                            "{}等待模型 {}（{}）的 [{}] 回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒",
+                            step_prefix_hb, model_id_hb, provider_hb, label_owned, prompt_chars_hb, prompt_tokens_hb, elapsed
                         )
                     };
                     let emit_result = app_handle.emit(
@@ -1051,7 +1165,12 @@ impl LlmService {
                             stage: "generating".to_string(),
                             message: message.clone(),
                             elapsed_seconds: elapsed,
-                            model: model.clone(),
+                            model: model_hb.clone(),
+                            model_id: model_id_hb.clone(),
+                            provider: provider_hb.clone(),
+                            prompt_chars: Some(prompt_chars_hb),
+                            prompt_tokens: Some(prompt_tokens_hb),
+                            response_tokens: None,
                             pipeline_context: pipeline_ctx_for_heartbeat.clone(),
                         },
                     );
@@ -1080,6 +1199,11 @@ impl LlmService {
                 &sent_msg,
                 0,
                 &model_name,
+                &model_id,
+                &provider_str,
+                Some(prompt_chars),
+                Some(prompt_tokens_est),
+                None,
                 pipeline_ref,
                 request_id.as_deref(),
             );
@@ -1201,6 +1325,11 @@ impl LlmService {
                         &completed_msg,
                         0,
                         &model_name,
+                        &model_id,
+                        &provider_str,
+                        Some(prompt_chars),
+                        Some(prompt_tokens_est),
+                        Some(response.tokens_used as usize),
                         pipeline_ref,
                         Some(request_id.as_str()),
                     );
@@ -1230,6 +1359,11 @@ impl LlmService {
                         &e.to_string(),
                         if is_timeout { 600 } else { 0 },
                         &model_name,
+                        &model_id,
+                        &provider_str,
+                        Some(prompt_chars),
+                        Some(prompt_tokens_est),
+                        None,
                         pipeline_ref,
                         Some(request_id.as_str()),
                     );
@@ -2045,12 +2179,19 @@ mod tests {
             message: "AI 正在深度思考中...".to_string(),
             elapsed_seconds: 30,
             model: "gpt-4".to_string(),
+            model_id: "profile-gpt4".to_string(),
+            provider: "openai".to_string(),
+            prompt_chars: Some(1200),
+            prompt_tokens: Some(600),
+            response_tokens: None,
             pipeline_context: Some(pipeline_ctx),
         };
         let json = serde_json::to_string(&progress).unwrap();
         let deserialized: LlmGeneratingProgress = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.stage, "generating");
         assert_eq!(deserialized.elapsed_seconds, 30);
+        assert_eq!(deserialized.model_id, "profile-gpt4");
+        assert_eq!(deserialized.prompt_chars, Some(1200));
         let ctx = deserialized.pipeline_context.unwrap();
         assert_eq!(ctx.step_name, "内容评审");
         assert_eq!(ctx.step_number, 2);
@@ -2064,6 +2205,11 @@ mod tests {
             message: "正在连接模型...".to_string(),
             elapsed_seconds: 0,
             model: "deepseek-chat".to_string(),
+            model_id: "profile-deepseek".to_string(),
+            provider: "openai".to_string(),
+            prompt_chars: Some(0),
+            prompt_tokens: Some(0),
+            response_tokens: None,
             pipeline_context: None,
         };
         let json = serde_json::to_string(&progress).unwrap();

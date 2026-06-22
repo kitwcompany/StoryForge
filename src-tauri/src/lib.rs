@@ -21,6 +21,7 @@ mod config;
 mod creation_commands;
 mod creative_engine;
 mod db;
+mod diagnostics;
 pub(crate) mod embeddings;
 mod error;
 mod events;
@@ -662,6 +663,9 @@ pub fn run() {
             let llm_service = crate::llm::LlmService::new(app.handle().clone());
             app.manage(llm_service);
 
+            // v0.23.8: 注入诊断数据存储，供前端超时/失败时获取最后 LLM 提示词全文
+            app.manage(std::sync::Arc::new(crate::diagnostics::DiagnosticStore::new()));
+
             // 初始化共享 SkillManager 并通过 Tauri State 注入。
             let skill_manager = SkillManager::new(
                 Some(crate::llm::LlmService::new(app.handle().clone())),
@@ -693,6 +697,24 @@ pub fn run() {
                             "[CapabilityRegistry] Registered {} selectable creative assets",
                             assets.len()
                         );
+
+                        // v0.23.9: 生成运行时创作资产能力清单并注入 Tauri State，
+                        // 供 PromptSynthesizer / ModelGateway 在每次启动后使用最新资产目录。
+                        match crate::creative_engine::asset_capability_manifest::AssetCapabilityManifest::build_from(
+                            &genre_repo, &skills,
+                        ) {
+                            Ok(manifest) => {
+                                log::info!(
+                                    "[AssetCapabilityManifest] Built summary with {} assets ({} chars)",
+                                    manifest.assets.len(),
+                                    manifest.compact_summary.chars().count()
+                                );
+                                app.manage(std::sync::Arc::new(manifest));
+                            }
+                            Err(e) => {
+                                log::warn!("[AssetCapabilityManifest] Failed to build manifest: {}", e);
+                            }
+                        }
                     }
                     Err(e) => {
                         log::warn!("[CapabilityRegistry] Failed to load creative assets: {}", e);

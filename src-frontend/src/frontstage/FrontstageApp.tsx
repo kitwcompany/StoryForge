@@ -534,21 +534,46 @@ const FrontstageApp: React.FC = () => {
     return () => stop();
   }, [allModels, startPolling]);
 
-  // v0.23.7: 监听后端实际发给 LLM 的提示词，用于诊断卡片
+  // v0.23.8: 监听后端发给 LLM 的提示词通知，再从命令读取完整 prompt，避免事件 payload 过大丢失
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     (async () => {
       unlisten = await listen<{
-        prompt: string;
+        request_id: string;
         model_id: string;
         model_name: string;
         provider: string;
-      }>('llm-prompt-sent', event => {
-        lastLlmPromptRef.current = event.payload.prompt ?? '空提示词';
+        prompt_preview: string;
+        prompt_chars: number;
+        prompt_tokens: number;
+      }>('llm-prompt-sent', async event => {
         lastLlmModelRef.current =
           event.payload.model_id || event.payload.model_name
             ? `${event.payload.model_name} (${event.payload.provider})`
             : '未知';
+        // 先展示预览，避免命令异步读取期间诊断卡片显示“未捕获”
+        lastLlmPromptRef.current = event.payload.prompt_preview
+          ? `${event.payload.prompt_preview}\n...（正在读取完整提示词）`
+          : '正在读取完整提示词...';
+        try {
+          const full = await invoke<{
+            request_id: string;
+            context_label: string;
+            model_id: string;
+            model_name: string;
+            provider: string;
+            prompt: string;
+            prompt_chars: number;
+            prompt_tokens: number;
+            updated_at: string;
+          } | null>('get_last_llm_prompt');
+          if (full && full.prompt) {
+            lastLlmPromptRef.current = full.prompt;
+            lastLlmModelRef.current = `${full.model_name} (${full.provider})`;
+          }
+        } catch (e) {
+          frontstageLogger.warn('[llm-prompt-sent] 读取完整提示词失败', e);
+        }
       });
     })();
     return () => unlisten?.();
@@ -660,6 +685,43 @@ const FrontstageApp: React.FC = () => {
       };
       setDiagnosticData(info);
       setShowDiagnosticCard(true);
+
+      // v0.23.8: 如果事件链路没有拿到完整提示词，再主动通过命令读取一次，确保诊断卡片尽量有内容
+      if (
+        lastLlmPromptRef.current.includes('未捕获') ||
+        lastLlmPromptRef.current.includes('正在读取')
+      ) {
+        (async () => {
+          try {
+            const full = await invoke<{
+              request_id: string;
+              context_label: string;
+              model_id: string;
+              model_name: string;
+              provider: string;
+              prompt: string;
+              prompt_chars: number;
+              prompt_tokens: number;
+              updated_at: string;
+            } | null>('get_last_llm_prompt');
+            if (full && full.prompt) {
+              lastLlmPromptRef.current = full.prompt;
+              lastLlmModelRef.current = `${full.model_name} (${full.provider})`;
+              const preview =
+                full.prompt.length > 12000
+                  ? `${full.prompt.substring(0, 12000)}\n...（已截断）`
+                  : full.prompt;
+              setDiagnosticData(prev => ({
+                ...prev,
+                最后发给模型的提示词: preview,
+                最后调用模型: lastLlmModelRef.current,
+              }));
+            }
+          } catch (e) {
+            frontstageLogger.warn('[captureDiagnosticInfo] 读取最后提示词失败', e);
+          }
+        })();
+      }
     },
     [
       generationStatus,

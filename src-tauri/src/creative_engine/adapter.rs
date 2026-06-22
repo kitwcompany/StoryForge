@@ -187,6 +187,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
         bundle_prompt: &str,
+        asset_capability_summary: Option<&str>,
     ) -> SynthesisResult {
         crate::creative_engine::prompt_synthesis::synthesizer::PromptSynthesizer::synthesize(
             app_handle,
@@ -194,6 +195,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
             current_content_preview,
             manifest,
             bundle_prompt,
+            asset_capability_summary,
             Some(&self.pool),
         )
         .await

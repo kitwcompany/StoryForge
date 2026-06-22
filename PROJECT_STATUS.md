@@ -1,11 +1,29 @@
-# StoryForge (草苔) v0.23.7 项目完成状态
+# StoryForge (草苔) v0.23.9 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.7 诊断信息增强 + 超时文案去硬编码）
+> 最后更新: 2026-06-22（v0.23.9 运行时创作资产能力清单 + TriShot 路由增强）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.9 — 运行时创作资产能力清单 + TriShot 路由增强（2026-06-22）
+
+- 📚 **运行时创作资产能力清单**：应用启动后自动生成并刷新全部系统资产（methodology、genre_profile、style_dna、skill、beat_card、story_engine、pressure_relationship、workflow 等）的紧凑目录
+- 🎯 **TriShot Call 1 可见全局资产**：`PromptSynthesizer` 的 prompt 中新增【系统可用创作资产目录】，让最快模型在选资产时知道可调用的系统级资产
+- 🔀 **Call 3 资产透传**：TriShot Call 3 通过 `generate_for_task_with_tags` 把 Call 1 选中的资产 ID/标签透传给 `ModelGateway`
+- 🧭 **ModelGateway 识别更多资产标签**：`methodology`、`beat_card`、`story_engine`、`pressure_relationship`、`style_dna`、`skill` 等标签会触发 `HeavyCreation`，优先使用创作能力强的模型
+- 🐛 **修复 TriShot request_id 错误**：不再把 `gen_response.model` 当作 `request_id`
+- 🛡️ **Call 1 预算守卫**：剩余时间不够完成 Call 1 + Call 3 时直接回退本地 `bundle_prompt`，避免前端长时间无响应
+- ✅ **验证**：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
+
+### v0.23.8 — AI 进度指示精细化 + 提示词诊断可靠性提升（2026-06-22）
+
+- 🎯 **LLM 进度阶段具体化**：每个 LLM 调用都会显示连接模型 ID/提供商、组合提示词规模、等待模型回应、模型回应 token 数、解析结果，不再只显示“构思故事”
+- 📊 **`LlmGeneratingProgress` 字段扩展**：新增 `model_id`、`provider`、`prompt_chars`、`prompt_tokens`、`response_tokens`
+- 🛡️ **提示词诊断兜底机制**：新增 `diagnostics::DiagnosticStore` Tauri State 与 `get_last_llm_prompt` 命令，解决大提示词事件可能丢失的问题
+- 🩹 **修复诊断卡片“未捕获提示词”**：即使 `llm-prompt-sent` 事件未送达，诊断时也会主动通过命令读取完整提示词
+- ✅ **验证**：`cargo test --lib` **538 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
 ### v0.23.7 — 诊断信息增强 + 超时文案去硬编码（2026-06-22）
 

@@ -51,7 +51,19 @@ impl TaskClassifier {
         if tag_set.contains("mcp_tool") || tag_set.contains("system_command") {
             return TaskClass::LightTool;
         }
-        if tag_set.contains("genre_profile") || tag_set.contains("creative_writing") {
+        // v0.23.9: 把 TriShot 透传过来的创作资产标签识别为重型创作，
+        // 让 Call 3 最终生成优先使用质量/创作能力强的模型。
+        let creative_tags = [
+            "genre_profile",
+            "creative_writing",
+            "methodology",
+            "beat_card",
+            "story_engine",
+            "pressure_relationship",
+            "style_dna",
+            "skill",
+        ];
+        if creative_tags.iter().any(|t| tag_set.contains(t)) {
             return TaskClass::HeavyCreation;
         }
         base

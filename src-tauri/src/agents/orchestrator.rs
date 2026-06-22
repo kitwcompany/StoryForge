@@ -6,11 +6,14 @@
 //!
 //! 幕后运行，幕前只呈现最终结果。
 
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::{timeout, Duration};
 
 use super::service::{AgentService, AgentTask};
 use crate::{
+    creative_engine::asset_capability_manifest::AssetCapabilityManifest,
     db::{repositories::StyleDnaRepository, DbPool},
     domain::{
         agent_context::AgentContext,
@@ -1038,26 +1041,51 @@ impl AgentOrchestrator {
         // 本地拼接（Call 1 失败回退）
         let bundle_prompt = engine.render_bundle_prompt(&bundle);
 
-        // ===== Phase 1 / Call 1: 路由合成器（最快模型）=====
-        self.emit_generation_status(
-            &task.id,
-            GenerationPhase::PreparingContext,
-            0.15,
-            "智能合成提示词（最快模型选资产）...",
-            None,
-        );
+        // v0.23.9: 读取运行时创作资产能力清单，让 Call 1 知道系统有哪些可选资产
+        let capability_manifest = self.app_handle.try_state::<Arc<AssetCapabilityManifest>>();
+        let capability_summary = capability_manifest.as_ref().map(|m| m.summary());
 
+        // v0.23.9: Call 1 预算守卫：若剩余时间明显不够完成 Call 1 + Call 3，
+        // 直接回退到本地 bundle_prompt，避免前端长时间无响应。
         let t_synth = std::time::Instant::now();
-        let app_handle = self.app_handle.clone();
-        let synthesis = engine
-            .synthesize_prompt(
-                app_handle,
-                &user_instruction,
-                current_content_preview,
-                &manifest,
-                &bundle_prompt,
-            )
-            .await;
+        let total_budget: u64 = self
+            .app_handle
+            .try_state::<crate::config::settings::AppConfig>()
+            .map(|c| c.smart_execute_total_timeout_secs)
+            .unwrap_or(180);
+        let writer_min_estimate: u64 = 60;
+        let call1_max_estimate: u64 = 90;
+        let remaining_budget = total_budget.saturating_sub(t_synth.elapsed().as_secs());
+        let skip_call1 = remaining_budget < call1_max_estimate + writer_min_estimate;
+        let mut synthesis = if skip_call1 {
+            log::info!(
+                "[TriShot] 预算守卫直接跳过 Call 1（remaining={}s, budget={}s），回退本地拼接",
+                remaining_budget,
+                total_budget
+            );
+            SynthesisResult::fallback(bundle_prompt.clone())
+        } else {
+            // ===== Phase 1 / Call 1: 路由合成器（最快模型）=====
+            self.emit_generation_status(
+                &task.id,
+                GenerationPhase::PreparingContext,
+                0.15,
+                "智能合成提示词（最快模型选资产）...",
+                None,
+            );
+
+            let app_handle = self.app_handle.clone();
+            engine
+                .synthesize_prompt(
+                    app_handle,
+                    &user_instruction,
+                    current_content_preview,
+                    &manifest,
+                    &bundle_prompt,
+                    capability_summary,
+                )
+                .await
+        };
         trace.log_phase(
             "call1_synthesize",
             t_synth.elapsed().as_millis(),
@@ -1144,26 +1172,35 @@ impl AgentOrchestrator {
             .llm_service_ref()
             .acquire_writer_permit(is_local)
             .await?;
-        // 直接调用 LlmService::generate_for_task（复用 TimeSliced 路径风格）
+
+        // v0.23.9: 把 Call 1 选中的资产透传给 Call 3，让 ModelGateway 能按意图/资产路由
+        let selected_ids: Vec<String> = synthesis.selected_asset_ids.clone();
+        let asset_tags: Vec<String> = capability_manifest
+            .as_ref()
+            .map(|m| m.tags_for_selected(&selected_ids))
+            .unwrap_or_default();
+        let call3_request_id = uuid::Uuid::new_v4().to_string();
         let gen_response = self
             .service
             .llm_service_ref()
-            .generate_for_task(
+            .generate_for_task_with_tags(
                 crate::router::TaskType::CreativeWriting,
                 final_prompt,
                 Some(2048),
                 Some(0.75),
                 Some("trishot-writer"),
+                asset_tags,
+                selected_ids,
             )
             .await?;
         trace.log_phase(
             "call3_writer",
             writer_start.elapsed().as_millis(),
-            Some("trishot writer generate_for_task"),
+            Some("trishot writer generate_for_task_with_tags"),
         );
 
         let content = gen_response.content;
-        let request_id = gen_response.model.clone();
+        let request_id = call3_request_id;
 
         // 句长偏差检测（复用 TimeSliced 逻辑）
         let mut style_suggestions = vec![];

@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.7
+- **版本**: v0.23.9
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,20 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.9 运行时创作资产能力清单 + TriShot 路由增强** (2026-06-22) — 解决“组合提示词不顺利”的根因：Call 1 原本只能看到当前故事约束，看不到系统级创作资产。核心变更：
+    - 新增 `AssetCapabilityManifest` Tauri State，启动时自动生成全部系统资产（methodology、genre_profile、skill、beat_card、story_engine、pressure_relationship 等）的紧凑目录
+    - `PromptSynthesizer` Call 1 prompt 注入【系统可用创作资产目录】，让模型知道可调用的资产
+    - TriShot Call 3 通过 `generate_for_task_with_tags` 把 Call 1 选中的资产透传给 `ModelGateway`
+    - `ModelGateway` dispatcher 识别更多创作资产标签并归类为 `HeavyCreation`
+    - 修复 TriShot `request_id` 被错误赋值为模型名、Call 1 无预算守卫的问题
+    - 验证：`cargo test --lib` **540 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
+
+  - **v0.23.8 AI 进度指示精细化 + 提示词诊断可靠性提升** (2026-06-22) — 让 LLM 生成过程可见：连接模型 ID/提供商、组合提示词规模、等待回应、模型回应 token 数、解析结果。核心变更：
+    - `LlmGeneratingProgress` 新增 `model_id`、`provider`、`prompt_chars`、`prompt_tokens`、`response_tokens`
+    - 心跳文案从“构思故事”改为具体阶段描述，并实时显示模型 ID 与提示词规模
+    - 新增 `diagnostics::DiagnosticStore` Tauri State 与 `get_last_llm_prompt` 命令，避免大提示词事件丢失导致诊断卡片“未捕获”
+    - 验证：`cargo test --lib` **538 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
   - **v0.23.7 诊断信息增强 + 超时文案去硬编码** (2026-06-22) — 修复诊断卡片版本号仍显示 `0.16.0`、超时文案硬编码 200/180 的问题，并补充 AI 生成模式、当前模型、最后发给 LLM 的提示词全文。核心变更：
     - `src-frontend/src/main.tsx` / `src/frontstage/main.tsx` 从 `package.json` 动态注入 `__STORYFORGE_VERSION__`

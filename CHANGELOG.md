@@ -2,6 +2,54 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.9] - 运行时创作资产能力清单 + TriShot 路由增强（2026-06-22）
+
+### 新增
+- 新增 `creative_engine::asset_capability_manifest::AssetCapabilityManifest`
+  - 应用启动时基于 `strategy::load_all_assets()` 自动生成并刷新
+  - 包含全部系统创作资产：methodology、genre_profile、style_dna、skill、beat_card、story_engine、pressure_relationship、workflow 等
+  - 生成按 kind 分组的紧凑文本摘要（6000 字符预算 + 截断），供 LLM 阅读
+- `AssetCapabilityManifest` 作为 Tauri State 注入，供后端各模块读取
+- `PromptSynthesizer`（TriShot Call 1）现在会收到 `【系统可用创作资产目录】`
+  - Call 1 除了当前故事的 `WriteTimeBundle` 约束外，还能看到全局可选资产
+  - 提示 LLM 从目录中选择相关资产并把 asset id 放入 `selected_asset_ids`
+- 新增 `LlmService::generate_for_task_with_tags(...)`
+  - 支持携带 `asset_tags` 和 `discovered_asset_ids` 到模型网关
+- TriShot Call 3 现在会把 Call 1 选中的资产 ID 透传给模型网关
+- `model_gateway::dispatcher::TaskClassifier::adjust_by_asset_tags` 识别更多创作资产标签
+  - `methodology`、`beat_card`、`story_engine`、`pressure_relationship`、`style_dna`、`skill` 等标签会触发 `HeavyCreation`，优先使用创作能力强的模型
+
+### 修复
+- 修复 TriShot 把 `gen_response.model` 错误地当作 `request_id` 返回的问题
+- 修复 TriShot Call 1 没有预算守卫的问题：当剩余时间不够完成 Call 1 + Call 3 时，直接回退到本地 `bundle_prompt`，避免前端长时间无响应
+
+### 验证
+- `cargo test --lib` ✅ 540 passed / 0 failed / 2 ignored
+- `cargo +nightly fmt -- --check` ✅ 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
+## [v0.23.8] - AI 进度指示精细化 + 提示词诊断可靠性提升（2026-06-22）
+
+### 新增
+- LLM 生成进度事件（`llm-generating-progress`）新增字段：`model_id`、`provider`、`prompt_chars`、`prompt_tokens`、`response_tokens`
+- 进度文案具体化，不再只显示“构思故事”四个字：
+  - `connecting`：连接模型 `model_id`（`provider`）
+  - `sent`：已连接模型，组合提示词约 X 字符（估算 Y tokens），正在发送请求
+  - `generating`（心跳）：等待模型 `model_id`（`provider`）回应中，提示词约 X 字符，已等待 Z 秒
+  - `completed`：模型回应完成，共 X tokens，正在解析结果
+- 新增 `diagnostics::DiagnosticStore` Tauri State，用于可靠保存“最后发给 LLM 的提示词全文”
+- 新增命令 `get_last_llm_prompt`，前端诊断卡片在事件未送达时可通过命令兜底读取
+
+### 修复
+- 修复 `llm-prompt-sent` 事件可能因提示词过大而丢失或无法送达前端的问题
+- 修复诊断卡片在 LLM 实际已调用但提示词仍显示“未捕获”的问题
+
+### 验证
+- `cargo test --lib` ✅ 538 passed / 0 failed / 2 ignored
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.7] - 诊断信息增强 + 超时文案去硬编码（2026-06-22）
 
 ### 修复

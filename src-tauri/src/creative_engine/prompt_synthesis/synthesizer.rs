@@ -34,13 +34,19 @@ impl PromptSynthesizer {
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
         bundle_prompt: &str,
+        asset_capability_summary: Option<&str>,
         pool: Option<&DbPool>,
     ) -> SynthesisResult {
         let llm = crate::llm::LlmService::new(app_handle);
 
         // 构建合成 prompt
-        let prompt =
-            Self::build_synthesis_prompt(instruction, current_content_preview, manifest, pool);
+        let prompt = Self::build_synthesis_prompt(
+            instruction,
+            current_content_preview,
+            manifest,
+            asset_capability_summary,
+            pool,
+        );
 
         // 调最快模型（静默标签 tri-shot-router）
         let response = llm
@@ -73,11 +79,20 @@ impl PromptSynthesizer {
         instruction: &str,
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
+        asset_capability_summary: Option<&str>,
         pool: Option<&DbPool>,
     ) -> String {
         let manifest_text = manifest.to_compact_text();
         let content_section = current_content_preview
             .map(|c| format!("\n【当前正文尾部预览】\n{}", truncate_preview(c, 600)))
+            .unwrap_or_default();
+
+        // v0.23.9: 把系统级可用创作资产目录也注入 Call 1，让路由合成器知道
+        // 除了当前故事的 WriteTimeBundle 约束外，还可以调用哪些 skill/beat_card/
+        // story_engine/methodology 等系统资产。
+        let capability_section = asset_capability_summary
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("\n【系统可用创作资产目录】\n{s}\n\n【说明】上面的目录是系统当前注册的全部创作资产（按 kind 分组）。你可以从中挑选与本次指令相关的资产，把 asset id 放进 selected_asset_ids。"))
             .unwrap_or_default();
 
         // 优先用注册表模板，回退硬编码
@@ -90,21 +105,27 @@ impl PromptSynthesizer {
             vars.insert("instruction".to_string(), instruction.to_string());
             vars.insert("manifest".to_string(), manifest_text.clone());
             vars.insert("content_preview".to_string(), content_section.clone());
+            vars.insert(
+                "asset_capability_summary".to_string(),
+                asset_capability_summary.unwrap_or("").to_string(),
+            );
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
         } else {
             // 硬编码兜底（与注册表默认内容对齐）
             format!(
-                "你是小说创作的提示词合成器。根据用户指令和可用创作资产清单，选择相关资产并合成一个连贯、无冲突的综合创作提示词。\n\n\
+                "你是小说创作的提示词合成器。根据用户指令、当前故事约束清单和系统可用创作资产目录，选择相关资产并合成一个连贯、无冲突的综合创作提示词。\n\n\
                  【用户指令】\n{instruction}\n\
                  {content_section}\n\
-                 【可用创作资产清单】\n{manifest_text}\n\n\
+                 【当前故事约束清单（来自 WriteTimeBundle）】\n{manifest_text}\n\
+                 {capability_section}\n\
                  【任务】\n\
                  1. 识别用户意图（continue/rewrite/new_scene/polish/plan/other）\n\
-                 2. 从清单中选择与指令相关的资产（硬约束资产必选，软约束按相关性选）\n\
-                 3. 把选中资产合成为一个连贯的中文创作提示词，解决段落间冲突，精炼冗余\n\
-                 4. 判断是否需要精修（复合题材/改写/多冲突约束/逾期伏笔多时 needs_refinement=true）\n\n\
+                 2. 从当前故事约束清单中选择所有硬约束资产（标记为 hard_constraint）\n\
+                 3. 从系统可用创作资产目录中挑选与本次指令相关的资产（如特定方法论、桥段卡、剧情引擎、技能等），把 asset id 放进 selected_asset_ids\n\
+                 4. 把选中资产合成为一个连贯的中文创作提示词，解决段落间冲突，精炼冗余\n\
+                 5. 判断是否需要精修（复合题材/改写/多冲突约束/逾期伏笔多时 needs_refinement=true）\n\n\
                  【输出格式】严格输出 JSON，不要 markdown 代码块：\n\
-                 {{\"intent\":\"continue\",\"selected_asset_ids\":[\"redline\",\"characters\"],\
+                 {{\"intent\":\"continue\",\"selected_asset_ids\":[\"redline\",\"characters\",\"methodology.snowflake\"],\
                  \"synthesized_prompt\":\"合成后的完整提示词\",\"needs_refinement\":false,\
                  \"refinement_focus\":null,\"confidence\":0.8}}"
             )
