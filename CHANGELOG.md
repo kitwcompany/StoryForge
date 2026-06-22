@@ -2,6 +2,29 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.12] - 彻底修复长超时：活跃模型优先 + 智能创作流程日志（2026-06-22）
+
+### 修复
+- **修复长超时根因：连接了错误的模型**
+  - `GatewayExecutor::generate` 现在会把用户当前设置的活跃模型强制提升到候选链首位
+  - 若候选链里没有活跃模型，自动插入到首位
+  - `select_fastest_profile` 在活跃模型没有算力档案时，也优先使用活跃模型，而不是选一个历史“最快”模型
+  - 仅当活跃模型不健康或明显慢（TTFB > 最快模型 3 倍且 > 3000ms）时才回退
+- **探测/静默调用不再污染诊断提示词**（延续 v0.23.11）
+
+### 新增
+- 新增 `WorkflowLogger` 智能创作流程详细日志
+  - 日志文件：`logs/creative_workflow.log`（JSON Lines，10MB 滚动截断）
+  - 记录 TriShot 每个阶段：启动、bundle 加载、Call 1 合成结果、Call 3 路由与 asset_tags、LLM 调用起止与耗时、模型网关候选链、错误
+- 新增命令 `get_workflow_logs` / `get_workflow_log_path`
+- 诊断卡片新增字段：**工作流日志路径**、**智能创作流程最近日志**
+
+### 验证
+- `cargo test --lib` ✅ 540 passed / 0 failed / 2 ignored
+- `cargo +nightly fmt -- --check` ✅ 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.11] - 诊断提示词过滤探测/静默调用（2026-06-22）
 
 ### 修复

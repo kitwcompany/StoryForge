@@ -19,6 +19,11 @@ impl GatewayRegistry {
         Self { inner }
     }
 
+    /// v0.23.13: 从最新 AppConfig 重新加载启用模型。
+    pub fn reload(&mut self, config: &crate::config::AppConfig) {
+        self.inner = UnifiedModelRegistry::from_app_config(config);
+    }
+
     /// 所有启用的生成模型
     pub fn enabled_generative_models(&self) -> Vec<&LlmProfile> {
         self.inner

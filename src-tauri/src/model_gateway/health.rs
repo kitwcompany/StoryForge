@@ -95,31 +95,22 @@ impl HealthRegistry {
     }
 
     /// 根据探测结果更新模型健康状态
+    /// v0.23.13: 健康状态严格由本次探测结果决定，不保留历史失败状态，
+    /// 避免用户修复模型后仍然显示不可用。
     pub fn apply_probe_result(
         &mut self,
         profile: &LlmProfile,
         result: &ProbeResult,
         pool: &DbPool,
     ) {
-        let mut status = if result.success {
+        let status = if result.success {
             HealthStatus::Healthy
         } else {
             HealthStatus::Unhealthy
         };
 
-        // 如果历史成功率过低，标记为 degraded
-        let success_rate = self
-            .aggregate_success_rate_from_history(&profile.id, pool)
-            .or(Some(1.0));
-        if result.success {
-            if let Some(rate) = success_rate {
-                if rate < 0.5 {
-                    status = HealthStatus::Unhealthy;
-                } else if rate < 0.8 {
-                    status = HealthStatus::Degraded;
-                }
-            }
-        }
+        // 历史成功率仅用于展示，不再用来降级当前状态。
+        let success_rate = self.aggregate_success_rate_from_history(&profile.id, pool);
 
         let record = self.records.entry(profile.id.clone()).or_default();
         record.recent_probes.push(result.clone());
@@ -158,7 +149,7 @@ impl HealthRegistry {
             status,
             ttfb_ms: avg_ttfb,
             tps: avg_tps,
-            success_rate_24h: None, // TODO: 从 llm_calls 聚合
+            success_rate_24h: success_rate,
             avg_latency_ms: None,
             last_error: result.error.clone(),
             last_checked_at: Some(chrono::Local::now().to_rfc3339()),

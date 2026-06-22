@@ -16,7 +16,6 @@ pub async fn get_gateway_status(
     _app_handle: AppHandle,
     executor: State<'_, GatewayExecutor>,
 ) -> Result<GatewayStatus, AppError> {
-    let registry = executor.registry.clone();
     let health_registry = executor.health_registry();
     let health = {
         let guard = health_registry.lock().map_err(|_| AppError::Internal {
@@ -25,7 +24,18 @@ pub async fn get_gateway_status(
         guard.all()
     };
 
-    let models = registry.models_with_health(&health);
+    let models: Vec<_> = {
+        let guard = executor.registry.lock().map_err(|_| AppError::Internal {
+            message: "网关注册表锁定失败".to_string(),
+        })?;
+        guard.models_with_health(&health)
+    }
+    .into_iter()
+        .filter(|m| {
+            m.status == super::types::HealthStatus::Healthy
+                || m.status == super::types::HealthStatus::Degraded
+        })
+        .collect();
 
     Ok(GatewayStatus {
         last_probe_at: models

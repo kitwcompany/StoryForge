@@ -687,12 +687,15 @@ const FrontstageApp: React.FC = () => {
       setShowDiagnosticCard(true);
 
       // v0.23.8: 如果事件链路没有拿到完整提示词，再主动通过命令读取一次，确保诊断卡片尽量有内容
-      if (
-        lastLlmPromptRef.current.includes('未捕获') ||
-        lastLlmPromptRef.current.includes('正在读取')
-      ) {
-        (async () => {
-          try {
+      // v0.23.12: 同时读取智能创作流程日志，方便定位卡在哪一步。
+      (async () => {
+        try {
+          const updates: Record<string, string> = {};
+
+          if (
+            lastLlmPromptRef.current.includes('未捕获') ||
+            lastLlmPromptRef.current.includes('正在读取')
+          ) {
             const full = await invoke<{
               request_id: string;
               context_label: string;
@@ -707,21 +710,26 @@ const FrontstageApp: React.FC = () => {
             if (full && full.prompt) {
               lastLlmPromptRef.current = full.prompt;
               lastLlmModelRef.current = `${full.model_name} (${full.provider})`;
-              const preview =
+              updates['最后发给模型的提示词'] =
                 full.prompt.length > 12000
                   ? `${full.prompt.substring(0, 12000)}\n...（已截断）`
                   : full.prompt;
-              setDiagnosticData(prev => ({
-                ...prev,
-                最后发给模型的提示词: preview,
-                最后调用模型: lastLlmModelRef.current,
-              }));
+              updates['最后调用模型'] = lastLlmModelRef.current;
             }
-          } catch (e) {
-            frontstageLogger.warn('[captureDiagnosticInfo] 读取最后提示词失败', e);
           }
-        })();
-      }
+
+          const logPath = await invoke<string>('get_workflow_log_path');
+          const logs = await invoke<string[]>('get_workflow_logs', { count: 30 });
+          updates['工作流日志路径'] = logPath;
+          updates['智能创作流程最近日志'] = logs.length ? logs.join('\n') : '（暂无日志）';
+
+          if (Object.keys(updates).length > 0) {
+            setDiagnosticData(prev => ({ ...prev, ...updates }));
+          }
+        } catch (e) {
+          frontstageLogger.warn('[captureDiagnosticInfo] 读取诊断附加信息失败', e);
+        }
+      })();
     },
     [
       generationStatus,

@@ -56,6 +56,7 @@ mod vector;
 mod versions;
 mod window;
 mod workflow;
+mod workflow_logger;
 
 #[cfg(test)]
 mod test_utils;
@@ -665,6 +666,17 @@ pub fn run() {
 
             // v0.23.8: 注入诊断数据存储，供前端超时/失败时获取最后 LLM 提示词全文
             app.manage(std::sync::Arc::new(crate::diagnostics::DiagnosticStore::new()));
+
+            // v0.23.12: 注入智能创作流程详细日志记录器
+            match crate::workflow_logger::WorkflowLogger::new(&app_dir) {
+                Ok(logger) => {
+                    app.manage(std::sync::Arc::new(logger));
+                    log::info!("[WorkflowLogger] initialized at {}", app_dir.join("logs").join("creative_workflow.log").display());
+                }
+                Err(e) => {
+                    log::warn!("[WorkflowLogger] failed to initialize: {}", e);
+                }
+            }
 
             // 初始化共享 SkillManager 并通过 Tauri State 注入。
             let skill_manager = SkillManager::new(

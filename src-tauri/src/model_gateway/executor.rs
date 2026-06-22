@@ -2,6 +2,8 @@
 //!
 //! v0.14.0: 按候选链顺序执行，主模型失败时自动降级。
 
+use std::sync::{Arc, Mutex};
+
 use tauri::{AppHandle, Manager};
 
 use super::{
@@ -20,7 +22,7 @@ use crate::{
 #[derive(Clone)]
 pub struct GatewayExecutor {
     app_handle: AppHandle,
-    pub registry: GatewayRegistry,
+    pub registry: Arc<Mutex<GatewayRegistry>>,
     classifier: TaskClassifier,
     probe_engine: ProbeEngine,
     llm_service: LlmService,
@@ -32,7 +34,7 @@ impl GatewayExecutor {
         let pool = app_handle.state::<DbPool>().inner().clone();
         Self {
             app_handle,
-            registry,
+            registry: Arc::new(Mutex::new(registry)),
             classifier: TaskClassifier::new(),
             probe_engine: ProbeEngine::new(),
             llm_service,
@@ -40,8 +42,64 @@ impl GatewayExecutor {
         }
     }
 
-    pub fn health_registry(&self) -> std::sync::Arc<std::sync::Mutex<HealthRegistry>> {
+    pub fn health_registry(&self) -> Arc<Mutex<HealthRegistry>> {
         self.probe_engine.registry()
+    }
+
+    fn registry_guard(&self) -> std::sync::MutexGuard<'_, GatewayRegistry> {
+        self.registry.lock().expect("registry lock poisoned")
+    }
+
+    /// v0.23.13: 从最新配置刷新网关模型注册表，确保新增/修改模型后立即可见。
+    pub fn refresh_registry(&self) {
+        let app_dir = self
+            .app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        match crate::config::AppConfig::load(&app_dir) {
+            Ok(config) => {
+                if let Ok(mut reg) = self.registry.lock() {
+                    reg.reload(&config);
+                    log::info!(
+                        "[GatewayExecutor] 注册表已刷新，当前启用模型数: {}",
+                        reg.inner.len()
+                    );
+                }
+            }
+            Err(e) => {
+                log::warn!("[GatewayExecutor] 刷新注册表失败: {}", e);
+            }
+        }
+    }
+
+    /// v0.23.12: 快捷记录工作流日志
+    fn workflow_log(
+        &self,
+        phase: impl Into<String>,
+        message: impl Into<String>,
+        details: Option<serde_json::Value>,
+    ) {
+        if let Some(logger) = self
+            .app_handle
+            .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+        {
+            logger.info(phase, message, details);
+        }
+    }
+
+    /// v0.23.13: 模型必须出现在健康注册表且状态为 Healthy/Degraded 才可用于调度。
+    fn is_model_available(&self, model_id: &str) -> bool {
+        let health = self.health_registry();
+        if let Ok(guard) = health.lock() {
+            if let Some(snap) = guard.get(model_id) {
+                return matches!(
+                    snap.status,
+                    super::types::HealthStatus::Healthy | super::types::HealthStatus::Degraded
+                );
+            }
+        }
+        false
     }
 
     /// 选择候选模型链（v0.15.0 三维打分：算力 50% + 偏好 30% + 适配 20%）
@@ -50,7 +108,10 @@ impl GatewayExecutor {
         request: &GatewayRequest,
     ) -> Result<GatewayRoutingDecision, AppError> {
         let routing_request = self.classifier.classify(request);
-        let router = crate::router::UnifiedModelRouter::new(self.registry.inner.clone());
+        let router = {
+            let guard = self.registry_guard();
+            crate::router::UnifiedModelRouter::new(guard.inner.clone())
+        };
 
         // 先获取基础路由决策与候选链
         let mut decision = router.route(&routing_request)?;
@@ -63,10 +124,18 @@ impl GatewayExecutor {
         let request_tag_set: std::collections::HashSet<&str> =
             request.asset_tags.iter().map(|s| s.as_str()).collect();
 
-        let mut re_scored: Vec<(f64, &crate::config::settings::LlmProfile)> = decision
-            .candidates
-            .iter()
-            .filter_map(|c| self.registry.get(&c.model_id).map(|m| (c.score, m)))
+        // 从注册表一次性取出候选模型（克隆，避免持有锁跨后续计算）
+        let candidate_profiles: Vec<(f64, crate::config::settings::LlmProfile)> = {
+            let registry = self.registry_guard();
+            decision
+                .candidates
+                .iter()
+                .filter_map(|c| registry.get(&c.model_id).map(|m| (c.score, m.clone())))
+                .collect()
+        };
+
+        let mut re_scored: Vec<(f64, crate::config::settings::LlmProfile)> = candidate_profiles
+            .into_iter()
             .map(|(base_score, m)| {
                 let mut score = base_score;
                 // v0.15.0 三维打分
@@ -107,6 +176,12 @@ impl GatewayExecutor {
                 score: *score,
                 reason: format!("综合得分 {:.1}", score),
             })
+            .collect();
+
+        // v0.23.13: 只保留健康检查结果为可用（Healthy/Degraded）的模型。
+        let candidates: Vec<_> = candidates
+            .into_iter()
+            .filter(|c| self.is_model_available(&c.model_id))
             .collect();
 
         if let Some(primary) = candidates.first() {
@@ -211,7 +286,7 @@ impl GatewayExecutor {
                     .filter(|cap| cap.status != super::types::HealthStatus::Unhealthy)
                     .filter_map(|cap| {
                         // 只保留 registry 中存在且 enabled 的模型
-                        self.registry.get(&cap.model_id)?;
+                        self.registry_guard().get(&cap.model_id)?;
                         let ttfb = cap.short_ttfb_ms_p50.unwrap_or(10_000);
                         let success = cap.success_rate_24h.unwrap_or(0.0);
                         // 若有健康快照且 Unhealthy 则跳过（双保险）
@@ -230,48 +305,54 @@ impl GatewayExecutor {
                 });
 
                 if let Some((fastest_ttfb, _, fastest_id)) = ranked.first() {
-                    // v0.23.10: 用户当前设置的活跃模型如果也在候选中且 TTFB 不比最快模型差太多，
-                    // 优先使用活跃模型，避免“AI 连接了以前模型”的困惑。
+                    // v0.23.12: 用户当前设置的活跃模型优先使用：
+                    // 1) 活跃模型无算力档案（用户刚添加或从未探测），直接用它；
+                    // 2) 活跃模型有档案且 TTFB 不比最快模型差太多（<= 3x 且至少 3000ms），用它；
+                    // 3) 否则才回退到全局最快模型。
                     if let Some(ref active_profile) = active {
-                        if let Some(active_cap) =
-                            profiles.iter().find(|p| p.model_id == active_profile.id)
-                        {
-                            if active_cap.status != super::types::HealthStatus::Unhealthy {
-                                if let Some(snap) = health_guard
-                                    .as_ref()
-                                    .and_then(|h| h.get(&active_profile.id))
+                        let active_healthy = health_guard
+                            .as_ref()
+                            .and_then(|h| h.get(&active_profile.id))
+                            .map(|s| s.status != super::types::HealthStatus::Unhealthy)
+                            .unwrap_or(true);
+                        if active_healthy {
+                            let active_cap =
+                                profiles.iter().find(|p| p.model_id == active_profile.id);
+                            let prefer_active = match active_cap {
+                                Some(cap)
+                                    if cap.status != super::types::HealthStatus::Unhealthy =>
                                 {
-                                    if snap.status == super::types::HealthStatus::Unhealthy {
-                                        // active 不健康，跳过偏好
-                                    } else {
-                                        let active_ttfb =
-                                            active_cap.short_ttfb_ms_p50.unwrap_or(10_000);
-                                        let threshold = (*fastest_ttfb * 3).max(3000);
-                                        if active_ttfb <= threshold {
-                                            log::info!(
-                                                "[Gateway] select_fastest_profile: 偏好使用当前活跃模型 {} (ttfb_p50={}ms, fastest={}ms)",
-                                                active_profile.id, active_ttfb, fastest_ttfb
-                                            );
-                                            return self.registry.get(&active_profile.id).cloned();
-                                        }
-                                    }
-                                } else {
-                                    let active_ttfb =
-                                        active_cap.short_ttfb_ms_p50.unwrap_or(10_000);
+                                    let active_ttfb = cap.short_ttfb_ms_p50.unwrap_or(10_000);
                                     let threshold = (*fastest_ttfb * 3).max(3000);
-                                    if active_ttfb <= threshold {
-                                        log::info!(
-                                            "[Gateway] select_fastest_profile: 偏好使用当前活跃模型 {} (ttfb_p50={}ms, fastest={}ms)",
-                                            active_profile.id, active_ttfb, fastest_ttfb
-                                        );
-                                        return self.registry.get(&active_profile.id).cloned();
-                                    }
+                                    active_ttfb <= threshold
                                 }
+                                // 没有算力档案时，优先使用用户 explicit 设置的活跃模型
+                                None => true,
+                                _ => false,
+                            };
+                            if prefer_active {
+                                let active_ttfb =
+                                    active_cap.and_then(|c| c.short_ttfb_ms_p50).unwrap_or(0);
+                                log::info!(
+                                    "[Gateway] select_fastest_profile: 偏好使用当前活跃模型 {} (ttfb_p50={}ms, fastest={}ms)",
+                                    active_profile.id, active_ttfb, fastest_ttfb
+                                );
+                                self.workflow_log(
+                                    "gateway.select_fastest_profile",
+                                    format!("偏好使用当前活跃模型: {}", active_profile.id),
+                                    Some(serde_json::json!({
+                                        "active_profile_id": active_profile.id,
+                                        "active_ttfb_ms": active_ttfb,
+                                        "fastest_ttfb_ms": fastest_ttfb,
+                                        "reason": if active_cap.is_none() { "no capability record" } else { "active within threshold" },
+                                    })),
+                                );
+                                return self.registry_guard().get(&active_profile.id).cloned();
                             }
                         }
                     }
 
-                    if let Some(profile) = self.registry.get(fastest_id).cloned() {
+                    if let Some(profile) = self.registry_guard().get(fastest_id).cloned() {
                         log::info!(
                             "[Gateway] select_fastest_profile: 选中 {} (ttfb_p50={}ms)",
                             profile.id,
@@ -291,7 +372,7 @@ impl GatewayExecutor {
         let req = super::types::GatewayRequest::for_fast_routing(String::new(), "tri-shot-router");
         if let Ok(decision) = self.select_candidates(&req) {
             if let Some(primary) = decision.candidates.first() {
-                if let Some(profile) = self.registry.get(&primary.model_id).cloned() {
+                if let Some(profile) = self.registry_guard().get(&primary.model_id).cloned() {
                     log::info!(
                         "[Gateway] select_fastest_profile (无档案兜底): 选中 {} (score={:.1})",
                         profile.id,
@@ -309,7 +390,66 @@ impl GatewayExecutor {
 
     /// 统一生成入口：选择候选链并顺序执行 fallback
     pub async fn generate(&self, request: GatewayRequest) -> Result<LlmGenerateResponse, AppError> {
-        let decision = self.select_candidates(&request)?;
+        let mut decision = self.select_candidates(&request)?;
+
+        // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
+        // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
+        if let Some(active) = self.llm_service.get_active_profile() {
+            if decision.candidates.first().map(|c| c.model_id.as_str()) != Some(active.id.as_str())
+            {
+                if let Some(pos) = decision
+                    .candidates
+                    .iter()
+                    .position(|c| c.model_id == active.id)
+                {
+                    let item = decision.candidates.remove(pos);
+                    decision.candidates.insert(0, item);
+                    self.workflow_log(
+                        "gateway.generate",
+                        format!("将活跃模型 {} 提升至候选链首位", active.id),
+                        Some(serde_json::json!({
+                            "request_id": request.request_id,
+                            "active_profile_id": active.id,
+                            "context_label": request.context_label,
+                        })),
+                    );
+                } else if self.registry_guard().get(&active.id).is_some() {
+                    decision.candidates.insert(
+                        0,
+                        crate::router::RankedCandidate {
+                            model_id: active.id.clone(),
+                            model_name: active.name.clone(),
+                            score: decision.candidates.first().map(|c| c.score).unwrap_or(50.0),
+                            reason: "当前活跃模型优先".to_string(),
+                        },
+                    );
+                    self.workflow_log(
+                        "gateway.generate",
+                        format!("将活跃模型 {} 插入候选链首位", active.id),
+                        Some(serde_json::json!({
+                            "request_id": request.request_id,
+                            "active_profile_id": active.id,
+                            "context_label": request.context_label,
+                        })),
+                    );
+                }
+            }
+        }
+
+        self.workflow_log(
+            "gateway.generate",
+            format!("候选链已确定，共 {} 个模型", decision.candidates.len()),
+            Some(serde_json::json!({
+                "request_id": request.request_id,
+                "context_label": request.context_label,
+                "candidates": decision.candidates.iter().map(|c| serde_json::json!({
+                    "model_id": c.model_id,
+                    "model_name": c.model_name,
+                    "score": c.score,
+                    "reason": c.reason,
+                })).collect::<Vec<_>>(),
+            })),
+        );
 
         if decision.candidates.is_empty() {
             return Err(AppError::Internal {
@@ -319,7 +459,8 @@ impl GatewayExecutor {
 
         let mut last_error: Option<AppError> = None;
         for (idx, candidate) in decision.candidates.iter().enumerate() {
-            let Some(profile) = self.registry.get(&candidate.model_id) else {
+            let profile = self.registry_guard().get(&candidate.model_id).cloned();
+            let Some(profile) = profile else {
                 continue;
             };
 
@@ -365,11 +506,13 @@ impl GatewayExecutor {
 
     /// 轻量探测：用极短 prompt 测试模型可用性
     pub async fn probe_model(&self, model_id: &str) -> Result<ProbeResult, AppError> {
-        let Some(profile) = self.registry.get(model_id) else {
-            return Err(AppError::Internal {
+        let profile = self
+            .registry_guard()
+            .get(model_id)
+            .cloned()
+            .ok_or_else(|| AppError::Internal {
                 message: format!("模型 {} 不存在", model_id),
-            });
-        };
+            })?;
 
         // v0.17.1: 优先从 PromptRegistry 读取，回退到 AppConfig.probe_prompt_override，
         // 最后回退到内置默认。让前端能在「提示词」面板编辑探测 prompt。
@@ -441,7 +584,7 @@ impl GatewayExecutor {
                     tps,
                     error: None,
                 };
-                self.probe_engine.record_probe(profile, &result, &self.pool);
+                self.probe_engine.record_probe(&profile, &result, &self.pool);
                 Ok(result)
             }
             Err(e) => {
@@ -453,7 +596,7 @@ impl GatewayExecutor {
                     tps: 0.0,
                     error: Some(e.to_string()),
                 };
-                self.probe_engine.record_probe(profile, &result, &self.pool);
+                self.probe_engine.record_probe(&profile, &result, &self.pool);
                 Ok(result)
             }
         }

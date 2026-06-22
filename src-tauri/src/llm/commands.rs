@@ -125,6 +125,23 @@ pub async fn get_last_llm_prompt(
     Ok(store.get_last_llm_prompt())
 }
 
+/// v0.23.12: 获取智能创作流程最近 N 条日志（诊断用）。
+#[command(rename_all = "snake_case")]
+pub async fn get_workflow_logs(
+    logger: State<'_, Arc<crate::workflow_logger::WorkflowLogger>>,
+    count: Option<usize>,
+) -> Result<Vec<String>, AppError> {
+    logger.tail(count.unwrap_or(50))
+}
+
+/// v0.23.12: 获取智能创作流程日志文件路径（诊断用）。
+#[command(rename_all = "snake_case")]
+pub async fn get_workflow_log_path(
+    logger: State<'_, Arc<crate::workflow_logger::WorkflowLogger>>,
+) -> Result<String, AppError> {
+    Ok(logger.path().to_string_lossy().to_string())
+}
+
 /// 初始化LLM服务（在应用启动时调用）
 ///
 /// 自 v0.23.0 起，LLM 服务在 app setup() 中通过 Tauri State 统一注入。

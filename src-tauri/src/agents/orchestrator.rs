@@ -25,6 +25,7 @@ use crate::{
     },
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
+    workflow_logger::WorkflowLogger,
 };
 
 /// 生成模式 — 决定 Orchestrator 执行路径
@@ -247,6 +248,18 @@ impl AgentOrchestrator {
             service,
             config,
             app_handle,
+        }
+    }
+
+    /// v0.23.12: 记录智能创作流程日志
+    fn workflow_log(
+        &self,
+        phase: impl Into<String>,
+        message: impl Into<String>,
+        details: Option<serde_json::Value>,
+    ) {
+        if let Some(logger) = self.app_handle.try_state::<Arc<WorkflowLogger>>() {
+            logger.info(phase, message, details);
         }
     }
 
@@ -947,6 +960,19 @@ impl AgentOrchestrator {
             Some("三击模式：智能合成提示词，2~3 次生成"),
         );
 
+        let active_profile = self.service.llm_service_ref().get_active_profile();
+        self.workflow_log(
+            "trishot.start",
+            "TriShot 工作流启动",
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "story_id": task.context.story.story_id,
+                "chapter_number": task.context.narrative.chapter_number,
+                "active_model_id": active_profile.as_ref().map(|p| p.id.clone()),
+                "active_model_name": active_profile.as_ref().map(|p| p.name.clone()),
+            })),
+        );
+
         // ===== Phase 0: QuickPreflight + 加载 WriteTimeBundle（复用 TimeSliced
         // 逻辑）=====
         self.emit_generation_status(
@@ -1011,6 +1037,16 @@ impl AgentOrchestrator {
             "bundle_load",
             bundle_start.elapsed().as_millis(),
             Some("write-time-bundle"),
+        );
+        self.workflow_log(
+            "trishot.bundle_loaded",
+            "WriteTimeBundle 加载完成",
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "duration_ms": bundle_start.elapsed().as_millis(),
+                "core_characters_count": bundle.core_characters.len(),
+                "genre_antipatterns_count": bundle.genre_antipatterns.len(),
+            })),
         );
 
         // 注入叙事四元组
@@ -1106,6 +1142,21 @@ impl AgentOrchestrator {
             synthesis.needs_refinement,
             synthesis.is_fallback,
         );
+        self.workflow_log(
+            "trishot.call1.done",
+            "Call 1 路由合成完成",
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "duration_ms": t_synth.elapsed().as_millis(),
+                "intent": synthesis.intent,
+                "selected_asset_ids": synthesis.selected_asset_ids,
+                "needs_refinement": synthesis.needs_refinement,
+                "refinement_focus": synthesis.refinement_focus,
+                "confidence": synthesis.confidence,
+                "is_fallback": synthesis.is_fallback,
+                "synthesized_prompt_chars": synthesis.synthesized_prompt.chars().count(),
+            })),
+        );
 
         let mut final_prompt = synthesis.synthesized_prompt.clone();
 
@@ -1180,6 +1231,17 @@ impl AgentOrchestrator {
             .map(|m| m.tags_for_selected(&selected_ids))
             .unwrap_or_default();
         let call3_request_id = uuid::Uuid::new_v4().to_string();
+        self.workflow_log(
+            "trishot.call3.start",
+            "Call 3 作家模型开始生成",
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "request_id": call3_request_id,
+                "asset_tags": asset_tags,
+                "selected_asset_ids": selected_ids,
+                "final_prompt_chars": final_prompt.chars().count(),
+            })),
+        );
         let gen_response = self
             .service
             .llm_service_ref()
@@ -1197,6 +1259,17 @@ impl AgentOrchestrator {
             "call3_writer",
             writer_start.elapsed().as_millis(),
             Some("trishot writer generate_for_task_with_tags"),
+        );
+        self.workflow_log(
+            "trishot.call3.done",
+            "Call 3 作家模型生成完成",
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "request_id": call3_request_id,
+                "duration_ms": writer_start.elapsed().as_millis(),
+                "response_tokens": gen_response.tokens_used,
+                "response_chars": gen_response.content.chars().count(),
+            })),
         );
 
         let content = gen_response.content;

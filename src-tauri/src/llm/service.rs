@@ -342,6 +342,21 @@ impl LlmService {
         guard.get_active_llm_profile().cloned()
     }
 
+    /// v0.23.12: 快捷记录工作流日志
+    fn workflow_log(
+        &self,
+        phase: impl Into<String>,
+        message: impl Into<String>,
+        details: Option<serde_json::Value>,
+    ) {
+        if let Some(logger) = self
+            .app_handle
+            .try_state::<Arc<crate::workflow_logger::WorkflowLogger>>()
+        {
+            logger.info(phase, message, details);
+        }
+    }
+
     /// 获取指定ID的LLM配置（仅返回 enabled 的模型）
     fn get_profile_by_id(&self, profile_id: &str) -> Option<LlmProfile> {
         let guard = self.config.lock().ok()?;
@@ -1231,6 +1246,24 @@ impl LlmService {
             .map(|c| c.llm_connect_timeout_secs)
             .unwrap_or(30u64);
 
+        self.workflow_log(
+            "llm.generate.start",
+            format!("开始 LLM 调用: model_id={}", model_id),
+            Some(serde_json::json!({
+                "request_id": request_id,
+                "model_id": model_id,
+                "model_name": model_name,
+                "provider": format!("{:?}", provider),
+                "context_label": context_label,
+                "prompt_chars": prompt_chars,
+                "prompt_tokens_est": prompt_tokens_est,
+                "timeout_seconds": timeout_seconds,
+                "connect_timeout_seconds": connect_timeout_seconds,
+                "max_retries": max_retries,
+                "is_silent_background": is_silent_background,
+            })),
+        );
+
         // v0.11.8: 超时与重试策略
         // - adapter.generate 内部已拆分连接超时（10s）与生成超时（timeout_seconds），
         //   并在读取响应流时按 chunk 刷新计时器。
@@ -1312,6 +1345,18 @@ impl LlmService {
                     duration,
                     response.content.len()
                 );
+                self.workflow_log(
+                    "llm.generate.completed",
+                    format!("LLM 调用完成: model_id={} 耗时={}ms", model_id, duration),
+                    Some(serde_json::json!({
+                        "request_id": request_id,
+                        "model_id": model_id,
+                        "model_name": model_name,
+                        "duration_ms": duration,
+                        "response_tokens": response.tokens_used,
+                        "response_chars": response.content.chars().count(),
+                    })),
+                );
                 self.record_llm_call(LlmCallRecord {
                     model_id: &model_name,
                     model_name: Some(&model_name),
@@ -1346,6 +1391,18 @@ impl LlmService {
                         | AppError::LlmGenerationTimeout { .. }
                 );
                 let duration = start_time.elapsed().as_millis() as u64;
+                self.workflow_log(
+                    "llm.generate.error",
+                    format!("LLM 调用失败: model_id={} 错误={}", model_id, e),
+                    Some(serde_json::json!({
+                        "request_id": request_id,
+                        "model_id": model_id,
+                        "model_name": model_name,
+                        "duration_ms": duration,
+                        "is_timeout": is_timeout,
+                        "error": e.to_string(),
+                    })),
+                );
                 self.record_llm_call(LlmCallRecord {
                     model_id: &model_name,
                     model_name: Some(&model_name),

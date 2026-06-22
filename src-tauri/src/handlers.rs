@@ -55,6 +55,8 @@ tauri::generate_handler![
     llm::commands::llm_cancel_generation,
     llm::commands::llm_cancel_all_generations,
     llm::commands::get_last_llm_prompt,
+    llm::commands::get_workflow_logs,
+    llm::commands::get_workflow_log_path,
     // Intent commands
     commands::intent::parse_intent,
     commands::intent::execute_intent,

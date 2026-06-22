@@ -686,6 +686,34 @@ pub fn create_model(
         model_id
     );
 
+    // v0.23.13: 新模型加入后立即刷新网关注册表并执行即时健康探测，
+    // 探测通过则立刻进入可用模型池，避免调度范围遗漏。
+    if let Some(executor) = app_handle
+        .try_state::<crate::model_gateway::executor::GatewayExecutor>()
+    {
+        let executor = executor.inner().clone();
+        executor.refresh_registry();
+        let probe_model_id = model_id.clone();
+        tauri::async_runtime::spawn(async move {
+            match executor.probe_model(&probe_model_id).await {
+                Ok(result) => {
+                    log::info!(
+                        "[create_model] 新增模型 {} 即时健康检查完成: success={}",
+                        probe_model_id,
+                        result.success
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[create_model] 新增模型 {} 即时健康检查失败: {}",
+                        probe_model_id,
+                        e
+                    );
+                }
+            }
+        });
+    }
+
     // 通知 frontstage 刷新模型列表
     let _ = crate::window::WindowManager::send_to_frontstage(
         &app_handle,

@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-22（v0.23.11）
+> 最后更新: 2026-06-22（v0.23.12）
 
 ## ✅ v0.23.x 已实施完成
 
@@ -64,6 +64,12 @@
 ### 🛡️ v0.23.11 诊断提示词过滤探测/静默调用 ✅ (2026-06-22)
 - [x] 静默/探测调用不再更新 `DiagnosticStore` 和 `llm-prompt-sent` 事件
 - [x] 避免 `model_gateway_probe` 的 `Respond with exactly the word OK.` 覆盖诊断提示词
+
+### 🐛📝 v0.23.12 活跃模型优先 + 智能创作流程日志 ✅ (2026-06-22)
+- [x] `GatewayExecutor::generate` 强制把当前活跃模型放到候选链首位
+- [x] `select_fastest_profile` 无算力档案时也优先使用活跃模型
+- [x] 新增 `WorkflowLogger`，记录 TriShot/LLM/ModelGateway 各阶段到 `logs/creative_workflow.log`
+- [x] 诊断卡片显示工作流日志路径与最近日志
 
 ## ✅ v0.22.x 已实施完成
 
@@ -348,6 +354,10 @@ $ cd src-tauri && cargo test --lib
 ---
 
 ## 📈 历史版本
+
+### v0.23.12 (2026-06-22)
+- [x] 活跃模型强制优先，修复连接错误模型导致的长超时
+- [x] 新增 WorkflowLogger 记录 TriShot/LLM/ModelGateway 详细执行步骤
 
 ### v0.23.11 (2026-06-22)
 - [x] 诊断提示词过滤探测/静默调用，避免被 probe prompt 覆盖
