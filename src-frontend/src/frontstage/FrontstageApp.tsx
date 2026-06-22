@@ -35,6 +35,7 @@ import type { GatewayStatus } from '@/types/llm';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelineProgress';
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
+import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
@@ -526,6 +527,9 @@ const FrontstageApp: React.FC = () => {
     staleTime: 10000,
   });
 
+  // v0.23.20: DB 连接池状态轮询（5s），状态栏显示连接池耗尽预警
+  const { data: dbPoolStatus } = useDbPoolStatus();
+
   // v0.11.0: 启动模型连接轮询，状态栏展示当前可用模型与连接质量
   useEffect(() => {
     const enabledIds = allModels.filter(m => m.enabled).map(m => m.id);
@@ -670,6 +674,9 @@ const FrontstageApp: React.FC = () => {
         LLM连接超时秒数: String(connectTimeout),
         LLM首字节超时秒数: String(firstChunkTimeout),
         后端超时配置: `前端${feTimeout}s / 后端smart_execute整体${beTimeout}s / LLM连接${connectTimeout}s / LLM首字节${firstChunkTimeout}s`,
+        DB连接池: dbPoolStatus
+          ? `${dbPoolStatus.in_use}/${dbPoolStatus.max_size}（空闲${dbPoolStatus.idle}，超时${dbPoolStatus.connection_timeout_secs}s）`
+          : '未获取',
         最后发给模型的提示词: promptPreview,
         模型建议: '若本地模型慢，可尝试减少上下文或用量',
         作品ID: currentStory?.id || '无',
@@ -2818,6 +2825,7 @@ const FrontstageApp: React.FC = () => {
           wensiMode={wensiMode}
           orchestratorStatus={orchestratorStatus}
           bootstrapProgress={bootstrapProgress}
+          dbPoolStatus={dbPoolStatus ?? null}
           onOpenBackstage={openBackstage}
           onCycleWensiMode={cycleWensiMode}
           onToggleZenMode={() => setIsZenMode(prev => !prev)}

@@ -25,6 +25,7 @@ describe('FrontstageHeader', () => {
     wensiMode: 'passive' as const,
     orchestratorStatus: null,
     bootstrapProgress: null,
+    dbPoolStatus: null,
     onOpenBackstage: vi.fn(),
     onCycleWensiMode: vi.fn(),
     onToggleZenMode: vi.fn(),

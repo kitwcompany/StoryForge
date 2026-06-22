@@ -96,11 +96,12 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
         )
     });
     let pool = Pool::builder()
-        .max_size(20)
+        // v0.23.20: 扩容到 50，缓冲 auto_commit/ingest/projection writers 并发占用。
+        // 根因：auto_commit 的 run_kg_ingest 做 LLM 调用（30-90s）期间持有连接，
+        // 叠加 projection writers + 用户自动保存，20 连接易耗尽。
+        .max_size(50)
         // v0.23.19: connection_timeout 防止 pool.get() 在连接池耗尽时无限阻塞，
         // 导致 tokio worker 线程被卡死、tokio::time::timeout 无法触发。
-        // 根因：record_llm_call 的同步 DB INSERT 在 async 上下文中直接调用 pool.get()，
-        // 若池中 20 个连接全被占用，pool.get() 会永远等待。
         .connection_timeout(std::time::Duration::from_secs(5))
         .build(manager)?;
 

@@ -38,6 +38,7 @@ interface FrontstageHeaderProps {
     status: string;
     message: string;
   } | null;
+  dbPoolStatus: { in_use: number; max_size: number; idle: number } | null;
   onOpenBackstage: () => void;
   onCycleWensiMode: () => void;
   onToggleZenMode: () => void;
@@ -54,6 +55,7 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   wensiMode,
   orchestratorStatus,
   bootstrapProgress,
+  dbPoolStatus,
   onOpenBackstage,
   onCycleWensiMode,
   onToggleZenMode,
@@ -90,6 +92,26 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
               <span className="status-item saving">保存中...</span>
             </>
           )}
+          {dbPoolStatus &&
+            (() => {
+              const utilPct =
+                dbPoolStatus.max_size > 0 ? (dbPoolStatus.in_use / dbPoolStatus.max_size) * 100 : 0;
+              const isCritical = dbPoolStatus.in_use >= dbPoolStatus.max_size || utilPct >= 95;
+              const isWarning = utilPct >= 80;
+              if (!isWarning) return null;
+              return (
+                <>
+                  <span className="status-separator">·</span>
+                  <span
+                    className={cn('status-item', isCritical ? 'error' : 'saving')}
+                    title={`数据库连接池：使用 ${dbPoolStatus.in_use}/${dbPoolStatus.max_size}（${Math.round(utilPct)}%），空闲 ${dbPoolStatus.idle}`}
+                  >
+                    DB {dbPoolStatus.in_use}/{dbPoolStatus.max_size}
+                    {isCritical ? ' ⚠' : ''}
+                  </span>
+                </>
+              );
+            })()}
           {orchestratorStatus && (
             <>
               <span className="status-separator">·</span>

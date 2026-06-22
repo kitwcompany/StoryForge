@@ -41,7 +41,7 @@ pub fn get_chapter(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn update_chapter(
+pub async fn update_chapter(
     id: String,
     title: Option<String>,
     outline: Option<String>,
@@ -53,26 +53,46 @@ pub fn update_chapter(
     vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
 ) -> Result<(), AppError> {
     let pool = pool.inner().clone();
-    let repo = crate::db::ChapterRepository::new(pool.clone());
-    // 先查询 story_id 和 chapter_number（P0-3 修复: 避免 unwrap_or_default
-    // 导致空字符串）
-    let chapter_info = repo.get_by_id(&id).ok().flatten();
+    let automation_service = automation_service.inner().clone();
+    let vector_store = vector_store.inner().clone();
+
+    // v0.23.20: DB 操作用 spawn_blocking 包裹，防止连接池满时阻塞 Tauri async
+    // runtime。 根因：update_chapter 此前是同步 fn，pool.get()
+    // 在连接池耗尽时无限阻塞， 导致前端"保存中..."永不消失，同时阻塞 Genesis
+    // 等创作流程。
+    let title_for_update = title.clone();
+    let chapter_info = tokio::task::spawn_blocking({
+        let pool = pool.clone();
+        let id = id.clone();
+        move || {
+            let repo = crate::db::ChapterRepository::new(pool);
+            // 先查询 story_id 和 chapter_number（P0-3 修复: 避免 unwrap_or_default
+            // 导致空字符串）
+            let info = repo.get_by_id(&id).ok().flatten();
+            // 执行更新
+            repo.update(&id, title_for_update, outline, content, word_count)
+                .map_err(AppError::from)?;
+            Ok::<_, AppError>(info)
+        }
+    })
+    .await
+    .map_err(|e| AppError::Internal {
+        message: format!("spawn_blocking panicked: {}", e),
+    })??;
+
     let story_id_opt = chapter_info.as_ref().map(|c| c.story_id.clone());
     let chapter_number = chapter_info.map(|c| c.chapter_number).unwrap_or(0);
 
-    repo.update(&id, title.clone(), outline, content, word_count)
-        .map_err(AppError::from)?;
-
-    // 委托领域服务处理业务编排
+    // 委托领域服务处理业务编排（内部 spawn 后台任务，不阻塞）
     if let Some(ref story_id) = story_id_opt {
-        let service = ChapterService::new(pool, app, vector_store.inner().clone());
+        let service = ChapterService::new(pool, app, vector_store);
         service.on_chapter_updated(
             &id,
             story_id,
             chapter_number,
             title,
             word_count,
-            automation_service.inner(),
+            &automation_service,
         );
     }
 

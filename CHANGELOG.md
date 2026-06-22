@@ -2,6 +2,28 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.20] - DB 连接池状态可视化 + record_llm_call 整体 spawn_blocking + update_chapter async 化（2026-06-22）
+
+### 修复
+- **record_llm_call 仍卡 4 分钟**：v0.23.19 只把 DB 写入移入 spawn_blocking，但 `try_state` + `count_tokens` + `get_active_profile` + 数据收集仍在 tokio worker 线程同步执行。日志显示 `try_state` 到 `spawn` 卡 4 分 16 秒。修复：整个 `record_llm_call` 函数体移入 `spawn_blocking`，async 线程只 clone owned 数据，tokio worker 线程零阻塞。
+- **update_chapter "保存中"卡死**：`update_chapter` 是同步 Tauri command（`pub fn`），连接池满时 `pool.get()` 阻塞 Tauri 主线程，前端"保存中..."永不消失。修复：改为 `pub async fn`，DB 操作用 `spawn_blocking` 包裹。
+
+### 增强
+- **连接池扩容 20 → 50**：缓冲 auto_commit/ingest/projection writers 并发占用。SQLite WAL 模式支持并发读 + 单写，50 连接对本地 SQLite 无压力。
+- **新增 `get_db_pool_status` Tauri 命令**：返回 `{max_size, connections, idle, in_use, connection_timeout_secs}`，利用 r2d2 `Pool::state()` API。
+- **前端 DB 连接池状态可视化**：
+  - `useDbPoolStatus` Hook：5s 轮询 `get_db_pool_status`
+  - FrontstageHeader 状态栏：使用率 <80% 不显示 / ≥80% 黄色 `DB 12/50` / ≥95% 红色 `DB 50/50 ⚠`
+  - 诊断卡片新增 `DB连接池` 字段：`48/50（空闲2，超时5s）`
+
+### 验证
+- `cargo check` ✅
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check` ✅
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+- `npx vitest run` ✅ 126 passed / 3 skipped
+
 ## [v0.23.19] - 根治 600s 超时：record_llm_call DB 写入不再阻塞 tokio worker（2026-06-22）
 
 ### 修复

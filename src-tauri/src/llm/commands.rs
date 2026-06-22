@@ -142,6 +142,30 @@ pub async fn get_workflow_log_path(
     Ok(logger.path().to_string_lossy().to_string())
 }
 
+/// v0.23.20: 获取数据库连接池状态（前端状态栏 + 诊断卡片用）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct DbPoolStatus {
+    pub max_size: u32,
+    pub connections: u32,
+    pub idle: u32,
+    pub in_use: u32,
+    pub connection_timeout_secs: u64,
+}
+
+#[command(rename_all = "snake_case")]
+pub async fn get_db_pool_status(pool: State<'_, DbPool>) -> Result<DbPoolStatus, AppError> {
+    let p = pool.inner();
+    let st = p.state();
+    Ok(DbPoolStatus {
+        max_size: p.max_size(),
+        connections: st.connections,
+        idle: st.idle_connections,
+        in_use: st.connections - st.idle_connections,
+        connection_timeout_secs: p.connection_timeout().as_secs(),
+    })
+}
+
 /// 初始化LLM服务（在应用启动时调用）
 ///
 /// 自 v0.23.0 起，LLM 服务在 app setup() 中通过 Tauri State 统一注入。
