@@ -717,7 +717,11 @@ impl LlmService {
 
     /// 将本次 LLM 调用记录到 `llm_calls` 表，并输出结构化指标日志。
     ///
-    /// 失败不返回错误，避免记录本身阻塞主流程。
+    /// v0.23.19: DB 写入通过 `spawn_blocking`
+    /// 提交到阻塞线程池，fire-and-forget。 根因：同步 DB INSERT 在 async
+    /// 上下文中直接执行会阻塞 tokio worker 线程，
+    /// 导致 `tokio::time::timeout` 无法触发、前端 600s 超时。
+    /// 指标记录是审计用途，失败不影响生成结果，永不阻塞主流程。
     fn record_llm_call(&self, record: LlmCallRecord<'_>) {
         let prompt_len = record.prompt.chars().count() as i32;
         let model_family = record.model_id;
@@ -747,55 +751,73 @@ impl LlmService {
         log::info!(target: "llm_metrics", "{}", metrics);
 
         self.workflow_log("llm.record_call.try_state", "开始获取 DbPool state", None);
-        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
-            self.workflow_log("llm.record_call.db_write", "开始写入 llm_calls 表", None);
-            use crate::db::{repositories_pipeline::LlmCallRepository, RecordLlmCallRequest};
-            let repo = LlmCallRepository::new(pool.inner().clone());
-            let req = RecordLlmCallRequest {
-                story_id: None,
-                draft_id: None,
-                model_id: record.model_id.to_string(),
-                model_name: record.model_name.map(|s| s.to_string()),
-                purpose: record.purpose.to_string(),
-                prompt_tokens,
-                completion_tokens,
-                duration_ms: record.duration_ms as i32,
-                success: record.error.is_none(),
-                error_message: record.error.map(|e| e.to_string()),
-                // v0.11.0: 路由与审核字段，后续通过 feedback 闭环回填
-                task_type: None,
-                quality_score: None,
-                latency_ms: Some(record.duration_ms as i32),
-                route_decision: None,
-                audit_feedback: None,
-            };
-            let preview = if record.prompt.len() > 200 {
-                &record.prompt[..200]
-            } else {
-                record.prompt
-            };
-            let metadata = serde_json::json!({
-                "provider": provider,
-                "cached": cached,
-            })
-            .to_string();
+        let pool = match self.app_handle.try_state::<crate::db::DbPool>() {
+            Some(p) => p.inner().clone(),
+            None => {
+                self.workflow_log(
+                    "llm.record_call.no_pool",
+                    "DbPool state 不可用，跳过 llm_calls 记录",
+                    None,
+                );
+                return;
+            }
+        };
+
+        // v0.23.19: 收集所有 owned 数据，DB 写入提交到阻塞线程池 fire-and-forget。
+        // 不再在 async 上下文中同步执行 pool.get() + conn.execute()，
+        // 避免阻塞 tokio worker 线程导致 tokio::time::timeout 失效。
+        use crate::db::{repositories_pipeline::LlmCallRepository, RecordLlmCallRequest};
+        let req = RecordLlmCallRequest {
+            story_id: None,
+            draft_id: None,
+            model_id: record.model_id.to_string(),
+            model_name: record.model_name.map(|s| s.to_string()),
+            purpose: record.purpose.to_string(),
+            prompt_tokens,
+            completion_tokens,
+            duration_ms: record.duration_ms as i32,
+            success: record.error.is_none(),
+            error_message: record.error.map(|e| e.to_string()),
+            // v0.11.0: 路由与审核字段，后续通过 feedback 闭环回填
+            task_type: None,
+            quality_score: None,
+            latency_ms: Some(record.duration_ms as i32),
+            route_decision: None,
+            audit_feedback: None,
+        };
+        let duration_ms = record.duration_ms as i32;
+        let preview = if record.prompt.len() > 200 {
+            record.prompt[..200].to_string()
+        } else {
+            record.prompt.to_string()
+        };
+        let metadata = serde_json::json!({
+            "provider": provider,
+            "cached": cached,
+        })
+        .to_string();
+
+        self.workflow_log(
+            "llm.record_call.spawn",
+            "DB 写入已提交到阻塞线程池（fire-and-forget）",
+            None,
+        );
+
+        // fire-and-forget：不等待结果，指标记录失败不影响生成主流程。
+        // pool.connection_timeout(5s) + SQLite busy_timeout(5s)
+        // 共同保证阻塞线程不会无限挂起。
+        tokio::task::spawn_blocking(move || {
+            let repo = LlmCallRepository::new(pool);
             if let Err(e) = repo.create(
                 req,
                 total_tokens,
-                record.duration_ms as i32,
-                Some(preview),
+                duration_ms,
+                Some(&preview),
                 Some(&metadata),
             ) {
                 log::warn!("[LLM] Failed to record llm_call: {}", e);
             }
-            self.workflow_log("llm.record_call.db_done", "llm_calls 表写入完成", None);
-        } else {
-            self.workflow_log(
-                "llm.record_call.no_pool",
-                "DbPool state 不可用，跳过 llm_calls 记录",
-                None,
-            );
-        }
+        });
     }
 
     /// 判断错误是否可重试（超时/网络/5xx）
@@ -1435,9 +1457,12 @@ impl LlmService {
                     duration_ms: duration,
                     error: None,
                 });
+                // v0.23.19: record_llm_call 现在是 fire-and-forget，DB
+                // 写入在阻塞线程池异步执行。 此处已立即返回，不会阻塞后续
+                // emit_llm_progress。
                 self.workflow_log(
                     "llm.record_call.done",
-                    "llm_calls 记录写入完成",
+                    "llm_calls 记录已提交（fire-and-forget，DB 写入在后台线程）",
                     Some(serde_json::json!({"request_id": request_id})),
                 );
                 self.workflow_log(

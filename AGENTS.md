@@ -85,7 +85,7 @@ runTest(async (helper) => {
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryForge`（永久记忆，AI 助手默认以此为工作目录）
-- **版本**: v0.23.16
+- **版本**: v0.23.19
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.95.0（通过 `rust-toolchain.toml` 固定） + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **构建锁定**: `Cargo.lock` 已纳入版本控制，确保 CI 与本地依赖解析一致
@@ -185,6 +185,12 @@ node scripts/cdp-inspect.js
 ---
 
 ### 最近完成的功能
+
+  - **v0.23.19 根治 record_llm_call 阻塞 tokio worker 导致 600s 超时** (2026-06-22) — v0.23.18 行级工作流日志精确定位卡点：概念生成 LLM 调用 1.1s 完成，但随后的 `record_llm_call` 同步 DB INSERT 卡住 600s 永不返回。根因是 `record_llm_call` 在 async 上下文中直接执行同步 `pool.get()` + `conn.execute()`，而生产连接池未配置 `connection_timeout`，连接池满时 `pool.get()` 无限阻塞 tokio worker 线程，`tokio::time::timeout` 无法 poll。核心变更：
+    - **生产连接池加 `connection_timeout(5s)`**：`init_db` 的 `Pool::builder()` 补 `.connection_timeout(Duration::from_secs(5))`，与测试池一致，防止 `pool.get()` 无限阻塞
+    - **`record_llm_call` 改为 fire-and-forget**：收集 owned 数据后 `tokio::task::spawn_blocking` 提交 DB 写入到阻塞线程池，立即返回不等待结果。指标记录是审计用途，失败不影响生成结果，永不阻塞主流程
+    - 移除 `record_llm_call` 内部的 `llm.record_call.db_write` / `db_done` 工作流日志（DB 写入已异步化，无法在主流程观察到完成时刻），新增 `llm.record_call.spawn` 标记提交点
+    - 验证：`cargo test --lib` **556 passed / 0 failed / 2 ignored**；`cargo +nightly fmt --check` 通过；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
 
   - **v0.23.16 Genesis 快速阶段卡死修复 + E2E 集成测试** (2026-06-22) — 根治 v0.23.15 中概念 LLM 完成后 pipeline 阻塞 600s 的问题。根因是 `StoryRepository::create()` 为同步 r2d2 调用，在 async 上下文中直接执行，若 DB 锁或连接池满则阻塞 tokio worker 线程，导致 `tokio::time::timeout(600s)` 无法 poll。核心变更：
     - `story_repo.create()` 改用 `tokio::task::spawn_blocking` 异步化
