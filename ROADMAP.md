@@ -1,8 +1,36 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-22（v0.23.13）
+> 最后更新: 2026-06-22（v0.23.19）
 
 ## ✅ v0.23.x 已实施完成
+
+### 🚑 v0.23.19 根治 600s 超时：record_llm_call DB 写入不再阻塞 tokio worker ✅ (2026-06-22)
+- [x] 生产连接池 `init_db` 补 `.connection_timeout(5s)`，防止 `pool.get()` 无限阻塞
+- [x] `record_llm_call` 改为 fire-and-forget `spawn_blocking`，DB 写入提交到阻塞线程池立即返回
+- [x] 工作流日志新增 `llm.record_call.spawn` phase 标记提交点
+- [x] 验证：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
+
+### 🔬 v0.23.18 行级诊断：execute_generation Ok 分支 12+ 标记 ✅ (2026-06-22)
+- [x] `execute_generation` Ok 分支每步前后插入工作流日志标记（`record_call.start` → `try_state` → `db_write` → `db_done` → `emit_completed.start` → `generate.return_ok`）
+- [x] 新增 5 个独立模块测试（心跳 abort、阻塞 emit、Mutex 死锁、pool 超时、record 非阻塞）
+
+### 🛡️ v0.23.17 心跳阻塞 + 连接池超时双保险 ✅ (2026-06-22)
+- [x] `heartbeat_handle.await` 用 `tokio::time::timeout(5s)` 包裹
+- [x] 测试连接池补 `.connection_timeout(10s)`
+- [x] `record_llm_call` 内部添加诊断标记
+
+### 🔧 v0.23.16 Genesis 快速阶段卡死修复 + E2E 集成测试 ✅ (2026-06-22)
+- [x] `story_repo.create()` 改用 `tokio::task::spawn_blocking` 异步化
+- [x] 新增 `scripts/test_trishot_e2e.py` E2E 集成测试（73.2s 完成，1852 中文字）
+
+### 🔧 v0.23.15 TriShot 管线 4 处缺陷修复 ✅ (2026-06-22)
+- [x] P0: 预检失败时调 `AutoContractBuilder::auto_fill` 补齐角色后重试
+- [x] P1: `novel_bootstrap_background_started` → `novel_bootstrap_first_chapter_ready`
+- [x] P2: Call 1/2 预算守卫用 `total_start` 计算已耗时间；Call 3 超时 30-120s + 空内容检查
+
+### 🏗️ v0.23.14 干净健康的模型池 + 两阶段 Genesis ✅ (2026-06-22)
+- [x] 启动归零清空 `llm_calls` + 过滤 `HealthRegistry` 残留；删除/更新模型级联清理
+- [x] Genesis 拆分为 `quick_phase_steps()`（概念+第一章 TriShot）+ `background_steps()`（世界观/大纲/角色）
 
 ### 🔒 v0.23.13 强制所有生成路径使用活跃模型 ✅ (2026-06-22)
 - [x] `LlmService::select_profile_for_request` 无条件优先返回 `active_llm_profile`

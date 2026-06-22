@@ -1,11 +1,47 @@
-# StoryForge (草苔) v0.23.13 项目完成状态
+# StoryForge (草苔) v0.23.19 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.13 强制所有生成路径使用活跃模型）
+> 最后更新: 2026-06-22（v0.23.19 根治 record_llm_call 阻塞 tokio worker 导致 600s 超时）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.19 — 根治 600s 超时：record_llm_call DB 写入不再阻塞 tokio worker（2026-06-22）
+
+- 🎯 **根治概念 LLM 秒回但 pipeline 阻塞 600s**：v0.23.18 行级工作流日志定位卡点——概念生成 LLM 1.1s 完成，但 `record_llm_call` 同步 DB INSERT 卡住 600s 永不返回
+- 🔧 **Fix 1 生产连接池加 `connection_timeout(5s)`**：`init_db` 的 `Pool::builder()` 补 `.connection_timeout(Duration::from_secs(5))`，防止 `pool.get()` 无限阻塞
+- 🔧 **Fix 2 `record_llm_call` 改为 fire-and-forget `spawn_blocking`**：DB 写入提交到阻塞线程池立即返回，永不阻塞生成主流程
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**；`cargo +nightly fmt --check` 通过；`npx tsc --noEmit` 零错误；`npm run format:check` 零差异
+
+### v0.23.18 — 行级诊断：execute_generation Ok 分支 12+ 标记（2026-06-22）
+
+- 🔍 **行级工作流日志**：`execute_generation` Ok 分支每步插入标记（`record_call.start` → `try_state` → `db_write` → `db_done` → `emit_completed.start` → `generate.return_ok`）
+- 🧪 **5 个独立模块测试**：心跳 abort 不阻塞、阻塞 emit 由 5s 超时保护、TASK_START_TIMES Mutex 无死锁、pool.get 超时、record_llm_call 非阻塞
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
+
+### v0.23.17 — 心跳阻塞 + 连接池超时双保险（2026-06-22）
+
+- 🔧 `heartbeat_handle.await` 用 `tokio::time::timeout(5s)` 包裹；测试连接池补 `connection_timeout(10s)`
+- 🔍 `record_llm_call` 内部添加 `try_state` / `db_write` / `db_done` 诊断标记
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
+
+### v0.23.16 — Genesis 快速阶段卡死修复 + E2E 集成测试（2026-06-22）
+
+- 🔧 `story_repo.create()` 改用 `tokio::task::spawn_blocking` 异步化，防止 DB 锁/连接池满阻塞 tokio worker
+- 🧪 新增 `scripts/test_trishot_e2e.py` 端到端集成测试：Gemma4-e2b 真实 LLM **73.2s 完成，1852 中文字**
+- ✅ **验证**：`cargo test --lib` **551 passed / 0 failed / 2 ignored**
+
+### v0.23.15 — TriShot 管线 4 处缺陷修复（2026-06-22）
+
+- 🔧 P0 预检失败时调 `AutoContractBuilder::auto_fill` 补齐角色；P1 消息改名 `novel_bootstrap_first_chapter_ready`；P2 Call 1/2 预算守卫用 `total_start`、Call 3 超时 30-120s + 空内容检查
+- ✅ **验证**：`cargo test --lib` **551 passed / 0 failed / 2 ignored**
+
+### v0.23.14 — 干净健康的模型池 + 统一身份 + 实时健康报告（2026-06-22）
+
+- 🔧 模型池净化 L1-L4：启动归零清空 `llm_calls`、级联清理死模型、拒绝 disabled 设为活跃、健康报告数据源切换为实时探测快照
+- 🔧 Genesis 两阶段：`quick_phase_steps()`（概念+第一章 TriShot）+ `background_steps()`（策略+世界观/大纲/角色）
+- ✅ **验证**：`cargo test --lib` **551 passed / 0 failed / 2 ignored**
 
 ### v0.23.13 — 强制所有生成路径使用活跃模型（2026-06-22）
 

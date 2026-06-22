@@ -2,6 +2,39 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.19] - 根治 600s 超时：record_llm_call DB 写入不再阻塞 tokio worker（2026-06-22）
+
+### 修复
+- **record_llm_call 同步 DB INSERT 阻塞 tokio worker 线程**：v0.23.18 行级工作流日志精准定位卡点——概念生成 LLM 调用 1.1s 完成，但随后的 `record_llm_call` 同步 DB INSERT 卡住 600s 永不返回。根因是 `record_llm_call` 在 async 上下文中直接执行同步 `pool.get()` + `conn.execute()`，而生产连接池未配置 `connection_timeout`，连接池满时 `pool.get()` 无限阻塞 tokio worker 线程，`tokio::time::timeout` 无法 poll。
+  - **Fix 1 生产连接池加 `connection_timeout(5s)`**：`init_db` 的 `Pool::builder()` 补 `.connection_timeout(Duration::from_secs(5))`，与测试池一致，防止 `pool.get()` 无限阻塞
+  - **Fix 2 `record_llm_call` 改为 fire-and-forget `spawn_blocking`**：收集 owned 数据后提交 DB 写入到阻塞线程池，立即返回不等待结果。指标记录是审计用途，失败不影响生成结果，永不阻塞主流程
+  - 工作流日志新增 `llm.record_call.spawn` phase 标记 fire-and-forget 提交点
+- **影响**：此前从 v0.23.14 起反复出现的"概念 LLM 秒回但 pipeline 阻塞 600s"彻底根治。Genesis 快速阶段应在 30-60s 返回第一章正文。
+
+### 验证
+- `cargo check` ✅
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check` ✅
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
+## [v0.23.18] - 行级诊断：execute_generation Ok 分支 12+ 标记（2026-06-22）
+
+### 诊断
+- 为精确定位 v0.23.16/17 中概念 LLM 完成后的卡点，在 `execute_generation` 的 Ok 分支每个步骤前后插入工作流日志标记：`record_call.start` → `try_state` → `db_write` → `db_done` → `record_call.done` → `emit_completed.start` → `emit_completed.done` → `generate.return_ok`
+- `record_llm_call` 内部添加 `try_state` / `db_write` / `db_done` / `no_pool` 诊断标记
+
+### 测试
+- 新增 5 个独立模块测试（不在 Python E2E 测试覆盖范围内）：
+  - `test_heartbeat_abort_does_not_block_indefinitely`：心跳 abort 后 JoinHandle 立即 resolve
+  - `test_heartbeat_with_blocking_emit_handled_by_timeout`：阻塞 emit 由 5s 超时保护
+  - `test_task_start_times_mutex_no_deadlock`：TASK_START_TIMES Mutex 并发无死锁
+  - `test_record_llm_call_pool_timeout`：pool.get() 超时在 5s 内返回
+  - `test_record_llm_call_non_blocking`：record_llm_call 并发写入 15s 内完成
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+
 ## [v0.23.17] - 心跳阻塞 + 连接池超时双保险（2026-06-23）
 
 ### 修复
