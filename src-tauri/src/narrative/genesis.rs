@@ -242,11 +242,6 @@ impl GenesisPipeline {
         ]
     }
 
-    /// 策略选择阶段：根据概念自动选择体裁画像、方法论、风格 DNA 与技能
-    pub fn strategy_selection_step() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
-        vec![Box::new(StrategySelectionStep)]
-    }
-
     /// 后台阶段：策略选择 + 世界观/大纲/角色/场景/伏笔/知识图谱 + 合同播种
     /// v0.23.14: FirstChapterGenerationStep 已移至快速阶段，后台不再包含。
     pub fn background_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
