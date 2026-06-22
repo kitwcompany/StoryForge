@@ -11,9 +11,13 @@ use tauri::{command, AppHandle, Manager};
 use super::TaskType;
 use crate::{
     config::settings::AppConfig,
-    db::{DbPool, LlmCallRepository},
+    db::DbPool,
     error::AppError,
     llm::service::LlmService,
+    model_gateway::{
+        executor::GatewayExecutor,
+        types::{CapabilityProfile, HealthStatus},
+    },
 };
 
 /// 单个任务类型的 benchmark 结果
@@ -39,6 +43,18 @@ pub struct ModelHealthReport {
     pub avg_latency_ms: f64,
     /// 平均质量分（如有）
     pub avg_quality_score: Option<f64>,
+    /// v0.23.14: 生成速度（tokens/second），来自实时探测
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tps: Option<f64>,
+    /// v0.23.14: 综合能力得分（0-100），来自算力档案 benchmark
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capability_score: Option<f64>,
+    /// v0.23.14: 速度得分（0-100）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_score: Option<f64>,
+    /// v0.23.14: 质量得分（0-100）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality_score: Option<f64>,
     /// 最近错误信息
     pub last_error: Option<String>,
     /// 综合健康评级：healthy / degraded / unhealthy
@@ -129,98 +145,95 @@ pub async fn benchmark_model_for_task(
     }
 }
 
-/// 生成所有启用模型在常见任务上的健康报告
-/// v0.22.3: 改为 async 命令，避免阻塞 Tauri IPC 主线程。
-/// 配合 settings.rs 的钥匙串内存缓存，查询毫秒级返回。
+/// 生成所有启用模型的健康报告
+/// v0.23.14: 数据源从 llm_calls 历史表切换为 HealthRegistry 实时探测快照。
+/// 启动时 llm_calls 已归零，健康报告 100% 反映本次会话的实时探测结果，
+/// 彻底杜绝死模型/已删除模型出现在健康报告中。
 #[command]
 pub async fn get_model_health_reports(
-    window_limit: Option<i64>,
+    _window_limit: Option<i64>,
     app_handle: AppHandle,
 ) -> Result<Vec<ModelHealthReport>, AppError> {
-    let pool = app_handle
-        .try_state::<DbPool>()
-        .ok_or_else(|| AppError::internal("DbPool not available".to_string()))?;
-    let repo = LlmCallRepository::new(pool.inner().clone());
-
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     let config = AppConfig::load(&app_dir).map_err(AppError::from)?;
 
-    let limit = window_limit.unwrap_or(50);
-    let calls = repo.get_recent(limit * 10).map_err(AppError::from)?;
+    let executor = app_handle
+        .try_state::<GatewayExecutor>()
+        .ok_or_else(|| AppError::internal("GatewayExecutor not available".to_string()))?;
 
-    let mut by_model: std::collections::HashMap<String, Vec<crate::db::models::LlmCall>> =
-        std::collections::HashMap::new();
-    for call in calls {
-        by_model
-            .entry(call.model_id.clone())
-            .or_default()
-            .push(call);
-    }
+    // v0.23.14: 加载算力档案，获取 benchmark 合成的能力分数
+    let cap_profiles: std::collections::HashMap<String, CapabilityProfile> = app_handle
+        .try_state::<DbPool>()
+        .and_then(|pool| {
+            crate::model_gateway::capability_store::CapabilityStore::new(pool.inner().clone())
+                .load_all()
+                .ok()
+        })
+        .map(|profiles| {
+            profiles
+                .into_iter()
+                .map(|p| (p.model_id.clone(), p))
+                .collect()
+        })
+        .unwrap_or_default();
 
     let now_iso = chrono::Local::now().to_rfc3339();
     let mut reports = Vec::new();
-    for (model_id, calls) in by_model {
-        let model_name = calls
-            .first()
-            .and_then(|c| c.model_name.clone())
-            .or_else(|| config.llm_profiles.get(&model_id).map(|p| p.name.clone()))
-            .unwrap_or_else(|| model_id.clone());
+    let mut seen_ids = std::collections::HashSet::new();
 
-        let total = calls.len() as f64;
-        let successes = calls.iter().filter(|c| c.success).count() as f64;
-        let success_rate = if total > 0.0 { successes / total } else { 0.0 };
+    // 从 HealthRegistry 实时探测快照生成报告
+    let health = executor.health_registry();
+    if let Ok(guard) = health.lock() {
+        for snapshot in guard.all() {
+            seen_ids.insert(snapshot.model_id.clone());
+            let success_rate = guard.probe_success_rate(&snapshot.model_id).unwrap_or(0.0);
+            let total_calls = guard.probe_count(&snapshot.model_id) as i64;
 
-        let avg_latency = calls.iter().map(|c| c.duration_ms as f64).sum::<f64>() / total.max(1.0);
-        let quality_scores: Vec<f64> = calls.iter().filter_map(|c| c.quality_score).collect();
-        let avg_quality = if !quality_scores.is_empty() {
-            Some(quality_scores.iter().sum::<f64>() / quality_scores.len() as f64)
-        } else {
-            None
-        };
+            let status = match snapshot.status {
+                HealthStatus::Healthy => "healthy",
+                HealthStatus::Degraded => "degraded",
+                HealthStatus::Unhealthy => "unhealthy",
+                HealthStatus::Unknown => "unknown",
+            }
+            .to_string();
 
-        let last_error = calls
-            .iter()
-            .find(|c| !c.success)
-            .and_then(|c| c.error_message.clone());
-
-        // v0.17.1: 最近一次调用时间（用 calls 已按 created_at DESC 排序）
-        let last_called_at = calls.first().map(|c| c.created_at.to_rfc3339());
-
-        let status = if success_rate >= 0.95 && avg_latency < 10000.0 {
-            "healthy"
-        } else if success_rate >= 0.7 {
-            "degraded"
-        } else {
-            "unhealthy"
+            let cap = cap_profiles.get(&snapshot.model_id);
+            reports.push(ModelHealthReport {
+                model_id: snapshot.model_id,
+                model_name: snapshot.model_name,
+                success_rate,
+                avg_latency_ms: snapshot.ttfb_ms.unwrap_or(0) as f64,
+                avg_quality_score: None,
+                tps: snapshot.tps,
+                capability_score: cap.and_then(|c| c.capability_score),
+                speed_score: cap.and_then(|c| c.speed_score),
+                quality_score: cap.and_then(|c| c.quality_score),
+                last_error: snapshot.last_error.clone(),
+                status,
+                total_calls,
+                last_called_at: snapshot.last_checked_at.clone(),
+                generated_at: now_iso.clone(),
+            });
         }
-        .to_string();
-
-        reports.push(ModelHealthReport {
-            model_id,
-            model_name,
-            success_rate,
-            avg_latency_ms: avg_latency,
-            avg_quality_score: avg_quality,
-            last_error,
-            status,
-            total_calls: calls.len() as i64,
-            last_called_at,
-            generated_at: now_iso.clone(),
-        });
     }
 
-    // 补充配置中有但无调用记录的模型
-    for profile in config.llm_profiles.values() {
-        if !reports.iter().any(|r| r.model_id == profile.id) {
+    // 补充配置中有但尚未探测的启用模型（status: unknown）
+    for profile in config.llm_profiles.values().filter(|p| p.enabled) {
+        if !seen_ids.contains(&profile.id) {
+            let cap = cap_profiles.get(&profile.id);
             reports.push(ModelHealthReport {
                 model_id: profile.id.clone(),
                 model_name: profile.name.clone(),
                 success_rate: 0.0,
                 avg_latency_ms: 0.0,
                 avg_quality_score: None,
+                tps: None,
+                capability_score: cap.and_then(|c| c.capability_score),
+                speed_score: cap.and_then(|c| c.speed_score),
+                quality_score: cap.and_then(|c| c.quality_score),
                 last_error: None,
                 status: "unknown".to_string(),
                 total_calls: 0,

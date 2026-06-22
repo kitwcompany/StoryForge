@@ -12,12 +12,44 @@ mod tests {
     #[test]
     fn test_set_active_llm_profile_success() {
         let mut config = AppConfig::default();
-        assert!(config
-            .set_active_llm_profile("Qwen3.5-27B-Uncensored-Q4_K_M")
-            .is_ok());
+        // v0.23.14: 默认占位 profile 为 enabled:false，需先添加一个 enabled 的
+        let test_profile = LlmProfile {
+            id: "test-active-llm".to_string(),
+            name: "Test Active LLM".to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: ModelSource::UserOwned,
+            model: "gpt-4".to_string(),
+            api_key: "".to_string(),
+            api_base: None,
+            is_local_model: false,
+            max_tokens: 2000,
+            temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: 120,
+            is_default: false,
+            capabilities: vec![ModelCapability::Chat],
+            enabled: true,
+            kind: ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
+        };
+        config.add_llm_profile(test_profile).unwrap();
+
+        assert!(config.set_active_llm_profile("test-active-llm").is_ok());
         assert_eq!(
             config.active_llm_profile,
-            Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string())
+            Some("test-active-llm".to_string())
         );
     }
 
@@ -30,14 +62,55 @@ mod tests {
     }
 
     #[test]
+    fn test_set_active_llm_profile_rejects_disabled() {
+        // v0.23.14: 拒绝将已禁用的模型设为活跃模型
+        let mut config = AppConfig::default();
+        // 默认占位 profile Qwen3.5-27B-Uncensored-Q4_K_M 是 enabled:false
+        let result = config.set_active_llm_profile("Qwen3.5-27B-Uncensored-Q4_K_M");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message().contains("禁用"));
+    }
+
+    #[test]
     fn test_set_active_llm_profile_for_multimodal() {
         // multimodal 模型也是 llm_profile，共享 active_llm_profile
         let mut config = AppConfig::default();
-        assert!(config.set_active_llm_profile("Gemma-4-31B-it-Q6_K").is_ok());
-        assert_eq!(
-            config.active_llm_profile,
-            Some("Gemma-4-31B-it-Q6_K".to_string())
-        );
+        // 添加一个 enabled 的 multimodal profile
+        let mm_profile = LlmProfile {
+            id: "test-mm".to_string(),
+            name: "Test Multimodal".to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: ModelSource::UserOwned,
+            model: "gpt-4o".to_string(),
+            api_key: "".to_string(),
+            api_base: None,
+            is_local_model: false,
+            max_tokens: 2000,
+            temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: 120,
+            is_default: false,
+            capabilities: vec![ModelCapability::Chat],
+            enabled: true,
+            kind: ModelKind::Multimodal,
+            max_context_length: 8192,
+            quality_tier: QualityTier::Medium,
+            speed_tier: SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
+        };
+        config.add_llm_profile(mm_profile).unwrap();
+
+        assert!(config.set_active_llm_profile("test-mm").is_ok());
+        assert_eq!(config.active_llm_profile, Some("test-mm".to_string()));
     }
 
     // ==================== set_active_embedding_profile ====================
@@ -335,7 +408,12 @@ mod tests {
         let (_tmp, app_dir) = temp_app_dir();
         let mut config = AppConfig::default();
 
-        // 修改配置
+        // 修改配置（v0.23.14: set_active_llm_profile 拒绝 disabled，需先启用）
+        config
+            .llm_profiles
+            .get_mut("Gemma-4-31B-it-Q6_K")
+            .unwrap()
+            .enabled = true;
         config
             .set_active_llm_profile("Gemma-4-31B-it-Q6_K")
             .unwrap();

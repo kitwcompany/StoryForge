@@ -849,6 +849,40 @@ pub fn update_model(
     crate::llm::LlmService::new(app_handle.clone()).reload_config();
     log::info!("[update_model] reloaded LLM service config for {}", id);
 
+    // v0.23.14: 刷新网关注册表（使用新 endpoint/api_key）+ 清除旧健康快照 +
+    // 重新探测 防止修改 endpoint 后网关仍用旧连接信息、健康状态仍基于旧
+    // endpoint
+    if let Some(executor) =
+        app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
+    {
+        let executor = executor.inner().clone();
+        executor.refresh_registry();
+        // 清除旧健康快照（旧 endpoint 的探测结果不再有效）
+        if let Ok(mut health) = executor.health_registry().lock() {
+            health.purge(&id);
+        }
+        // 重新探测，让新 endpoint 立即进入可用池
+        let probe_model_id = id.clone();
+        tauri::async_runtime::spawn(async move {
+            match executor.probe_model(&probe_model_id).await {
+                Ok(result) => {
+                    log::info!(
+                        "[update_model] 模型 {} 修改后重新探测完成: success={}",
+                        probe_model_id,
+                        result.success
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[update_model] 模型 {} 修改后重新探测失败: {}",
+                        probe_model_id,
+                        e
+                    );
+                }
+            }
+        });
+    }
+
     // 通知 frontstage 刷新模型列表
     let _ = crate::window::WindowManager::send_to_frontstage(
         &app_handle,
@@ -938,9 +972,14 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
         }
     }
 
-    // 如果当前活跃模型就是被删除的模型，重置为剩余配置中的第一个（如果存在）
+    // 如果当前活跃模型就是被删除的模型，重置为剩余配置中第一个启用的模型
+    // v0.23.14: 增加 enabled 过滤，避免重置到 disabled 模型
     if config.active_llm_profile.as_ref() == Some(&id) {
-        config.active_llm_profile = config.llm_profiles.keys().next().cloned();
+        config.active_llm_profile = config
+            .llm_profiles
+            .values()
+            .find(|p| p.enabled)
+            .map(|p| p.id.clone());
         changed = true;
     }
     if config.active_embedding_profile.as_ref() == Some(&id) {
@@ -963,6 +1002,29 @@ pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), AppError> {
         "[delete_model] reloaded LLM service config after removing {}",
         id
     );
+
+    // v0.23.14: 级联清理 —— 彻底清除死模型残留，防止候选链/健康报告污染
+    // 1. 刷新网关注册表（从最新 config 重建，移除已删除模型）+ 清除健康快照
+    if let Some(executor) =
+        app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
+    {
+        executor.refresh_registry();
+        if let Ok(mut health) = executor.health_registry().lock() {
+            health.purge(&id);
+        }
+        log::info!(
+            "[delete_model] purged gateway registry + health snapshot for {}",
+            id
+        );
+    }
+    // 2. 清除 llm_calls 表中该模型的历史调用记录
+    if let Some(pool) = app_handle.try_state::<crate::db::DbPool>() {
+        let repo = crate::db::repositories_pipeline::LlmCallRepository::new(pool.inner().clone());
+        match repo.delete_by_model_id(&id) {
+            Ok(n) => log::info!("[delete_model] purged {} llm_calls for {}", n, id),
+            Err(e) => log::warn!("[delete_model] failed to purge llm_calls: {}", e),
+        }
+    }
 
     // v0.11.2: 通知 frontstage 刷新模型状态，保持多窗口/多组件数据一致
     let _ = crate::window::WindowManager::send_to_frontstage(
@@ -1015,6 +1077,13 @@ pub fn set_active_model(
         "[set_active_model] reloaded LLM service config for {}",
         model_id
     );
+
+    // v0.23.14: 刷新网关注册表，确保候选链立即反映新的活跃模型
+    if let Some(executor) =
+        app_handle.try_state::<crate::model_gateway::executor::GatewayExecutor>()
+    {
+        executor.refresh_registry();
+    }
 
     // 通知幕前窗口刷新模型状态
     let _ = crate::window::WindowManager::send_to_frontstage(

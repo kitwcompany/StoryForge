@@ -16,6 +16,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useBenchmarkModel, useModelHealthReports } from '@/hooks/useRouter';
 import { useModels } from '@/hooks/useSettings';
+import { refreshModelHealth } from '@/services/api/router';
 import type { ModelConfig, TaskType } from '@/types/llm';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
@@ -51,6 +52,41 @@ export function ModelHealthPanel() {
     () => models.filter(m => m.enabled && m.type === 'chat'),
     [models]
   );
+  // v0.23.14: 追踪正在重新探测的模型，用于按钮 loading 状态
+  const [probingModels, setProbingModels] = useState<Set<string>>(new Set());
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+
+  // 重新探测单个模型，让词元限制恢复后的模型即时回到可用池
+  const handleReprobe = async (modelId: string) => {
+    setProbingModels(prev => new Set(prev).add(modelId));
+    try {
+      await refreshModelHealth(modelId);
+      await refetch();
+      toast.success('模型健康检测已更新');
+    } catch {
+      toast.error('模型重新检测失败');
+    } finally {
+      setProbingModels(prev => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
+    }
+  };
+
+  // 全部刷新：触发所有模型重新探测，而非只读缓存
+  const handleRefreshAll = async () => {
+    setIsRefreshingAll(true);
+    try {
+      await Promise.all(reports.map(r => refreshModelHealth(r.model_id).catch(() => null)));
+      await refetch();
+      toast.success('所有模型健康检测已更新');
+    } catch {
+      toast.error('刷新失败');
+    } finally {
+      setIsRefreshingAll(false);
+    }
+  };
 
   const handleBenchmark = async (model: ModelConfig) => {
     setRunningBenchmarks(prev => new Set(prev).add(model.id));
@@ -96,9 +132,9 @@ export function ModelHealthPanel() {
             </p>
           </div>
         </div>
-        <Button variant="ghost" onClick={() => refetch()} isLoading={isLoading}>
+        <Button variant="ghost" onClick={handleRefreshAll} isLoading={isRefreshingAll || isLoading}>
           <RefreshCw className="w-4 h-4 mr-2" />
-          刷新
+          重新检测全部
         </Button>
       </div>
 
@@ -114,6 +150,9 @@ export function ModelHealthPanel() {
             const status = STATUS_CONFIG[report.status] || STATUS_CONFIG.unknown;
             const StatusIcon = status.icon;
             const modelBenchmarks = benchmarkResults[report.model_id] || [];
+            // v0.23.14: 副标题显示 provider · model 替代裸 model_id，统一显示
+            const cfg = enabledChatModels.find(m => m.id === report.model_id);
+            const subtitle = cfg ? `${cfg.provider} · ${cfg.model}` : report.model_id;
             return (
               <Card key={report.model_id} className="overflow-hidden">
                 <CardContent className="p-5">
@@ -124,10 +163,20 @@ export function ModelHealthPanel() {
                       </div>
                       <div>
                         <h3 className="text-sm font-medium text-white">{report.model_name}</h3>
-                        <p className="text-xs text-gray-500">{report.model_id}</p>
+                        <p className="text-xs text-gray-500">{subtitle}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleReprobe(report.model_id)}
+                        isLoading={probingModels.has(report.model_id)}
+                        disabled={probingModels.has(report.model_id)}
+                      >
+                        <HeartPulse className="w-3.5 h-3.5 mr-1" />
+                        重新检测
+                      </Button>
                       {enabledChatModels.some(m => m.id === report.model_id) && (
                         <Button
                           variant="ghost"
@@ -158,10 +207,10 @@ export function ModelHealthPanel() {
                     />
                     <MetricItem
                       icon={<Gauge className="w-3.5 h-3.5" />}
-                      label="平均质量分"
+                      label="生成速度"
                       value={
-                        typeof report.avg_quality_score === 'number'
-                          ? report.avg_quality_score.toFixed(1)
+                        typeof report.tps === 'number' && report.tps > 0
+                          ? `${report.tps.toFixed(1)} tok/s`
                           : '-'
                       }
                     />
@@ -170,6 +219,46 @@ export function ModelHealthPanel() {
                       label="状态"
                       value={status.label}
                       valueClassName={status.color}
+                    />
+                  </div>
+
+                  {/* v0.23.14: 模型得分——综合能力分 + 速度分 + 质量分 */}
+                  <div className="grid grid-cols-3 gap-4 mt-3">
+                    <MetricItem
+                      icon={<Gauge className="w-3.5 h-3.5" />}
+                      label="综合得分"
+                      value={
+                        typeof report.capability_score === 'number'
+                          ? `${report.capability_score.toFixed(0)}`
+                          : '-'
+                      }
+                      valueClassName={
+                        typeof report.capability_score === 'number'
+                          ? report.capability_score >= 80
+                            ? 'text-green-400'
+                            : report.capability_score >= 50
+                              ? 'text-yellow-400'
+                              : 'text-red-400'
+                          : undefined
+                      }
+                    />
+                    <MetricItem
+                      icon={<Gauge className="w-3.5 h-3.5" />}
+                      label="速度分"
+                      value={
+                        typeof report.speed_score === 'number'
+                          ? `${report.speed_score.toFixed(0)}`
+                          : '-'
+                      }
+                    />
+                    <MetricItem
+                      icon={<Gauge className="w-3.5 h-3.5" />}
+                      label="质量分"
+                      value={
+                        typeof report.quality_score === 'number'
+                          ? `${report.quality_score.toFixed(0)}`
+                          : '-'
+                      }
                     />
                   </div>
 

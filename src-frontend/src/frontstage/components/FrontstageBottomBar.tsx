@@ -95,7 +95,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
 
   if (isZenMode) return null;
 
-  const primaryModel = gatewayModels.find(m => m.is_primary) || gatewayModels[0];
+  // v0.23.14: 移除 dead code primaryModel（计算后从未使用）
   const fallbackModel = gatewayModels.find(m => m.is_fallback);
 
   const getModelConfig = (modelId: string) => allModels.find(m => m.id === modelId);

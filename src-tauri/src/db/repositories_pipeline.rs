@@ -1374,4 +1374,24 @@ impl LlmCallRepository {
         let count = conn.execute("DELETE FROM llm_calls WHERE id = ?1", [id])?;
         Ok(count)
     }
+
+    /// 删除指定模型的所有历史调用记录（利用 idx_llm_calls_model 索引，高效）
+    pub fn delete_by_model_id(&self, model_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count = conn.execute("DELETE FROM llm_calls WHERE model_id = ?1", [model_id])?;
+        Ok(count)
+    }
+
+    /// 清空整张 llm_calls 表（启动归零用，避免死模型污染健康报告）
+    pub fn delete_all(&self) -> Result<usize, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count = conn.execute("DELETE FROM llm_calls", [])?;
+        Ok(count)
+    }
 }

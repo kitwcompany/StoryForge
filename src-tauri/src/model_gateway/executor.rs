@@ -347,8 +347,10 @@ impl GatewayExecutor {
                 let health = self.health_registry();
                 let health_guard = health.lock().ok();
 
-                // 候选：(ttfb, -success_rate, profile_id) — 升序排序
-                let mut ranked: Vec<(u64, f64, String)> = profiles
+                // v0.23.14: 排序键改为 (ttfb_bucket, -capability_score, -success_rate, id)
+                // ttfb_bucket 将 TTFB 按 20% 宽度分桶，同桶内按能力分降序，
+                // 避免"快 1ms 但质量差 10 倍"的模型被选中。
+                let mut ranked: Vec<(u64, f64, f64, String)> = profiles
                     .iter()
                     .filter(|cap| cap.status != super::types::HealthStatus::Unhealthy)
                     .filter_map(|cap| {
@@ -356,6 +358,7 @@ impl GatewayExecutor {
                         self.registry_guard().get(&cap.model_id)?;
                         let ttfb = cap.short_ttfb_ms_p50.unwrap_or(10_000);
                         let success = cap.success_rate_24h.unwrap_or(0.0);
+                        let cap_score = cap.capability_score.unwrap_or(0.0);
                         // 若有健康快照且 Unhealthy 则跳过（双保险）
                         if let Some(ref h) = health_guard {
                             if let Some(snap) = h.get(&cap.model_id) {
@@ -364,14 +367,19 @@ impl GatewayExecutor {
                                 }
                             }
                         }
-                        Some((ttfb, -success, cap.model_id.clone()))
+                        // 分桶：每 200ms 一桶，同桶内能力分高的优先
+                        let ttfb_bucket = (ttfb / 200) * 200;
+                        Some((ttfb_bucket, -cap_score, -success, cap.model_id.clone()))
                     })
                     .collect();
-                ranked.sort_by_key(|(ttfb, neg_success, _)| {
-                    (*ttfb, (*neg_success * 1_000_000.0) as i64)
+                ranked.sort_by(|a, b| {
+                    a.0.cmp(&b.0) // ttfb_bucket 升序
+                        .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)) // -cap_score 升序（即 cap_score 降序）
+                        .then_with(|| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+                    // -success 降序
                 });
 
-                if let Some((fastest_ttfb, _, fastest_id)) = ranked.first() {
+                if let Some((fastest_ttfb, _, _, fastest_id)) = ranked.first() {
                     // v0.23.12: 用户当前设置的活跃模型优先使用：
                     // 1) 活跃模型无算力档案（用户刚添加或从未探测），直接用它；
                     // 2) 活跃模型有档案且 TTFB 不比最快模型差太多（<= 3x 且至少 3000ms），用它；
@@ -700,7 +708,7 @@ impl GatewayExecutor {
             log::info!("[GatewayExecutor] 基准长任务 {}...", profile.name);
             let long = benchmarker.run_benchmark(profile, true).await;
 
-            let cap = crate::model_gateway::types::CapabilityProfile {
+            let mut cap = crate::model_gateway::types::CapabilityProfile {
                 model_id: profile.id.clone(),
                 short_ttfb_ms_p50: short.real_ttfb_ms,
                 long_ttfb_ms_p50: long.real_ttfb_ms,
@@ -721,6 +729,8 @@ impl GatewayExecutor {
                 status: crate::model_gateway::types::HealthStatus::Unknown,
                 ..Default::default()
             };
+            // v0.23.14: 从实测数据合成 speed/quality/capability 三个分数
+            cap.compute_scores();
             if let Err(e) = store.upsert(&cap) {
                 log::error!("[GatewayExecutor] 保存算力档案失败 {}: {}", profile.id, e);
             } else {

@@ -103,6 +103,14 @@ export interface ModelHealthReport {
   success_rate: number;
   avg_latency_ms: number;
   avg_quality_score?: number;
+  // v0.23.14: 生成速度（tokens/second），来自实时探测
+  tps?: number;
+  // v0.23.14: 综合能力得分（0-100），来自算力档案 benchmark
+  capability_score?: number;
+  // v0.23.14: 速度得分（0-100）
+  speed_score?: number;
+  // v0.23.14: 质量得分（0-100）
+  quality_score?: number;
   last_error?: string;
   status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
   // v0.17.1: 数据新鲜度与调用次数

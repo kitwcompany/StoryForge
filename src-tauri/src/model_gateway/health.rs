@@ -158,6 +158,35 @@ impl HealthRegistry {
             is_fallback: false,
         };
     }
+
+    /// 移除指定模型的健康记录（删除模型时联动清除残留快照）
+    pub fn purge(&mut self, model_id: &str) -> bool {
+        self.records.remove(model_id).is_some()
+    }
+
+    /// 仅保留 valid_ids 中的模型健康记录（启动时清除 config 中已不存在的模型）
+    pub fn retain(&mut self, valid_ids: &[String]) {
+        self.records.retain(|k, _| valid_ids.iter().any(|v| v == k));
+    }
+
+    /// 从内存最近探测记录计算成功率（替代依赖 llm_calls 历史的聚合）
+    pub fn probe_success_rate(&self, model_id: &str) -> Option<f64> {
+        let record = self.records.get(model_id)?;
+        if record.recent_probes.is_empty() {
+            return None;
+        }
+        let total = record.recent_probes.len();
+        let success = record.recent_probes.iter().filter(|p| p.success).count();
+        Some(success as f64 / total as f64)
+    }
+
+    /// 返回内存中保留的探测次数（用于健康报告的 total_calls 字段）
+    pub fn probe_count(&self, model_id: &str) -> usize {
+        self.records
+            .get(model_id)
+            .map(|r| r.recent_probes.len())
+            .unwrap_or(0)
+    }
 }
 
 /// 探测引擎
@@ -190,5 +219,90 @@ impl ProbeEngine {
 impl Default for ProbeEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model_gateway::types::HealthStatus;
+
+    fn make_snapshot(id: &str, status: HealthStatus) -> ModelHealthSnapshot {
+        ModelHealthSnapshot {
+            model_id: id.to_string(),
+            model_name: format!("Model {}", id),
+            status,
+            ttfb_ms: Some(100),
+            tps: Some(10.0),
+            success_rate_24h: None,
+            avg_latency_ms: None,
+            last_error: None,
+            last_checked_at: None,
+            enabled: true,
+            is_primary: false,
+            is_fallback: false,
+        }
+    }
+
+    #[test]
+    fn test_purge_removes_entry() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Healthy));
+        registry.update(make_snapshot("model-b", HealthStatus::Unhealthy));
+
+        assert!(registry.get("model-a").is_some());
+        assert!(registry.purge("model-a"));
+        assert!(registry.get("model-a").is_none());
+        assert!(registry.get("model-b").is_some());
+    }
+
+    #[test]
+    fn test_purge_returns_false_for_missing() {
+        let mut registry = HealthRegistry::new();
+        assert!(!registry.purge("nonexistent"));
+    }
+
+    #[test]
+    fn test_retain_keeps_only_valid_ids() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Healthy));
+        registry.update(make_snapshot("model-b", HealthStatus::Healthy));
+        registry.update(make_snapshot("model-c", HealthStatus::Unhealthy));
+
+        registry.retain(&["model-a".to_string(), "model-c".to_string()]);
+
+        assert!(registry.get("model-a").is_some());
+        assert!(registry.get("model-b").is_none());
+        assert!(registry.get("model-c").is_some());
+    }
+
+    #[test]
+    fn test_retain_with_empty_ids_clears_all() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Healthy));
+        registry.retain(&[]);
+        assert!(registry.get("model-a").is_none());
+        assert!(registry.all().is_empty());
+    }
+
+    #[test]
+    fn test_probe_success_rate_none_when_no_probes() {
+        let registry = HealthRegistry::new();
+        // 没有 recent_probes 时返回 None
+        assert_eq!(registry.probe_success_rate("model-a"), None);
+    }
+
+    #[test]
+    fn test_probe_count_zero_when_missing() {
+        let registry = HealthRegistry::new();
+        assert_eq!(registry.probe_count("nonexistent"), 0);
+    }
+
+    #[test]
+    fn test_probe_count_zero_when_no_probes() {
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Healthy));
+        // 有快照但无探测记录时返回 0
+        assert_eq!(registry.probe_count("model-a"), 0);
     }
 }

@@ -840,6 +840,34 @@ pub fn run() {
                 log::info!("[ModelGateway] 网关执行器与健康探测调度器已初始化");
             }
 
+            // v0.23.14: 启动归零 —— 清空 llm_calls 历史表，避免死模型污染健康报告。
+            // 健康报告数据源已切换为 HealthRegistry 实时探测快照，不再依赖 llm_calls。
+            if let Some(ref pool) = pool {
+                let repo = crate::db::repositories_pipeline::LlmCallRepository::new(
+                    pool.clone(),
+                );
+                match repo.delete_all() {
+                    Ok(n) => {
+                        log::info!("[Setup] 启动归零：清除 llm_calls {} 条历史记录", n)
+                    }
+                    Err(e) => log::warn!("[Setup] 启动归零失败: {}", e),
+                }
+                // 清除 HealthRegistry 中不在当前 config 的残留条目（防御性）
+                if let Some(executor) =
+                    app.try_state::<crate::model_gateway::executor::GatewayExecutor>()
+                {
+                    let valid_ids: Vec<String> = app_config
+                        .llm_profiles
+                        .keys()
+                        .cloned()
+                        .chain(app_config.embedding_profiles.keys().cloned())
+                        .collect();
+                    if let Ok(mut health) = executor.health_registry().lock() {
+                        health.retain(&valid_ids);
+                    }
+                }
+            }
+
             if let Some(ref pool) = pool {
                 let app_handle = app.handle().clone();
                 init_task_system_and_automation(app, pool, &app_handle);

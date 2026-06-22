@@ -298,13 +298,115 @@ pub struct CapabilityProfile {
     pub quality_score: Option<f64>,
 }
 
+impl CapabilityProfile {
+    /// v0.23.14: 从实测数据合成三个分数（0-100），填入空置已久的字段。
+    ///
+    /// - speed_score: TTFB（首 token 延迟，越低越好）+
+    ///   TPS（生成速度，越高越好）各 50%
+    /// - quality_score: 成功率直接映射 0-100
+    /// - capability_score: 速度 40% + 质量 60%
+    pub fn compute_scores(&mut self) {
+        // 速度分：TTFB（短任务 p50）
+        let ttfb_score = self
+            .short_ttfb_ms_p50
+            .map(|ms| {
+                // <500ms = 100, >5000ms = 0, 线性插值
+                let clamped = ms.max(500).min(5000) as f64;
+                100.0 - (clamped - 500.0) / 4500.0 * 100.0
+            })
+            .unwrap_or(50.0);
+
+        // 速度分：TPS（长输出持续速度）
+        let tps_score = self
+            .sustained_tps
+            .map(|tps| {
+                // >50 tps = 100, <5 tps = 0, 线性插值
+                let clamped = tps.max(5.0).min(50.0);
+                (clamped - 5.0) / 45.0 * 100.0
+            })
+            .unwrap_or(50.0);
+
+        let speed_score = (ttfb_score * 0.5 + tps_score * 0.5).round();
+        self.speed_score = Some(speed_score);
+
+        // 质量分：成功率
+        let quality_score = self
+            .success_rate_24h
+            .map(|r| (r * 100.0).round())
+            .unwrap_or(0.0);
+        self.quality_score = Some(quality_score);
+
+        // 综合分：速度 40% + 质量 60%
+        let capability_score = (speed_score * 0.4 + quality_score * 0.6).round();
+        self.capability_score = Some(capability_score);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn test_compute_scores_fast_healthy_model() {
+        let mut cap = CapabilityProfile {
+            model_id: "test-fast".to_string(),
+            short_ttfb_ms_p50: Some(300),
+            sustained_tps: Some(60.0),
+            success_rate_24h: Some(1.0),
+            ..Default::default()
+        };
+        cap.compute_scores();
+        // TTFB < 500 → 100, TPS > 50 → 100, speed = 100
+        assert_eq!(cap.speed_score, Some(100.0));
+        // success_rate 1.0 → 100
+        assert_eq!(cap.quality_score, Some(100.0));
+        // 100*0.4 + 100*0.6 = 100
+        assert_eq!(cap.capability_score, Some(100.0));
+    }
+
+    #[test]
+    fn test_compute_scores_slow_degraded_model() {
+        let mut cap = CapabilityProfile {
+            model_id: "test-slow".to_string(),
+            short_ttfb_ms_p50: Some(4000),
+            sustained_tps: Some(10.0),
+            success_rate_24h: Some(0.7),
+            ..Default::default()
+        };
+        cap.compute_scores();
+        // TTFB 4000: 100 - (4000-500)/4500*100 = 100 - 77.78 = 22.22 → 22
+        // TPS 10: (10-5)/45*100 = 11.11 → 11
+        // speed = 22*0.5 + 11*0.5 = 16.5 → 17 (rounded)
+        let speed = cap.speed_score.unwrap();
+        assert!(speed >= 15.0 && speed <= 19.0, "speed_score was {}", speed);
+        // quality = 70
+        assert_eq!(cap.quality_score, Some(70.0));
+        // capability = speed*0.4 + 70*0.6
+        let cap_score = cap.capability_score.unwrap();
+        assert!(
+            cap_score >= 48.0 && cap_score <= 52.0,
+            "capability was {}",
+            cap_score
+        );
+    }
+
+    #[test]
+    fn test_compute_scores_no_data_defaults_to_50() {
+        let mut cap = CapabilityProfile {
+            model_id: "test-empty".to_string(),
+            ..Default::default()
+        };
+        cap.compute_scores();
+        // No TTFB → 50, No TPS → 50, speed = 50
+        assert_eq!(cap.speed_score, Some(50.0));
+        // No success_rate → 0
+        assert_eq!(cap.quality_score, Some(0.0));
+        // 50*0.4 + 0*0.6 = 20
+        assert_eq!(cap.capability_score, Some(20.0));
+    }
+
+    #[test]
     fn test_for_fast_routing_defaults() {
-        // v0.23 TriShot：for_fast_routing 应强制速度优先、低成本、LightTool 路由
         let req = GatewayRequest::for_fast_routing("测试 prompt".to_string(), "tri-shot-router");
         assert_eq!(req.prompt, "测试 prompt");
         assert_eq!(req.agent_id, "tri-shot-router");

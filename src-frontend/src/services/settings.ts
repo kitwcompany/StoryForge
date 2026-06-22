@@ -21,76 +21,24 @@ function isTauriApp(): boolean {
   return !!(window as unknown as { __TAURI__?: unknown }).__TAURI__;
 }
 
-// 浏览器开发环境 fallback：三个真实本地模型
-const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
-  {
-    id: 'Qwen3.5-27B-Uncensored-Q4_K_M',
-    name: 'Qwen 3.5 语言模型',
-    description: '本地语言模型，用于文本生成和对话',
-    provider: 'custom',
-    model_source: 'local',
-    model: 'Qwen3.5-27B-Uncensored-Q4_K_M',
-    api_key: '',
-    api_base: 'http://10.62.239.13:17098/v1',
-    timeout_seconds: 120,
-    is_default: true,
-    enabled: true,
-    type: 'chat',
-    temperature: 0.8,
-    max_tokens: 8192,
-    capabilities: ['chat', 'completion', 'long_context'],
-  },
-  {
-    id: 'Gemma-4-31B-it-Q6_K',
-    name: 'Gemma 4 多模态',
-    description: '本地多模态模型，支持图文理解',
-    provider: 'custom',
-    model_source: 'local',
-    model: 'Gemma-4-31B-it-Q6_K',
-    api_key: '',
-    api_base: 'http://10.62.239.13:17099/v1',
-    timeout_seconds: 120,
-    is_default: false,
-    enabled: true,
-    type: 'multimodal',
-    temperature: 0.7,
-    max_tokens: 8192,
-    supports_vision: true,
-    supports_audio: false,
-    capabilities: ['chat', 'vision', 'long_context'],
-  },
-  {
-    id: 'bge-m3',
-    name: 'BGE-M3 Embedding',
-    description: '文本嵌入模型，用于语义搜索和向量化',
-    provider: 'custom',
-    model_source: 'local',
-    model: 'bge-m3',
-    api_key: '',
-    api_base: 'http://10.62.239.13:8089',
-    timeout_seconds: 120,
-    is_default: true,
-    enabled: true,
-    type: 'embedding',
-    dimensions: 1024,
-    max_input_tokens: 8192,
-  },
-];
+// v0.23.14: 浏览器开发环境 fallback —— 空模型列表，不再注入硬编码 LAN IP 模型。
+// 避免前端任何代码路径误用死模型 id。Tauri 生产环境走后端 IPC，不受影响。
+const BROWSER_FALLBACK_MODELS: ModelConfig[] = [];
 
 // 浏览器开发环境 fallback 设置
 const BROWSER_FALLBACK_SETTINGS: AppSettings = {
   version: '0.1.0',
   updated_at: new Date().toISOString(),
   models: {
-    chat: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'chat'),
-    embedding: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'embedding'),
-    multimodal: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'multimodal'),
+    chat: [],
+    embedding: [],
+    multimodal: [],
     image: [],
   },
   active_models: {
-    chat: 'Qwen3.5-27B-Uncensored-Q4_K_M',
-    embedding: 'bge-m3',
-    multimodal: 'Gemma-4-31B-it-Q6_K',
+    chat: '',
+    embedding: '',
+    multimodal: '',
   },
   agent_mappings: [],
   general: {

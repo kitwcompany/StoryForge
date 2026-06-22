@@ -956,8 +956,9 @@ impl Default for AppConfig {
             },
             llm_profiles,
             embedding_profiles,
-            active_llm_profile: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
-            active_embedding_profile: Some("bge-m3".to_string()),
+            active_llm_profile: None, /* v0.23.14: 不默认指向占位 profile，由
+                                       * get_active_llm_profile 走 fallback */
+            active_embedding_profile: None,
             agent_mappings,
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
@@ -1241,14 +1242,21 @@ impl AppConfig {
 
     /// 设置活跃的LLM配置
     pub fn set_active_llm_profile(&mut self, profile_id: &str) -> Result<(), AppError> {
-        if self.llm_profiles.contains_key(profile_id) {
-            self.active_llm_profile = Some(profile_id.to_string());
-            Ok(())
-        } else {
-            Err(AppError::NotFound {
+        // v0.23.14: 拒绝将已禁用的模型设为活跃模型，防止 active 指针指向不可用模型
+        // 后静默跳过、回落到候选链死模型导致超时。
+        match self.llm_profiles.get(profile_id) {
+            Some(profile) if profile.enabled => {
+                self.active_llm_profile = Some(profile_id.to_string());
+                Ok(())
+            }
+            Some(_) => Err(AppError::ValidationFailed {
+                message: "无法将已禁用的模型设为活跃模型".to_string(),
+                field: Some("profile_id".to_string()),
+            }),
+            None => Err(AppError::NotFound {
                 resource: "llm_profile".to_string(),
                 id: profile_id.to_string(),
-            })
+            }),
         }
     }
 

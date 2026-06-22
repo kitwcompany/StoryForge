@@ -2,6 +2,51 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v0.23.14] - 干净健康的模型池 + 统一身份 + 实时健康报告（2026-06-22）
+
+### 核心目标
+建设一个**干净的、健康的模型池**：启动归零 → 实时探测生成 → 候选池只含存活模型 → 删除即彻底清除 → 显示统一为 canonical name。彻底消灭死模型/硬编码模型混入候选链导致 600s 超时的根因。
+
+### 修复
+- **L1 净化候选池 + 启动归零**
+  - 启动时自动清空 `llm_calls` 历史表（归零）+ 过滤 `HealthRegistry` 中不在当前 config 的残留条目
+  - `delete_model` 级联清理：刷新网关注册表 + 清除健康快照 + 删除历史调用记录（此前三项都不做，死模型残留）
+  - `update_model` 刷新网关注册表 + 清除旧健康快照 + 用新 endpoint 重新探测（此前修改 endpoint/api_key 后网关仍用旧连接）
+- **L2 统一身份 + 强引用校验**
+  - `set_active_llm_profile` 拒绝将 disabled 模型设为活跃（此前指针指向死模型后静默跳过）
+  - `default()` 不再默认指向 disabled 占位 profile `Qwen3.5-...`
+  - `delete_model` active 重置增加 `enabled` 过滤
+  - `set_active_model` 新增 `refresh_registry`，与 `create_model` 保持对称
+- **L3 清理硬编码死模型**
+  - 删除 `config/models.ts`（含写死局域网 IP `10.62.239.13` 的死代码）
+  - 删除 `hooks/useModel.ts`（含 `id: modelId, name: modelId` 混淆 bug）
+  - 净化 `BROWSER_FALLBACK_MODELS` 为空列表，不再注入假模型
+- **L4 显示统一 + 健康报告数据源切换**
+  - `get_model_health_reports` 从 `llm_calls` 历史表切换为 `HealthRegistry` 实时探测快照
+  - `ModelHealthReport` 新增 `tps`/`capability_score`/`speed_score`/`quality_score` 字段
+  - 面板副标题从裸 `model_id` 改为 `provider · model`
+  - 删除前端 dead code `primaryModel`
+- **运行时健康状态自动恢复**
+  - `run_retry_probe` 覆盖 `Unknown` 模型（此前 Unknown 无人探测，永久卡死）
+  - 面板"重新检测全部"按钮触发真实后端探测（此前只读缓存）
+  - 每个模型卡片新增独立"重新检测"按钮，词元限制恢复后即时回池
+- **模型能力分数合成**
+  - `CapabilityProfile::compute_scores()` 从实测 TTFB/TPS/成功率合成 `speed_score`/`quality_score`/`capability_score`（0-100）
+  - `run_initial_benchmark` 调用 `compute_scores` 持久化
+  - `select_candidates` 第 209 行消费 `capability_score`（之前永远是 None → 0，质量维度缺失）
+  - `select_fastest_profile` 排序从纯 TTFB 改为"分桶 + 能力分决胜"：同 200ms TTFB 桶内按 `capability_score` 降序
+
+### 新增测试（11 个）
+- `health.rs`: 7 个（purge/retain/probe_success_rate/probe_count）
+- `settings_tests.rs`: 1 个（reject disabled）+ 3 个已有适配
+- `types.rs`: 3 个（compute_scores 快/慢/无数据）
+
+### 验证
+- `cargo test --lib` ✅ **551 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt -- --check` ✅ 通过
+- `npx tsc --noEmit` ✅ 零错误
+- `npm run format:check` ✅ 零差异
+
 ## [v0.23.13] - 强制所有生成路径使用活跃模型（2026-06-22）
 
 ### 修复

@@ -91,9 +91,13 @@ async fn run_retry_probe(executor: &GatewayExecutor) {
     };
 
     for snapshot in health {
+        // v0.23.14: Unknown 模型也纳入重试，避免新加入或 purge 后的模型
+        // 永久卡在 Unknown 状态无人探测。
         if matches!(
             snapshot.status,
-            super::types::HealthStatus::Degraded | super::types::HealthStatus::Unhealthy
+            super::types::HealthStatus::Degraded
+                | super::types::HealthStatus::Unhealthy
+                | super::types::HealthStatus::Unknown
         ) {
             if let Err(e) = executor.probe_model(&snapshot.model_id).await {
                 log::warn!(
