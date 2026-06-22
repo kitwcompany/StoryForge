@@ -183,23 +183,26 @@ async fn smart_execute_inner(
     let is_bootstrap_intent = is_novel_creation_intent(&user_input);
 
     if is_bootstrap_intent {
-        log::info!("[smart_execute] Detected novel creation intent, starting GenesisPipeline (concept sync + first-chapter background)");
+        log::info!(
+            "[smart_execute] Detected novel creation intent, starting GenesisPipeline quick phase"
+        );
         let mut ctx =
             crate::narrative::genesis::GenesisContext::new(app_handle.clone(), user_input.clone());
         let session_id = ctx.session_id.clone();
         let llm = crate::llm::LlmService::new(app_handle.clone());
-        let concept_steps = crate::narrative::genesis::GenesisPipeline::concept_only_steps();
         let cancel_flag = crate::narrative::pipeline::register_pipeline_cancel(&session_id);
-        let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(concept_steps)
+
+        // v0.23.14: 快速阶段 = 故事概念 + 第一章正文（TriShot 模式，目标 30-60 秒）
+        // 正文生成后立即返回给用户，策略选择与世界观/大纲/角色等推入后台。
+        let quick_steps = crate::narrative::genesis::GenesisPipeline::quick_phase_steps();
+        let executor = crate::narrative::pipeline::NarrativePipelineExecutor::new(quick_steps)
             .with_cancel_flag(cancel_flag.clone());
 
         // 进度回调：同时发射新旧两种事件（向后兼容）
         let app_handle_progress = app_handle.clone();
         let progress_callback = std::sync::Arc::new(
             move |evt: crate::narrative::progress::PipelineProgressEvent| {
-                // 发射新事件
                 let _ = app_handle_progress.emit("pipeline-progress", &evt);
-                // 发射旧事件（向后兼容，前端仍在监听 novel-bootstrap-progress）
                 let _ = app_handle_progress.emit(
                     "novel-bootstrap-progress",
                     crate::planner::bootstrap::BootstrapProgressEvent {
@@ -219,18 +222,22 @@ async fn smart_execute_inner(
             .await
         {
             Ok(()) => {
-                // v0.10.0: 概念生成后立即选择创作策略（同步执行，快速完成）
-                let strategy_steps =
-                    crate::narrative::genesis::GenesisPipeline::strategy_selection_step();
-                let strategy_executor =
-                    crate::narrative::pipeline::NarrativePipelineExecutor::new(strategy_steps)
-                        .with_cancel_flag(cancel_flag.clone());
-                if let Err(e) = strategy_executor
-                    .execute(&mut ctx, &llm, progress_callback.clone())
-                    .await
-                {
-                    log::warn!("[GenesisPipeline] 策略选择失败，将使用默认策略继续: {}", e);
-                }
+                // 从上下文读取第一章正文内容（已在 FirstChapterGenerationStep
+                // 中保存到数据库并发射 ChapterSwitch 事件）
+                let final_content = {
+                    let bundle = ctx.bundle.read().await;
+                    bundle
+                        .story_meta
+                        .as_ref()
+                        .and_then(|meta| {
+                            if meta.title.is_empty() {
+                                None
+                            } else {
+                                Some(format!("故事《{}》已创建，第一章正文已生成。", meta.title))
+                            }
+                        })
+                        .or_else(|| ctx.first_chapter_content.clone())
+                };
 
                 let story_id = ctx.story_id.clone();
                 let session_id = ctx.session_id.clone();
@@ -258,13 +265,13 @@ async fn smart_execute_inner(
                         previous_content: None,
                         new_content: None,
                         metadata: Some(
-                            serde_json::json!({"session_id": session_id, "mode": "concept_sync"})
+                            serde_json::json!({"session_id": session_id, "mode": "quick_phase"})
                                 .to_string(),
                         ),
                     },
                 );
 
-                // v0.9.5: 第一章与剩余结构在后台生成，避免阻塞用户
+                // v0.23.14: 后台阶段：策略选择 + 世界观/大纲/角色/场景/伏笔/知识图谱
                 let app_handle_bg = app_handle.clone();
                 let story_id_bg = story_id.clone();
                 let session_id_bg = session_id.clone();
@@ -281,8 +288,10 @@ async fn smart_execute_inner(
                         selected_strategy,
                     );
                     let llm_bg = crate::llm::LlmService::new(app_handle_bg.clone());
-                    let bg_steps =
-                        crate::narrative::genesis::GenesisPipeline::first_chapter_and_background_steps();
+
+                    // v0.23.14: background_steps 包含 StrategySelectionStep +
+                    // 世界观/大纲/角色/场景/伏笔/知识图谱
+                    let bg_steps = crate::narrative::genesis::GenesisPipeline::background_steps();
                     let bg_cancel_flag =
                         crate::narrative::pipeline::register_pipeline_cancel(&session_id_bg);
                     let bg_executor =
@@ -360,7 +369,8 @@ async fn smart_execute_inner(
                 return Ok(crate::planner::PlanExecutionResult {
                     success: true,
                     steps_completed: 1,
-                    final_content: None,
+                    // v0.23.14: 返回第一章正文（已在快速阶段生成），让用户立即可见
+                    final_content,
                     messages: vec![
                         format!("story_created:{}", story_id),
                         format!("session_id:{}", session_id),

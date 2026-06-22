@@ -234,9 +234,12 @@ fn build_narrative_quartet(ctx: &GenesisContext) -> Option<String> {
 pub struct GenesisPipeline;
 
 impl GenesisPipeline {
-    /// 即时阶段：仅生成故事概念并创建 Story 记录，快速返回让前端先进入工作台
-    pub fn concept_only_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
-        vec![Box::new(ConceptGenerationStep)]
+    /// 快速阶段：故事概念 + 第一章正文，目标 30-60 秒返回给用户
+    pub fn quick_phase_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
+        vec![
+            Box::new(ConceptGenerationStep),
+            Box::new(FirstChapterGenerationStep),
+        ]
     }
 
     /// 策略选择阶段：根据概念自动选择体裁画像、方法论、风格 DNA 与技能
@@ -244,11 +247,11 @@ impl GenesisPipeline {
         vec![Box::new(StrategySelectionStep)]
     }
 
-    /// 后台阶段：第一章 + 世界观/大纲/角色/场景/伏笔/知识图谱 + 合同播种
-    pub fn first_chapter_and_background_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
+    /// 后台阶段：策略选择 + 世界观/大纲/角色/场景/伏笔/知识图谱 + 合同播种
+    /// v0.23.14: FirstChapterGenerationStep 已移至快速阶段，后台不再包含。
+    pub fn background_steps() -> Vec<Box<dyn PipelineStep<GenesisContext>>> {
         vec![
-            Box::new(FirstChapterGenerationStep),
-            // 世界观、大纲、角色互相独立，合并为一个并行步骤
+            Box::new(StrategySelectionStep),
             Box::new(ParallelWorldOutlineCharacterStep),
             Box::new(SceneGenerationStep),
             Box::new(ForeshadowingGenerationStep),
@@ -626,14 +629,16 @@ impl PipelineStep<GenesisContext> for FirstChapterGenerationStep {
                 metadata: None,
             });
 
-            // v0.9.6: Bootstrap 初稿走 Orchestrator Full 模式，确保第一章质量
+            // v0.23.14: Bootstrap 初稿走 TriShot 模式（30-60s），替代 Full 模式（最多 270s
+            // + 5 次 LLM 调用） TriShot: Call 1 选资产合成提示词 → Call
+            // 2(可选)精修 → Call 3 Writer 生成，目标 3 次 LLM 内完成。
             let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
                 service,
                 orchestrator_config,
                 ctx.app_handle.clone(),
             );
             let result = match orchestrator
-                .generate(task, crate::agents::orchestrator::GenerationMode::Full)
+                .generate(task, crate::agents::orchestrator::GenerationMode::TriShot)
                 .await
             {
                 Ok(workflow_result) => crate::domain::agent_types::AgentResult {
@@ -1926,7 +1931,7 @@ mod contract_seeding_tests {
 
     #[test]
     fn background_steps_include_contract_seeding() {
-        let steps = GenesisPipeline::first_chapter_and_background_steps();
+        let steps = GenesisPipeline::background_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name()).collect();
         assert!(names.contains(&"播种故事合同"));
         assert_eq!(names.len(), 6);
