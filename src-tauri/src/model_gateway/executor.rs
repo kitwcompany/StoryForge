@@ -262,10 +262,21 @@ impl GatewayExecutor {
             }
         }
 
+        self.workflow_log(
+            "gateway.select_candidates.cap_done",
+            "能力档案段结束",
+            Some(serde_json::json!({"candidates": decision.candidates.len(), "request_id": request.request_id})),
+        );
+
         // v0.23.13: 普通路由生成强制使用用户当前设置的活跃模型作为主模型。
         // 只要活跃模型通过健康检查（Healthy/Degraded）且仍在注册表，就将其置于
         // 候选链首位；这防止网关三维打分/算力档案把请求路由到用户未预期的模型。
         if let Some(active) = self.llm_service.get_active_profile() {
+            self.workflow_log(
+                "gateway.select_candidates.active_profile_obtained",
+                "获取活跃模型成功",
+                Some(serde_json::json!({"active_id": active.id, "request_id": request.request_id})),
+            );
             if self.is_model_available(&active.id) {
                 if let Some(profile) = self.registry_guard().get(&active.id).cloned() {
                     let mut candidates = decision.candidates.clone();
