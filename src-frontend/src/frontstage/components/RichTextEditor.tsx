@@ -190,6 +190,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const latestTextRef = useRef('');
     const editorRef = useRef<ReturnType<typeof useEditor> | null>(null);
 
+    // v0.23.23: 标记外部内容同步（非用户编辑），防止 setContent 触发 onUpdate → 伪"保存中"
+    const isExternalSyncRef = useRef(false);
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -205,6 +208,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       ],
       content,
       onUpdate: ({ editor }) => {
+        // v0.23.23: 外部内容同步（editor.commands.setContent）触发的 onUpdate 不调 onChange
+        if (isExternalSyncRef.current) {
+          return;
+        }
         // 轻量文本更新（字数/状态等低耗时场景）
         latestTextRef.current = editor.getText();
 
@@ -353,9 +360,16 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // 同步外部内容变化
     // W2-F1: 编辑器有焦点时不强制 setContent，避免保存/同步过程中丢焦点
+    // v0.23.23: 用 isExternalSyncRef 标记外部同步，跳过 onUpdate 中的 onChange 回调，
+    // 防止启动加载/章节切换时触发伪"保存中"和自动保存
     useEffect(() => {
       if (editor && content !== editor.getHTML() && !editor.isFocused) {
+        isExternalSyncRef.current = true;
         editor.commands.setContent(content);
+        // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过
+        queueMicrotask(() => {
+          isExternalSyncRef.current = false;
+        });
       }
     }, [content, editor]);
 
@@ -696,11 +710,16 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         focus: () => editor?.commands.focus(),
         setContent: (text: string) => {
           if (editor) {
+            isExternalSyncRef.current = true;
             editor.commands.setContent(`<p>${text.replace(/\n/g, '</p><p>')}</p>`);
+            queueMicrotask(() => {
+              isExternalSyncRef.current = false;
+            });
           }
         },
         loadAggregatedScenes: scenes => {
           if (!editor) return;
+          isExternalSyncRef.current = true;
           const fragments: string[] = [];
           for (const scene of scenes) {
             const dividerHtml = `<div data-scene-divider="true" data-scene-id="${scene.id}" data-scene-number="${scene.sequence_number}" data-scene-title="${scene.title || ''}"><span class="scene-divider-label">场景 ${scene.sequence_number}${scene.title ? ': ' + scene.title : ''}</span></div>`;
@@ -711,6 +730,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
           const html = fragments.join('');
           editor.commands.setContent(html || '<p></p>');
+          queueMicrotask(() => {
+            isExternalSyncRef.current = false;
+          });
         },
       }),
       [editor, selectedRange]
