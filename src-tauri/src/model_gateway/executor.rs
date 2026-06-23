@@ -466,6 +466,13 @@ impl GatewayExecutor {
 
     /// 统一生成入口：选择候选链并顺序执行 fallback
     pub async fn generate(&self, request: GatewayRequest) -> Result<LlmGenerateResponse, AppError> {
+        let request_id = request.request_id.clone();
+        self.workflow_log(
+            "gateway.generate.enter",
+            "进入网关 generate",
+            Some(serde_json::json!({"request_id": request_id})),
+        );
+
         // v0.23.28: 用 spawn_blocking 预加载能力档案（同步 DB 查询），
         // 连接池满时不会阻塞 tokio worker 线程导致 Call 3 hang住。
         let pool = self.pool.clone();
@@ -476,7 +483,29 @@ impl GatewayExecutor {
         })
         .await
         .unwrap_or(None);
+        self.workflow_log(
+            "gateway.generate.cap_profiles_loaded",
+            format!(
+                "能力档案加载完成: {} 条",
+                capability_profiles.as_ref().map(|v| v.len()).unwrap_or(0)
+            ),
+            Some(serde_json::json!({"request_id": request.request_id})),
+        );
+
+        self.workflow_log(
+            "gateway.generate.select_candidates_start",
+            "开始 select_candidates",
+            Some(serde_json::json!({"request_id": request.request_id})),
+        );
         let mut decision = self.select_candidates(&request, capability_profiles)?;
+        self.workflow_log(
+            "gateway.generate.select_candidates_done",
+            format!(
+                "select_candidates 完成: 候选数={}",
+                decision.candidates.len()
+            ),
+            Some(serde_json::json!({"request_id": request.request_id})),
+        );
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
