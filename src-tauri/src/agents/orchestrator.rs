@@ -1326,6 +1326,11 @@ impl AgentOrchestrator {
                 "timeout_seconds": call3_timeout,
             })),
         );
+        self.workflow_log(
+            "trishot.call3.pre_generate",
+            "即将调用 generate_for_task_with_tags_and_timeout",
+            Some(serde_json::json!({"timeout": call3_timeout, "task_id": task.id, "request_id": call3_request_id})),
+        );
         let gen_response = self
             .service
             .llm_service_ref()

@@ -268,17 +268,25 @@ impl GatewayExecutor {
             Some(serde_json::json!({"candidates": decision.candidates.len(), "request_id": request.request_id})),
         );
 
-        // v0.23.13: 普通路由生成强制使用用户当前设置的活跃模型作为主模型。
-        // 只要活跃模型通过健康检查（Healthy/Degraded）且仍在注册表，就将其置于
-        // 候选链首位；这防止网关三维打分/算力档案把请求路由到用户未预期的模型。
+        // v0.23.13: 活跃模型强制置顶。v0.23.32: 每步 Mutex 前后加标记诊断。
         if let Some(active) = self.llm_service.get_active_profile() {
             self.workflow_log(
-                "gateway.select_candidates.active_profile_obtained",
-                "获取活跃模型成功",
+                "gateway.select_candidates.active_ok",
+                "活跃模型获取成功",
                 Some(serde_json::json!({"active_id": active.id, "request_id": request.request_id})),
             );
             if self.is_model_available(&active.id) {
+                self.workflow_log(
+                    "gateway.select_candidates.model_available",
+                    "is_model_available 通过",
+                    Some(serde_json::json!({"request_id": request.request_id})),
+                );
                 if let Some(profile) = self.registry_guard().get(&active.id).cloned() {
+                    self.workflow_log(
+                        "gateway.select_candidates.registry_ok",
+                        "注册表查询成功",
+                        Some(serde_json::json!({"request_id": request.request_id})),
+                    );
                     let mut candidates = decision.candidates.clone();
                     candidates.retain(|c| c.model_id != active.id);
                     let top_score = candidates.first().map(|c| c.score).unwrap_or(50.0);
@@ -315,6 +323,16 @@ impl GatewayExecutor {
             }
         }
 
+        self.workflow_log(
+            "gateway.select_candidates.return",
+            format!(
+                "select_candidates 即将返回, {} 个候选",
+                decision.candidates.len()
+            ),
+            Some(
+                serde_json::json!({"request_id": request.request_id, "primary": decision.model_id}),
+            ),
+        );
         Ok(decision)
     }
 
@@ -584,7 +602,17 @@ impl GatewayExecutor {
         }
 
         let mut last_error: Option<AppError> = None;
+        self.workflow_log(
+            "gateway.generate.for_loop_enter",
+            format!("进入候选链循环, {} 个候选项", decision.candidates.len()),
+            Some(serde_json::json!({"request_id": request.request_id})),
+        );
         for (idx, candidate) in decision.candidates.iter().enumerate() {
+            self.workflow_log(
+                "gateway.generate.candidate_try",
+                format!("尝试候选 [{}/{}]: {} ({})", idx + 1, decision.candidates.len(), candidate.model_name, candidate.model_id),
+                Some(serde_json::json!({"request_id": request.request_id, "idx": idx, "model_id": candidate.model_id})),
+            );
             let profile = self.registry_guard().get(&candidate.model_id).cloned();
             let Some(profile) = profile else {
                 continue;

@@ -469,6 +469,11 @@ impl LlmService {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         // 优先尝试模型网关
+        self.workflow_log(
+            "llm.generate.pre_gateway",
+            "准备调用 gateway.generate",
+            Some(serde_json::json!({"request_id": req_id, "context_label": context_label})),
+        );
         let gateway = self
             .app_handle
             .state::<crate::model_gateway::executor::GatewayExecutor>();
@@ -497,7 +502,14 @@ impl LlmService {
             response_format,
         };
         match gateway.generate(gateway_request).await {
-            Ok(resp) => return (req_id, Ok(resp)),
+            Ok(resp) => {
+                self.workflow_log(
+                    "llm.generate.gateway_ok",
+                    "gateway.generate 返回成功",
+                    Some(serde_json::json!({"request_id": req_id})),
+                );
+                return (req_id, Ok(resp));
+            }
             Err(e) => {
                 log::warn!("[LlmService] ModelGateway 调用失败，回退旧路径: {}", e);
             }
