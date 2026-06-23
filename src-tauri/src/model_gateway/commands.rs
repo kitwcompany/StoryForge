@@ -73,7 +73,7 @@ pub async fn simulate_gateway_route(
     request: super::types::GatewayRequest,
     executor: State<'_, GatewayExecutor>,
 ) -> Result<GatewayRoutingDecision, AppError> {
-    executor.select_candidates(&request)
+    executor.select_candidates(&request, None)
 }
 
 /// 获取探测结果

@@ -107,6 +107,9 @@ impl GatewayExecutor {
     pub fn select_candidates(
         &self,
         request: &GatewayRequest,
+        // v0.23.28: 预加载的能力档案，由异步 generate 通过 spawn_blocking 传入，
+        // 避免同步 DB 查询阻塞 tokio worker 线程。
+        preloaded_capability_profiles: Option<Vec<crate::model_gateway::types::CapabilityProfile>>,
     ) -> Result<GatewayRoutingDecision, AppError> {
         let routing_request = self.classifier.classify(request);
         let router = {
@@ -193,24 +196,10 @@ impl GatewayExecutor {
 
         // v0.22.0: 算力档案消费闭环（Phase D）
         // v0.22.1: 按 TaskClass 应用差异化权重（意见5）
-        //   HeavyCreation → 优先质量分（quality 80%）
-        //   LightTool → 优先速度分（speed 60%）
-        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
-            let cap_start = std::time::Instant::now();
-            if let Ok(profiles) =
-                super::capability_store::CapabilityStore::new(pool.inner().clone()).load_all()
-            {
-                let cap_elapsed = cap_start.elapsed();
-                if cap_elapsed.as_millis() > 100 {
-                    self.workflow_log(
-                        "gateway.select_candidates.cap_store_slow",
-                        format!(
-                            "CapabilityStore::load_all 耗时 {}ms",
-                            cap_elapsed.as_millis()
-                        ),
-                        Some(serde_json::json!({"request_id": request.request_id})),
-                    );
-                }
+        // v0.23.28: 能力档案由异步 generate 通过 spawn_blocking 预加载，
+        // 避免同步 DB 查询阻塞 tokio worker 线程。
+        if let Some(profiles) = preloaded_capability_profiles {
+            if !profiles.is_empty() {
                 let task_class = TaskClassifier::classify_task(request);
                 let mut candidates = decision.candidates.clone();
                 for c in &mut candidates {
@@ -457,7 +446,7 @@ impl GatewayExecutor {
 
         // 2) 无算力档案：用 select_candidates 走网关三维打分兜底
         let req = super::types::GatewayRequest::for_fast_routing(String::new(), "tri-shot-router");
-        if let Ok(decision) = self.select_candidates(&req) {
+        if let Ok(decision) = self.select_candidates(&req, None) {
             if let Some(primary) = decision.candidates.first() {
                 if let Some(profile) = self.registry_guard().get(&primary.model_id).cloned() {
                     log::info!(
@@ -477,7 +466,17 @@ impl GatewayExecutor {
 
     /// 统一生成入口：选择候选链并顺序执行 fallback
     pub async fn generate(&self, request: GatewayRequest) -> Result<LlmGenerateResponse, AppError> {
-        let mut decision = self.select_candidates(&request)?;
+        // v0.23.28: 用 spawn_blocking 预加载能力档案（同步 DB 查询），
+        // 连接池满时不会阻塞 tokio worker 线程导致 Call 3 hang住。
+        let pool = self.pool.clone();
+        let capability_profiles = tokio::task::spawn_blocking(move || {
+            super::capability_store::CapabilityStore::new(pool)
+                .load_all()
+                .ok()
+        })
+        .await
+        .unwrap_or(None);
+        let mut decision = self.select_candidates(&request, capability_profiles)?;
 
         // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
         // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
