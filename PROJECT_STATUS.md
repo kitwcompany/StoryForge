@@ -1,11 +1,38 @@
-# StoryForge (草苔) v0.23.21 项目完成状态
+# StoryForge (草苔) v0.23.30 项目完成状态
 
-> 最后更新: 2026-06-22（v0.23.20 DB 连接池 record_llm_call 阻塞 tokio worker 导致 600s 超时）
+> 最后更新: 2026-06-23（v0.23.30 Genesis 全线修复 — record_llm_call 阻塞 tokio worker 导致 600s 超时）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.30 — Genesis 全线阻塞点修复：genesis_default + select_candidates spawn_blocking + Chapter 保存 spawn_blocking（2026-06-23）
+
+- 🏛️ **`GenerationMode::genesis_default()`**：显式化 Genesis 模式选择。Genesis 始终走 TriShot（需资产选择 + 快速出章），用户模式设置影响日常续写/改写
+- 🔧 **`select_candidates` spawn_blocking**：`GatewayExecutor::generate` 中 `CapabilityStore::load_all()` 用 `spawn_blocking` 预加载，修复 Call 3 卡死
+- 🔧 **Chapter 保存 spawn_blocking**：`FirstChapterGenerationStep` 中所有 `ChapterRepository` 操作移入 `spawn_blocking`
+- 🔧 **Genesis 跳过 Call 2 精修器**：第 1 章 + 无已有内容时直接进 Call 3
+- 🖥️ **前端显示 "[创世]"**：Genesis 期间底部栏显示创世状态而非"三击模式"
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
+
+### v0.23.28 — select_candidates spawn_blocking + v0.23.29 — Chapter 保存 spawn_blocking（2026-06-23）
+
+- 🔧 **Call 3 不再卡在 gateway 路由**：`select_candidates` 中 `CapabilityStore::load_all()` 用 `spawn_blocking` 包裹
+- 🔧 **第一章内容写入不再卡在 DB**：ChapterRepository 操作移入 `spawn_blocking`
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
+
+### v0.23.24 — setContent 内容比较 + v0.23.23 — RichTextEditor isExternalSyncRef（2026-06-23）
+
+- 🔧 **从根源杜绝伪"保存中"**：`setContent` 内容未变化时不标记未保存
+- 🔧 **从入口杜绝伪"保存中"**：编辑器外部 `setContent` 跳过 `onChange`
+- ✅ **验证**：`npx tsc --noEmit` ✅ / `npx vitest run` ✅ 126 passed
+
+### v0.23.22 — 诊断增强 + v0.23.25 — 信号竖条（2026-06-23）
+
+- 🔍 `select_candidates` 慢查询标记（>100ms 输出工作流日志）
+- 📊 模型状态指示器改为信号竖条组（3px 宽，4-16px 高，得分低→高排列）
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
 
 ### v0.23.19 — 根治 600s 超时：record_llm_call DB 写入不再阻塞 tokio worker（2026-06-22）
 

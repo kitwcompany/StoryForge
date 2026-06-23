@@ -2,7 +2,77 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [v0.23.21] - 根治 TriShot auto_fill 5 次 LLM 调用耗尽预算（2026-06-23）
+## [v0.23.30] - GenerationMode::genesis_default() + 前端显示"创世"（2026-06-23）
+
+### 架构改进
+- `GenerationMode::genesis_default()` 显式化 Genesis 模式选择，替代写死的 `GenerationMode::TriShot`
+- 前端 Genesis 期间底部栏显示"[创世]"而非"[三击]"等技术术语
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit` ✅ 零错误
+- `npx vitest run` ✅ 126 passed / 3 skipped
+
+## [v0.23.29] - Chapter 保存 spawn_blocking（2026-06-23）
+
+### 修复
+- `FirstChapterGenerationStep` 中 ChapterRepository 的 `get_by_story`/`update`/`create` 在 async 块中同步执行，连接池满时阻塞 tokio worker。整个保存逻辑（检查已有 chapter + update/create）放入 `spawn_blocking`。
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+
+## [v0.23.28] - select_candidates spawn_blocking 预加载能力档案（2026-06-23）
+
+### 修复
+- `GatewayExecutor::generate` 中 `select_candidates` 同步执行 `CapabilityStore::load_all()` DB 查询，连接池满时 `pool.get()` 阻塞 tokio worker 线程，导致 Call 3 的 `llm.generate.start` 永不出现。修复：在异步 `generate` 中用 `spawn_blocking` 预加载能力档案，`select_candidates` 接收 Optional 参数跳过 DB 查询。
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+
+## [v0.23.27] - Genesis 跳过 Call 2 精修器（2026-06-23）
+
+### 修复
+- v0.23.25 日志显示 Call 1 成功(16s)后卡在"精修提示词..."600s。Call 2 精修器使用 `generate_for_task`（无超时保护），模型挂起时卡死。修复：Genesis 第 1 章 + 无已有内容时跳过 Call 2。
+- 信号竖条分差优化：无 TTFB/TPS 数据时用模型名 hash 生成稳定分差(0.2-0.8)，确保竖条有高低区分。
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+- `npx tsc --noEmit` ✅ / `npx vitest run` ✅ 126 passed
+
+## [v0.23.25] - 模型状态指示器改为信号竖条（2026-06-23）
+
+### 增强
+- 底部栏模型连接状态从 8px 圆点改为无线信号风格竖条组：每个模型一个竖条(3px宽)，按得分从低到高排列形成上升阶梯，高度 4-16px，最多 8 条。
+- 得分 = TTFB 得分(0-0.5) + TPS 得分(0-0.3) + 健康加分(0.2)，无数据用 stable hash 分差。
+
+### 验证
+- `npx tsc --noEmit` ✅ / `npx vitest run` ✅ 126 passed
+
+## [v0.23.24] - setContent 内容未变化时不标记未保存（2026-06-23）
+
+### 修复
+- `frontstageStore.setContent` 无条件设 `isSaved: false`，内容未变化时不更新。`handleContentChange` 加内容比较。`selectChapter` 同步 `latestContentRef`。从根源杜绝伪"保存中"。
+
+### 验证
+- `npx tsc --noEmit` ✅ / `npx vitest run` ✅ 126 passed
+
+## [v0.23.23] - RichTextEditor 外部内容同步跳过 onChange（2026-06-23）
+
+### 修复
+- RichTextEditor 外部 `setContent` 触发 TipTap `onUpdate` → `handleContentChange` → 伪"保存中"→ 自动保存 IPC 调用 → 连接池满时阻塞 Genesis。用 `isExternalSyncRef` 标记外部同步，覆盖三处入口（useEffect / `setContent` / `loadAggregatedScenes`）。
+
+### 验证
+- `npx tsc --noEmit` ✅ / `npm run format:check` ✅
+
+## [v0.23.22] - 诊断增强 + select_candidates 慢查询标记（2026-06-23）
+
+### 增强
+- `select_candidates` 中 CapabilityStore::load_all > 100ms 时输出 `gateway.select_candidates.cap_store_slow` 工作流日志
+- TriShot Call 1 添加 `trishot.call1.start` / `trishot.call1.done` 工作流日志标记
+- `trishot.bundle.start` 日志标记 bundle 加载阶段
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
 
 ### 修复
 - **TriShot auto_fill 做 5 次 LLM 调用导致 600s 超时**：v0.23.20 日志显示概念生成 1.1s 完成、故事已创建、TriShot 启动，但 `trishot.start` 后卡住。根因：新故事无角色 → `QuickPreflightChecker::check` 失败 → 触发 `AutoContractBuilder::auto_fill` 做 **5 次 LLM 调用**（角色 + 场景 + MASTER_SETTING + CHAPTER 合同 + 大纲），每次 30-90s，总计 150-450s，超出 TriShot "最多 3 次 LLM" 设计目标。修复：Genesis TriShot 路径预检失败时，只创建一个最小占位角色（`spawn_blocking` + 纯 DB INSERT，不调 LLM），然后直接进入 Call 1。
