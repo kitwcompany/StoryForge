@@ -196,9 +196,21 @@ impl GatewayExecutor {
         //   HeavyCreation → 优先质量分（quality 80%）
         //   LightTool → 优先速度分（speed 60%）
         if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            let cap_start = std::time::Instant::now();
             if let Ok(profiles) =
                 super::capability_store::CapabilityStore::new(pool.inner().clone()).load_all()
             {
+                let cap_elapsed = cap_start.elapsed();
+                if cap_elapsed.as_millis() > 100 {
+                    self.workflow_log(
+                        "gateway.select_candidates.cap_store_slow",
+                        format!(
+                            "CapabilityStore::load_all 耗时 {}ms",
+                            cap_elapsed.as_millis()
+                        ),
+                        Some(serde_json::json!({"request_id": request.request_id})),
+                    );
+                }
                 let task_class = TaskClassifier::classify_task(request);
                 let mut candidates = decision.candidates.clone();
                 for c in &mut candidates {

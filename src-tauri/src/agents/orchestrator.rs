@@ -1159,8 +1159,18 @@ impl AgentOrchestrator {
                 None,
             );
 
+            self.workflow_log(
+                "trishot.call1.start",
+                "Call 1 路由合成器开始",
+                Some(serde_json::json!({
+                    "task_id": task.id,
+                    "prompt_chars": bundle_prompt.chars().count(),
+                    "remaining_budget_secs": remaining_budget,
+                })),
+            );
+
             let app_handle = self.app_handle.clone();
-            engine
+            let syn_result = engine
                 .synthesize_prompt(
                     app_handle,
                     &user_instruction,
@@ -1169,7 +1179,8 @@ impl AgentOrchestrator {
                     &bundle_prompt,
                     capability_summary,
                 )
-                .await
+                .await;
+            syn_result
         };
         trace.log_phase(
             "call1_synthesize",
