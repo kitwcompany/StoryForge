@@ -127,18 +127,29 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   };
 
   // v0.23.25: 计算模型综合得分（0-1），用于信号竖条高度映射
+  // v0.23.27: 无 TTFB/TPS 数据时用模型名 hash 生成稳定分差，确保信号竖条有高低区分
   const computeModelScore = (m: ModelHealthSnapshot): number => {
-    let score = 0;
-    // TTFB 越低分越高（0-0.5 分）
-    score +=
-      typeof m.ttfb_ms === 'number' && m.ttfb_ms > 0
-        ? Math.max(0, 1 - m.ttfb_ms / 5000) * 0.5
-        : 0.25; // 无数据给中等偏低的分
-    // TPS 越高分越高（0-0.3 分）
-    score += typeof m.tps === 'number' && m.tps > 0 ? Math.min(m.tps / 30, 1) * 0.3 : 0;
-    // 健康状态加分（0.2 分）
-    score += m.status === 'healthy' ? 0.2 : 0;
-    return Math.min(score, 1);
+    const hasTtfb = typeof m.ttfb_ms === 'number' && m.ttfb_ms > 0;
+    const hasTps = typeof m.tps === 'number' && m.tps > 0;
+
+    if (hasTtfb || hasTps) {
+      // 有真实性能数据时按公式计算
+      let score = 0;
+      score += hasTtfb ? Math.max(0, 1 - (m.ttfb_ms as number) / 5000) * 0.5 : 0.25;
+      score += hasTps ? Math.min((m.tps as number) / 30, 1) * 0.3 : 0;
+      score += m.status === 'healthy' ? 0.2 : 0;
+      return Math.min(score, 1);
+    }
+
+    // 无性能数据：用模型名 hash 生成稳定分差（0.2-0.8），保证视觉上有高低区分
+    let hash = 0;
+    const name = m.model_name || m.model_id;
+    for (let i = 0; i < name.length; i++) {
+      hash = (hash * 31 + name.charCodeAt(i)) & 0xffff;
+    }
+    const hashScore = 0.2 + (hash % 60) / 100; // 0.2-0.8
+    // healthy 在 hash 基础上加分
+    return Math.min(hashScore + (m.status === 'healthy' ? 0.15 : 0), 1);
   };
 
   // 得分映射到竖条高度（4px-16px）

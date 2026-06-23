@@ -1220,8 +1220,13 @@ impl AgentOrchestrator {
 
         let mut final_prompt = synthesis.synthesized_prompt.clone();
 
+        // v0.23.27: Genesis 新故事（第 1 章且无已有内容）跳过 Call 2 精修，
+        // Call 1 合成的提示词已足够，精修会多花 15-90s LLM 调用且容易超时。
+        let is_genesis_first_chapter =
+            chapter_number == 1 && current_content_preview.as_deref().unwrap_or("").is_empty();
+
         // ===== Phase 2 / Call 2: 精修器（可选，仅 needs_refinement && 预算够）=====
-        if synthesis.needs_refinement && !synthesis.is_fallback {
+        if synthesis.needs_refinement && !synthesis.is_fallback && !is_genesis_first_chapter {
             // v0.23.15: 预算守卫——用 total_start 计算已耗时间，读配置的 total_budget。
             let elapsed = total_start.elapsed().as_secs();
             let writer_min_estimate: u64 = 60; // Call 3 最少预留
