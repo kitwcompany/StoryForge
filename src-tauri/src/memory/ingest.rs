@@ -74,10 +74,15 @@ pub struct ContentAnalysis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzedEntity {
     pub name: String,
+    #[serde(default = "default_entity_type")]
     pub entity_type: String,
     #[serde(default)]
-    pub mentions: Vec<serde_json::Value>, // LLM 可能返回字符串或数字，用 Value 兼容
+    pub mentions: Vec<serde_json::Value>,
     pub attributes: serde_json::Value,
+}
+
+fn default_entity_type() -> String {
+    "Unknown".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,38 +90,66 @@ pub struct AnalyzedRelation {
     pub source: String,
     pub target: String,
     pub relation_type: String,
+    #[serde(default)]
     pub evidence: String,
-    pub strength: f32, // 0-1
+    #[serde(default = "default_strength")]
+    pub strength: f32,
+}
+
+fn default_strength() -> f32 {
+    0.5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzedEvent {
     pub description: String,
+    #[serde(default)]
     pub participants: Vec<String>,
-    pub importance: i32, // 1-10
+    #[serde(default = "default_importance")]
+    pub importance: i32,
+    #[serde(default)]
     pub trigger: String,
+    #[serde(default)]
     pub consequence: String,
+}
+
+fn default_importance() -> i32 {
+    5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentimentAnalysis {
-    pub overall: String, // positive/negative/neutral
-    pub intensity: f32,  // 0-1
+    pub overall: String,
+    #[serde(default = "default_intensity")]
+    pub intensity: f32,
+    #[serde(default)]
     pub arc: Vec<SentimentPoint>,
+}
+
+fn default_intensity() -> f32 {
+    0.5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentimentPoint {
-    pub position: f32, // 0-1 文本位置
+    #[serde(default)]
+    pub position: f32,
     pub sentiment: String,
+    #[serde(default = "default_intensity")]
     pub intensity: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Foreshadowing {
     pub content: String,
-    pub type_: String, // setup/payoff
+    #[serde(default = "default_fore_type")]
+    pub type_: String,
+    #[serde(default)]
     pub related_to: Vec<String>,
+}
+
+fn default_fore_type() -> String {
+    "setup".to_string()
 }
 
 /// Step 2: 生成的知识
