@@ -2,7 +2,34 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [v0.23.30] - GenerationMode::genesis_default() + 前端显示"创世"（2026-06-23）
+## [v0.23.34] - 修复 select_candidates 中 std::sync::Mutex 自死锁（2026-06-23）
+
+### 修复（根因）
+- **`select_candidates` `health_registry` Mutex 自死锁**：第125行 `let health = health_registry.lock().ok()` 获取 MutexGuard，但变量存活到函数末尾才释放。第188行 `is_model_available` 再次调用 `health_registry.lock()` → `std::sync::Mutex` 不可重入 → 同一线程等待自己释放 → 600s 超时。
+- Call 1 走 `select_fastest_profile`（不调 `select_candidates`），因此不受影响。Call 3 走 `gateway.generate` → `select_candidates` → 必死锁。
+- **修复**：将 `health` 锁移入嵌套块作用域 `{ let health = ...; }`，块结束时 MutexGuard 自动释放。后续 `is_model_available` 可安全重新锁定。
+
+### 诊断
+- v0.23.31-33 全链路 15 个诊断标记精确定位死锁发生在 `select_candidates_start` 和 `select_candidates_done` 之间
+
+### 验证
+- `cargo test --lib` ✅ **556 passed / 0 failed / 2 ignored**
+- `cargo +nightly fmt --check` ✅
+
+## [v0.23.33] - 全链路 15 个精确定位诊断标记（2026-06-23）
+
+### 诊断
+- 从 `trishot.call3.start` 到 `llm.generate.start` 共 15 个 workflow_log 标记，覆盖所有可能的 Mutex 阻塞点
+
+## [v0.23.32] - select_candidates 内部精确定位诊断标记（2026-06-23）
+
+### 诊断
+- `select_candidates` 内部新增 `cap_done`、`active_ok`、`model_available`、`registry_ok` 标记
+
+## [v0.23.31] - gateway.generate 入口诊断标记（2026-06-23）
+
+### 诊断
+- `gateway.generate` 入口新增 `gateway.generate.enter`、`cap_profiles_loaded`、`select_candidates_start/done` 标记
 
 ### 架构改进
 - `GenerationMode::genesis_default()` 显式化 Genesis 模式选择，替代写死的 `GenerationMode::TriShot`

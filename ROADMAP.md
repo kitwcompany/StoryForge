@@ -1,15 +1,14 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-23（v0.23.30）
+> 最后更新: 2026-06-23（v0.23.34）
 
 ## ✅ v0.23.x 已实施完成
 
-### 🏛️ v0.23.30 Genesis 全线阻塞点修复：genesis_default + select_candidates + Chapter 保存 spawn_blocking ✅ (2026-06-23)
-- [x] `GenerationMode::genesis_default()` 显式化 Genesis 模式选择
-- [x] `select_candidates` spawn_blocking 预加载能力档案，修复 Call 3 卡死
-- [x] Chapter 保存（get_by_story/update/create）移入 spawn_blocking
-- [x] Genesis 跳过 Call 2 精修器（第 1 章 + 无已有内容直接进 Call 3）
-- [x] 前端 Genesis 期间显示"[创世]"而非"[三击]"
+### 🏛️ v0.23.34 select_candidates Mutex 自死锁修复 ✅ (2026-06-23)
+- [x] 全链路 15 个诊断标记精确定位自死锁位置
+- [x] 根因：`health_registry.lock()` MutexGuard 不释放，`is_model_available` 再次 lock → std::sync::Mutex 不可重入 → 自死锁
+- [x] 修复：health 锁移入嵌套块作用域，块结束时自动释放
+- [x] Call 1 走 select_fastest_profile 不受影响，Call 3 走 select_candidates 此前必死锁
 - [x] 验证：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
 
 ### 🚑 v0.23.19 根治 600s 超时：record_llm_call DB 写入不再阻塞 tokio worker ✅ (2026-06-22)

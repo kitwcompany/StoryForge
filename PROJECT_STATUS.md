@@ -1,11 +1,23 @@
-# StoryForge (草苔) v0.23.30 项目完成状态
+# StoryForge (草苔) v0.23.34 项目完成状态
 
-> 最后更新: 2026-06-23（v0.23.30 Genesis 全线修复 — record_llm_call 阻塞 tokio worker 导致 600s 超时）
+> 最后更新: 2026-06-23（v0.23.34 select_candidates Mutex 自死锁修复 — record_llm_call 阻塞 tokio worker 导致 600s 超时）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.34 — 修复 select_candidates 中 std::sync::Mutex 自死锁（根因彻底查明）（2026-06-23）
+
+- 🎯 **v0.23.31-33 全链路 15 个诊断标记精确定位**：自死锁发生在 `select_candidates` 内部
+- 🔧 **自死锁根因**：第125行 `let health = health_registry.lock().ok()` 获取 MutexGuard，变量存活到函数末尾。第188行 `is_model_available` 再次 `lock()` 同一 `std::sync::Mutex`（不可重入）→ 线程永远等待自己释放 → 600s 超时
+- 🔧 **修复**：`health` 锁移入嵌套块作用域，块结束时 MutexGuard 自动释放。后续 `is_model_available` 可安全重新锁定
+- 🔧 **Call 1 为何不受影响**：Call 1 走 `select_fastest_profile`，不调 `select_candidates`
+- ✅ **验证**：`cargo test --lib` **556 passed / 0 failed / 2 ignored**
+
+### v0.23.33 — 全链路 15 个精确定位诊断标记（2026-06-23）
+
+- 🔍 从 `trishot.call3.start` 到 `llm.generate.start` 共 15 个 workflow_log 标记
 
 ### v0.23.30 — Genesis 全线阻塞点修复：genesis_default + select_candidates spawn_blocking + Chapter 保存 spawn_blocking（2026-06-23）
 
