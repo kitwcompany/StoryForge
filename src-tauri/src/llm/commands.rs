@@ -142,6 +142,20 @@ pub async fn get_workflow_log_path(
     Ok(logger.path().to_string_lossy().to_string())
 }
 
+/// v0.23.42: 前端写入 WorkflowLogger（诊断卡片自动收集）。
+/// 让前端关键路径（setContent/selectChapter/ChapterSwitch）也能记录到
+/// creative_workflow.log。
+#[command(rename_all = "snake_case")]
+pub async fn log_frontend_event(
+    logger: State<'_, Arc<crate::workflow_logger::WorkflowLogger>>,
+    phase: String,
+    message: String,
+    details: Option<serde_json::Value>,
+) -> Result<(), AppError> {
+    logger.info(&phase, &message, details);
+    Ok(())
+}
+
 /// v0.23.20: 获取数据库连接池状态（前端状态栏 + 诊断卡片用）。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]

@@ -57,6 +57,7 @@ tauri::generate_handler![
     llm::commands::get_last_llm_prompt,
     llm::commands::get_workflow_logs,
     llm::commands::get_workflow_log_path,
+    llm::commands::log_frontend_event,
     llm::commands::get_db_pool_status,
     // Intent commands
     commands::intent::parse_intent,
