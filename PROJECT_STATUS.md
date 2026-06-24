@@ -1,11 +1,21 @@
-# StoryForge (草苔) v0.23.34 项目完成状态
+# StoryForge (草苔) v0.23.36 项目完成状态
 
-> 最后更新: 2026-06-23（v0.23.34 select_candidates Mutex 自死锁修复 — record_llm_call 阻塞 tokio worker 导致 600s 超时）
+> 最后更新: 2026-06-24（v0.23.36 创世正文清洗 + 后台作业不阻塞输入）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 最近完成功能
+
+### v0.23.36 — 创世正文清洗 + 后台作业不阻塞输入（2026-06-24）
+
+- 🎯 **创世正文质量优化**：TriShot Call 3 的 `final_prompt` 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段（禁元评论/markdown/小节标题/幕结束批注）+ 新增 `sanitize_novel_output` 后处理兜底（逐行去 markdown 符号→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）。7 个单元测试覆盖各场景。
+- 🎯 **后台作业不阻塞输入**：Genesis 后台阶段 `pipeline-progress` 事件打 `metadata: {background: true}` 标记，前端 `useBackendActivityListener` 检测到后跳过注册 running activity，不禁用输入框。状态文案仍由 `novel-bootstrap-progress` 监听器独立更新。
+- ✅ **验证**：`cargo test --lib` **563 passed / 0 failed / 2 ignored**（新增 7 个 sanitize 测试，零回归）；`npx tsc --noEmit` 零错误
+
+### v0.23.35 — 采摘 Step1 JSON 解析容错（2026-06-23）
+
+- 🩹 **Ingest Step1 `missing field entity_type`**：`memory/ingest.rs` 6 个反序列化结构体补 `#[serde(default)]`，LLM 返回 JSON 缺失字段时不再解析失败。
 
 ### v0.23.34 — 修复 select_candidates 中 std::sync::Mutex 自死锁（根因彻底查明）（2026-06-23）
 

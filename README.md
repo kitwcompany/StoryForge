@@ -8,10 +8,10 @@
 >
 > 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
 
-[![Version](https://img.shields.io/badge/version-v0.23.34-gold)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.23.36-gold)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
 
-**最新动态**：v0.23.34 修复 select_candidates Mutex 自死锁——从 v0.23.19 累计 16 版本追到的真正根因——`record_llm_call` fire-and-forget、`update_chapter` async 化、`auto_fill` 改为占位角色、`select_candidates` spawn_blocking、Chapter 保存 spawn_blocking。所有同步 DB 操作已从 tokio worker 线程移出，Genesis 新故事 600s 超时彻底根治。新增 `get_db_pool_status` 指令、信号竖条模型状态指示器、DB 连接池状态可视化。
+**最新动态**：v0.23.36 创世正文质量优化 + 后台作业不再阻塞输入——TriShot Call 3 追加输出纪律段 + `sanitize_novel_output` 后处理双重防线，彻底消除创世正文混入"好的，作为..."元评论与 `#` markdown 格式；Genesis 后台阶段事件标记 `background`，前端跳过注册 running activity，后台完善世界观/角色/场景时输入框不再被禁用。v0.23.35 修复采摘 Step1 JSON 解析容错。v0.23.34 修复 select_candidates Mutex 自死锁——`record_llm_call` fire-and-forget、`update_chapter` async 化、所有同步 DB 操作已从 tokio worker 线程移出，Genesis 600s 超时彻底根治。
 
 > **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
 

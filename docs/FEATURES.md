@@ -1,6 +1,6 @@
-# StoryForge (草苔) v0.23.34 功能清单（历史档案）
+# StoryForge (草苔) v0.23.36 功能清单（历史档案）
 
-> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.34**
+> 按幕前幕后双界面架构整理，当前项目版本：**v0.23.36**
 >
 > **注意**：本文档为历史归档，初始编写于 v0.7.4，部分早期功能描述可能未同步最新变更。
 > 完整最新功能请参考 [README.md](../README.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。
@@ -504,3 +504,10 @@ Layer 1: Raw Sources (原始内容)
 - **v0.23.4 智能层闭环落地**：LLM JSON mode（OpenAI/Ollama 原生结构化输出）、Review/Refine `refinement_notes`、MemoryPack 预算参数强类型化、拆书存储统一
 - **v0.23.5 CI 格式化修复**：Rust nightly fmt + 前端 Prettier 格式化差异清零
 - **v0.23.6 macOS 启动崩溃修复**：`VectorStore` State 初始化顺序调整，全平台 CI 构建通过
+- **v0.23.7-v0.23.13**：诊断信息增强 + 超时文案去硬编码、AI 进度指示精细化、运行时创作资产能力清单、模型网关优先使用活跃模型、诊断提示词过滤探测调用、活跃模型优先 + 工作流日志、强制所有生成路径使用活跃模型
+- **v0.23.14-v0.23.19**：干净健康的模型池 + 两阶段 Genesis、TriShot 管线缺陷修复、Genesis 快速阶段卡死修复、心跳阻塞 + 连接池超时双保险、行级诊断标记、根治 `record_llm_call` 阻塞 tokio worker 导致 600s 超时
+- **v0.23.20-v0.23.24**：DB 连接池扩容 + `get_db_pool_status` 指令、占位角色替代 auto_fill 5 次 LLM、诊断标记精确定位、信号竖条模型状态指示器、`setContent` 内容比较 + `isExternalSyncRef` 杜绝伪"保存中"
+- **v0.23.25-v0.23.30**：Call 2 精修器跳过、`select_candidates` spawn_blocking、Chapter 保存 spawn_blocking、`genesis_default()` 显式化、全链路阻塞点修复
+- **v0.23.31-v0.23.34**：全链路 15 个诊断标记精确定位 + `select_candidates` 中 `std::sync::Mutex` 自死锁根因修复（health 锁移入嵌套块作用域）
+- **v0.23.35 采摘 Step1 JSON 解析容错**：`memory/ingest.rs` 6 个反序列化结构体补 `#[serde(default)]`，修复 LLM 返回 JSON 缺失 `entity_type` 等字段导致的采摘失败
+- **v0.23.36 创世正文清洗 + 后台作业不阻塞输入**：TriShot Call 3 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段 + `sanitize_novel_output` 后处理兜底（逐行去 markdown→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）；Genesis 后台阶段事件标记 `background`，前端跳过注册 running activity，输入框不再被后台作业禁用

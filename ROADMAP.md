@@ -1,8 +1,17 @@
 # StoryForge (草苔) 开发路线图
 
-> 最后更新: 2026-06-23（v0.23.34）
+> 最后更新: 2026-06-24（v0.23.36）
 
 ## ✅ v0.23.x 已实施完成
+
+### 📝 v0.23.36 创世正文清洗 + 后台作业不阻塞输入 ✅ (2026-06-24)
+- [x] TriShot Call 3 追加 `NOVEL_OUTPUT_DISCIPLINE` 输出纪律段（禁元评论/markdown/小节标题/幕结束批注）
+- [x] 新增 `sanitize_novel_output` 后处理兜底（逐行去 markdown→截断尾部元评论→剥离前导过渡语→去整行小节标题/批注）
+- [x] 7 个单元测试覆盖各场景（前导剥离/尾部截断/markdown清洗/幕结束/小节标题/纯净正文不误伤/空输入）
+- [x] Genesis 后台阶段事件打 `metadata: {background: true}` 标记，前端跳过注册 running activity，输入框不再被禁用
+
+### 🩹 v0.23.35 采摘 Step1 JSON 解析容错 ✅ (2026-06-23)
+- [x] `memory/ingest.rs` 6 个反序列化结构体补 `#[serde(default)]`，修复 `missing field entity_type`
 
 ### 🏛️ v0.23.34 select_candidates Mutex 自死锁修复 ✅ (2026-06-23)
 - [x] 全链路 15 个诊断标记精确定位自死锁位置
