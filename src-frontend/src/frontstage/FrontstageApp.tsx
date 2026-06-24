@@ -2375,6 +2375,9 @@ const FrontstageApp: React.FC = () => {
 
         if (isFirstChapterReady) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter ready');
+          // v0.23.37: 第一章正文已通过 ChapterSwitch 事件加载到编辑器。
+          // 显式清空 generatedText，防止任何残留 ghost 文本与编辑器正文并存导致"重复"。
+          setGeneratedText('');
         } else if (isBackgroundBootstrap) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter in background');
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
@@ -2459,11 +2462,16 @@ const FrontstageApp: React.FC = () => {
                 setChapters(storyChapters);
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
-                  frontstageLogger.info('[SmartGeneration] Calling selectChapter', {
-                    chapter_id: storyChapters[0].id,
-                    content_length: storyChapters[0].content?.length ?? 0,
-                  });
-                  selectChapter(storyChapters[0]);
+                  // v0.23.37: 第一章已就绪时，正文已通过 ChapterSwitch 事件加载，
+                  // 这里只刷新故事/章节/场景列表，不再调 selectChapter 重复 setContent。
+                  // selectChapter 的竞态双写是创世后正文重复的根因之一。
+                  if (!isFirstChapterReady) {
+                    frontstageLogger.info('[SmartGeneration] Calling selectChapter', {
+                      chapter_id: storyChapters[0].id,
+                      content_length: storyChapters[0].content?.length ?? 0,
+                    });
+                    selectChapter(storyChapters[0]);
+                  }
                   // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
                   if (
                     (!firstChapter?.content || firstChapter.content.trim().length === 0) &&
