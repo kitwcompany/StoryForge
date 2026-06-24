@@ -2797,8 +2797,8 @@ impl AgentOrchestrator {
 
 /// 输出纪律段——追加到 TriShot Call 3 提示词末尾，约束模型只输出纯小说正文。
 ///
-/// 作为第一道防线（prompt 约束），配合 [`sanitize_novel_output`]（后处理兜底），
-/// 双重保证正文不混入元评论与 markdown 格式。
+/// prompt 层第一道防线，配合 [`sanitize_novel_output`]
+/// 后处理兜底，双重保证正文纯净。
 const NOVEL_OUTPUT_DISCIPLINE: &str = "\n\n【输出纪律（必须严格遵守）】\n\
 - 只输出小说正文本身，禁止任何元评论、创作分析、策略说明、过渡语（如\"好的，作为...\"、\"以下是为您创作的...\"）\n\
 - 禁止使用 markdown 格式（# 标题、**加粗**、*** 分隔符、> 引用等）\n\
