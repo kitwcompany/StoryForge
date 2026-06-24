@@ -383,6 +383,12 @@ async fn smart_execute_inner(
                     );
                 });
 
+                // v0.23.37: Genesis 快速阶段成功后补发 completed，清除前端主活动。
+                // 此前 Genesis 路径在 :115 发了 loading_context（映射为"准备上下文"）后
+                // 直接 return，跳过了常规路径 :819 的 completed，导致主活动永远 running、
+                // 底部状态栏卡在"准备上下文"。
+                emit_progress("completed", "小说创世完成", 5, 5);
+
                 return Ok(crate::planner::PlanExecutionResult {
                     success: true,
                     steps_completed: 1,
@@ -403,6 +409,8 @@ async fn smart_execute_inner(
                     "[smart_execute] GenesisPipeline concept generation failed: {}",
                     e
                 );
+                // v0.23.37: 同样补发 error，避免主活动卡在 running。
+                emit_progress("error", &format!("小说初始化失败: {}", e), 5, 5);
                 // 将 PipelineError 转换为 AppError，保留 LLM 超时语义
                 let app_err = match e {
                     crate::narrative::pipeline::PipelineError::LlmError(ref msg)

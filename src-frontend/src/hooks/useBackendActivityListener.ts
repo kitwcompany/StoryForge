@@ -290,12 +290,20 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       }>('smart-execute-progress', event => {
         const p = event.payload;
         const progress = p.total_steps > 0 ? p.step_number / p.total_steps : 0;
+        // v0.23.37: 后端 timeout/error stage 也应结束活动，否则主活动永远 running，
+        // 底部状态栏卡在最后一条文案（如"准备上下文"/"最终输出"），且超时后不触发诊断卡片。
+        const status: ProgressPayload['status'] =
+          p.stage === 'completed'
+            ? 'completed'
+            : p.stage === 'timeout' || p.stage === 'error'
+              ? 'failed'
+              : 'running';
         updatePrimary({
           category: 'smart_execute',
           stage: p.stage,
           message: p.message,
           progress,
-          status: p.stage === 'completed' ? 'completed' : 'running',
+          status,
         });
       });
       unlistens.push(unlistenSmartExecute);

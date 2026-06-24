@@ -1472,6 +1472,21 @@ const FrontstageApp: React.FC = () => {
       content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
     });
 
+    // v0.23.37: 切换到当前已选中的同一章节时，若内容也相同，则跳过重新 setContent。
+    // 修复创世后正文重复：ChapterSwitch 事件已加载正文，story_created 回填块与
+    // lastPipelineComplete 钩子又各自调一次 selectChapter，多次 setContent 与编辑器
+    // 同步 effect 竞态，导致同一正文被二次写入编辑器（表现为段落版 + 连成一坨版）。
+    if (
+      currentChapter?.id === chapter.id &&
+      chapter.content != null &&
+      currentChapter?.content != null &&
+      chapter.content === currentChapter.content
+    ) {
+      frontstageLogger.info('[selectChapter] Same chapter & content, skipping redundant setContent');
+      setChapterInfo(chapter.id, chapter.title || '', currentStory?.title);
+      return;
+    }
+
     // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
     if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
       (async () => {
