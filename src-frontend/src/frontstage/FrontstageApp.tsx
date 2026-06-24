@@ -1475,36 +1475,13 @@ const FrontstageApp: React.FC = () => {
   };
 
   const selectChapter = (chapter: Chapter) => {
-    // [DEBUG-dup] 追踪 selectChapter 调用与 setContent 决策
+    // [DEBUG-dup] 诊断日志保留，guard 回滚 —— v0.23.37 的同章同内容跳过 guard
+    // 可能与竞态交互导致状态不一致。先回到 v0.23.37 之前的行为。
     frontstageLogger.info('[DEBUG-dup] selectChapter called', {
       chapter_id: chapter.id,
       content_length: chapter.content?.length ?? 0,
       content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
-      current_chapter_id: currentChapterRef.current?.id ?? 'null',
-      current_chapter_content_length: currentChapterRef.current?.content?.length ?? 0,
-      same_id: currentChapterRef.current?.id === chapter.id,
-      same_content:
-        currentChapterRef.current?.content != null &&
-        chapter.content != null &&
-        currentChapterRef.current.content === chapter.content,
     });
-
-    // v0.23.37: 切换到当前已选中的同一章节时，若内容也相同，则跳过重新 setContent。
-    // 修复创世后正文重复：ChapterSwitch 事件已加载正文，story_created 回填块与
-    // lastPipelineComplete 钩子又各自调一次 selectChapter，多次 setContent 与编辑器
-    // 同步 effect 竞态，导致同一正文被二次写入编辑器（表现为段落版 + 连成一坨版）。
-    if (
-      currentChapter?.id === chapter.id &&
-      chapter.content != null &&
-      currentChapter?.content != null &&
-      chapter.content === currentChapter.content
-    ) {
-      frontstageLogger.info(
-        '[selectChapter] Same chapter & content, skipping redundant setContent'
-      );
-      setChapterInfo(chapter.id, chapter.title || '', currentStory?.title);
-      return;
-    }
 
     // B2: 分页列表不返回 content（序列化为 null），若选中章节缺少正文则按需加载完整章节
     if ((chapter.content === undefined || chapter.content === null) && chapter.id) {
@@ -2406,10 +2383,8 @@ const FrontstageApp: React.FC = () => {
 
         if (isFirstChapterReady) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter ready');
-          // v0.23.37: 第一章正文已通过 ChapterSwitch 事件加载到编辑器。
-          // 显式清空 generatedText，防止任何残留 ghost 文本与编辑器正文并存导致"重复"。
-          setGeneratedText('');
-          frontstageLogger.info('[DEBUG-dup] isFirstChapterReady=true, cleared generatedText');
+          // [DEBUG-dup] 保留诊断日志，但回滚 setGeneratedText('') —— v0.23.37 的激进清空
+          // 可能与竞态交互导致状态不一致。先回到 v0.23.37 之前的行为，用诊断日志定位根因。
         } else if (isBackgroundBootstrap) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter in background');
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
@@ -2506,16 +2481,15 @@ const FrontstageApp: React.FC = () => {
                 setChapters(storyChapters);
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {
-                  // v0.23.37: 第一章已就绪时，正文已通过 ChapterSwitch 事件加载，
-                  // 这里只刷新故事/章节/场景列表，不再调 selectChapter 重复 setContent。
-                  // selectChapter 的竞态双写是创世后正文重复的根因之一。
-                  if (!isFirstChapterReady) {
-                    frontstageLogger.info('[SmartGeneration] Calling selectChapter', {
-                      chapter_id: storyChapters[0].id,
-                      content_length: storyChapters[0].content?.length ?? 0,
-                    });
-                    selectChapter(storyChapters[0]);
-                  }
+                  // [DEBUG-dup] 回滚 v0.23.37 跳过 selectChapter —— 跳过会导致 currentChapter
+                  // 未设置，后续渲染依赖可能崩溃（页面空白）。先用诊断日志定位根因再修。
+                  frontstageLogger.info('[DEBUG-dup] story_created calling selectChapter', {
+                    chapter_id: storyChapters[0].id,
+                    content_length: storyChapters[0].content?.length ?? 0,
+                    content_preview: storyChapters[0].content?.slice(0, 50) ?? 'EMPTY',
+                    is_first_chapter_ready: isFirstChapterReady,
+                  });
+                  selectChapter(storyChapters[0]);
                   // v5.4.1 fix: 双重保险——如果 DB 返回的 content 为空但 result.final_content 有内容，直接使用 final_content
                   if (
                     (!firstChapter?.content || firstChapter.content.trim().length === 0) &&
