@@ -1509,9 +1509,12 @@ impl AgentOrchestrator {
         });
 
         // BGP-4: 条件触发深度洞察
-        // [DEBUG] Bug B 关键日志：此处 spawn_blocking().await 可能阻塞 execute_trishot
-        // 返回 如果 should_trigger 的 DB
-        // 查询慢或连接池满，会卡在这里，前端停在"最终输出"
+        // [DEBUG] Bug B 根因修复：此前用 spawn_blocking().await 同步等待
+        // should_trigger， 而 should_trigger 的 DB 查询可能与 BGP-1/BGP-3
+        // 的后台任务竞争 std::sync::Mutex （health_registry
+        // 等），导致自死锁——execute_trishot 永远卡在这里不返回。
+        // 修复：改为 tokio::spawn（fire-and-forget），should_trigger + run_insight
+        // 全在后台， execute_trishot 立即返回，不再阻塞关键路径。
         let insight_pool = pool.inner().clone();
         let insight_story_id = task.context.story.story_id.clone();
         let insight_chapter = task.context.narrative.chapter_number as i32;
@@ -1521,58 +1524,49 @@ impl AgentOrchestrator {
             .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
         {
             logger.info(
-                "trishot.bgp4.start",
-                "BGP-4 深度洞察检查开始（spawn_blocking，可能阻塞返回）",
+                "trishot.bgp4.spawn",
+                "BGP-4 深度洞察已提交到后台（fire-and-forget，不阻塞返回）",
                 None,
             );
         }
-        let bgp4_start = std::time::Instant::now();
-        let bgp4_logger = self
-            .app_handle
-            .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>();
-        tokio::task::spawn_blocking(move || {
-            let should = crate::task_system::insight_executor::InsightExecutor::should_trigger(
-                &insight_pool,
-                &insight_story_id,
-                insight_chapter,
-                5,
-            );
-            (
-                should,
-                insight_pool,
-                insight_story_id,
-                insight_chapter,
-                insight_handle,
-            )
-        })
-        .await
-        .ok()
-        .map(|(should, ipool, istory, ichapter, ihandle)| {
+        tokio::spawn(async move {
+            // should_trigger 是同步 DB 查询，用 spawn_blocking 避免阻塞 async 运行时
+            let ipool = insight_pool.clone();
+            let istory = insight_story_id.clone();
+            let should = tokio::task::spawn_blocking(move || {
+                crate::task_system::insight_executor::InsightExecutor::should_trigger(
+                    &ipool,
+                    &istory,
+                    insight_chapter,
+                    5,
+                )
+            })
+            .await
+            .unwrap_or(false);
             if should {
-                tokio::spawn(async move {
-                    let executor = crate::task_system::insight_executor::InsightExecutor {
-                        pool: ipool,
-                        app_handle: ihandle,
-                    };
-                    executor
-                        .run_insight(crate::task_system::insight_executor::InsightPayload {
-                            story_id: istory,
-                            chapter_number: ichapter,
-                            trend_window: 5,
-                        })
-                        .await;
-                });
+                let executor = crate::task_system::insight_executor::InsightExecutor {
+                    pool: insight_pool,
+                    app_handle: insight_handle,
+                };
+                executor
+                    .run_insight(crate::task_system::insight_executor::InsightPayload {
+                        story_id: insight_story_id,
+                        chapter_number: insight_chapter,
+                        trend_window: 5,
+                    })
+                    .await;
             }
         });
 
-        // [DEBUG] Bug B 关键日志：BGP-4 完成，execute_trishot 即将返回
-        if let Some(ref logger) = bgp4_logger {
+        // [DEBUG] Bug B 关键日志：BGP-4 已提交后台，execute_trishot 即将返回
+        if let Some(logger) = self
+            .app_handle
+            .try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+        {
             logger.info(
                 "trishot.bgp4.done",
-                "BGP-4 完成，execute_trishot 即将返回",
-                Some(serde_json::json!({
-                    "bgp4_duration_ms": bgp4_start.elapsed().as_millis() as u64,
-                })),
+                "BGP-4 已提交后台，execute_trishot 即将返回",
+                None,
             );
         }
 
