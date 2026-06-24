@@ -136,6 +136,8 @@ const FrontstageApp: React.FC = () => {
   const currentStoryRef = useRef(currentStory);
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
+  // [DEBUG-dup] 统计创世过程中 ChapterSwitch 事件触发次数
+  const chapterSwitchCountRef = useRef(0);
   useEffect(() => {
     currentStoryRef.current = currentStory;
   }, [currentStory]);
@@ -941,11 +943,18 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
-              frontstageLogger.info('[ChapterSwitch] Received event', {
+              // [DEBUG-dup] 追踪 ChapterSwitch 事件触发次数与内容
+              chapterSwitchCountRef.current += 1;
+              frontstageLogger.info('[DEBUG-dup] ChapterSwitch event received', {
+                count: chapterSwitchCountRef.current,
                 story_id: payload.story_id,
                 chapter_id: payload.chapter_id,
                 has_content: !!payload.content,
                 content_length: payload.content?.length || 0,
+                content_preview: payload.content?.slice(0, 60) ?? 'EMPTY',
+                current_chapter_id: currentChapterRef.current?.id ?? 'null',
+                is_saved: useFrontstageStore.getState().isSaved,
+                store_content_length: useFrontstageStore.getState().content.length,
               });
               // v5.4.1 fix: 如果事件中直接包含内容，直接使用（绕过 DB 查询竞态）
               // W2-F1: 切换不同章节时无条件加载；同一章节且有未保存更改时不覆盖，避免内容回滚
@@ -1466,10 +1475,18 @@ const FrontstageApp: React.FC = () => {
   };
 
   const selectChapter = (chapter: Chapter) => {
-    frontstageLogger.info('[selectChapter] Selecting chapter', {
+    // [DEBUG-dup] 追踪 selectChapter 调用与 setContent 决策
+    frontstageLogger.info('[DEBUG-dup] selectChapter called', {
       chapter_id: chapter.id,
       content_length: chapter.content?.length ?? 0,
       content_preview: chapter.content?.slice(0, 50) ?? 'EMPTY',
+      current_chapter_id: currentChapterRef.current?.id ?? 'null',
+      current_chapter_content_length: currentChapterRef.current?.content?.length ?? 0,
+      same_id: currentChapterRef.current?.id === chapter.id,
+      same_content:
+        currentChapterRef.current?.content != null &&
+        chapter.content != null &&
+        currentChapterRef.current.content === chapter.content,
     });
 
     // v0.23.37: 切换到当前已选中的同一章节时，若内容也相同，则跳过重新 setContent。
@@ -2373,11 +2390,26 @@ const FrontstageApp: React.FC = () => {
           isFirstChapterReady ||
           (!isBackgroundBootstrap && result.messages.some(m => m.includes('novel_bootstrap')));
 
+        // [DEBUG-dup] 诊断创世正文重复：记录 smartExecute 返回的关键字段
+        frontstageLogger.info('[DEBUG-dup] smartExecute returned', {
+          success: result.success,
+          messages: result.messages,
+          isFirstChapterReady,
+          isBackgroundBootstrap,
+          isBootstrapCompleted,
+          final_content_length: result.final_content?.length ?? 0,
+          final_content_is_summary:
+            !!result.final_content && result.final_content.includes('已创建，第一章正文已生成'),
+          final_content_preview: result.final_content?.slice(0, 80) ?? 'EMPTY',
+          generatedText_before: generatedText,
+        });
+
         if (isFirstChapterReady) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter ready');
           // v0.23.37: 第一章正文已通过 ChapterSwitch 事件加载到编辑器。
           // 显式清空 generatedText，防止任何残留 ghost 文本与编辑器正文并存导致"重复"。
           setGeneratedText('');
+          frontstageLogger.info('[DEBUG-dup] isFirstChapterReady=true, cleared generatedText');
         } else if (isBackgroundBootstrap) {
           frontstageLogger.info('[SmartGeneration] Story created, first chapter in background');
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
@@ -2387,16 +2419,28 @@ const FrontstageApp: React.FC = () => {
 
         // 关键修复：空字符串在JS中是falsy，必须显式检查trim后的长度
         const hasContent = result.final_content && result.final_content.trim().length > 0;
+        frontstageLogger.info('[DEBUG-dup] hasContent check', {
+          hasContent,
+          isBootstrapCompleted,
+        });
         if (hasContent) {
           // v5.3.1 修复：Bootstrap 完成时内容已通过 ChapterSwitch 加载到编辑器，
           // 不要设置 generatedText，否则会出现正文+幽灵文本两份内容
           smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
           if (isBootstrapCompleted) {
+            frontstageLogger.info(
+              '[DEBUG-dup] isBootstrapCompleted=true, NOT setting generatedText'
+            );
             toast.success('小说已创建！第一章已生成，您可以开始写作了');
           } else {
             // v5.4.0: 去除与当前编辑器内容重复的部分，防止 LLM 返回完整文本导致"重复输出"
             let finalContent = result.final_content!;
             const currentText = editorRef.current?.getText() || '';
+            frontstageLogger.info('[DEBUG-dup] !! NON-bootstrap path, WILL setGeneratedText', {
+              finalContent_length: finalContent.length,
+              currentText_length: currentText.length,
+              startsWith: currentText ? finalContent.startsWith(currentText) : false,
+            });
             if (currentText && finalContent.startsWith(currentText)) {
               finalContent = finalContent.slice(currentText.length).trimStart();
               frontstageLogger.info(

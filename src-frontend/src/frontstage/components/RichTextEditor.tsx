@@ -364,6 +364,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 防止启动加载/章节切换时触发伪"保存中"和自动保存
     useEffect(() => {
       if (editor && content !== editor.getHTML() && !editor.isFocused) {
+        // [DEBUG-dup] 编辑器外部 setContent 实际触发
+        console.warn('[DEBUG-dup] RichTextEditor external setContent triggered', {
+          content_length: content.length,
+          content_preview: content.slice(0, 60),
+          editor_html_length: editor.getHTML().length,
+          is_focused: editor.isFocused,
+        });
         isExternalSyncRef.current = true;
         editor.commands.setContent(content);
         // 在下一个微任务中重置标记，确保 TipTap 同步触发的 onUpdate 能被跳过

@@ -173,6 +173,13 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           const p = event.payload;
           lastGenerationStatusAtRef.current = Date.now();
           const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
+          // [DEBUG-act] 追踪 generation-status 事件，诊断活动卡死
+          console.warn('[DEBUG-act] generation-status', {
+            phase: p.phase,
+            message: p.message,
+            precise,
+            progress: p.progress,
+          });
           const status: ProgressPayload['status'] =
             p.phase === 'completed'
               ? 'completed'
@@ -298,6 +305,14 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
             : p.stage === 'timeout' || p.stage === 'error'
               ? 'failed'
               : 'running';
+        // [DEBUG-act] 追踪 smart-execute-progress 事件流
+        console.warn('[DEBUG-act] smart-execute-progress', {
+          stage: p.stage,
+          message: p.message,
+          step: p.step_number,
+          total: p.total_steps,
+          mapped_status: status,
+        });
         updatePrimary({
           category: 'smart_execute',
           stage: p.stage,
