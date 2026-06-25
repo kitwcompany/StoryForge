@@ -2,7 +2,20 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [v0.23.45] - IngestPipeline LLM 调用静默化，根治正文后活动卡死与页面崩溃（2026-06-25）
+## [v0.23.47] - 调用模型前实时连接探测 + JSON 尾部多余文本容错（2026-06-25）
+
+### 新增：模型调用前 5 秒实时连接探测
+- **根因**：模型列表里可能存在已失效但健康状态仍为 Healthy 的死模型（本地 llama.cpp/MLX 服务已停止但缓存未更新），直接调用浪费 30-300s 直到 LLM 超时。
+- **修复**：`GatewayExecutor::generate` 候选循环中，每个候选模型在实际 LLM 调用前先执行 5s 超时实时探测（prompt: `Respond with exactly the word OK.`，max_tokens=4，temperature=0.0）。探测通过则继续实际调用；探测失败/超时则标记 `HealthStatus::Unhealthy`，跳到下一候选。
+- 三处 WorkflowLogger 日志点：`pre_call_probe.ok` / `pre_call_probe.fail` / `pre_call_probe.timeout`。
+
+### 修复：JSON 解析 `trailing characters` 错误
+- **根因**：`extract_and_sanitize_json` 用 `content.rfind('}')` 找 JSON 结尾，但 LLM 在 JSON 后输出包含 `}` 的额外文本时，`rfind` 误提取过多内容，`serde_json` 报 `trailing characters at line N column M`。
+- **修复**：新增 `extract_first_json_object` 辅助函数，用括号匹配（跟踪 `{`/`}` 深度，跳过字符串字面量内的括号）精确提取第一个完整 JSON 对象边界。`memory/ingest.rs` 的 `extract_json` 同步复用。
+- 新增 5 个单元测试覆盖：尾部多余文本含 `}`、markdown 围栏+尾部文本、字符串值含 `}`、嵌套对象、无 JSON 对象。
+- 验证：`cargo check` 零错误；`cargo +nightly fmt --check` 通过；`cargo test --lib` **568 passed / 0 failed / 2 ignored**；`npx tsc --noEmit` 零错误；prettier 通过
+
+## [v0.23.46] - AI 状态提示使用模型名称（2026-06-25）
 
 ### 修复：IngestPipeline LLM 调用未静默导致前端崩溃（Bug B 残留根因）
 - **根因（日志确认）**：创世正文返回后，IngestPipeline 并发发起多个"记忆-内容分析"LLM 调用（提取实体/关系/事件），`context_label` 未匹配 `is_silent_background` 静默列表，`is_silent_background=false` 导致进度事件覆盖前端主活动状态（"准备上下文"卡住）。同时本地模型无法处理并发请求返回 `INTERNAL_ERROR`，大量错误事件涌入导致前端页面崩溃空白。

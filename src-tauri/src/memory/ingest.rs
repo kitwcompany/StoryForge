@@ -199,18 +199,14 @@ fn extract_json(content: &str) -> Result<String, String> {
             after_start.trim_start()
         };
         if let Some(end) = code_start.find("```") {
-            return Ok(code_start[..end].trim().to_string());
+            // 围栏内的内容仍可能有尾部多余文本，用括号匹配精确提取
+            let inner = code_start[..end].trim();
+            return Ok(crate::narrative::extract_and_sanitize_json(inner)?);
         }
     }
-    // fallback: 尝试找第一个 { 到最后一个 }
-    if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            if end > start {
-                return Ok(trimmed[start..=end].to_string());
-            }
-        }
-    }
-    Err("No JSON object found in response".to_string())
+    // fallback: 用括号匹配提取第一个完整 JSON 对象
+    // （不使用 rfind('}')，因为 LLM 可能在 JSON 后输出包含 } 的额外文本）
+    crate::narrative::extract_and_sanitize_json(trimmed)
 }
 
 impl IngestPipeline {
