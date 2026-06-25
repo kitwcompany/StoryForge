@@ -7,11 +7,9 @@ StoryForge MN-Oblivion-26B 本地模型部署脚本
 """
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
 import sys
-import uuid
 from pathlib import Path
 
 # 代理配置（如果环境未设置，使用本机常见 Clash/V2Ray 端口）
@@ -29,7 +27,7 @@ ALTERNATIVES = {
     "speed": "MN-Oblivion-26B-UNCENSORED-HITOP-Q4_K_M.gguf",
     "max_quality": "MN-Oblivion-26B-UNCENSORED-HITOP-Q8_0.gguf",
 }
-MODEL_DIR = Path.home() / ".storyforge" / "models" / "mn-oblivion-26b"
+MODEL_DIR = Path("/Users/yuzaimu/models/mn-oblivion-26b")
 LAUNCH_SCRIPT = Path.home() / ".storyforge" / "bin" / "launch-mn-oblivion.sh"
 APP_DATA_DIR = Path.home() / "Library" / "Application Support" / "com.storyforge.app"
 DB_PATH = APP_DATA_DIR / "cinema_ai.db"
@@ -38,26 +36,32 @@ SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 11500
 
 
-def ensure_hf_hub():
-    try:
-        import huggingface_hub  # noqa: F401
-    except ImportError:
-        print("正在安装 huggingface_hub...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub", "-q"])
-
-
 def download_model(filename: str) -> Path:
-    from huggingface_hub import hf_hub_download
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"正在下载 {filename} 到 {MODEL_DIR} ...")
-    path = hf_hub_download(
-        repo_id=REPO_ID,
-        filename=filename,
-        local_dir=str(MODEL_DIR),
-        local_dir_use_symlinks=False,
-        resume_download=True,
-    )
-    return Path(path)
+    target = MODEL_DIR / filename
+    # 使用 HuggingFace 直链（走 HTTP 代理）
+    url = f"https://huggingface.co/{REPO_ID}/resolve/main/{filename}"
+    print(f"正在下载 {filename} 到 {target} ...")
+    print(f"URL: {url}")
+    print(f"代理: {PROXY}")
+
+    cmd = [
+        "curl",
+        "-L",
+        "-C", "-",
+        "--progress-bar",
+        "--connect-timeout", "30",
+        "--max-time", "0",
+        "-x", PROXY,
+        "-o", str(target),
+        url,
+    ]
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"下载失败: {e}")
+        sys.exit(1)
+    return target
 
 
 def create_launch_script(gguf_path: Path) -> Path:
@@ -159,8 +163,8 @@ def patch_storyforge_config():
             "function_calling",
         ],
         "max_context_length": 32768,
-        "quality_tier": "High",
-        "speed_tier": "Normal",
+        "quality_tier": "high",
+        "speed_tier": "normal",
         "cost_per_1k_input": None,
         "cost_per_1k_output": None,
         "tags": ["local", "creative", "uncensored", "mn-oblivion"],
@@ -195,7 +199,6 @@ def patch_storyforge_config():
 
 
 def main():
-    ensure_hf_hub()
     print("=" * 60)
     print("StoryForge MN-Oblivion-26B 本地模型部署")
     print("=" * 60)

@@ -1122,6 +1122,14 @@ impl LlmService {
                 | "tri-shot-refiner"
                 | "bg-auto-rewriter"
                 | "bg-ingest"
+                // v0.23.44: IngestPipeline 的 LLM 调用全部静默。
+                // 根因（日志确认）：创世正文返回后，IngestPipeline 并发发起多个
+                // "记忆-内容分析" LLM 调用，is_silent_background=false 导致进度事件
+                // 覆盖前端主活动状态（"准备上下文"卡住），且本地模型无法处理并发
+                // 请求返回 INTERNAL_ERROR，大量错误事件涌入导致前端页面崩溃。
+                | "记忆-内容分析"
+                | "记忆-生成知识"
+                | "记忆-叙事事件提取"
         );
 
         // v0.23.11: 只有非静默/非探测调用才更新诊断提示词，避免 probe prompt
